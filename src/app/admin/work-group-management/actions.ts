@@ -5,6 +5,8 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { WorkGroup, JobOrder, JobPhase, WorkPeriod, Operator } from '@/lib/mock-data';
+import { pulseOperatorsForJob } from '@/lib/job-sync-server';
+
 
 export async function getWorkGroups(): Promise<WorkGroup[]> {
   const snapshot = await adminDb.collection('workGroups').get();
@@ -41,15 +43,22 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         return { success: false, message: "NON E' POSSIBILE SCOLLEGARE IL GRUPPO: SESSIONE MATERIALE ATTIVA" };
     }
 
-    await adminDb.runTransaction(async (transaction) => {
-        const groupSnap = await transaction.get(groupRef);
+    const groupSnap = await groupRef.get();
+    if (!groupSnap.exists) {
+        return { success: false, message: "Gruppo di lavoro non trovato." };
+    }
+    const groupDataForIds = groupSnap.data() as WorkGroup;
+    const jobOrderIds = groupDataForIds.jobOrderIds || [];
 
-        if (!groupSnap.exists) {
+    await adminDb.runTransaction(async (transaction) => {
+        const groupSnapTx = await transaction.get(groupRef);
+        if (!groupSnapTx.exists) {
           throw new Error("Gruppo di lavoro non trovato.");
         }
         
-        const groupData = groupSnap.data() as WorkGroup;
-        const jobOrderIds = groupData.jobOrderIds || [];
+        const groupData = groupSnapTx.data() as WorkGroup;
+        // ... rest of transaction
+
         
         if (jobOrderIds.length === 0) {
             // If no jobs, just delete the group
@@ -73,19 +82,36 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
 
              // Unisci l'avanzamento del gruppo con le fasi originali della commessa
              // Le fasi individuali (es. Qualità) rimangono intatte
+             const proportion = groupData.totalQuantity > 0 ? (jobOriginalData.qta / groupData.totalQuantity) : 1;
+
              const finalJobPhases = (jobOriginalData.phases || []).map(originalPhase => {
                  const matchedGroupPhase = groupPhases.find(gp => gp.id === originalPhase.id);
                  if (matchedGroupPhase) {
+                     // Scaling work periods proportionally
+                     const scaledWorkPeriods = (matchedGroupPhase.workPeriods || []).map(wp => {
+                         if (!wp.end) return wp;
+                         const startTs = new Date(wp.start).getTime();
+                         const endTs = new Date(wp.end).getTime();
+                         const duration = endTs - startTs;
+                         const scaledDuration = Math.round(duration * proportion);
+                         return {
+                             ...wp,
+                             start: new Date(startTs),
+                             end: new Date(startTs + scaledDuration)
+                         };
+                     });
+
                      return {
                          ...originalPhase,
                          status: matchedGroupPhase.status,
-                         workPeriods: matchedGroupPhase.workPeriods || originalPhase.workPeriods,
+                         workPeriods: scaledWorkPeriods,
                          materialConsumptions: matchedGroupPhase.materialConsumptions || originalPhase.materialConsumptions,
                          materialReady: matchedGroupPhase.materialReady
                      };
                  }
                  return originalPhase;
              });
+
 
              const finalStatus = isGroupCompleted ? 'completed' : 'paused';
                 
@@ -109,7 +135,12 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
     
+    // We pulse the group ID (so operators on the group see the change) 
+    // AND the job IDs (to be safe, though most operators were on the group)
+    await pulseOperatorsForJob([groupId, ...jobOrderIds]);
+
     return { success: true, message: `Gruppo sciolto.` };
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Errore.";
     return { success: false, message: errorMessage };

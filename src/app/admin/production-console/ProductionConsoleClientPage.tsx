@@ -48,8 +48,11 @@ import WorkGroupCard from '@/components/production-console/WorkGroupCard';
 import GanttBoard from '@/components/production-console/GanttBoard';
 import { getOperatorAssignments } from '@/app/admin/resource-planning/actions';
 import { useToast } from '@/hooks/use-toast';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useDebounce } from '../../../hooks/use-debounce';
+
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -131,14 +134,19 @@ export default function ProductionConsoleClientPage() {
   const [analysisDataMap, setAnalysisDataMap] = useState<Map<string, ProductionTimeData | null>>(new Map());
   const [jobsWithLoadingAnalysis, setJobsWithLoadingAnalysis] = useState<Set<string>>(new Set());
 
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isDataRefreshing, setIsDataRefreshing] = useState(false);
+  
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
   const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
   const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
   const [isDateFilterActive, setIsDateFilterActive] = useState(false);
   const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
   
   const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
   const [isOrderChanged, setIsOrderChanged] = useState(false);
@@ -161,36 +169,56 @@ export default function ProductionConsoleClientPage() {
     return isPast(deliveryDate) && getOverallStatus(item) !== 'Completata';
   };
 
-  useEffect(() => {
-    setIsLoading(true);
-    getWorkingHoursConfig().then(setWorkingHours);
+  const loadAllData = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setIsDataRefreshing(true);
+    else setIsLoading(true);
+    
+    try {
+        const [jobsSnap, groupsSnap, opsSnap, matsSnap, artsSnap] = await Promise.all([
+            getDocs(query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "completed", "paused"]))),
+            getDocs(collection(db, "workGroups")),
+            getDocs(collection(db, "operators")),
+            getDocs(collection(db, "rawMaterials")),
+            getDocs(collection(db, "articles")),
+            getWorkingHoursConfig().then(setWorkingHours),
+            getProductionSettings().then(setSettings)
+        ]);
 
-    const unsubscribeJobs = onSnapshot(query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "completed", "paused"])), (snap) => {
-        const jobs = snap.docs.map(doc => JSON.parse(JSON.stringify(doc.data()), (key, value) => {
+        const jobs = jobsSnap.docs.map(doc => JSON.parse(JSON.stringify(doc.data()), (key, value) => {
             if ((['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate', 'createdAt']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
             return value;
         }) as JobOrder);
-        setJobOrders(jobs); jobsLoadedRef.current = true; if (groupsLoadedRef.current) setIsLoading(false);
-    });
-    const unsubscribeGroups = onSnapshot(collection(db, "workGroups"), (snap) => {
-        const groups = snap.docs.map(doc => JSON.parse(JSON.stringify(doc.data()), (key, value) => {
+        setJobOrders(jobs);
+        
+        const groups = groupsSnap.docs.map(doc => JSON.parse(JSON.stringify(doc.data()), (key, value) => {
             if ((['createdAt', 'overallStartTime', 'overallEndTime']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
             return value;
         }) as WorkGroup);
-        setWorkGroups(groups); groupsLoadedRef.current = true; if (jobsLoadedRef.current) setIsLoading(false);
-    });
-    onSnapshot(collection(db, "operators"), (snap) => setAllOperators(snap.docs.map(d => d.data() as Operator)));
-    onSnapshot(collection(db, "rawMaterials"), (snap) => setAllRawMaterials(snap.docs.map(d => ({id: d.id, ...d.data()} as RawMaterial))));
-    onSnapshot(collection(db, "articles"), (snap) => setAllArticles(snap.docs.map(d => d.data() as Article)));
-    getProductionSettings().then(setSettings);
-    
-    // Fetch assignments for the current week or a reasonable range
-    const start = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
-    const end = format(addWeeks(parseISO(start), 4), 'yyyy-MM-dd'); // Fetch 4 weeks
-    getOperatorAssignments(start, end).then(setAssignments);
+        setWorkGroups(groups);
 
-    return () => { unsubscribeJobs(); unsubscribeGroups(); };
+        setAllOperators(opsSnap.docs.map(d => d.data() as Operator));
+        setAllRawMaterials(matsSnap.docs.map(d => ({id: d.id, ...d.data()} as RawMaterial)));
+        setAllArticles(artsSnap.docs.map(d => d.data() as Article));
+
+        // Refresh assignments
+        const start = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+        const end = format(addWeeks(parseISO(start), 4), 'yyyy-MM-dd');
+        getOperatorAssignments(start, end).then(setAssignments);
+
+        if (isManualRefresh) toast({ title: "Dati Aggiornati", description: "La console è stata sincronizzata con il server." });
+    } catch (error) {
+        console.error("Error loading console data:", error);
+        toast({ variant: "destructive", title: "Errore", description: "Impossibile caricare i dati." });
+    } finally {
+        setIsLoading(false);
+        setIsDataRefreshing(false);
+    }
   }, [toast]);
+
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]);
+
   
   const workGroupsMap = useMemo(() => new Map(workGroups.map(g => [g.id, g])), [workGroups]);
   
@@ -216,14 +244,15 @@ export default function ProductionConsoleClientPage() {
           if (activeFilter !== 'all') f = activeFilter === 'LIVE' ? f.filter(isJobLive) : f.filter(i => getOverallStatus(i) === activeFilter);
       }
       if (showOnlyOverdue) f = f.filter(isOverdueItem);
-      if (searchTerm) {
-          const l = searchTerm.toLowerCase();
+      if (debouncedSearchTerm) {
+          const l = debouncedSearchTerm.toLowerCase();
           f = f.filter(i => {
               const isG = 'jobOrderIds' in i;
               if (isG) return (i as WorkGroup).id.toLowerCase().includes(l) || (i as WorkGroup).details.toLowerCase().includes(l) || (jobsByGroupId.get(i.id) || []).some(j => j.ordinePF.toLowerCase().includes(l));
               return (i as JobOrder).ordinePF.toLowerCase().includes(l) || (i as JobOrder).details.toLowerCase().includes(l) || (i as JobOrder).cliente.toLowerCase().includes(l);
           });
       }
+
       return f;
   };
 
@@ -231,7 +260,8 @@ export default function ProductionConsoleClientPage() {
       const filteredStandalone = applyFilters(standaloneJobs);
       const filteredGroups = applyFilters(Array.from(workGroupsMap.values()));
       return [...filteredStandalone, ...filteredGroups];
-  }, [standaloneJobs, workGroupsMap, activeFilter, searchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, jobsByGroupId]);
+  }, [standaloneJobs, workGroupsMap, activeFilter, debouncedSearchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, jobsByGroupId]);
+
 
   const { weeklyGroups, daVerificare } = useMemo(() => {
       const weeksMap = new Map<string, WeeklyGroup>();
@@ -491,8 +521,24 @@ export default function ProductionConsoleClientPage() {
               </button>
             </div>
             {viewMode === 'list' && (
-              <div className="relative w-full sm:max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+              <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => loadAllData(true)} 
+                  disabled={isDataRefreshing || isLoading}
+                  className={cn("h-10", isDataRefreshing && "opacity-50")}
+                >
+                  {isDataRefreshing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCcw className="h-4 w-4 mr-2" />}
+                  Aggiorna Dati
+                </Button>
+                <div className="relative w-full sm:max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Cerca..." className="pl-9" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                </div>
+              </div>
             )}
+
         </header>
 
         {viewMode === 'gantt' && settings ? (

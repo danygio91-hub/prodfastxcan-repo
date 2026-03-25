@@ -18,17 +18,35 @@ const batchFormSchema = z.object({
   purchaseOrderId: z.string().optional(),
 });
 
+function convertTimestampsToDates(obj: any): any {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();
+    if (Array.isArray(obj)) return obj.map(item => convertTimestampsToDates(item));
+    const newObj: { [key: string]: any } = {};
+    for (const key in obj) { newObj[key] = convertTimestampsToDates(obj[key]); }
+    return newObj;
+}
+
 /**
  * Fetches open purchase orders for a specific material code.
  */
 export async function getOpenPurchaseOrdersForMaterial(materialCode: string): Promise<PurchaseOrder[]> {
     const snapshot = await adminDb.collection("purchaseOrders").where("materialCode", "==", materialCode).get();
-    const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as PurchaseOrder);
+    const orders = snapshot.docs.map(doc => convertTimestampsToDates({ id: doc.id, ...doc.data() }) as PurchaseOrder);
     
     return orders
         .filter(o => o.status === 'pending' || o.status === 'partially_received')
-        .sort((a, b) => a.expectedDeliveryDate.localeCompare(b.expectedDeliveryDate));
+        .sort((a, b) => {
+            const valA = a.expectedDeliveryDate as any;
+            const valB = b.expectedDeliveryDate as any;
+            const dateA = valA instanceof Date ? valA.toISOString() : String(valA || "");
+            const dateB = valB instanceof Date ? valB.toISOString() : String(valB || "");
+            return dateA.localeCompare(dateB);
+        });
 }
+
+
+
 
 export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; errors?: any }> {
   const rawData = Object.fromEntries(formData.entries());

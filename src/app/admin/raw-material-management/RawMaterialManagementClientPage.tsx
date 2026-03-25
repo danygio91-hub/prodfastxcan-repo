@@ -1,7 +1,8 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+
 import { useRouter, useSearchParams } from 'next/navigation';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
@@ -95,6 +96,9 @@ import { formatDisplayStock } from '@/lib/utils';
 import CommitmentManagementClientPage from './CommitmentManagementClientPage';
 import BatchFormDialog from '../batch-management/BatchFormDialog';
 import { type GroupedBatches } from '../batch-management/actions';
+import { useDebounce } from '../../../hooks/use-debounce';
+
+
 
 import { type GlobalSettings } from '@/lib/settings-types';
 
@@ -195,6 +199,8 @@ export default function RawMaterialManagementClientPage({
   const codeFromUrl = searchParams.get('code');
 
   const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 600);
+
   const [isPending, setIsPending] = useState(false);
   const [isCommitmentDialogOpen, setIsCommitmentDialogOpen] = useState(false);
   const [commitmentDetails, setCommitmentDetails] = useState<CommitmentDetail[]>([]);
@@ -239,19 +245,31 @@ export default function RawMaterialManagementClientPage({
     }
   }, [typeConfig, form]);
 
+  const lastSearchTermRef = useRef(debouncedSearchTerm);
+
   const refreshData = useCallback(async () => {
+    const currentSearch = debouncedSearchTerm;
+    lastSearchTermRef.current = currentSearch;
     setIsSearching(true);
+    
     try {
-      const result = await searchMaterialsAndGetStatus(searchTerm);
-      setRawMaterials(result.materials);
-      setMaterialStatus(result.status);
-      setHasMore(result.materials.length >= 50 && (!searchTerm || searchTerm.length < 2));
+      const result = await searchMaterialsAndGetStatus(currentSearch);
+      
+      // Staleness guard
+      if (currentSearch === lastSearchTermRef.current) {
+        setRawMaterials(result.materials);
+        setMaterialStatus(result.status);
+        setHasMore(result.materials.length >= 50);
+        setIsSearching(false);
+      }
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Errore', description: 'Magazzino non caricato.' });
-    } finally {
-      setIsSearching(false);
+      if (currentSearch === lastSearchTermRef.current) {
+        setIsSearching(false);
+        toast({ variant: 'destructive', title: 'Errore', description: 'Magazzino non caricato.' });
+      }
     }
-  }, [searchTerm, toast]);
+  }, [debouncedSearchTerm, toast]);
+
 
   const handleLoadMore = async () => {
       if (rawMaterials.length === 0) return;
@@ -274,9 +292,9 @@ export default function RawMaterialManagementClientPage({
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => refreshData(), 500);
-    return () => clearTimeout(timer);
-  }, [searchTerm, refreshData]);
+    refreshData();
+  }, [debouncedSearchTerm, refreshData]);
+
 
   const onEditSubmit = async (values: z.infer<typeof rawMaterialFormSchema>) => {
     const formData = new FormData();

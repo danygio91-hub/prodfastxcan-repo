@@ -18,12 +18,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw } from 'lucide-react';
+
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import type { JobOrder, JobPhase, WorkPeriod, ActiveMaterialSessionData, RawMaterialType, WorkGroup } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup, updateWorkGroup } from './actions';
+import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, handlePhasePause, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup, updateWorkGroup } from './actions';
+
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
@@ -64,7 +66,9 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
     const canStart = hasPerm && phase.status === 'pending' && phase.materialReady;
     const canPause = !job.isProblemReported && phase.status === 'in-progress' && isOwner;
     const canResume = hasPerm && !job.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isOwner));
+    const canJoin = hasPerm && !job.isProblemReported && phase.status === 'in-progress' && !isOwner;
     const canComplete = (phase.status === 'in-progress' || phase.status === 'paused') && isOwner;
+
     
     return (
       <Card className={cn("p-4 bg-card/50", !hasPerm && 'opacity-60 bg-muted/30')}>
@@ -73,17 +77,29 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
             <div className="flex items-center space-x-2"><Label className="text-sm">Mat. Pronto:</Label>{phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}</div>
           </div>
           {isOwner && <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1">Stai lavorando qui.</p>}
-          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-            {(phase.materialConsumptions || []).map((mc, i) => <p key={i}>Materiale: {mc.materialCode} {mc.lottoBobina && ` - Lotto: ${mc.lottoBobina}`}</p>)}
-            {phase.type !== 'quality' && <p>Tempo effettivo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
+          <div className="mt-2 space-y-1 text-xs text-muted-foreground border-t pt-2 border-muted">
+            {(phase.materialConsumptions || []).length > 0 ? (
+                phase.materialConsumptions.map((mc, i) => (
+                    <div key={i} className="flex justify-between items-center bg-muted/50 p-1 rounded px-2">
+                        <span>{mc.materialCode}</span>
+                        {mc.lottoBobina && <span className="opacity-70">Lotto: {mc.lottoBobina}</span>}
+                    </div>
+                ))
+            ) : (
+                <p className="italic opacity-50">Nessun materiale associato.</p>
+            )}
+            {phase.type !== 'quality' && <p className="pt-1">Tempo effettivo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
           </div>
+
           <div className="mt-3 flex gap-2">
             {hasPerm && phase.type === 'preparation' && <Button size="sm" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>}
             {canStart && <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline"><QrCode className="mr-2 h-4 w-4" /> Avvia</Button>}
+            {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-blue-500 border-blue-500"><Combine className="mr-2 h-4 w-4" /> Partecipa</Button>}
             {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500">Pausa</Button>}
-            {canResume && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500">Riprendi</Button>}
+            {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500">Riprendi</Button>}
             {canComplete && <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700">Completa</Button>}
           </div>
+
       </Card>
     );
 };
@@ -91,7 +107,18 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
 export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
-  const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
+  const { 
+    activeJob, 
+    setActiveJob, 
+    setActiveJobId, 
+    isLoading: jobLoading, 
+    isStatusBarHighlighted, 
+    setIsStatusBarHighlighted, 
+    refreshJob: triggerJobRefresh,
+    hasPendingUpdates,
+    clearUpdatesIndicator
+  } = useActiveJob();
+
   const { startSession } = useActiveMaterialSession();
   
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
@@ -116,10 +143,22 @@ export default function ScanJobPage() {
   const { hasPermission: hasGroupingCameraPermission } = useCameraStream(isGroupingScanActive, groupingVideoRef);
 
   useEffect(() => { 
-    if (!isJobLoading) {
+    if (!jobLoading) {
       setStep(activeJob ? (activeJob.status === 'completed' ? 'finished' : 'processing') : 'initial');
     }
-  }, [isJobLoading, activeJob]);
+  }, [jobLoading, activeJob]);
+
+  // Alert operator when pulse is detected
+  useEffect(() => {
+    if (hasPendingUpdates) {
+      toast({
+        title: "Aggiornamenti disponibili",
+        description: "L'amministratore ha modificato i dati della commessa. Clicca su Aggiorna per sincronizzare.",
+        duration: 5000,
+      });
+    }
+  }, [hasPendingUpdates, toast]);
+
 
   // Unified update handler for both Jobs and Groups
   const handleUpdateJobOrGroup = async (updatedItem: JobOrder | any) => {
@@ -135,8 +174,17 @@ export default function ScanJobPage() {
         title: "Errore di Sincronizzazione",
         description: result.message,
       });
+    } else {
+      triggerJobRefresh();
     }
   };
+
+  const refreshJob = useCallback(() => {
+    triggerJobRefresh();
+    clearUpdatesIndicator();
+    toast({ title: 'Dati Aggiornati', description: 'La commessa è stata sincronizzata con il server.' });
+  }, [triggerJobRefresh, clearUpdatesIndicator, toast]);
+
 
   const triggerScan = useCallback(async (vRef: React.RefObject<HTMLVideoElement>, onScan: (data: string) => void) => {
       if (!vRef.current || vRef.current.readyState < 2) {
@@ -245,19 +293,10 @@ export default function ScanJobPage() {
 
   const handlePausePhase = async (id: string) => {
     if (!activeJob || !operator) return;
-    const job = JSON.parse(JSON.stringify(activeJob));
-    const p = job.phases.find((p:any) => p.id === id);
-    if (!p || p.status !== 'in-progress') return;
-    
-    const myWorkPeriodIndex = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
-    if (myWorkPeriodIndex !== -1) { 
-        p.workPeriods[myWorkPeriodIndex].end = new Date(); 
-        if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'paused'; 
-    }
-    
-    await updateOperatorStatus(operator.id, null, null);
-    handleUpdateJobOrGroup(job);
+    await handlePhasePause(activeJob.id, id, operator.id);
+    triggerJobRefresh();
   };
+
 
   const handleResumePhase = async (id: string) => {
       if (!activeJob || !operator) return;
@@ -268,34 +307,17 @@ export default function ScanJobPage() {
           return;
       }
 
-      const job = JSON.parse(JSON.stringify(activeJob));
-      const p = job.phases.find((p:any) => p.id === id);
-      if (!p) return;
-
-      p.status = 'in-progress'; 
-      job.status = 'production';
-      
-      if (!p.workPeriods) p.workPeriods = [];
-      p.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-      
-      await updateOperatorStatus(operator.id, job.id, p.name);
-      handleUpdateJobOrGroup(job);
+      await handlePhaseScanResult(activeJob.id, id, operator.id, false);
+      triggerJobRefresh();
   };
+
 
   const handleCompletePhase = async (id: string) => {
     if (!activeJob || !operator) return;
-    const job = JSON.parse(JSON.stringify(activeJob));
-    const p = job.phases.find((p:any) => p.id === id);
-    if (!p) return;
-
-    const myWorkPeriodIndex = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
-    if (myWorkPeriodIndex !== -1) p.workPeriods[myWorkPeriodIndex].end = new Date();
-    
-    if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'completed';
-    
-    await updateOperatorStatus(operator.id, null, null);
-    handleUpdateJobOrGroup(job);
+    await handlePhaseScanResult(activeJob.id, id, operator.id, true);
+    triggerJobRefresh();
   };
+
 
   const handleOpenPhaseScanDialog = (phase: JobPhase) => {
     setPhaseForPhaseScan(phase);
@@ -386,12 +408,29 @@ export default function ScanJobPage() {
                   <Card className={cn(activeJob.workGroupId && "border-teal-500")}>
                     <CardHeader>
                       <div className="flex justify-between items-start">
-                        <div>
-                            <CardTitle>{activeJob.ordinePF}</CardTitle>
+                        <div className="flex-1">
+                            <CardTitle className="flex items-center gap-2">
+                                {activeJob.ordinePF}
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className={cn(
+                                    "h-8 px-2 transition-all",
+                                    hasPendingUpdates && "border-primary bg-primary/10 text-primary animate-pulse shadow-[0_0_8px_rgba(var(--primary),0.5)]"
+                                  )}
+                                  onClick={refreshJob} 
+                                  disabled={jobLoading}
+                                >
+                                    <RefreshCw className={cn("h-4 w-4 mr-1", jobLoading && "animate-spin")} />
+                                    {hasPendingUpdates ? "Aggiorna!" : "Aggiorna"}
+                                </Button>
+                            </CardTitle>
+
                             <CardDescription>{activeJob.cliente} - {activeJob.details}</CardDescription>
                         </div>
                         {activeJob.workGroupId && <Badge className="bg-teal-500">GRUPPO</Badge>}
                       </div>
+
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
                       <p>ODL: <strong>{activeJob.numeroODLInterno || 'N/D'}</strong></p>
@@ -527,10 +566,11 @@ export default function ScanJobPage() {
               <DialogHeader><DialogTitle>Avvia Fase: {phaseForPhaseScan?.name}</DialogTitle></DialogHeader>
               {renderScanArea(videoRef, hasCameraPermission)}
               <DialogFooter>
-                <Button onClick={() => triggerScan(videoRef, (val) => { 
+                <Button onClick={() => triggerScan(videoRef, async (val) => { 
                   if(val.toLowerCase() === phaseForPhaseScan?.name.toLowerCase()) { 
-                    handlePhaseScanResult(activeJob!.id, phaseForPhaseScan!.id, operator!.id); 
+                    await handlePhaseScanResult(activeJob!.id, phaseForPhaseScan!.id, operator!.id, false); 
                     setIsPhaseScanDialogOpen(false); 
+                    refreshJob();
                   } else {
                     toast({ variant: 'destructive', title: 'QR Errato', description: 'Scansiona il codice corrispondente alla fase.' });
                   }
@@ -538,6 +578,7 @@ export default function ScanJobPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
 
           {isMaterialAssociationDialogOpen && phaseForMaterialAssociation && (
             <MaterialAssociationDialog 

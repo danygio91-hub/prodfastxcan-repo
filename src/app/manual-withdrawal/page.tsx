@@ -10,17 +10,22 @@ import { useRouter } from 'next/navigation';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
-import { getLotInfoForMaterial, type LotInfo, getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
 import { logManualWithdrawal } from './actions';
-import type { RawMaterial } from '@/lib/mock-data';
-import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info } from 'lucide-react';
+import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
+import { closeMaterialSessionAndUpdateStock, getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
+import { getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
+import type { RawMaterial, ActiveMaterialSessionData } from '@/lib/mock-data';
+
+import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info, PlayCircle } from 'lucide-react';
+
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from '@/components/ui/switch';
@@ -54,6 +59,10 @@ export default function ManualWithdrawalPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [isLoadingLots, setIsLoadingLots] = useState(false);
+  const [useSession, setUseSession] = useState(false);
+
+  const { activeSessions, startSession, closeSession, getSessionByMaterialId } = useActiveMaterialSession();
+
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -171,12 +180,33 @@ export default function ManualWithdrawalPage() {
     if (!operator || !scannedMaterial) return;
     setIsSubmitting(true);
 
+    if (useSession) {
+      // START SESSION LOGIC
+      const grossWeight = inputUnit === 'kg' ? values.quantity : (values.quantity * (scannedMaterial.conversionFactor || 1));
+      
+      startSession({
+        materialId: scannedMaterial.id,
+        materialCode: scannedMaterial.code,
+        grossOpeningWeight: grossWeight,
+        netOpeningWeight: values.quantity, // Simplified for now
+        originatorJobId: null, // Manual
+        associatedJobs: values.jobOrderPF ? [{ jobId: values.jobOrderPF, jobOrderPF: values.jobOrderPF }] : [],
+        lotto: values.lotto || null,
+      }, scannedMaterial.type);
+
+      toast({ title: "Sessione Avviata", description: "Puoi ora gestire i prelievi paralleli." });
+      resetFlow();
+      setIsSubmitting(false);
+      return;
+    }
+
     const result = await logManualWithdrawal({
       ...values,
       operatorId: operator.id,
       operatorName: operator.nome,
       unit: inputUnit === 'kg' ? 'kg' : scannedMaterial.unitOfMeasure,
     });
+
 
     toast({
       title: result.success ? "Scarico Registrato" : "Errore",
@@ -347,17 +377,32 @@ export default function ManualWithdrawalPage() {
                     </Button>
                   </div>
 
+                  {scannedMaterial && (
+                    <div className="flex items-center justify-between p-4 border rounded-lg bg-primary/5">
+                        <div className="space-y-0.5">
+                            <Label className="text-base font-bold">Modalità Sessione</Label>
+                            <p className="text-xs text-muted-foreground">Apri una sessione attiva per pesate multiple.</p>
+                        </div>
+                        <Switch
+                            checked={useSession}
+                            onCheckedChange={setUseSession}
+                            className="data-[state=checked]:bg-primary"
+                        />
+                    </div>
+                  )}
+
                   {scannedMaterial && scannedMaterial.unitOfMeasure !== 'kg' && (
                     <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
-                      <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                      <Label htmlFor="unit-switch" className="text-xs font-bold">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
                       <Switch
                         id="unit-switch"
                         checked={inputUnit === 'kg'}
                         onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
                       />
-                      <Label htmlFor="unit-switch">KG</Label>
+                      <Label htmlFor="unit-switch" className="text-xs font-bold">KG</Label>
                     </div>
                   )}
+
 
                   <div className="space-y-4">
                     <FormField
@@ -424,14 +469,57 @@ export default function ManualWithdrawalPage() {
                 <CardFooter className="justify-between">
                   <Button type="button" variant="ghost" onClick={resetFlow}>Annulla</Button>
                   <Button type="submit" disabled={isSubmitting || !scannedMaterial}>
-                    {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                    Conferma Prelievo
+                    {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (useSession ? <PlayCircle className="mr-2 h-4 w-4" /> : <Send className="mr-2 h-4 w-4" />)}
+                    {useSession ? 'Inizia Sessione Manuale' : 'Conferma Prelievo'}
                   </Button>
                 </CardFooter>
+
               </Card>
             </form>
           </Form>
+
+          {activeSessions.filter(s => s.originatorJobId === null).length > 0 && (
+              <div className="space-y-4">
+                  <h3 className="font-bold flex items-center gap-2 mt-8"><Info className="h-5 w-5 text-primary" /> Sessioni Manuali Attive</h3>
+                  <div className="grid gap-4">
+                      {activeSessions.filter(s => s.originatorJobId === null).map((s, idx) => (
+                          <Card key={idx} className="border-primary/20 bg-primary/5">
+                              <CardHeader className="py-3">
+                                  <div className="flex justify-between items-center">
+                                      <CardTitle className="text-lg">{s.materialCode}</CardTitle>
+                                      <Badge>{s.category}</Badge>
+                                  </div>
+                                  <CardDescription>Lotto: {s.lotto || 'N/D'} - Iniziata con {s.netOpeningWeight} Kg</CardDescription>
+                              </CardHeader>
+                              <CardFooter className="py-3 border-t bg-muted/20">
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="w-full text-destructive border-destructive hover:bg-destructive/10"
+                                    onClick={() => {
+                                        const finalWeight = prompt("Inserisci il peso finale (lordo) per chiudere lo scarico:", "0");
+                                        if (finalWeight !== null) {
+                                            closeMaterialSessionAndUpdateStock(s, Number(finalWeight), operator.id).then(res => {
+                                                if (res.success) {
+                                                    closeSession(s.materialId, s.lotto);
+                                                    toast({ title: "Sessione Chiusa", description: res.message });
+                                                } else {
+                                                    toast({ variant: "destructive", title: "Errore", description: res.message });
+                                                }
+                                            });
+                                        }
+                                    }}
+                                  >
+                                      <Package className="mr-2 h-4 w-4" /> Chiudi e Registra Scarico
+                                  </Button>
+                              </CardFooter>
+                          </Card>
+                      ))}
+                  </div>
+              </div>
+          )}
         </div>
+
 
         <Dialog open={!!scanType} onOpenChange={(open) => !open && setScanType(null)}>
           {renderScanView()}

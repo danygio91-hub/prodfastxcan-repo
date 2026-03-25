@@ -9,6 +9,8 @@ import admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
+import { pulseOperatorsForJob } from '@/lib/job-sync-server';
+
 
 export type ProductionTimeData = {
     averageMinutesPerPiece: number;
@@ -82,19 +84,80 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
         const snap = await transaction.get(itemRef);
         if (!snap.exists) throw new Error('Elemento non trovato.');
         const item = snap.data() as JobOrder;
-        const updatedPhases = item.phases.map(phase => { if (phase.type === 'production' && phase.status !== 'completed') return { ...phase, status: 'completed' as const, forced: true }; return phase; });
+        
+        let allPhasesDone = true;
+        const operatorIdsToPulse: Set<string> = new Set();
+
+        const updatedPhases = item.phases.map(phase => {
+            const isProductionOrPrep = phase.type === 'production' || phase.type === 'preparation';
+            const isQualityOrPack = phase.type === 'quality' || phase.type === 'packaging';
+
+            if (isProductionOrPrep && phase.status !== 'completed' && phase.status !== 'skipped') {
+                // Close any active work periods for these phases
+                const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
+                    if (wp.end === null) {
+                        operatorIdsToPulse.add(wp.operatorId);
+                        return { ...wp, end: new Date() };
+                    }
+                    return wp;
+                });
+                
+                return { 
+                    ...phase, 
+                    status: 'completed' as const, 
+                    forced: true,
+                    workPeriods: updatedWorkPeriods 
+                };
+            }
+            
+            // If it's quality/pack or already done, we check if it blocks "allPhasesDone"
+            if (phase.status !== 'completed' && phase.status !== 'skipped') {
+                allPhasesDone = false;
+            }
+            return phase;
+        });
+
+
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
-        transaction.update(itemRef, { phases: finalPhases });
-        if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...item, phases: finalPhases } as any);
+        const updates: any = { phases: finalPhases };
+        
+        // If everything is now finished, close the whole job order
+        if (allPhasesDone) {
+            updates.status = 'completed';
+            updates.overallEndTime = admin.firestore.Timestamp.now();
+            updates.forcedCompletion = true;
+        }
+
+        transaction.update(itemRef, updates);
+
+        if (isGroup) {
+            await propagateGroupUpdatesToJobs(transaction, { ...item, ...updates } as any);
+        }
+
+        // Also update operators' status if they were working on these phases
+        for (const opId of Array.from(operatorIdsToPulse)) {
+            transaction.update(adminDb.collection('operators').doc(opId), {
+                stato: 'inattivo',
+                activePhaseName: null
+                // We keep activeJobId for persistence
+            });
+        }
     });
+
     revalidatePath('/admin/production-console');
-    return { success: true, message: `Produzione forzata.` };
-  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
+    await pulseOperatorsForJob(jobId);
+    return { success: true, message: `Produzione forzata con successo.` };
+
+  } catch (error) { 
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante la forzatura." }; 
+  }
 }
+
 
 export async function revertForceFinish(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
@@ -111,7 +174,9 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
       if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...item, phases: updatedPhases } as any);
     });
     revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(jobId);
     return { success: true, message: `Annullata forzatura.` };
+
   } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
@@ -133,7 +198,8 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
           updatedPhases[phaseIndex].postponed = true;
         } else {
           const tData = tSnap.exists ? (tSnap.data() as WorkPhaseTemplate) : null;
-          updatedPhases[phaseIndex].sequence = tData ? tData.sequence : 1;
+          updatedPhases[phaseIndex].sequence = tData?.sequence ?? 1;
+
           delete updatedPhases[phaseIndex].postponed;
         }
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
@@ -141,7 +207,9 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
         if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases: finalPhases } as WorkGroup);
     });
     revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(itemId);
     return { success: true, message: `Posizione aggiornata.` };
+
   } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
@@ -163,7 +231,9 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
       transaction.update(jobRef, { phases: revertedPhases, status: 'production', overallEndTime: admin.firestore.FieldValue.delete() });
     });
     revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(jobId);
     return { success: true, message: `Fase riaperta.` };
+
   } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
@@ -189,10 +259,13 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
       const newStatus = isAnyActive ? 'production' : (isAnyPaused ? 'paused' : 'production');
       transaction.update(itemRef, { phases: updatedPhases, status: newStatus });
       if (isGroup) (itemData.jobOrderIds || []).forEach(id => { transaction.update(adminDb.collection('jobOrders').doc(id), { phases: updatedPhases, status: newStatus }); });
-      operatorIdsToPause.forEach(opId => { transaction.update(adminDb.collection("operators").doc(opId), { stato: 'inattivo', activeJobId: null, activePhaseName: null }); });
+      operatorIdsToPause.forEach(opId => { transaction.update(adminDb.collection("operators").doc(opId), { stato: 'inattivo', activePhaseName: null }); });
+
     });
     revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(jobId);
     return { success: true, message: `Operatori messi in pausa.` };
+
   } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
@@ -201,19 +274,60 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
         const snap = await transaction.get(itemRef);
         if (!snap.exists) throw new Error("Non trovato.");
-        transaction.update(itemRef, { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true });
+        const item = snap.data() as JobOrder;
+        
+        const operatorIdsToPulse: Set<string> = new Set();
+        const updatedPhases = (item.phases || []).map(phase => {
+            if (phase.status === 'in-progress' || phase.status === 'paused' || phase.status === 'pending') {
+                const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
+                    if (wp.end === null) {
+                        operatorIdsToPulse.add(wp.operatorId);
+                        return { ...wp, end: new Date() };
+                    }
+                    return wp;
+                });
+                return { ...phase, status: 'completed' as const, workPeriods: updatedWorkPeriods, forced: true };
+            }
+            return phase;
+        });
+
+        const updates = { 
+            status: 'completed' as const, 
+            overallEndTime: admin.firestore.Timestamp.now(), 
+            forcedCompletion: true,
+            phases: updatedPhases 
+        };
+
+        transaction.update(itemRef, updates);
+        
         if (isGroup) {
-            const data = snap.data() as WorkGroup;
-            (data.jobOrderIds || []).forEach(id => transaction.update(adminDb.collection('jobOrders').doc(id), { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true }));
+            (item.jobOrderIds || []).forEach(id => {
+                transaction.update(adminDb.collection('jobOrders').doc(id), updates);
+            });
+        }
+
+        // De-activate operators
+        for (const opId of Array.from(operatorIdsToPulse)) {
+            transaction.update(adminDb.collection('operators').doc(opId), {
+                stato: 'inattivo',
+                activePhaseName: null
+            });
         }
     });
+
     revalidatePath('/admin/production-console');
-    return { success: true, message: `Chiusa.` };
-  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
+    await pulseOperatorsForJob(jobId);
+    return { success: true, message: `Commessa chiusa correttamente.` };
+
+  } catch (error) { 
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante la chiusura." }; 
+  }
 }
+
 
 export async function resetSingleCompletedJobOrder(jobId: string, uid: string): Promise<{ success: boolean; message: string }> {
   try {
@@ -237,8 +351,18 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
         if (m) { transaction.update(adminDb.collection('rawMaterials').doc(w.materialId), { currentWeightKg: ((m as RawMaterial).currentWeightKg || 0) + w.consumedWeight, currentStockUnits: ((m as RawMaterial).currentStockUnits || 0) + (w.consumedUnits || 0) }); }
         transaction.delete(wd.ref);
       }
+      const operatorIdsToPulse: Set<string> = new Set();
+      const getActiveOperators = (phs: JobPhase[]) => {
+          phs.forEach(p => {
+              (p.workPeriods || []).forEach(wp => {
+                  if (wp.end === null) operatorIdsToPulse.add(wp.operatorId);
+              });
+          });
+      };
+
       if (isGroup) {
           const gData = itemData as WorkGroup;
+          getActiveOperators(gData.phases || []);
           (gData.jobOrderIds || []).forEach(id => {
               const jRef = adminDb.collection('jobOrders').doc(id);
               const updatedPhases: JobPhase[] = (gData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
@@ -247,14 +371,28 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
           transaction.delete(itemRef);
       } else {
           const jData = itemData as JobOrder;
+          getActiveOperators(jData.phases || []);
           const updatedPhases: JobPhase[] = (jData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
           transaction.update(itemRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: admin.firestore.FieldValue.delete() });
       }
+
+      // De-activate operators
+      for (const opId of Array.from(operatorIdsToPulse)) {
+          transaction.update(adminDb.collection('operators').doc(opId), {
+              stato: 'inattivo',
+              activePhaseName: null,
+              activeJobId: null // For reset, we actually want to kick them out as the job is now 'planned' or deleted (if group)
+          });
+      }
     });
     revalidatePath('/admin/production-console');
-    return { success: true, message: `Resettato.` };
-  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
+    await pulseOperatorsForJob(jobId);
+    return { success: true, message: `Resettato correttamente.` };
+  } catch (error) { 
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante il reset." }; 
+  }
 }
+
 
 export async function revertCompletion(itemId: string, uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
@@ -272,7 +410,9 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
           if (isGroup) { (itemData.jobOrderIds || []).forEach(id => { transaction.update(adminDb.collection('jobOrders').doc(id), { status: newStatus, overallEndTime: admin.firestore.FieldValue.delete(), forcedCompletion: admin.firestore.FieldValue.delete() }); }); }
       });
       revalidatePath('/admin/production-console');
+      await pulseOperatorsForJob(itemId);
       return { success: true, message: "Riaperta." };
+
   } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
@@ -291,7 +431,9 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
         await batch.commit();
     }
     revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(jobId);
     return { success: true, message: 'Fasi aggiornate.' };
+
   } catch (error) { return { success: false, message: "Errore." }; }
 }
 
@@ -310,7 +452,9 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
   });
   await batch.commit();
   revalidatePath('/admin/production-console');
+  await pulseOperatorsForJob(jobIds);
   return { success: true, message: 'Completato.' };
+
 }
 
 export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
@@ -332,7 +476,9 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
       if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(adminDb.collection('jobOrders').doc(id), up));
     });
     revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(itemId);
     return { success: true, message: 'Segnalato.' };
+
   } catch (error) { return { success: false, message: "Errore." }; }
 }
 
@@ -358,7 +504,9 @@ export async function resolveMaterialMissing(itemId: string, phaseId: string, ui
       if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(adminDb.collection('jobOrders').doc(id), up));
     });
     revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(itemId);
     return { success: true, message: 'Risolto.' };
+
   } catch (error) { return { success: false, message: "Errore." }; }
 }
 
@@ -377,7 +525,9 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
         }
     });
     revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(itemId);
     return { success: true, message: "Data aggiornata." };
+
   } catch (error) { return { success: false, message: "Errore." }; }
 }
 export async function bulkUpdateJobOrders(jobs: JobOrder[], uid: string | undefined | null): Promise<{ success: boolean; message: string }> {

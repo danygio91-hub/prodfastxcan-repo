@@ -4,8 +4,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { JobOrder, WorkGroup, Operator } from '@/lib/mock-data';
 import { db } from '@/lib/firebase';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useAuth } from '@/components/auth/AuthProvider';
+
 
 interface ActiveJobContextType {
   activeJob: JobOrder | null;
@@ -14,7 +15,12 @@ interface ActiveJobContextType {
   isLoading: boolean;
   isStatusBarHighlighted: boolean;
   setIsStatusBarHighlighted: (isHighlighted: boolean) => void;
+  refreshJob: () => void;
+  hasPendingUpdates: boolean;
+  clearUpdatesIndicator: () => void;
 }
+
+
 
 const ActiveJobContext = createContext<ActiveJobContextType | undefined>(undefined);
 
@@ -23,6 +29,9 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
   const [isStatusBarHighlighted, setIsStatusBarHighlightedState] = useState(false);
+  const [hasPendingUpdates, setHasPendingUpdates] = useState(false);
+  const syncPulseRef = React.useRef<number | undefined>(operator?.syncPulse);
+
   
   // The source of truth for the active job ID is now the operator context
   const activeJobId = operator?.activeJobId || null;
@@ -39,26 +48,16 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   }, [operator]);
 
 
-  // This effect listens for real-time updates on the active job
-  useEffect(() => {
-    if (authLoading) {
-      setIsLoading(true);
-      return;
-    }
+  const [refreshKey, setRefreshKey] = useState(0);
 
-    if (!activeJobId) {
-        setActiveJobState(null);
-        setIsLoading(false);
-        return;
-    }
-    
+  const fetchJobById = useCallback(async (id: string) => {
     setIsLoading(true);
-    
-    const isWorkGroup = activeJobId.startsWith('group-');
-    const collectionName = isWorkGroup ? 'workGroups' : 'jobOrders';
-    const jobRef = doc(db, collectionName, activeJobId);
+    try {
+        const isWorkGroup = id.startsWith('group-');
+        const collectionName = isWorkGroup ? 'workGroups' : 'jobOrders';
+        const jobRef = doc(db, collectionName, id);
+        const docSnap = await getDoc(jobRef);
 
-    const unsubscribe = onSnapshot(jobRef, (docSnap) => {
         if (docSnap.exists()) {
             const data = docSnap.data();
             const jobWithDates: any = JSON.parse(JSON.stringify(data), (key, value) => {
@@ -68,7 +67,6 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
                  return value;
             });
             
-             // For a group, we create a synthetic JobOrder-like object for the context
             const jobToSet: JobOrder = isWorkGroup 
               ? {
                   id: docSnap.id,
@@ -94,28 +92,40 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
               }
               : jobWithDates;
 
-
-            // If the job is no longer in a workable state, clear it.
-            // This now allows completed jobs to be shown until explicitly cleared.
-            if (!['production', 'suspended', 'paused', 'completed'].includes(jobToSet.status)) {
-                 setActiveJobId(null);
-                 setActiveJobState(null);
-            } else {
-                 setActiveJobState(jobToSet);
-            }
+            setActiveJobState(jobToSet);
         } else {
-            // Document was deleted or doesn't exist.
             setActiveJobId(null);
             setActiveJobState(null);
         }
+    } catch (error) {
+        console.error("Error fetching active job:", error);
+    } finally {
         setIsLoading(false);
-    }, (error) => {
-        console.error("Error listening to active job:", error);
-        setIsLoading(false);
-    });
+    }
+  }, [setActiveJobId]);
 
-    return () => unsubscribe();
-  }, [activeJobId, setActiveJobId, authLoading]);
+  const refreshJob = useCallback(() => {
+    setRefreshKey(prev => prev + 1);
+  }, []);
+
+  // Update context type to include refreshJob
+  // ... (this will be handled by updating the interface)
+
+  useEffect(() => {
+    if (authLoading) {
+      setIsLoading(true);
+      return;
+    }
+
+    if (!activeJobId) {
+        setActiveJobState(null);
+        setIsLoading(false);
+        return;
+    }
+    
+    fetchJobById(activeJobId);
+  }, [activeJobId, fetchJobById, authLoading, refreshKey]);
+
   
   const setActiveJob = useCallback((job: JobOrder | null) => {
     setActiveJobState(job);
@@ -128,10 +138,45 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const clearUpdatesIndicator = useCallback(() => {
+    setHasPendingUpdates(false);
+    if (operator) syncPulseRef.current = operator.syncPulse;
+  }, [operator]);
+
+  // Effect to watch for syncPulse from admin
+  useEffect(() => {
+    if (!operator || authLoading) return;
+    
+    // Initial mount or session change
+    if (syncPulseRef.current === undefined) {
+      syncPulseRef.current = operator.syncPulse;
+      return;
+    }
+    
+    // Pulse detected
+    if (operator.syncPulse && operator.syncPulse !== syncPulseRef.current) {
+        setHasPendingUpdates(true);
+        syncPulseRef.current = operator.syncPulse;
+    }
+  }, [operator?.syncPulse, authLoading]);
+
+
   return (
-    <ActiveJobContext.Provider value={{ activeJob, setActiveJob, setActiveJobId, isLoading, isStatusBarHighlighted, setIsStatusBarHighlighted }}>
+    <ActiveJobContext.Provider value={{ 
+      activeJob, 
+      setActiveJob, 
+      setActiveJobId, 
+      isLoading, 
+      isStatusBarHighlighted, 
+      setIsStatusBarHighlighted, 
+      refreshJob,
+      hasPendingUpdates,
+      clearUpdatesIndicator
+    }}>
+
       {children}
     </ActiveJobContext.Provider>
+
   );
 };
 

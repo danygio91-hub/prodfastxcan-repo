@@ -130,32 +130,139 @@ export async function isOperatorActiveOnAnyJob(opId: string, currentJobId: strin
     return { available: true };
 }
 
-export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string) {
+export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string, isCompletion: boolean = false) {
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-    const snap = await itemRef.get();
-    if (!snap.exists) return;
-    const data = snap.data() as any;
-    const phs = [...data.phases];
-    const idx = phs.findIndex(p => p.id === phaseId);
-    if (idx !== -1) {
-        phs[idx].status = 'in-progress';
-        phs[idx].workPeriods = [...(phs[idx].workPeriods || []), { start: new Date(), end: null, operatorId: opId }];
-        await itemRef.update({ phases: phs, status: 'production', overallStartTime: data.overallStartTime || new Date() });
-        await adminDb.collection('operators').doc(opId).update({ activeJobId: jobId, activePhaseName: phs[idx].name, stato: 'attivo' });
-    }
+    
+    await adminDb.runTransaction(async (transaction) => {
+        const snap = await transaction.get(itemRef);
+        if (!snap.exists) return;
+        const data = snap.data() as any;
+        const phs = [...(data.phases || [])];
+        const idx = phs.findIndex(p => p.id === phaseId);
+        
+        if (idx !== -1) {
+            if (isCompletion) {
+                // Handle Completion
+                const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
+                if (myWorkPeriodIndex !== -1) {
+                    phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
+                }
+                
+                // If no one else is active, mark phase as completed
+                if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
+                    phs[idx].status = 'completed';
+                }
+
+                // CHECK FOR JOB COMPLETION (New Requirement)
+                const allCompleted = phs.every(p => p.status === 'completed' || p.status === 'skipped');
+                if (allCompleted) {
+                    transaction.update(itemRef, { 
+                        phases: phs, 
+                        status: 'completed', 
+                        overallEndTime: new Date() 
+                    });
+                } else {
+                    transaction.update(itemRef, { phases: phs });
+                }
+
+                // Operator is now inactive on this job
+                transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
+
+            } else {
+                // Handle Start/Join
+                phs[idx].status = 'in-progress';
+                if (!phs[idx].workPeriods) phs[idx].workPeriods = [];
+                
+                // Only add if not already active
+                if (!phs[idx].workPeriods.some((wp: any) => wp.operatorId === opId && wp.end === null)) {
+                    phs[idx].workPeriods.push({ start: new Date(), end: null, operatorId: opId });
+                }
+                
+                transaction.update(itemRef, { 
+                    phases: phs, 
+                    status: 'production', 
+                    overallStartTime: data.overallStartTime || new Date() 
+                });
+                
+                transaction.update(adminDb.collection('operators').doc(opId), { 
+                    activeJobId: jobId, 
+                    activePhaseName: phs[idx].name, 
+                    stato: 'attivo' 
+                });
+            }
+        }
+    });
+
+    revalidatePath('/scan-job');
+    revalidatePath('/admin/production-console');
 }
+
+export async function handlePhasePause(jobId: string, phaseId: string, opId: string) {
+    const isGroup = jobId.startsWith('group-');
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    
+    await adminDb.runTransaction(async (transaction) => {
+        const snap = await transaction.get(itemRef);
+        if (!snap.exists) return;
+        const data = snap.data() as any;
+        const phs = [...(data.phases || [])];
+        const idx = phs.findIndex(p => p.id === phaseId);
+        
+        if (idx !== -1) {
+            const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
+            if (myWorkPeriodIndex !== -1) {
+                phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
+                
+                // If no one else is active, mark phase as paused
+                if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
+                    phs[idx].status = 'paused';
+                }
+                
+                transaction.update(itemRef, { phases: phs });
+                transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
+            }
+        }
+    });
+
+    revalidatePath('/scan-job');
+}
+
 
 export async function startMaterialSessionInJob(jobId: string, phaseId: string, consumption: MaterialConsumption) {
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-    const snap = await itemRef.get();
-    if (!snap.exists) return { success: false, message: 'Non trovato.' };
-    const data = snap.data() as any;
-    const phs = (data.phases || []).map((p: any) => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } : p);
-    await itemRef.update({ phases: phs });
-    return { success: true, message: 'Sessione avviata.' };
+    
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const snap = await transaction.get(itemRef);
+            if (!snap.exists) throw new Error('Elemento non trovato.');
+            const data = snap.data() as any;
+            
+            const phs = (data.phases || []).map((p: any) => 
+                p.id === phaseId 
+                    ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } 
+                    : p
+            );
+            
+            transaction.update(itemRef, { phases: phs });
+            
+            if (isGroup && data.jobOrderIds) {
+                data.jobOrderIds.forEach((id: string) => {
+                    transaction.update(adminDb.collection('jobOrders').doc(id), { phases: phs });
+                });
+            }
+        });
+        
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
+        return { success: true, message: 'Sessione avviata e dati sincronizzati.' };
+    } catch (error) {
+        console.error("Error in startMaterialSessionInJob:", error);
+        return { success: false, message: 'Errore durante il salvataggio.' };
+    }
 }
+
 
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
     await adminDb.collection('operators').doc(opId).update({ activeMaterialSessions: sessions });
@@ -302,6 +409,37 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
 
         const totalQty = jobs.reduce((sum, j) => sum + j.qta, 0);
         const jobPFs = jobs.map(j => j.ordinePF);
+
+        // REFINED LOGIC: ONLY COMMON AVAILABLE PHASES
+        // We find phases that are present in ALL jobs and NOT completed in any job.
+        const allPhases = jobs.map(j => j.phases || []);
+        const firstJobPhases = allPhases[0] || [];
+        
+        const commonPhases = firstJobPhases
+            .filter(p1 => {
+                // Check if this phase exists in all other jobs
+                const existsInAll = allPhases.every(jobPhs => jobPhs.some(p2 => p2.id === p1.id));
+                if (!existsInAll) return false;
+
+                // Check if it's NOT completed in ANY job (as per user requirement to exclude already done phases)
+                const isCompletedAnywhere = allPhases.some(jobPhs => {
+                    const match = jobPhs.find(p2 => p2.id === p1.id);
+                    return match?.status === 'completed';
+                });
+                
+                return !isCompletedAnywhere;
+            })
+            .sort((a, b) => a.sequence - b.sequence)
+            .map(p => ({
+                ...p,
+                status: 'pending' as const,
+                workPeriods: [],
+                materialConsumptions: []
+            }));
+
+        if (commonPhases.length === 0) {
+            throw new Error("Nessuna fase operativa comune disponibile per il concatenamento.");
+        }
         
         const newGroup: any = {
             id: newGroupId,
@@ -315,10 +453,11 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
             department: firstJob.department,
             cliente: firstJob.cliente,
             details: firstJob.details,
-            phases: firstJob.phases.map(p => ({ ...p, status: 'pending', workPeriods: [], materialConsumptions: [] })),
+            phases: commonPhases,
             numeroODLInterno: firstJob.numeroODLInterno || null,
             dataConsegnaFinale: firstJob.dataConsegnaFinale || '',
         };
+
 
         batch.set(groupRef, newGroup);
         jobIds.forEach(id => batch.update(adminDb.collection("jobOrders").doc(id), { workGroupId: newGroupId }));

@@ -124,6 +124,7 @@ export interface Operator {
   // Fields to track active state across devices
   activeJobId?: string | null;
   activePhaseName?: string | null;
+  syncPulse?: number;
   activeMaterialSessions?: ActiveMaterialSessionData[];
   skills?: OperatorSkill[]; // Matrice Competenze associata
 }
@@ -144,7 +145,8 @@ export interface WorkPhaseTemplate {
   name: string;
   description: string;
   departmentCodes: string[];
-  sequence: number;
+  sequence?: number;
+
   type: PhaseType; // 'preparation' | 'production' | etc.
   tracksTime?: boolean;
   requiresMaterialScan?: boolean;
@@ -268,8 +270,9 @@ export interface ActiveMaterialSessionData {
   materialCode: string;
   grossOpeningWeight: number;
   netOpeningWeight: number;
-  originatorJobId: string;
+  originatorJobId: string | null;
   associatedJobs: { jobId: string; jobOrderPF: string }[];
+
   category: MaterialSessionCategory;
   packagingId?: string;
   tareWeight?: number;

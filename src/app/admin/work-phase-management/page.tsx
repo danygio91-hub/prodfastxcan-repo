@@ -9,7 +9,8 @@ import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
 import { type WorkPhaseTemplate, RawMaterialType, type Department } from '@/lib/mock-data';
-import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartments, deleteSelectedWorkPhaseTemplates, updatePhasesOrder } from './actions';
+import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartments, deleteSelectedWorkPhaseTemplates } from './actions';
+
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -54,8 +55,9 @@ export default function WorkPhaseManagementClientPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPhase, setEditingPhase] = useState<WorkPhaseTemplate | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const [isOrderChanged, setIsOrderChanged] = useState(false);
   const [isPending, setIsPending] = useState(false);
+
+
   const { toast } = useToast();
 
   const form = useForm<WorkPhaseFormValues>({
@@ -71,7 +73,6 @@ export default function WorkPhaseManagementClientPage() {
     ]);
     setPhases(phasesData);
     setDepartments(departmentsData);
-    setIsOrderChanged(false); // Reset change tracker
     setIsLoading(false);
   };
 
@@ -166,32 +167,7 @@ export default function WorkPhaseManagementClientPage() {
     setIsPending(false);
   };
 
-  const handleSequenceChange = (id: string, newSequence: string) => {
-    const sequenceValue = parseInt(newSequence, 10);
-    if (!isNaN(sequenceValue)) {
-        setPhases(currentPhases =>
-            currentPhases.map(phase =>
-                phase.id === id ? { ...phase, sequence: sequenceValue } : phase
-            )
-        );
-        setIsOrderChanged(true);
-    }
-  };
 
-  const handleSaveOrder = async () => {
-    setIsPending(true);
-    const phasesToUpdate = phases.map(({ id, sequence }) => ({ id, sequence }));
-    const result = await updatePhasesOrder(phasesToUpdate);
-    toast({
-        title: result.success ? "Successo" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-    });
-    if (result.success) {
-        await fetchAllData();
-    }
-    setIsPending(false);
-  };
   
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
     setSelectedRows(checked === true ? phases.map(p => p.id) : []);
@@ -204,8 +180,8 @@ export default function WorkPhaseManagementClientPage() {
   const handleExport = () => {
     const departmentNameMap = new Map(departments.map(d => [d.code, d.name]));
     const dataToExport = phases.map(phase => ({
-        'Sequenza': phase.sequence,
         'Tipo': phase.type === 'production' ? 'Produzione' : 'Preparazione',
+
         'Traccia Tempo': phase.tracksTime ? 'Sì' : 'No',
         'Richiede Scansione Materiale': phase.requiresMaterialScan ? 'Sì' : 'No',
         'Richiede Associazione Materiale': phase.requiresMaterialAssociation ? 'Sì' : 'No',
@@ -221,7 +197,7 @@ export default function WorkPhaseManagementClientPage() {
   
   const renderLoading = () => (
       <TableRow>
-          <TableCell colSpan={11} className="h-24 text-center">
+          <TableCell colSpan={10} className="h-24 text-center">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span>Caricamento fasi...</span>
@@ -241,7 +217,8 @@ export default function WorkPhaseManagementClientPage() {
                     Gestione Fasi di Lavorazione
                     </h1>
                     <p className="text-muted-foreground mt-2">
-                    Definisci le fasi "modello" e la loro sequenza per i cicli di lavorazione delle commesse.
+                    Definisci le fasi "modello" e le loro proprietà per i cicli di lavorazione delle commesse.
+
                     </p>
                 </header>
                 <div className="flex items-center gap-2">
@@ -264,12 +241,7 @@ export default function WorkPhaseManagementClientPage() {
                     <CardDescription>Queste sono le fasi disponibili per la configurazione dei cicli di lavoro.</CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
-                    {isOrderChanged && (
-                        <Button onClick={handleSaveOrder} disabled={isPending}>
-                        {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ListOrdered className="mr-2 h-4 w-4" />}
-                        Salva Ordine
-                        </Button>
-                    )}
+
                     {selectedRows.length > 0 && (
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -308,8 +280,8 @@ export default function WorkPhaseManagementClientPage() {
                                 disabled={isLoading}
                             />
                         </TableHead>
-                        <TableHead className="w-[100px]">Sequenza</TableHead>
                         <TableHead>Nome Fase</TableHead>
+
                         <TableHead>Tipo</TableHead>
                         <TableHead>Traccia Tempo</TableHead>
                         <TableHead>Scansione Mat.</TableHead>
@@ -331,14 +303,7 @@ export default function WorkPhaseManagementClientPage() {
                                     aria-label={`Seleziona la fase ${phase.name}`}
                                 />
                             </TableCell>
-                            <TableCell>
-                                <Input
-                                    type="number"
-                                    value={phase.sequence}
-                                    onChange={(e) => handleSequenceChange(phase.id, e.target.value)}
-                                    className="w-16 h-8 text-center"
-                                />
-                            </TableCell>
+
                             <TableCell className="font-medium">{phase.name}</TableCell>
                             <TableCell>
                                 <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : phase.type === 'packaging' ? 'outline' : 'destructive'}>
@@ -393,7 +358,7 @@ export default function WorkPhaseManagementClientPage() {
                         ))
                         ) : (
                         <TableRow>
-                            <TableCell colSpan={11} className="text-center h-24">Nessuna fase definita.</TableCell>
+                            <TableCell colSpan={10} className="text-center h-24">Nessuna fase definita.</TableCell>
                         </TableRow>
                         )}
                     </TableBody>

@@ -183,7 +183,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         setIsPending(false);
     };
 
-    const sortedTemplates = [...phaseTemplates].sort((a, b) => a.sequence - b.sequence);
+    const sortedTemplates = [...phaseTemplates].sort((a, b) => a.name.localeCompare(b.name));
+
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

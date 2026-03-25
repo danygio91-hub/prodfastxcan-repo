@@ -1,0 +1,2 @@
+﻿src/app/admin/article-management/ArticleTimesDialog.tsx(186,64): error TS18048: 'a.sequence' is possibly 'undefined'.
+src/app/admin/article-management/ArticleTimesDialog.tsx(186,77): error TS18048: 'b.sequence' is possibly 'undefined'.

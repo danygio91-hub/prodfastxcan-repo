@@ -41,6 +41,9 @@ import ArticleTimesDialog from './ArticleTimesDialog';
 import { deleteArticle, validateArticlesImport, bulkSaveArticles, validateArticleSettingsImport, bulkUpdateArticleSettings, getArticles } from './actions';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
+import { useDebounce } from '../../../hooks/use-debounce';
+
+
 
 interface ArticleManagementClientPageProps {
   initialArticles: Article[];
@@ -52,6 +55,8 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
   const articleCodeFromUrl = searchParams.get('code');
 
   const [searchTerm, setSearchTerm] = useState(articleCodeFromUrl || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 600);
+
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isTimesOpen, setIsTimesOpen] = useState(false);
   const [editingArticle, setEditingArticle] = useState<Article | null>(null);
@@ -88,24 +93,37 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
+  const lastSearchTermRef = useRef(debouncedSearchTerm);
+
   const refreshData = useCallback(async () => {
+    const currentSearch = debouncedSearchTerm;
+    lastSearchTermRef.current = currentSearch;
     setIsSearching(true);
+    
     try {
-      const result = await getArticles(searchTerm);
-      setArticles(result);
-      setHasMore(result.length >= 50 && (!searchTerm || searchTerm.length < 2));
-    } catch(e) {}
-    setIsSearching(false);
-  }, [searchTerm]);
+      const result = await getArticles(currentSearch);
+      
+      // Staleness guard
+      if (currentSearch === lastSearchTermRef.current) {
+        setArticles(result);
+        setHasMore(result.length >= 50);
+        setIsSearching(false);
+      }
+    } catch(e) {
+      if (currentSearch === lastSearchTermRef.current) {
+        setIsSearching(false);
+      }
+    }
+  }, [debouncedSearchTerm]);
 
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
-    const timer = setTimeout(() => refreshData(), 500);
-    return () => clearTimeout(timer);
-  }, [searchTerm, refreshData]);
+    refreshData();
+  }, [debouncedSearchTerm, refreshData]);
+
 
   const handleLoadMore = async () => {
       if (articles.length === 0) return;

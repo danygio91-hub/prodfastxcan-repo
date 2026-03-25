@@ -2,7 +2,8 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, useCallback } from 'react';
+
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import * as z from 'zod';
@@ -15,7 +16,11 @@ import { it } from 'date-fns/locale';
 import { type WorkGroup } from '@/lib/mock-data';
 import { dissolveWorkGroup } from './actions';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { useDebounce } from '../../../hooks/use-debounce';
+
+import { RefreshCcw } from 'lucide-react';
+
 
 
 import { Button } from '@/components/ui/button';
@@ -28,13 +33,17 @@ import { Combine, Trash2, Loader2, Unlink, Search, Link as LinkIcon } from 'luci
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
+
 
 function WorkGroupManagementContent() {
   const [groups, setGroups] = useState<WorkGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isPending, setIsPending] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
   const { toast } = useToast();
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
@@ -45,43 +54,45 @@ function WorkGroupManagementContent() {
     }
   }, [groupIdFromUrl]);
 
-  useEffect(() => {
-    setIsLoading(true);
-    const groupsRef = collection(db, 'workGroups');
-    const q = query(groupsRef);
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-        const fetchedGroups: WorkGroup[] = snapshot.docs.map(doc => {
+  const loadGroups = useCallback(async (isManual = false) => {
+    if (isManual) setIsPending(true);
+    else setIsLoading(true);
+    
+    try {
+        const groupsRef = collection(db, 'workGroups');
+        const snap = await getDocs(query(groupsRef));
+        const fetchedGroups: WorkGroup[] = snap.docs.map(doc => {
             const data = doc.data();
             if (data.createdAt && typeof data.createdAt.toDate === 'function') {
                 data.createdAt = data.createdAt.toDate().toISOString();
             }
             return { id: doc.id, ...data } as WorkGroup;
         });
-        // Filter out completed groups directly
         setGroups(JSON.parse(JSON.stringify(fetchedGroups.filter(g => g.status !== 'completed'))));
+        if (isManual) toast({ title: "Aggiornato" });
+    } catch (error) {
+        console.error("Error fetching groups:", error);
+        toast({ variant: "destructive", title: "Errore", description: "Impossibile caricare i gruppi." });
+    } finally {
         setIsLoading(false);
-    }, (error) => {
-        console.error("Error fetching realtime groups:", error);
-        toast({
-            variant: "destructive",
-            title: "Errore di Sincronizzazione",
-            description: "Impossibile caricare i gruppi in tempo reale."
-        });
-        setIsLoading(false);
-    });
-
-    return () => unsubscribe();
+        setIsPending(false);
+    }
   }, [toast]);
 
+  useEffect(() => {
+    loadGroups();
+  }, [loadGroups]);
+
+
   const filteredGroups = useMemo(() => {
-    return searchTerm
+    return debouncedSearchTerm
       ? groups.filter(g => 
-          g.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          g.jobOrderPFs?.some(pf => pf.toLowerCase().includes(searchTerm.toLowerCase()))
+          g.id.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+          g.jobOrderPFs?.some(pf => pf.toLowerCase().includes(debouncedSearchTerm.toLowerCase()))
         )
       : groups;
-  }, [groups, searchTerm]);
+  }, [groups, debouncedSearchTerm]);
+
 
   const handleDissolve = async (groupId: string) => {
     setIsPending(true);
@@ -191,15 +202,22 @@ function WorkGroupManagementContent() {
             <CardHeader>
                <div className="flex justify-between items-center flex-wrap gap-4">
                   <CardTitle>Elenco Gruppi in Corso ({filteredGroups.length})</CardTitle>
-                  <div className="relative w-full sm:w-auto">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Cerca per ID gruppo o commessa..."
-                      className="pl-9 w-full sm:w-80"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <Button variant="outline" size="sm" onClick={() => loadGroups(true)} disabled={isLoading || isPending}>
+                      <RefreshCcw className={cn("h-4 w-4 mr-2", isPending && "animate-spin")} />
+                      Aggiorna
+                    </Button>
+                    <div className="relative w-full sm:w-80">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Cerca per ID gruppo o commessa..."
+                        className="pl-9 w-full"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
                   </div>
+
               </div>
             </CardHeader>
             <CardContent>

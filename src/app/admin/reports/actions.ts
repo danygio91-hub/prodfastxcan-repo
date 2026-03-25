@@ -40,10 +40,19 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
 export type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 
 export async function getJobsReport() {
-    const jobsSnapshot = await adminDb.collection("jobOrders").where("status", "in", ["production", "completed", "suspended", "paused"]).get();
-    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    const [jobsSnapshot, groupsSnapshot] = await Promise.all([
+        adminDb.collection("jobOrders").where("status", "in", ["production", "completed", "suspended", "paused"]).get(),
+        adminDb.collection("workGroups").get()
+    ]);
 
-    const allOperatorIds = [...new Set(jobs.flatMap(job => (job.phases || []).flatMap(phase => (phase.workPeriods || []).map(wp => wp.operatorId))))].filter(id => id && typeof id === 'string' && id.trim() !== '');
+    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    const groupsMap = new Map<string, WorkGroup>();
+    groupsSnapshot.forEach(doc => groupsMap.set(doc.id, convertTimestampsToDates(doc.data()) as WorkGroup));
+
+    const allOperatorIds = [...new Set([
+        ...jobs.flatMap(job => (job.phases || []).flatMap(phase => (phase.workPeriods || []).map(wp => wp.operatorId))),
+        ...Array.from(groupsMap.values()).flatMap(group => (group.phases || []).flatMap(phase => (phase.workPeriods || []).map(wp => wp.operatorId)))
+    ])].filter(id => id && typeof id === 'string' && id.trim() !== '');
 
     const operatorsMap = new Map<string, Operator>();
     if (allOperatorIds.length > 0) {
@@ -56,12 +65,36 @@ export async function getJobsReport() {
     }
 
     return jobs.map(job => {
-        const allWorkPeriods = (job.phases || []).flatMap(p => p.workPeriods || []);
-        const timeElapsedMs = calculateTimeForPeriods(allWorkPeriods);
-        const operatorIds = [...new Set(allWorkPeriods.map(p => p.operatorId))];
-        const operators = operatorIds.map(id => operatorsMap.get(id)?.nome || 'Sconosciuto').join(', ');
-        return { id: job.id, cliente: job.cliente, details: job.details, status: getOverallStatus(job), timeElapsed: formatDuration(timeElapsedMs), operators: operators || 'N/A', deliveryDate: job.dataConsegnaFinale || 'N/D' };
+        let timeElapsedMs = 0;
+        let jobOperators = '';
+
+        if (job.workGroupId && groupsMap.has(job.workGroupId)) {
+            const group = groupsMap.get(job.workGroupId)!;
+            const groupTotalMs = (group.phases || []).flatMap(p => p.workPeriods || []).reduce((acc, wp) => {
+                const start = new Date(wp.start).getTime();
+                const end = wp.end ? new Date(wp.end).getTime() : new Date().getTime();
+                return acc + (end - start);
+            }, 0);
+            timeElapsedMs = group.totalQuantity > 0 ? (groupTotalMs / group.totalQuantity) * job.qta : 0;
+            
+            jobOperators = [...new Set((group.phases || []).flatMap(p => (p.workPeriods || []).map(wp => operatorsMap.get(wp.operatorId)?.nome || 'Sconosciuto')))].join(', ');
+        } else {
+            const allWorkPeriods = (job.phases || []).flatMap(p => p.workPeriods || []);
+            timeElapsedMs = calculateTimeForPeriods(allWorkPeriods);
+            jobOperators = [...new Set(allWorkPeriods.map(p => operatorsMap.get(p.operatorId)?.nome || 'Sconosciuto'))].join(', ');
+        }
+
+        return { 
+            id: job.id, 
+            cliente: job.cliente, 
+            details: job.details, 
+            status: getOverallStatus(job), 
+            timeElapsed: formatDuration(timeElapsedMs), 
+            operators: jobOperators || 'N/A', 
+            deliveryDate: job.dataConsegnaFinale || 'N/D' 
+        };
     });
+
 }
 
 export async function getOperatorsReport(targetDateString?: string) {
@@ -72,9 +105,18 @@ export async function getOperatorsReport(targetDateString?: string) {
     const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
     const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
 
-    const jobsSnapshot = await adminDb.collection("jobOrders").get();
+    const [jobsSnapshot, groupsSnapshot] = await Promise.all([
+        adminDb.collection("jobOrders").get(),
+        adminDb.collection("workGroups").get()
+    ]);
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
-    const allWorkPeriods = jobs.flatMap(job => (job.phases || []).flatMap(phase => (phase.workPeriods || []).map(wp => ({...wp, operatorId: wp.operatorId}))));
+    const groups = groupsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as WorkGroup);
+
+    const allWorkPeriods = [
+        ...jobs.flatMap(job => (job.phases || []).flatMap(phase => (phase.workPeriods || []))),
+        ...groups.flatMap(group => (group.phases || []).flatMap(phase => (phase.workPeriods || [])))
+    ];
+
 
     return operators.map(op => {
         const operatorPeriods = allWorkPeriods.filter(p => p.operatorId === op.id);
@@ -110,25 +152,58 @@ export async function getOperatorDetailReport(operatorId: string, date: string) 
     const targetDate = new Date(date);
     const dayStart = startOfDay(targetDate);
     const dayEnd = endOfDay(targetDate);
-    const jobsSnapshot = await adminDb.collection("jobOrders").get();
+    
+    const [jobsSnapshot, groupsSnapshot] = await Promise.all([
+        adminDb.collection("jobOrders").get(),
+        adminDb.collection("workGroups").get()
+    ]);
+    
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    const groups = groupsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as WorkGroup);
+
     const timeMetrics = await getOperatorsReport(date);
     const operatorMetrics = timeMetrics.find(op => op.id === operatorId);
     const jobsWorkedOn: any[] = [];
     jobs.forEach(job => {
         const phasesWorkedOn: any[] = [];
-        (job.phases || []).forEach(phase => {
-            const timeInPhaseMs = (phase.workPeriods || []).filter(wp => wp.operatorId === operatorId).reduce((acc, period) => {
-                const periodStart = new Date(period.start);
-                const periodEnd = period.end ? new Date(period.end) : new Date();
-                const overlapStart = Math.max(periodStart.getTime(), dayStart.getTime());
-                const overlapEnd = Math.min(periodEnd.getTime(), dayEnd.getTime());
-                return overlapStart < overlapEnd ? acc + (overlapEnd - overlapStart) : acc;
-            }, 0);
-            if (timeInPhaseMs > 0) phasesWorkedOn.push({ name: phase.name, time: formatDuration(timeInPhaseMs), date: format(new Date(phase.workPeriods[0].start), 'dd/MM/yyyy') });
-        });
+        const isCurrentlyInGroup = job.workGroupId && groups.some(g => g.id === job.workGroupId);
+        
+        if (isCurrentlyInGroup) {
+            const group = groups.find(g => g.id === job.workGroupId)!;
+            (group.phases || []).forEach(phase => {
+                const groupTimeInPhaseMs = (phase.workPeriods || []).filter(wp => wp.operatorId === operatorId).reduce((acc, period) => {
+                    const periodStart = new Date(period.start);
+                    const periodEnd = period.end ? new Date(period.end) : new Date();
+                    const overlapStart = Math.max(periodStart.getTime(), dayStart.getTime());
+                    const overlapEnd = Math.min(periodEnd.getTime(), dayEnd.getTime());
+                    return overlapStart < overlapEnd ? acc + (overlapEnd - overlapStart) : acc;
+                }, 0);
+                
+                if (groupTimeInPhaseMs > 0) {
+                    const proportionalTimeMs = group.totalQuantity > 0 ? (groupTimeInPhaseMs / group.totalQuantity) * job.qta : 0;
+                    phasesWorkedOn.push({ 
+                        name: `(GRUPPO) ${phase.name}`, 
+                        time: formatDuration(proportionalTimeMs), 
+                        date: format(dayStart, 'dd/MM/yyyy') 
+                    });
+                }
+            });
+        } else {
+            (job.phases || []).forEach(phase => {
+                const timeInPhaseMs = (phase.workPeriods || []).filter(wp => wp.operatorId === operatorId).reduce((acc, period) => {
+                    const periodStart = new Date(period.start);
+                    const periodEnd = period.end ? new Date(period.end) : new Date();
+                    const overlapStart = Math.max(periodStart.getTime(), dayStart.getTime());
+                    const overlapEnd = Math.min(periodEnd.getTime(), dayEnd.getTime());
+                    return overlapStart < overlapEnd ? acc + (overlapEnd - overlapStart) : acc;
+                }, 0);
+                if (timeInPhaseMs > 0) phasesWorkedOn.push({ name: phase.name, time: formatDuration(timeInPhaseMs), date: format(new Date(phase.workPeriods[0].start), 'dd/MM/yyyy') });
+            });
+        }
+        
         if (phasesWorkedOn.length > 0) jobsWorkedOn.push({ id: job.ordinePF, details: job.details, cliente: job.cliente, phases: phasesWorkedOn });
     });
+
     return { operator, timeToday: operatorMetrics?.timeToday || '00:00:00', timeWeek: operatorMetrics?.timeWeek || '00:00:00', timeMonth: operatorMetrics?.timeMonth || '00:00:00', dateLabels: { today: format(targetDate, 'dd MMMM yyyy', { locale: it }), week: `Settimana ${getWeek(targetDate, { weekStartsOn: 1 })}`, month: format(targetDate, 'MMMM yyyy', { locale: it }) }, jobsWorkedOn };
 }
 

@@ -162,7 +162,8 @@ function WorkCycleManagementContent() {
 
   const removePhaseFromCycle = (phase: WorkPhaseTemplate) => {
     setSelectedPhases(prev => prev.filter(p => p.id !== phase.id));
-    setAvailablePhases(prev => [...prev, phase].sort((a,b) => a.sequence - b.sequence));
+    setAvailablePhases(prev => [...prev, phase].sort((a,b) => a.name.localeCompare(b.name)));
+
   };
   
   const movePhase = (index: number, direction: 'up' | 'down') => {

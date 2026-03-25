@@ -30,7 +30,7 @@ const workPhaseSchema = z.object({
 // --- Actions ---
 
 export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
-  const snapshot = await adminDb.collection('workPhaseTemplates').orderBy("sequence").get();
+  const snapshot = await adminDb.collection('workPhaseTemplates').orderBy("name").get();
   const list = snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
   return list;
 }
@@ -91,19 +91,6 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         return { success: true, message: 'Fase di lavorazione aggiornata con successo.' };
     } else {
         // Add new phase
-        const snapshot = await adminDb.collection('workPhaseTemplates').get();
-        
-        let newSequence: number;
-        const sequences = snapshot.docs.map(doc => doc.data().sequence || 0);
-
-        if (type === 'production' || type === 'quality' || type === 'packaging') {
-            const prodSequences = sequences.filter(s => s >= 0);
-            newSequence = prodSequences.length > 0 ? Math.max(...prodSequences) + 1 : 1;
-        } else { // preparation
-            const prepSequences = sequences.filter(s => s < 0);
-            newSequence = prepSequences.length > 0 ? Math.min(...prepSequences) - 1 : -1;
-        }
-
         const newId = `phase-tpl-${Date.now()}`;
         const phaseRef = adminDb.collection("workPhaseTemplates").doc(newId);
         const newPhase: WorkPhaseTemplate = { 
@@ -118,7 +105,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
             requiresMaterialAssociation: dataToSave.requiresMaterialAssociation,
             allowedMaterialTypes: dataToSave.allowedMaterialTypes,
             isIndependent: dataToSave.isIndependent,
-            sequence: newSequence,
+            // Sequence removed
         };
         await phaseRef.set(newPhase);
         revalidatePath('/admin/work-phase-management');
@@ -151,21 +138,3 @@ export async function deleteSelectedWorkPhaseTemplates(ids: string[]): Promise<{
     return { success: true, message: `${ids.length} fasi eliminate con successo.` };
 }
 
-
-export async function updatePhasesOrder(phases: { id: string; sequence: number }[]): Promise<{ success: boolean; message: string }> {
-    if (!phases || phases.length === 0) {
-        return { success: false, message: 'Nessuna fase fornita per l\'aggiornamento.' };
-    }
-    try {
-        const batch = adminDb.batch();
-        phases.forEach(phase => {
-            const docRef = adminDb.collection("workPhaseTemplates").doc(phase.id);
-            batch.update(docRef, { sequence: phase.sequence });
-        });
-        await batch.commit();
-        revalidatePath('/admin/work-phase-management');
-        return { success: true, message: 'Ordine delle fasi aggiornato con successo.' };
-    } catch (error) {
-        return { success: false, message: 'Errore durante l\'aggiornamento dell\'ordine.' };
-    }
-}
