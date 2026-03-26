@@ -8,15 +8,7 @@ import { it } from 'date-fns/locale';
 import { getOverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
-
-function convertTimestampsToDates(obj: any): any {
-    if (obj === null || typeof obj !== 'object') return obj;
-    if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();
-    if (Array.isArray(obj)) return obj.map(item => convertTimestampsToDates(item));
-    const newObj: { [key: string]: any } = {};
-    for (const key in obj) { newObj[key] = convertTimestampsToDates(obj[key]); }
-    return newObj;
-}
+import { convertTimestampsToDates } from '@/lib/utils';
 
 function formatDuration(ms: number): string {
   if (ms < 0) ms = 0;

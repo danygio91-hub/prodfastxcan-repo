@@ -171,19 +171,29 @@ export async function bulkDeclareAttendance(dateStr: string, uid: string, operat
     try {
         await ensureAdmin(uid);
         
-        // 1. Create exceptions for absent operators
+        // 1. Create exceptions for absent operators ONLY if they don't already have one
         const absentOperators = operatorStatuses.filter(os => !os.isPresent);
+        const existingExceptions = await getCalendarExceptions();
+        
         for (const os of absentOperators) {
-            await saveCalendarException({
-                resourceType: 'operator',
-                targetId: os.operatorId,
-                targetName: os.operatorName,
-                exceptionType: (os.reason as any) || 'vacation',
-                startDate: dateStr,
-                endDate: dateStr,
-                notes: `Dichiarato da foglio presenze giornaliero`
-            }, uid);
+            const alreadyException = existingExceptions.some(ex => 
+                ex.targetId === os.operatorId && 
+                ex.startDate === dateStr && ex.endDate === dateStr
+            );
+
+            if (!alreadyException) {
+                await saveCalendarException({
+                    resourceType: 'operator',
+                    targetId: os.operatorId,
+                    targetName: os.operatorName,
+                    exceptionType: (os.reason as any) || 'vacation',
+                    startDate: dateStr,
+                    endDate: dateStr,
+                    notes: `Dichiarato da foglio presenze giornaliero`
+                }, uid);
+            }
         }
+
 
         // 2. Mark day as declared
         await adminDb.collection("attendanceDeclarations").doc(dateStr).set({

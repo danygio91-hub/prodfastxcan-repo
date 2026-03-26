@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Info, AlertTriangle, CheckCircle2, Loader2, Boxes, Factory, Archive, Briefcase, LayoutGrid, Clock, Users, Timer, RefreshCcw } from 'lucide-react';
 import { format, addWeeks, subWeeks, startOfWeek, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
-import { getPlanningData, getDepartmentPlanningSnapshot } from './actions';
+import { getPlanningData, getDepartmentPlanningSnapshot, getOperatorAssignments } from './actions';
+import { migrateDepartments } from './maintenance';
+import { endOfWeek } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from '@/components/ui/badge';
@@ -17,9 +19,13 @@ import GanttBoard from '@/components/production-console/GanttBoard';
 import { isJobReadyForProduction } from '@/lib/utils';
 import type { JobOrder, Operator, OperatorAssignment, Department, Article } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
+import ResourceAssignmentDialog from './ResourceAssignmentDialog';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 export default function ResourcePlanningClientPage() {
     const { toast } = useToast();
+    const { user } = useAuth();
+    const uid = user?.uid || '';
     const [currentDate, setCurrentDate] = useState(new Date());
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -39,6 +45,7 @@ export default function ResourcePlanningClientPage() {
     const [activeTab, setActiveTab] = useState<string>('PRODUZIONE');
     const [activeSubTab, setActiveSubTab] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'split' | 'gantt' | 'list'>('split');
+    const [isAssignmentDialogOpen, setIsAssignmentDialogOpen] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -71,6 +78,29 @@ export default function ResourcePlanningClientPage() {
         }
     }
 
+    async function refreshSnapshot(force: boolean = true) {
+        setIsRefreshing(true);
+        try {
+            const dateStr = format(currentDate, 'yyyy-MM-dd');
+            const sw = startOfWeek(currentDate, { weekStartsOn: 1 });
+            const ew = endOfWeek(currentDate, { weekStartsOn: 1 });
+            
+            const [newAssignments, snap] = await Promise.all([
+                getOperatorAssignments(format(sw, 'yyyy-MM-dd'), format(ew, 'yyyy-MM-dd')),
+                getDepartmentPlanningSnapshot(dateStr, force)
+            ]);
+            
+            if (data) {
+                setData({ ...data, assignments: newAssignments });
+            }
+            setSnapshot(snap);
+        } catch (error) {
+            toast({ title: 'Errore', description: 'Ricalcolo capacità fallito.', variant: 'destructive' });
+        } finally {
+            setIsRefreshing(false);
+        }
+    }
+
     const startOfCurrentWeek = startOfWeek(currentDate, { weekStartsOn: 1 });
     const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
     const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
@@ -81,18 +111,17 @@ export default function ResourcePlanningClientPage() {
         return data.jobOrders.filter(job => {
             // First level: MacroArea
             if (activeTab === 'PREPARAZIONE') {
-                return job.phases?.some(p => p.type === 'preparation');
+                return job.status === 'planned' || job.phases?.some(p => p.type === 'preparation');
             }
+
             if (activeTab === 'QLTY_PACK') {
                 return job.phases?.some(p => p.type === 'quality' || p.type === 'packaging');
             }
             if (activeTab === 'PRODUZIONE') {
-                // Must have production phases AND match sub-tab department
-                const hasProductionPhases = job.phases?.some(p => p.type === 'production');
-                if (!hasProductionPhases) return false;
-                if (!activeSubTab) return true;
-                return job.department === activeSubTab || (job.phases || []).some(p => p.departmentCodes?.includes(activeSubTab));
+                if (!activeSubTab) return job.phases?.some(p => p.type === 'production');
+                return job.department === activeSubTab;
             }
+
             return false;
         });
     }, [data, activeTab, activeSubTab]);
@@ -115,6 +144,7 @@ export default function ResourcePlanningClientPage() {
         }
         // For Prep or QltyPack, we might show relevant depts
         if (activeTab === 'PREPARAZIONE') return data.operators.filter(op => op.reparto.includes('MAG'));
+
         if (activeTab === 'QLTY_PACK') return data.operators.filter(op => op.reparto.includes('CG') || op.reparto.includes('MAG') || op.reparto.includes('Collaudo'));
         
         return data.operators;
@@ -188,6 +218,26 @@ export default function ResourcePlanningClientPage() {
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleNextWeek}><ChevronRight className="h-4 w-4" /></Button>
                     </div>
                     
+                    <Button variant="outline" size="sm" onClick={() => setIsAssignmentDialogOpen(true)}>
+                        <Users className="h-4 w-4 mr-2" />
+                        GESTIONE RISORSE
+                    </Button>
+
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={async () => {
+                            if (confirm("Aggiornare lo schema dei reparti (CG -> Connessioni Grandi, etc.)?")) {
+                                const res = await migrateDepartments(uid);
+                                toast({ title: res.success ? "Successo" : "Errore", description: res.message });
+                                if (res.success) loadData(true);
+                            }
+                        }}
+                        className="text-[10px] text-slate-600 hover:text-slate-400"
+                    >
+                        FIX SCHEMA
+                    </Button>
+
                     <Button 
                         variant="default" 
                         size="sm"
@@ -222,6 +272,22 @@ export default function ResourcePlanningClientPage() {
                         <Archive className="h-4 w-4" /> QLTY & PACK
                     </TabsTrigger>
                 </TabsList>
+            
+            {data && (
+                <ResourceAssignmentDialog 
+                    isOpen={isAssignmentDialogOpen}
+                onClose={() => {
+                    setIsAssignmentDialogOpen(false);
+                    refreshSnapshot(true); // Solo snapshot, evita di ricaricare 700+ ordini
+                }}
+                    operators={data.operators}
+                    departments={data.departments}
+                    initialAssignments={data.assignments}
+                    currentDate={currentDate}
+                    uid={uid}
+                />
+            )}
+
 
                 {/* --- SUB-TABS (Produzione Only) --- */}
                 {activeTab === 'PRODUZIONE' && (
@@ -349,8 +415,9 @@ function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { 
             if (activeTab === 'QLTY_PACK') return phase.type === 'quality' || phase.type === 'packaging';
             if (activeTab === 'PRODUZIONE') {
                 if (!activeSubTab) return phase.type === 'production';
-                return phase.type === 'production' && phase.departmentCodes?.includes(activeSubTab);
+                return phase.type === 'production' && job.department === activeSubTab;
             }
+
             return false;
         });
 

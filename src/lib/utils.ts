@@ -6,6 +6,16 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function convertTimestampsToDates(obj: any): any {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();
+    if (Array.isArray(obj)) return obj.map(item => convertTimestampsToDates(item));
+    const newObj: { [key: string]: any } = {};
+    for (const key in obj) { newObj[key] = convertTimestampsToDates(obj[key]); }
+    return newObj;
+}
+
+
 export function formatDisplayStock(value: number | null | undefined, unit: string): string {
   if (value === null || value === undefined) return '0.00';
 

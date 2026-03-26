@@ -5,19 +5,13 @@ import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment } from '@/lib/mock-data';
 import * as z from 'zod';
+import { convertTimestampsToDates } from '@/lib/utils';
+
 
 function sanitizeDocumentId(id: string): string {
   return id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
 }
 
-function convertTimestampsToDates(obj: any): any {
-    if (obj === null || typeof obj !== 'object') return obj;
-    if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();
-    if (Array.isArray(obj)) return obj.map(item => convertTimestampsToDates(item));
-    const newObj: { [key: string]: any } = {};
-    for (const key in obj) { newObj[key] = convertTimestampsToDates(obj[key]); }
-    return newObj;
-}
 
 async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     if (!cycleId) return [];

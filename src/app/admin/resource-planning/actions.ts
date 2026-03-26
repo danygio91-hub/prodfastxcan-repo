@@ -8,6 +8,9 @@ import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Art
 
 import { startOfWeek, endOfWeek, format, parseISO, eachDayOfInterval } from 'date-fns';
 import { getProductionTimeAnalysisMap } from '../production-console/actions';
+import { convertTimestampsToDates } from '@/lib/utils';
+
+
 
 /**
  * Recupera tutte le assegnazioni operatori per un intervallo di date
@@ -59,26 +62,84 @@ export async function deleteOperatorAssignment(id: string, uid: string) {
 }
 
 /**
+ * Salva un gruppo di assegnazioni per una settimana specifica.
+ * Elimina le vecchie assegnazioni nel range per quegli operatori prima di inserire le nuove.
+ */
+export async function bulkSaveOperatorAssignments(assignments: Omit<OperatorAssignment, 'id' | 'createdAt'>[], startDate: string, endDate: string, uid: string) {
+  try {
+    await ensureAdmin(uid);
+    const batch = adminDb.batch();
+
+    // 1. Recupera ID degli operatori coinvolti
+    const operatorIds = Array.from(new Set(assignments.map(a => a.operatorId)));
+    
+    if (operatorIds.length > 0) {
+      // Nota: 'in' supporta max 10 elementi per query in Firestore standard, 
+      // ma qui usiamo admin che ha limiti simili o leggermente superiori a seconda della versione.
+      // Eseguiamo a blocchi di 10 se necessario.
+      for (let i = 0; i < operatorIds.length; i += 10) {
+        const chunk = operatorIds.slice(i, i + 10);
+        const existingSnap = await adminDb.collection("operatorAssignments")
+          .where("operatorId", "in", chunk)
+          .where("endDate", ">=", startDate)
+          .get();
+        
+        existingSnap.docs.forEach(doc => {
+          const data = doc.data();
+          if (data.startDate <= endDate) {
+            batch.delete(doc.ref);
+          }
+        });
+      }
+    }
+
+    // 2. Aggiungi le nuove assegnazioni
+    assignments.forEach(a => {
+      const id = `assign-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      const ref = adminDb.collection("operatorAssignments").doc(id);
+      batch.set(ref, {
+        ...a,
+        id,
+        createdAt: admin.firestore.Timestamp.now(),
+        createdBy: uid
+      });
+    });
+
+    await batch.commit();
+    revalidatePath('/admin/resource-planning');
+    return { success: true, message: 'Assegnazioni salvate.' };
+  } catch (error) {
+    console.error("Bulk save error:", error);
+    return { success: false, message: 'Errore durante il salvataggio massivo.' };
+  }
+}
+
+
+/**
  * Recupera tutti i dati necessari per la pagina Power-Planning in un colpo solo.
  */
 export async function getPlanningData(dateIso: string) {
     const targetDate = parseISO(dateIso);
+
+
     const start = startOfWeek(targetDate, { weekStartsOn: 1 });
     const end = endOfWeek(targetDate, { weekStartsOn: 1 });
     
     const [jobOrdersSnap, operatorsSnap, departmentsSnap, assignments, settingsSnap] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", ["production", "suspended", "paused"]).get(),
+        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
         adminDb.collection("operators").get(),
         adminDb.collection("departments").orderBy("name").get(),
+
         getOperatorAssignments(format(start, 'yyyy-MM-dd'), format(end, 'yyyy-MM-dd')),
         adminDb.collection("system").doc("productionSettings").get()
     ]);
 
 
-    const jobOrders = jobOrdersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as JobOrder));
-    const operators = operatorsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Operator)).filter(op => op.isReal);
-    const departments = departmentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Department));
-    const settings = settingsSnap.exists ? settingsSnap.data() as any : {};
+    const jobOrders = jobOrdersSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as JobOrder));
+    const operators = operatorsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as Operator)).filter(op => op.isReal !== false);
+    const departments = departmentsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as Department));
+    const settings = settingsSnap.exists ? convertTimestampsToDates(settingsSnap.data()) as any : {};
+
 
     // Fetch only needed articles for the jobs
     const articleCodes = Array.from(new Set(jobOrders.map(j => j.details).filter(Boolean)));
@@ -87,8 +148,9 @@ export async function getPlanningData(dateIso: string) {
         for (let i = 0; i < articleCodes.length; i += 30) {
             const chunk = articleCodes.slice(i, i + 30);
             const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
-            aSnap.forEach(d => articles.push({ id: d.id, ...d.data() } as Article));
+            aSnap.forEach(d => articles.push({ id: d.id, ...convertTimestampsToDates(d.data()) } as Article));
         }
+
     }
 
     return {
@@ -104,12 +166,16 @@ export async function getPlanningData(dateIso: string) {
 
 
 
+
+
 /**
  * Logica di analisi: Calcola il bilancio Ore caricate vs Ore Disponibili per reparto
  * Ora supporta la persistenza su Firestore per "congelare" il report.
  */
 export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefresh: boolean = false, uid?: string) {
     const targetDate = parseISO(dateIso);
+
+
     const start = startOfWeek(targetDate, { weekStartsOn: 1 });
     const end = endOfWeek(targetDate, { weekStartsOn: 1 });
     const days = eachDayOfInterval({ start, end });
@@ -137,9 +203,10 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
         getProductionTimeAnalysisMap()
     ]);
 
-    const jobOrders = jobOrdersSnapshot.docs.map(d => d.data() as JobOrder);
-    const operators = operatorsSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Operator)).filter(op => op.isReal);
-    const departments = departmentsSnapshot.docs.map(d => d.data() as Department);
+    const jobOrders = jobOrdersSnapshot.docs.map(d => convertTimestampsToDates(d.data()) as JobOrder);
+    const operators = operatorsSnapshot.docs.map(d => ({ ...convertTimestampsToDates(d.data()), id: d.id } as Operator)).filter(op => op.isReal !== false);
+    const departments = departmentsSnapshot.docs.map(d => convertTimestampsToDates(d.data()) as Department);
+
 
     // 3. Calcola Domanda (Demand) per ogni giorno e reparto, DIVISA PER AREA
     const demand: Record<string, Record<string, Record<string, number>>> = {}; 
@@ -172,11 +239,18 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
             else if (phase.type === 'quality' || phase.type === 'packaging') phaseArea = 'QLTY_PACK';
 
             let targetDeptCodes = phase.departmentCodes || [];
-            if (targetDeptCodes.length === 0 && job.department) {
-              targetDeptCodes = [job.department];
+            if (phaseArea === 'PRODUZIONE' && job.department) {
+                targetDeptCodes = [job.department];
+            } else if (targetDeptCodes.length === 0 && job.department) {
+                targetDeptCodes = [job.department];
             }
 
+
             targetDeptCodes.forEach((deptCode: string) => {
+                // Se la fase è di preparazione o qualità e il reparto originale è MAG o Collaudo o CG (vecchio),
+                // potremmo volerli raggruppare sotto 'SUPPORT' se necessario, ma manteniamo i codici reali per ora
+                // e aggreghiamo dopo.
+                
                 if (!demand[deptCode]) demand[deptCode] = { 'PREPARAZIONE': {}, 'PRODUZIONE': {}, 'QLTY_PACK': {} };
                 if (!totalDeptDemand[deptCode]) totalDeptDemand[deptCode] = {};
                 const splitLoad = phaseLoad / (targetDeptCodes.length || 1);
@@ -205,30 +279,59 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
         });
     });
 
+    // 5. Calcolo Supporto Condiviso (MAG+QLTY+PACK)
+    const supportSupply: Record<string, number> = {}; // date -> total support mins
+    // Somma tutta la capacità assegnata a 'SUPPORT' o aree macro via assignment
+    days.forEach(day => {
+        const ds = format(day, 'yyyy-MM-dd');
+        operators.forEach(op => {
+            const activeAssign = assignments.find(a => 
+                a.operatorId === op.id && ds >= a.startDate && ds <= a.endDate
+            );
+            if (activeAssign?.departmentCode === 'SUPPORT') {
+                supportSupply[ds] = (supportSupply[ds] || 0) + 480;
+            }
+        });
+    });
+
     // 5. Organizziamo i dati per Macro Area
     const resultByMacroArea: Record<string, any[]> = { 'PREPARAZIONE': [], 'PRODUZIONE': [], 'QLTY_PACK': [] };
 
-    // A. QLTY_PACK (Aggregato)
-    const qltyPackDepts = departments.filter(d => d.macroAreas?.includes('QLTY_PACK'));
-    if (qltyPackDepts.length > 0) {
-      const aggregatedData = days.map(day => {
-        const ds = format(day, 'yyyy-MM-dd');
-        let totalAreaDemand = 0; let totalAreaSupply = 0;
-        qltyPackDepts.forEach(d => {
-          totalAreaDemand += demand[d.code]?.['QLTY_PACK']?.[ds] || 0;
-          totalAreaSupply += supply[d.code]?.[ds] || 0;
-        });
-        return {
-          date: ds,
-          demandHours: totalAreaDemand / 60,
-          supplyHours: totalAreaSupply / 60,
-          balance: (totalAreaSupply - totalAreaDemand) / 60
-        };
-      });
-      resultByMacroArea['QLTY_PACK'].push({
-        id: 'qlty_pack_agg', code: 'QLTY_PACK', name: 'QLTY & PACKING', macroAreas: ['QLTY_PACK'], data: aggregatedData
-      });
-    }
+    // A. QLTY_PACK & PREPARAZIONE (Aggregato Condiviso o separato se richiesto)
+    const supportAreas = ['PREPARAZIONE', 'QLTY_PACK'];
+    supportAreas.forEach(area => {
+        const areaDepts = departments.filter(d => d.macroAreas?.includes(area as any));
+        if (areaDepts.length > 0) {
+            const aggregatedData = days.map(day => {
+                const ds = format(day, 'yyyy-MM-dd');
+                let totalAreaDemand = 0; 
+                let totalSpecificSupply = 0;
+                
+                areaDepts.forEach(d => {
+                    totalAreaDemand += demand[d.code]?.[area]?.[ds] || 0;
+                    totalSpecificSupply += supply[d.code]?.[ds] || 0;
+                });
+
+                // Aggiungiamo il supporto condiviso (SUPPORT) equamente o come pool?
+                // Visualizziamo il totale supply per quell'area includendo il supporto
+                const combinedSupply = totalSpecificSupply + (supportSupply[ds] || 0);
+
+                return {
+                    date: ds,
+                    demandHours: totalAreaDemand / 60,
+                    supplyHours: combinedSupply / 60,
+                    balance: (combinedSupply - totalAreaDemand) / 60
+                };
+            });
+            resultByMacroArea[area].push({
+                id: `${area.toLowerCase()}_agg`, 
+                code: area, 
+                name: area === 'PREPARAZIONE' ? 'REPARTO PREPARAZIONE' : 'REPARTO QLTY & PACK', 
+                macroAreas: [area], 
+                data: aggregatedData
+            });
+        }
+    });
 
     // B. Altre aree
     departments.forEach((d: Department) => {
@@ -268,3 +371,5 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
 
     return { ...snapshotResult, isFromCache: false };
 }
+
+

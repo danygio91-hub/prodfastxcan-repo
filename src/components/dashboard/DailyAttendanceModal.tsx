@@ -14,18 +14,23 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, UserCheck, UserX, AlertCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+
 import { getOperators } from '@/app/admin/operator-management/actions';
-import { bulkDeclareAttendance } from '@/app/admin/attendance-calendar/actions';
-import type { Operator } from '@/lib/mock-data';
+import { bulkDeclareAttendance, getCalendarExceptions } from '@/app/admin/attendance-calendar/actions';
+import type { Operator, CalendarException } from '@/lib/mock-data';
 import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
+import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
+
 
 interface OperatorStatus {
   operatorId: string;
   operatorName: string;
   isPresent: boolean;
   reason?: string;
+  exceptionInfo?: string; // e.g. "Permesso 4h"
 }
+
 
 interface DailyAttendanceModalProps {
   isOpen: boolean;
@@ -51,16 +56,57 @@ export function DailyAttendanceModal({ isOpen, onOpenChange, uid, onDeclared }: 
   const loadOperators = async () => {
     setIsLoading(true);
     try {
-      const allOps = await getOperators();
+      const [allOps, allExceptions] = await Promise.all([
+          getOperators(),
+          getCalendarExceptions()
+      ]);
+
+      const now = new Date();
+      const todayInterval = { start: startOfDay(now), end: endOfDay(now) };
+
       // Only "real" operators and supervisors
       const realOps = allOps.filter(op => op.isReal !== false && (op.role === 'operator' || op.role === 'supervisor'));
+      
+      const initialStatuses = realOps.map(op => {
+        // Check for exceptions today
+        const opException = allExceptions.find(ex => 
+           ex.targetId === op.id && 
+           isWithinInterval(now, { 
+               start: startOfDay(parseISO(ex.startDate)), 
+               end: endOfDay(parseISO(ex.endDate)) 
+           })
+        );
+
+        let isPresent = true;
+        let reason = 'vacation';
+        let exceptionInfo = undefined;
+
+        if (opException) {
+            // If hoursLost is full day (or undefined, meaning full absence), set to absent
+            const isFullDay = !opException.hoursLost || opException.hoursLost >= 8;
+            if (isFullDay) {
+                isPresent = false;
+                reason = opException.exceptionType || 'vacation';
+            } else {
+                // Partial absence (e.g. permission)
+                isPresent = true;
+                exceptionInfo = `${opException.exceptionType === 'permit' ? 'Permesso' : 'Ferie'} ${opException.hoursLost}h`;
+            }
+
+        }
+
+        return {
+          operatorId: op.id,
+          operatorName: op.nome,
+          isPresent,
+          reason,
+          exceptionInfo
+        };
+      });
+
       setOperators(realOps);
-      setStatuses(realOps.map(op => ({
-        operatorId: op.id,
-        operatorName: op.nome,
-        isPresent: true,
-        reason: 'vacation'
-      })));
+      setStatuses(initialStatuses);
+
     } catch (error) {
       toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile caricare gli operatori.' });
     } finally {
@@ -126,6 +172,11 @@ export function DailyAttendanceModal({ isOpen, onOpenChange, uid, onDeclared }: 
                       <span className="font-semibold text-sm">{status.operatorName}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                        {status.exceptionInfo && (
+                            <Badge variant="outline" className="text-[9px] font-bold bg-amber-50 text-amber-600 border-amber-200 animate-pulse">
+                                <AlertCircle className="h-3 w-3 mr-1" /> {status.exceptionInfo}
+                            </Badge>
+                        )}
                         <span className="text-[10px] uppercase font-bold text-muted-foreground">
                             {status.isPresent ? "Presente" : "Assente"}
                         </span>
@@ -134,6 +185,7 @@ export function DailyAttendanceModal({ isOpen, onOpenChange, uid, onDeclared }: 
                             onCheckedChange={(val) => handleToggle(status.operatorId, val)}
                         />
                     </div>
+
                   </div>
                   
                   {!status.isPresent && (
