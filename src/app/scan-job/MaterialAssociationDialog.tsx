@@ -89,21 +89,15 @@ export default function MaterialAssociationDialog({
     getPackagingItems().then(setPackagingItems);
   }, []);
 
-  useEffect(() => {
-    if (selectedMaterial) {
-      setInputUnit('primary');
-      // Propose oldest lot if no lot is selected
-      const batches = [...(selectedMaterial.batches || [])].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      setAvailableBatches(batches);
-      
-      if (!lottoValue && batches.length > 0) {
-          const oldestLotto = batches.find(b => (b.netQuantity || 0) > 0) || batches[0];
-          handleLotSelect(oldestLotto.lotto || '');
-      }
-    } else {
-        setAvailableBatches([]);
-    }
-  }, [selectedMaterial]);
+  const handleMaterialSelect = useCallback((material: RawMaterial) => {
+    form.setValue('material', material);
+  }, [form]);
+
+  const updateLotInfo = useCallback(async (materialId: string, lotto: string) => {
+      const lots = await getLotInfoForMaterial(materialId);
+      const matched = lots.find(l => l.lotto === lotto);
+      setLotAvailability(matched || null);
+  }, []);
 
   const handleLotSelect = useCallback(async (lotto: string) => {
     if (!selectedMaterial) return;
@@ -121,7 +115,6 @@ export default function MaterialAssociationDialog({
             form.setValue('ddt', 'Storico Lotto');
             form.setValue('packagingId', lottoData.packagingId || 'none');
         } else {
-            // Se non c'è storico (es. lotto appena creato o mai usato), prova a prelevare dai dati del batch
             const batch = selectedMaterial.batches?.find(b => b.lotto === lotto);
             if (batch) {
                 form.setValue('openingWeightManual', batch.netQuantity);
@@ -136,11 +129,21 @@ export default function MaterialAssociationDialog({
     }
   }, [selectedMaterial, form]);
 
-  const updateLotInfo = useCallback(async (materialId: string, lotto: string) => {
-      const lots = await getLotInfoForMaterial(materialId);
-      const matched = lots.find(l => l.lotto === lotto);
-      setLotAvailability(matched || null);
-  }, []);
+  useEffect(() => {
+    if (selectedMaterial) {
+      setInputUnit('primary');
+      const batches = [...(selectedMaterial.batches || [])].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      setAvailableBatches(batches);
+      
+      const currentLotto = form.getValues('lotto');
+      if (!currentLotto && batches.length > 0) {
+          const oldestLotto = batches.find(b => (b.netQuantity || 0) > 0) || batches[0];
+          handleLotSelect(oldestLotto.lotto || '');
+      }
+    } else {
+        setAvailableBatches([]);
+    }
+  }, [selectedMaterial, form, handleLotSelect]);
 
   useEffect(() => {
     if (lottoValue && lottoValue.length >= 3 && selectedMaterial) {
@@ -152,10 +155,6 @@ export default function MaterialAssociationDialog({
         setLotAvailability(null);
     }
   }, [lottoValue, selectedMaterial, updateLotInfo]);
-
-  const handleMaterialSelect = (material: RawMaterial) => {
-    form.setValue('material', material);
-  };
   
   const handleScanTrigger = (type: ScanType) => {
     setScanType(type);
