@@ -65,6 +65,7 @@ export default function MaterialAssociationDialog({
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const [lotAvailability, setLotAvailability] = useState<LotInfo | null>(null);
+  const [availableBatches, setAvailableBatches] = useState<any[]>([]);
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -91,8 +92,49 @@ export default function MaterialAssociationDialog({
   useEffect(() => {
     if (selectedMaterial) {
       setInputUnit('primary');
+      // Propose oldest lot if no lot is selected
+      const batches = [...(selectedMaterial.batches || [])].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      setAvailableBatches(batches);
+      
+      if (!lottoValue && batches.length > 0) {
+          const oldestLotto = batches.find(b => (b.netQuantity || 0) > 0) || batches[0];
+          handleLotSelect(oldestLotto.lotto || '');
+      }
+    } else {
+        setAvailableBatches([]);
     }
   }, [selectedMaterial]);
+
+  const handleLotSelect = useCallback(async (lotto: string) => {
+    if (!selectedMaterial) return;
+    form.setValue('lotto', lotto);
+    
+    setIsProcessing(true);
+    try {
+        const lottoData = await findLastWeightForLotto(selectedMaterial.id, lotto);
+        const lots = await getLotInfoForMaterial(selectedMaterial.id);
+        const matched = lots.find(l => l.lotto === lotto);
+        setLotAvailability(matched || null);
+        
+        if (lottoData && lottoData.material) {
+            form.setValue('openingWeightManual', lottoData.netWeight);
+            form.setValue('ddt', 'Storico Lotto');
+            form.setValue('packagingId', lottoData.packagingId || 'none');
+        } else {
+            // Se non c'è storico (es. lotto appena creato o mai usato), prova a prelevare dai dati del batch
+            const batch = selectedMaterial.batches?.find(b => b.lotto === lotto);
+            if (batch) {
+                form.setValue('openingWeightManual', batch.netQuantity);
+                form.setValue('ddt', batch.ddt || '');
+                form.setValue('packagingId', batch.packagingId || 'none');
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setIsProcessing(false);
+    }
+  }, [selectedMaterial, form]);
 
   const updateLotInfo = useCallback(async (materialId: string, lotto: string) => {
       const lots = await getLotInfoForMaterial(materialId);
@@ -103,20 +145,13 @@ export default function MaterialAssociationDialog({
   useEffect(() => {
     if (lottoValue && lottoValue.length >= 3 && selectedMaterial) {
         const timer = setTimeout(async () => {
-            const lottoData = await findLastWeightForLotto(selectedMaterial.id, lottoValue);
             await updateLotInfo(selectedMaterial.id, lottoValue);
-            
-            if (lottoData && lottoData.material) {
-                form.setValue('openingWeightManual', lottoData.netWeight);
-                form.setValue('ddt', 'Storico Lotto');
-                form.setValue('packagingId', lottoData.packagingId || 'none');
-            }
         }, 800);
         return () => clearTimeout(timer);
-    } else {
+    } else if (!lottoValue) {
         setLotAvailability(null);
     }
-  }, [lottoValue, selectedMaterial, form, updateLotInfo]);
+  }, [lottoValue, selectedMaterial, updateLotInfo]);
 
   const handleMaterialSelect = (material: RawMaterial) => {
     form.setValue('material', material);
@@ -344,6 +379,47 @@ export default function MaterialAssociationDialog({
                             <FormControl><Input {...field} value={field.value ?? ''} placeholder="Scansiona o digita il lotto" className="font-mono font-bold border-primary/30" /></FormControl>
                         </FormItem>
                     )}/>
+
+                    {availableBatches.length > 0 && (
+                        <div className="space-y-2">
+                            <Label className="font-bold text-[10px] uppercase text-muted-foreground flex items-center gap-2">
+                                <Boxes className="h-3 w-3" /> Lotti Disponibili a Sistema ({availableBatches.length})
+                            </Label>
+                            <ScrollArea className="h-24 border rounded-md p-1 bg-muted/20">
+                                <div className="grid grid-cols-1 gap-1">
+                                    {availableBatches.map((b, idx) => {
+                                        const isOldest = idx === 0 && (b.netQuantity || 0) > 0;
+                                        const isSelected = lottoValue === b.lotto;
+                                        return (
+                                            <Button 
+                                                key={b.id || b.lotto || idx}
+                                                type="button"
+                                                variant={isSelected ? "default" : "outline"}
+                                                size="sm"
+                                                className={cn(
+                                                    "justify-between text-[11px] h-8 font-bold",
+                                                    isOldest && !isSelected && "border-green-500/50 bg-green-500/5 text-green-700"
+                                                )}
+                                                onClick={() => handleLotSelect(b.lotto || '')}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <Barcode className="h-3 w-3 opacity-50" />
+                                                    {b.lotto || 'Senza Lotto'}
+                                                    {isOldest && <Badge className="text-[8px] h-3 px-1 bg-green-500 hover:bg-green-600">CONSIGLIATO</Badge>}
+                                                </div>
+                                                <div className="text-[10px] opacity-70">
+                                                    {formatDisplayStock(b.netQuantity, selectedMaterial.unitOfMeasure)}
+                                                </div>
+                                            </Button>
+                                        );
+                                    })}
+                                </div>
+                            </ScrollArea>
+                            <p className="text-[9px] text-muted-foreground italic flex items-center gap-1">
+                                <Info className="h-3 w-3" /> Clicca su un lotto per caricarne i dati (peso, ddt, etc.)
+                            </p>
+                        </div>
+                    )}
 
                     {lotAvailability && (
                         <Alert className="bg-green-500/10 border-green-500/30 py-2 animate-in fade-in slide-in-from-top-1">
