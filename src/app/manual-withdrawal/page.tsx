@@ -38,10 +38,15 @@ import { cn } from '@/lib/utils';
 const withdrawalFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   lotto: z.string().optional(),
-  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+  quantity: z.coerce.number().optional().refine(val => {
+    // Se non siamo in modalità sessione, la quantità è obbligatoria e positiva
+    return true; // La validazione reale la facciamo condizionale nel refine o nel submit
+  }, "La quantità deve essere un numero positivo."),
   notes: z.string().optional(),
   jobOrderPF: z.string().optional(),
-});
+}).refine((data) => {
+  return true;
+}, { path: ['quantity'] });
 type WithdrawalFormValues = z.infer<typeof withdrawalFormSchema>;
 
 type ScanType = 'material' | 'lotto' | null;
@@ -182,13 +187,15 @@ export default function ManualWithdrawalPage() {
 
     if (useSession) {
       // START SESSION LOGIC
-      const grossWeight = inputUnit === 'kg' ? values.quantity : (values.quantity * (scannedMaterial.conversionFactor || 1));
+      // Se la quantità non è inserita (perché il campo è sparito), usiamo 0 come segnaposto
+      const q = values.quantity || 0;
+      const grossWeight = inputUnit === 'kg' ? q : (q * (scannedMaterial.conversionFactor || 1));
       
       startSession({
         materialId: scannedMaterial.id,
         materialCode: scannedMaterial.code,
         grossOpeningWeight: grossWeight,
-        netOpeningWeight: values.quantity, // Simplified for now
+        netOpeningWeight: q, 
         originatorJobId: null, // Manual
         associatedJobs: values.jobOrderPF ? [{ jobId: values.jobOrderPF, jobOrderPF: values.jobOrderPF }] : [],
         lotto: values.lotto || null,
@@ -200,8 +207,15 @@ export default function ManualWithdrawalPage() {
       return;
     }
 
+    if (!values.quantity || values.quantity <= 0) {
+      toast({ variant: 'destructive', title: 'Quantità Mancante', description: 'Inserire una quantità valida.' });
+      setIsSubmitting(false);
+      return;
+    }
+
     const result = await logManualWithdrawal({
       ...values,
+      quantity: values.quantity as number, // Safe here because we validated above for !useSession
       operatorId: operator.id,
       operatorName: operator.nome,
       unit: inputUnit === 'kg' ? 'kg' : scannedMaterial.unitOfMeasure,
@@ -442,17 +456,19 @@ export default function ManualWithdrawalPage() {
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="quantity"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-primary font-black uppercase text-xs">Quantità da Scaricare ({inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
-                          <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} className="font-mono text-lg font-bold" /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {!useSession && (
+                      <FormField
+                        control={form.control}
+                        name="quantity"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-primary font-black uppercase text-xs">Quantità da Scaricare ({inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
+                            <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} className="font-mono text-lg font-bold" /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
                     <FormField
                       control={form.control}
                       name="notes"
@@ -497,6 +513,23 @@ export default function ManualWithdrawalPage() {
                                     size="sm" 
                                     className="w-full text-destructive border-destructive hover:bg-destructive/10"
                                     onClick={() => {
+                                        if (s.netOpeningWeight === 0) {
+                                            const consumedQty = prompt("Sessione manuale senza peso iniziale. Inserisci la QUANTITÀ TOTALE CONSUMATA:", "0");
+                                            if (consumedQty !== null && consumedQty !== "") {
+                                                // Simuliamo il peso finale come negativo per far sì che 0 - (-qty) = qty
+                                                const finalWeight = -Math.abs(Number(consumedQty));
+                                                closeMaterialSessionAndUpdateStock(s, finalWeight, operator.id).then(res => {
+                                                    if (res.success) {
+                                                        closeSession(s.materialId, s.lotto);
+                                                        toast({ title: "Sessione Chiusa", description: res.message });
+                                                    } else {
+                                                        toast({ variant: "destructive", title: "Errore", description: res.message });
+                                                    }
+                                                });
+                                            }
+                                            return;
+                                        }
+
                                         const finalWeight = prompt("Inserisci il peso finale (lordo) per chiudere lo scarico:", "0");
                                         if (finalWeight !== null) {
                                             closeMaterialSessionAndUpdateStock(s, Number(finalWeight), operator.id).then(res => {
