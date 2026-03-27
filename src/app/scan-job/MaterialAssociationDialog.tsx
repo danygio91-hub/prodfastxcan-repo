@@ -316,7 +316,7 @@ export default function MaterialAssociationDialog({
   );
 
   const renderForm = () => {
-    const isBobina = phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0';
+    const isBobina = (phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0') && selectedMaterial?.unitOfMeasure !== 'n';
 
     return (
      <Form {...form}>
@@ -445,7 +445,7 @@ export default function MaterialAssociationDialog({
                         {isBobina ? (
                             <FormField control={form.control} name="openingWeightManual" render={({field}) => (
                                 <FormItem>
-                                    <FormLabel className="text-primary font-black uppercase text-xs">Quantità Iniziale (PESO NETTO {selectedMaterial.unitOfMeasure.toUpperCase()})</FormLabel>
+                                    <FormLabel className="text-primary font-black uppercase text-xs">Quantità Iniziale ({selectedMaterial.unitOfMeasure === 'kg' ? 'PESO ' : ''}NETTO {selectedMaterial.unitOfMeasure.toUpperCase()})</FormLabel>
                                     <FormControl>
                                         <Input 
                                             type="number"
