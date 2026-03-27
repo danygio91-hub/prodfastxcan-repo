@@ -645,6 +645,7 @@ export default function ReportsClientPage({
                                                             </TableHead>
                                                             <TableHead>Commessa/e</TableHead>
                                                             <TableHead>Materiale</TableHead>
+                                                            <TableHead>Lotto</TableHead>
                                                             <TableHead>Stato</TableHead>
                                                             <TableHead>Consumo (n)</TableHead>
                                                             <TableHead>Consumo (mt)</TableHead>
@@ -665,6 +666,7 @@ export default function ReportsClientPage({
                                                                 </TableCell>
                                                                 <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
                                                                 <TableCell>{w.materialCode}</TableCell>
+                                                                <TableCell className="font-mono text-[10px]">{w.lotto || '-'}</TableCell>
                                                                 <TableCell>
                                                                     {w.isDeclared ? (
                                                                         <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20 flex items-center gap-1 w-fit">
