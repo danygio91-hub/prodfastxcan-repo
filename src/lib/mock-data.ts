@@ -254,6 +254,8 @@ export interface MaterialWithdrawal {
   notes?: string; // Optional field for manual withdrawals
   lotto?: string | null;
   commitmentId?: string; // Link to the manual commitment if applicable
+  isDeclared?: boolean;
+  declaredAt?: string; // ISO string
 }
 
 

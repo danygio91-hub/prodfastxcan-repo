@@ -315,6 +315,31 @@ export async function deleteAllWithdrawals() {
     return await deleteSelectedWithdrawals(snap.docs.map(d => d.id));
 }
 
+export async function declareWithdrawals(ids: string[], uid: string) {
+    try {
+        await ensureAdmin(uid);
+        if (!ids.length) return { success: false, message: "Nessun prelievo selezionato." };
+
+        const batch = adminDb.batch();
+        const now = new Date().toISOString();
+
+        ids.forEach(id => {
+            const ref = adminDb.collection("materialWithdrawals").doc(id);
+            batch.update(ref, {
+                isDeclared: true,
+                declaredAt: now
+            });
+        });
+
+        await batch.commit();
+        revalidatePath('/admin/reports');
+        return { success: true, message: `${ids.length} prelievi dichiarati con successo.` };
+    } catch (error) {
+        console.error("Error declaring withdrawals:", error);
+        return { success: false, message: "Errore durante la dichiarazione." };
+    }
+}
+
 export type ProductionTimeAnalysisReport = {
     articleCode: string; totalJobs: number; totalQuantity: number; averageMinutesPerPiece: number;
     averagePhaseTimes: Array<{ name: string; averageMinutesPerPiece: number; type: WorkPhaseTemplate['type']; }>;

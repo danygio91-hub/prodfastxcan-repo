@@ -29,9 +29,10 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package, Copy } from 'lucide-react';
-import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type JobsReport, type EnrichedMaterialWithdrawal } from './actions';
+import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package, Copy, Eye, EyeOff, ClipboardCheck } from 'lucide-react';
+import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type JobsReport, type EnrichedMaterialWithdrawal, declareWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/components/auth/AuthProvider';
 import type { OverallStatus } from '@/lib/types';
 import type { RawMaterialType } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
@@ -90,8 +91,11 @@ export default function ReportsClientPage({
 
   const [selectedWithdrawals, setSelectedWithdrawals] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeclaring, setIsDeclaring] = useState(false);
+  const [hideDeclared, setHideDeclared] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [jobsSearchTerm, setJobsSearchTerm] = useState('');
+  const { user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -133,7 +137,9 @@ export default function ReportsClientPage({
         )
         : withdrawalsReport;
 
-    return filtered.reduce((acc, withdrawal) => {
+    const finalFiltered = hideDeclared ? filtered.filter(w => !w.isDeclared) : filtered;
+
+    return finalFiltered.reduce((acc, withdrawal) => {
         const type = withdrawal.materialType || 'Sconosciuto';
         if (!acc[type]) {
             acc[type] = [];
@@ -224,21 +230,52 @@ export default function ReportsClientPage({
     XLSX.writeFile(wb, "report_operatori.xlsx");
   };
 
-  const handleExportWithdrawals = () => {
-    const dataToExport = withdrawalsReport.map(w => ({
+  const handleExportWithdrawals = (specificWithdrawals?: EnrichedMaterialWithdrawal[]) => {
+    const list = specificWithdrawals || withdrawalsReport;
+    const dataToExport = list.map(w => ({
       'Tipo Materiale': w.materialType || 'Sconosciuto',
       'Commessa/e': w.jobOrderPFs.join(', '),
       'Materiale': w.materialCode,
+      'Lotto': w.lotto || '-',
       'Consumo (n)': w.materialUnitOfMeasure === 'n' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'n') : '',
       'Consumo (mt)': w.materialUnitOfMeasure === 'mt' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'mt') : '',
       'Peso Consumato (Kg)': formatDisplayStock(w.consumedWeight, 'kg'),
       'Data Prelievo': format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it }),
       'Operatore': w.operatorName,
+      'Stato': w.isDeclared ? 'Dichiarato' : 'Da Dichiarare'
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Report Prelievi");
-    XLSX.writeFile(wb, "report_prelievi_magazzino.xlsx");
+    const fileName = specificWithdrawals ? `dichiarazione_prelievi_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx` : "report_prelievi_magazzino.xlsx";
+    XLSX.writeFile(wb, fileName);
+  };
+
+  const handleDeclareSelected = async (targetIds?: string[]) => {
+    const idsToProcess = targetIds || selectedWithdrawals;
+    if (idsToProcess.length === 0 || !user) return;
+    
+    setIsDeclaring(true);
+    try {
+        // 1. Export standard per questi prelievi
+        const toExport = withdrawalsReport.filter(w => idsToProcess.includes(w.id));
+        handleExportWithdrawals(toExport);
+
+        // 2. Aggiorna stato su DB
+        const result = await declareWithdrawals(idsToProcess, user.uid);
+        if (result.success) {
+            toast({ title: "Dichiarazione Inviata", description: result.message });
+            // Rimuovi quelli dichiarati dalla selezione globale
+            setSelectedWithdrawals(prev => prev.filter(id => !idsToProcess.includes(id)));
+            fetchWithdrawals();
+        } else {
+            toast({ variant: "destructive", title: "Errore", description: result.message });
+        }
+    } catch (error) {
+        toast({ variant: "destructive", title: "Errore", description: "Impossibile completare la dichiarazione." });
+    } finally {
+        setIsDeclaring(false);
+    }
   };
 
   const handleCopy = (text: string) => {
@@ -526,13 +563,13 @@ export default function ReportsClientPage({
                                     />
                                 </PopoverContent>
                             </Popover>
-                            <Button onClick={fetchWithdrawals} variant="secondary" size="sm" disabled={isPendingWithdrawals}>
+                             <Button onClick={fetchWithdrawals} variant="secondary" size="sm" disabled={isPendingWithdrawals}>
                                 {isPendingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Search className="mr-2 h-4 w-4"/>}
                                 Cerca
                             </Button>
-                            <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || withdrawalsReport.length === 0}>
+                            <Button onClick={() => handleExportWithdrawals()} variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || withdrawalsReport.length === 0}>
                                 <Download className="mr-2 h-4 w-4" />
-                                Esporta
+                                Esporta Tutto
                             </Button>
                           </div>
                       </div>
@@ -561,8 +598,39 @@ export default function ReportsClientPage({
                                     const groupIds = group.map(w => w.id);
                                     const selectedInGroupCount = selectedWithdrawals.filter(id => groupIds.includes(id)).length;
                                     
-                                    return (
+                                     return (
                                      <TabsContent value={type} key={type}>
+                                        <div className="flex justify-between items-center mb-4 p-2 bg-slate-500/5 rounded-lg border border-slate-500/10">
+                                            <div className="flex items-center gap-4">
+                                                <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">
+                                                    {type} - {group.length} record
+                                                </Badge>
+                                                <div className="flex items-center gap-2">
+                                                    <Checkbox 
+                                                        id={`hide-declared-${type}`}
+                                                        checked={hideDeclared}
+                                                        onCheckedChange={(checked) => setHideDeclared(!!checked)}
+                                                    />
+                                                    <label htmlFor={`hide-declared-${type}`} className="text-xs text-muted-foreground cursor-pointer select-none">
+                                                        Nascondi già dichiarati
+                                                    </label>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {selectedInGroupCount > 0 && (
+                                                    <Button 
+                                                        onClick={() => handleDeclareSelected(selectedWithdrawals.filter(id => groupIds.includes(id)))} 
+                                                        variant="default" 
+                                                        size="sm" 
+                                                        disabled={isDeclaring}
+                                                        className="bg-green-600 hover:bg-green-700 text-white h-8 text-xs animate-in fade-in zoom-in duration-200"
+                                                    >
+                                                        {isDeclaring ? <Loader2 className="mr-2 h-3 w-3 animate-spin"/> : <ClipboardCheck className="mr-2 h-3 w-3"/>}
+                                                        Avvia Dichiarazione {type} ({selectedInGroupCount})
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
                                         {group.length > 0 ? (
                                             <div className="overflow-x-auto">
                                                 <Table>
@@ -577,6 +645,7 @@ export default function ReportsClientPage({
                                                             </TableHead>
                                                             <TableHead>Commessa/e</TableHead>
                                                             <TableHead>Materiale</TableHead>
+                                                            <TableHead>Stato</TableHead>
                                                             <TableHead>Consumo (n)</TableHead>
                                                             <TableHead>Consumo (mt)</TableHead>
                                                             <TableHead>Peso Consumato (Kg)</TableHead>
@@ -596,6 +665,18 @@ export default function ReportsClientPage({
                                                                 </TableCell>
                                                                 <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
                                                                 <TableCell>{w.materialCode}</TableCell>
+                                                                <TableCell>
+                                                                    {w.isDeclared ? (
+                                                                        <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20 flex items-center gap-1 w-fit">
+                                                                            <ClipboardCheck className="h-3 w-3" />
+                                                                            Dichiarato
+                                                                        </Badge>
+                                                                    ) : (
+                                                                        <Badge variant="outline" className="text-muted-foreground flex items-center gap-1 w-fit">
+                                                                            Da Dichiarare
+                                                                        </Badge>
+                                                                    )}
+                                                                </TableCell>
                                                                 <TableCell>
                                                                     {w.materialUnitOfMeasure === 'n' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'n') : '-'}
                                                                 </TableCell>
