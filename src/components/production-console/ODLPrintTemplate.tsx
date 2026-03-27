@@ -1,18 +1,24 @@
-"use client";
-
 import React from 'react';
 import QRCode from 'react-qr-code';
 import { format, isValid, parseISO } from 'date-fns';
 import type { JobOrder, RawMaterial, Article } from '@/lib/mock-data';
+import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 
 interface ODLPrintTemplateProps {
   job: JobOrder;
   article: Article | null;
   materials: RawMaterial[];
   printDate?: Date;
+  config?: ODLConfig;
 }
 
-export default function ODLPrintTemplate({ job, article, materials, printDate }: ODLPrintTemplateProps) {
+export default function ODLPrintTemplate({ 
+  job, 
+  article, 
+  materials, 
+  printDate, 
+  config = DEFAULT_ODL_CONFIG 
+}: ODLPrintTemplateProps) {
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
 
   const allItems = (job.billOfMaterials || []).map(item => {
@@ -65,50 +71,36 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       display: "flex",
       flexDirection: "column" as const,
       overflow: "hidden",
+      pageBreakAfter: "always" as const,
     },
     masterTable: {
       width: "100%",
       borderCollapse: "collapse" as const,
       tableLayout: "fixed" as const,
-      border: "1.5px solid black",
+      border: `1.5px solid ${config.colors.border}`,
     },
     cell: {
-      border: "1px solid black",
+      border: `1px solid ${config.colors.border}`,
       padding: "0",
-      fontSize: "8pt",
+      fontSize: `${config.typography.baseFontSize}pt`,
       height: "8.5mm",
-      verticalAlign: "middle" as const,
-      textAlign: "center" as const,
+      verticalAlign: (config.layout.verticalAlign || "middle") as any,
+      textAlign: (config.layout.textAlign || "center") as any,
       lineHeight: "1",
       position: "relative" as const,
     },
-    flexCell: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      height: "100%",
-      width: "100%",
-      paddingBottom: "1.5mm",
-    },
     label: {
-        fontSize: "7pt",
+        fontSize: `${config.typography.headerFontSize}pt`,
         fontWeight: "bold" as const,
-        color: "#555",
+        color: config.colors.headerText || "#555",
         textAlign: "center" as const,
         marginBottom: "1px",
     },
-    headerGray: "#f3f4f6",
-    headerBlue: "#337ab7",
-    bgValueGreen: "#c8e6c9",
-    bgValueYellow: "#fff9c4",
-    bgTreccia: "#e8f5e9",
-    bgTubi: "#f5f5f5",
-    bgGuaina: "#e1f5fe",
     title: {
-      backgroundColor: "#337ab7",
+      backgroundColor: config.colors.primary,
       color: "white",
       fontWeight: "bold" as const,
-      fontSize: "16pt",
+      fontSize: `${config.typography.titleFontSize}pt`,
       textAlign: "center" as const,
       height: "12mm",
       position: "relative" as const,
@@ -119,12 +111,12 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
         justifyContent: 'center',
         height: '100%',
         width: '100%',
-        padding: '3mm',
+        padding: '2mm',
         boxSizing: 'border-box' as const,
     },
     qrInner: {
         backgroundColor: 'white',
-        padding: '2mm',
+        padding: '1mm',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -137,10 +129,10 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
     },
     verificaSlot: {
         flex: 1,
-        borderRight: "1px solid black",
+        borderRight: `1px solid ${config.colors.border}`,
     },
     valueLarge: {
-        fontSize: "14pt",
+        fontSize: "12pt", // Slightly smaller but bold
         fontWeight: "bold" as const,
     },
     spacingRow: {
@@ -150,217 +142,309 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
     }
   };
 
+  const getCellFlexStyles = (colConfig?: any) => {
+    const vAlign = colConfig?.verticalAlign || config.layout.verticalAlign || 'middle';
+    const hAlign = colConfig?.textAlign || config.layout.textAlign || 'center';
+    
+    return {
+      display: "flex",
+      alignItems: vAlign === 'top' ? 'flex-start' : vAlign === 'bottom' ? 'flex-end' : 'center',
+      justifyContent: hAlign === 'left' ? 'flex-start' : hAlign === 'right' ? 'flex-end' : 'center',
+      height: "100%",
+      width: "100%",
+      padding: `${config.layout.cellPadding || 0}px`,
+      boxSizing: "border-box" as const,
+    };
+  };
+
+  // NORMALIZED GRID: 10 Columns
+  const GRID_COLS = 10;
+  const colWidth = 100 / GRID_COLS;
+
+  const activeHeaderCols = config.header.columns?.filter(c => c.visible) || [];
+
+  const renderHeader = () => {
+    const logoSrc = config.header.logoBase64 || config.header.logoUrl;
+
+    return (
+      <>
+        <colgroup>
+          {Array.from({ length: GRID_COLS }).map((_, i) => (
+            <col key={i} width={`${colWidth}%`} />
+          ))}
+        </colgroup>
+        <tbody>
+          <tr>
+            <td style={{ ...styles.cell, borderBottom: '0', backgroundColor: 'white' }} colSpan={2} rowSpan={3}>
+              <div style={styles.qrWrapper}>
+                  {logoSrc && <img src={logoSrc} alt="Logo" style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />}
+              </div>
+            </td>
+            <td style={styles.title} colSpan={7}>
+              <div style={getCellFlexStyles()}>{config.header.title}</div>
+            </td>
+            <td style={{ ...styles.cell, textAlign: 'right', fontSize: '6pt', verticalAlign: 'top', padding: '2px', backgroundColor: 'white' }}>
+              {config.header.showRevInfo ? config.header.revText : ''}
+            </td>
+          </tr>
+          {/* HEADER LABELS */}
+          <tr style={{ backgroundColor: config.colors.headerBg }}>
+            {activeHeaderCols.map((col, idx) => {
+                // Map columns proportionally to the 8 available slots (from col index 2 to 9)
+                const span = idx === activeHeaderCols.length - 1 
+                    ? (10 - 2) - (Math.floor(8 / activeHeaderCols.length) * (activeHeaderCols.length - 1))
+                    : Math.floor(8 / activeHeaderCols.length);
+                return (
+                    <td key={col.id} style={styles.cell} colSpan={span}>
+                        <div style={styles.label}>{col.label}</div>
+                    </td>
+                );
+            })}
+          </tr>
+          {/* HEADER VALUES */}
+          <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
+            {activeHeaderCols.map((col, idx) => {
+                let val = '---';
+                if (col.field === 'reparto') val = getDeptSigla(job.department);
+                if (col.field === 'dataOdl') val = format(printDate || new Date(), 'dd/MM/yyyy');
+                if (col.field === 'ordinePf') val = job.ordinePF;
+                if (col.field === 'numeroOdl') val = job.numeroODLInterno || '---';
+
+                const span = idx === activeHeaderCols.length - 1 
+                    ? (10 - 2) - (Math.floor(8 / activeHeaderCols.length) * (activeHeaderCols.length - 1))
+                    : Math.floor(8 / activeHeaderCols.length);
+
+                return (
+                    <td key={col.id} style={{ ...styles.cell, backgroundColor: col.field === 'reparto' || col.field === 'ordinePf' || col.field === 'numeroOdl' ? config.colors.bgValueGreen : 'white' }} colSpan={span}>
+                        <div style={getCellFlexStyles(col)}>{val}</div>
+                    </td>
+                );
+            })}
+          </tr>
+          <tr style={styles.spacingRow}><td colSpan={GRID_COLS}></td></tr>
+        </tbody>
+      </>
+    );
+  };
+
+  const renderJobDetails = () => (
+    <tbody>
+      <tr>
+        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold' }}>
+            <div style={getCellFlexStyles()}>CLIENTE</div>
+        </td>
+        <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: 'white' }} colSpan={2}>
+          <div style={getCellFlexStyles()}>{job.cliente}</div>
+        </td>
+        <td style={{ ...styles.cell, fontWeight: 'bold', backgroundColor: config.colors.primary, color: 'white' }} rowSpan={2}>
+          <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2px' }}>
+              <span style={{ fontSize: '7pt' }}>CODICE COMMESSA</span>
+              <div style={{ backgroundColor: 'white', padding: '1mm', borderRadius: '1mm' }}>
+                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={45} />
+              </div>
+          </div>
+        </td>
+        <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg }} rowSpan={4} colSpan={6}>
+          <div style={getCellFlexStyles()}>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
+        </td>
+      </tr>
+      <tr>
+        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold' }}>
+            <div style={getCellFlexStyles()}>CODICE ARTICOLO</div>
+        </td>
+        <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: config.colors.bgValueGreen }} colSpan={2}>
+          <div style={getCellFlexStyles()}>{job.details}</div>
+        </td>
+      </tr>
+      <tr>
+        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold' }}>
+            <div style={getCellFlexStyles()}>QT</div>
+        </td>
+        <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: config.colors.bgValueGreen }} colSpan={2}>
+            <div style={getCellFlexStyles()}>{job.qta}</div>
+        </td>
+        <td style={{ ...styles.cell, backgroundColor: 'white' }} rowSpan={2}></td>
+      </tr>
+      <tr>
+        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: '7pt' }}>
+          <div style={{ ...getCellFlexStyles(), lineHeight: '1.1' }}>DATA FINE PREPARAZIONE MATERIALE</div>
+        </td>
+        <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: config.colors.bgValueYellow }} colSpan={2}>
+          <div style={getCellFlexStyles()}>{formatDateSafe(job.dataConsegnaFinale)}</div>
+        </td>
+      </tr>
+      <tr style={styles.spacingRow}><td colSpan={GRID_COLS}></td></tr>
+    </tbody>
+  );
+
+  const renderSectionHeader = () => (
+    <tbody>
+      <tr>
+        <td colSpan={GRID_COLS} style={{ ...styles.cell, backgroundColor: config.colors.tableHeaderBg, color: config.colors.tableHeaderText, height: "6mm", border: `1.5px solid ${config.colors.border}` }}>
+          <div style={getCellFlexStyles()}>PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO) {config.layout.splitByCategoryThreshold < allItems.length ? "(CONTINUA)" : ""}</div>
+        </td>
+      </tr>
+    </tbody>
+  );
+
+  const renderTableRows = (items: any[], columnConfigs: any[], sectionType: 'treccia' | 'tubi' | 'guaina') => {
+    const visibleCols = columnConfigs.filter(c => c.visible);
+    if (items.length === 0) return null;
+
+    // Distribute visible columns into the 10-column grid
+    // For simplicity, let's map them to proportional spans
+    const getColSpan = (idx: number) => {
+        if (idx === visibleCols.length - 1) {
+            return GRID_COLS - (Math.floor(GRID_COLS / visibleCols.length) * (visibleCols.length - 1));
+        }
+        return Math.floor(GRID_COLS / visibleCols.length);
+    };
+
+    return (
+      <tbody>
+        <tr style={{ backgroundColor: config.colors.tableHeaderBg, color: config.colors.tableHeaderText, fontWeight: 'bold', fontSize: '7pt' }}>
+          {visibleCols.map((col, idx) => (
+            <td key={col.id} style={styles.cell} colSpan={getColSpan(idx)}>
+              <div style={getCellFlexStyles(col)}>{col.label}</div>
+            </td>
+          ))}
+        </tr>
+        {items.map((item, i) => {
+          const totalUnits = item.quantity * job.qta;
+          const factor = item.mat?.rapportoKgMt || item.mat?.conversionFactor || 0;
+          
+          const data: any = {
+            codice: item.component,
+            lunghezzaTaglio: item.lunghezzaTaglioMm || 0,
+            quantita: totalUnits,
+            pesoTotale: ((item.lunghezzaTaglioMm ? (item.lunghezzaTaglioMm / 1000) : 1) * totalUnits * factor).toFixed(1),
+            metriTotali: (item.lunghezzaTaglioMm ? (totalUnits * item.lunghezzaTaglioMm / 1000) : 0).toFixed(2),
+            placeholder: '',
+            checkbox: '□',
+            tempoPrevisto: ''
+          };
+
+          return (
+            <tr key={`${sectionType}-${i}`} style={{ height: '9mm', backgroundColor: sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina }}>
+              {visibleCols.map((col, j) => {
+                const isTempoPrevisto = col.field === 'tempoPrevisto';
+                const span = getColSpan(j);
+                
+                if (isTempoPrevisto) {
+                  if (i === 0) {
+                    return (
+                      <td key={col.id} rowSpan={items.length} colSpan={span} style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt', backgroundColor: 'white' }}>
+                        <div style={getCellFlexStyles(col)}>
+                            {config.layout.showEstimatedTimes ? getEstimatedTimeForSection(
+                                sectionType === 'treccia' ? 'phase-template-1' : 
+                                sectionType === 'tubi' ? 'phase-template-7' : 'phase-template-6'
+                            ) : '---'}
+                        </div>
+                      </td>
+                    );
+                  }
+                  return null;
+                }
+
+                return (
+                  <td key={col.id} style={styles.cell} colSpan={span}>
+                    <div style={getCellFlexStyles(col)}>
+                      {col.field === 'placeholder' ? (
+                        <div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div>
+                      ) : (data[col.field] ?? '---')}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        })}
+        <tr style={styles.spacingRow}><td colSpan={GRID_COLS}></td></tr>
+      </tbody>
+    );
+  };
+
+  const renderFooter = () => (
+    <tbody>
+      <tr style={styles.spacingRow}><td colSpan={GRID_COLS}></td></tr>
+      <tr style={{ height: '10mm' }}>
+        <td style={{ ...styles.cell, backgroundColor: config.colors.footerBg, color: config.colors.footerText, fontWeight: 'bold', padding: '2mm' }} colSpan={6}>
+            <div style={getCellFlexStyles({ textAlign: 'left', verticalAlign: 'top' })}>Segnalazione Operatore (note - NC)</div>
+        </td>
+        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, color: config.colors.headerText || "#555", fontWeight: 'bold', padding: '2mm' }} colSpan={4}>
+            <div style={getCellFlexStyles({ textAlign: 'left', verticalAlign: 'top' })}>Data e Firma Operatore</div>
+        </td>
+      </tr>
+      <tr style={{ height: '10mm', backgroundColor: 'white' }}>
+        <td style={styles.cell} colSpan={6}></td>
+        <td style={{ ...styles.cell, padding: '4mm' }} colSpan={4}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'flex-end', height: '100%', paddingBottom: '1mm', fontSize: '7.5pt' }}>
+              <span style={{ fontWeight: 'bold' }}>DATA: ___/___/______</span>
+              <span style={{ fontWeight: 'bold' }}>FIRMA: ___________________________________</span>
+          </div>
+        </td>
+      </tr>
+    </tbody>
+  );
+
+  const totalItemsRows = trecciaItems.length + tubiItems.length + guainaItems.length;
+  const shouldSplit = totalItemsRows > config.layout.splitByCategoryThreshold && (
+      (trecciaItems.length > 0 && tubiItems.length > 0) || 
+      (trecciaItems.length > 0 && guainaItems.length > 0) || 
+      (tubiItems.length > 0 && guainaItems.length > 0)
+  );
+
+  if (shouldSplit) {
+    return (
+      <div id="odl-pdf-pages" style={{ width: '297mm' }}>
+        {trecciaItems.length > 0 && (
+          <div className="odl-page" style={styles.page}>
+            <table style={styles.masterTable}>
+              {renderHeader()}
+              {renderJobDetails()}
+              {renderSectionHeader()}
+              {renderTableRows(trecciaItems, config.columns.treccia, 'treccia')}
+              {renderFooter()}
+            </table>
+          </div>
+        )}
+        {tubiItems.length > 0 && (
+          <div className="odl-page" style={styles.page}>
+            <table style={styles.masterTable}>
+              {renderHeader()}
+              {renderJobDetails()}
+              {renderSectionHeader()}
+              {renderTableRows(tubiItems, config.columns.tubi, 'tubi')}
+              {renderFooter()}
+            </table>
+          </div>
+        )}
+        {guainaItems.length > 0 && (
+          <div className="odl-page" style={styles.page}>
+            <table style={styles.masterTable}>
+              {renderHeader()}
+              {renderJobDetails()}
+              {renderSectionHeader()}
+              {renderTableRows(guainaItems, config.columns.guaina, 'guaina')}
+              {renderFooter()}
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div id="odl-pdf-pages" style={{ width: '297mm' }}>
       <div className="odl-page" style={styles.page}>
         <table style={styles.masterTable}>
-          <colgroup>
-            <col width="8%" />
-            <col width="22%" />
-            <col width="15%" />
-            <col width="15%" />
-            <col width="15%" />
-            <col width="10%" />
-            <col width="15%" />
-          </colgroup>
-
-          <tbody>
-            <tr>
-              <td style={{ ...styles.cell, borderBottom: '0', backgroundColor: 'white' }} rowSpan={3}>
-                <div style={styles.qrWrapper}>
-                    <img src="/logo.png" alt="Logo" style={{ height: '12mm', maxWidth: '95%' }} />
-                </div>
-              </td>
-              <td style={styles.title} colSpan={4}>
-                <div style={styles.flexCell}>SCHEDA DI LAVORAZIONE</div>
-              </td>
-              <td style={{ ...styles.cell, textAlign: 'right', fontSize: '6.5pt', verticalAlign: 'top', padding: '2px', backgroundColor: 'white' }} colSpan={2}>
-                MOD. 800_5_02 REV.0 del 08/05/2024
-              </td>
-            </tr>
-            <tr style={{ backgroundColor: styles.headerGray }}>
-              <td style={styles.cell}><div style={styles.label}>REPARTO</div></td>
-              <td style={styles.cell}><div style={styles.label}>DATA ODL</div></td>
-              <td style={styles.cell} colSpan={2}><div style={styles.label}>NUMERO ORDINE PF</div></td>
-              <td style={styles.cell} colSpan={2}><div style={styles.label}>N° ODL</div></td>
-            </tr>
-            <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
-              <td style={{ ...styles.cell, backgroundColor: styles.bgValueGreen }}><div style={styles.flexCell}>{getDeptSigla(job.department)}</div></td>
-              <td style={{ ...styles.cell, backgroundColor: 'white' }}><div style={styles.flexCell}>{format(printDate || new Date(), 'dd/MM/yyyy')}</div></td>
-              <td style={{ ...styles.cell, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.ordinePF}</div></td>
-              <td style={{ ...styles.cell, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.numeroODLInterno || '---'}</div></td>
-            </tr>
-
-            <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
-
-            <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>CLIENTE</div></td>
-              <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: 'white' }}>
-                <div style={styles.flexCell}>{job.cliente}</div>
-              </td>
-              <td style={{ ...styles.cell, fontWeight: 'bold', backgroundColor: styles.headerBlue, color: 'white' }}>
-                <div style={styles.flexCell}>CODICE COMMESSA</div>
-              </td>
-              <td style={{ ...styles.cell, color: '#ccc', fontWeight: 'bold', fontSize: '18pt', backgroundColor: 'white' }} rowSpan={5} colSpan={4}>
-                <div style={styles.flexCell}>AREA DISEGNO</div>
-              </td>
-            </tr>
-            <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>CODICE ARTICOLO</div></td>
-              <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: styles.bgValueGreen }}>
-                <div style={styles.flexCell}>{job.details}</div>
-              </td>
-              <td style={{ ...styles.cell, backgroundColor: 'white' }} rowSpan={4}>
-                <div style={styles.qrWrapper}>
-                    <div style={styles.qrInner}>
-                        <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={135} />
-                    </div>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>DISEGNO</div></td>
-              <td style={{ ...styles.cell, backgroundColor: 'white' }}><div style={styles.flexCell}>---</div></td>
-            </tr>
-            <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>QT</div></td>
-              <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: styles.bgValueGreen }}><div style={styles.flexCell}>{job.qta}</div></td>
-            </tr>
-            <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
-                <div style={{ ...styles.flexCell, lineHeight: '1.1' }}>DATA FINE PREPARAZIONE MATERIALE</div>
-              </td>
-              <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: styles.bgValueYellow }}>
-                <div style={styles.flexCell}>{formatDateSafe(job.dataConsegnaFinale)}</div>
-              </td>
-            </tr>
-
-            <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
-
-            <tr>
-              <td colSpan={7} style={{ ...styles.cell, backgroundColor: styles.headerGray, height: "6mm", border: "1.5px solid black" }}>
-                <div style={styles.flexCell}>PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO)</div>
-              </td>
-            </tr>
-
-            {trecciaItems.length > 0 && (
-                <>
-                    <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
-                        <td style={styles.cell}><div style={styles.flexCell}>TRECCIA/CORDA</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>QT</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>QT (kg)</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Verifica misura mm</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Completato</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto (hh:mm)</div></td>
-                    </tr>
-                    {trecciaItems.map((item, i) => {
-                        const totalUnits = item.quantity * job.qta;
-                        const factor = item.mat?.rapportoKgMt || item.mat?.conversionFactor || 0;
-                        const weightKg = (item.lunghezzaTaglioMm ? (item.lunghezzaTaglioMm / 1000) : 1) * totalUnits * factor;
-                        return (
-                            <tr key={`t-${i}`} style={{ height: '9mm', backgroundColor: styles.bgTreccia }}>
-                                <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{item.lunghezzaTaglioMm || '0'}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalUnits}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{weightKg.toFixed(1)}</div></td>
-                                <td style={styles.cell}><div style={styles.flexCell}><div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div></div></td>
-                                <td style={styles.cell}><div style={styles.flexCell}>□</div></td>
-                                {i === 0 && (
-                                    <td rowSpan={trecciaItems.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt', backgroundColor: 'white' }}>
-                                        <div style={styles.flexCell}>{getEstimatedTimeForSection('phase-template-1')}</div>
-                                    </td>
-                                )}
-                            </tr>
-                        )
-                    })}
-                    <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
-                </>
-            )}
-
-            {tubiItems.length > 0 && (
-                <>
-                    <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
-                        <td style={styles.cell}><div style={styles.flexCell}>CODICE TUBI</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}></div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>QT (n°)</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>QT (kg)</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Verifica misure</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Prelevato da mag</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto (hh:mm)</div></td>
-                    </tr>
-                    {tubiItems.map((item, i) => {
-                        const totalPcs = item.quantity * job.qta;
-                        const totalKg = item.mat?.conversionFactor ? (totalPcs * item.mat.conversionFactor) : 0;
-                        return (
-                            <tr key={`tu-${i}`} style={{ height: '9mm', backgroundColor: styles.bgTubi }}>
-                                <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
-                                <td style={{ ...styles.cell }}><div style={styles.flexCell}></div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalPcs.toFixed(0)}</div></td>
-                                <td style={styles.cell}><div style={styles.flexCell}>{totalKg > 0 ? totalKg.toFixed(1) : '---'}</div></td>
-                                <td style={styles.cell}><div style={styles.flexCell}><div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div></div></td>
-                                <td style={styles.cell}><div style={styles.flexCell}>□</div></td>
-                                {i === 0 && (
-                                    <td rowSpan={tubiItems.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt', backgroundColor: 'white' }}>
-                                        <div style={styles.flexCell}>{getEstimatedTimeForSection('phase-template-7')}</div>
-                                    </td>
-                                )}
-                            </tr>
-                        )
-                    })}
-                    <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
-                </>
-            )}
-
-            {guainaItems.length > 0 && (
-                <>
-                    <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
-                        <td style={styles.cell}><div style={styles.flexCell}>GUAINA</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>QT</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Mt. Guaina</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Verifica misura mm</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Completato</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto (hh:mm)</div></td>
-                    </tr>
-                    {guainaItems.map((item, i) => {
-                        const totalPcs = item.quantity * job.qta;
-                        const totalMt = item.lunghezzaTaglioMm ? (totalPcs * item.lunghezzaTaglioMm / 1000) : 0;
-                        return (
-                            <tr key={`g-${i}`} style={{ height: '9mm', backgroundColor: styles.bgGuaina }}>
-                                <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{item.lunghezzaTaglioMm || '0'}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalPcs.toFixed(0)}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalMt.toFixed(2)}</div></td>
-                                <td style={styles.cell}><div style={styles.flexCell}><div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div></div></td>
-                                <td style={styles.cell}><div style={styles.flexCell}>□</div></td>
-                                {i === 0 && (
-                                    <td rowSpan={guainaItems.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt', backgroundColor: 'white' }}>
-                                        <div style={styles.flexCell}>{getEstimatedTimeForSection('phase-template-6')}</div>
-                                    </td>
-                                )}
-                            </tr>
-                        )
-                    })}
-                </>
-            )}
-
-            <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
-
-            <tr style={{ height: '10mm' }}>
-              <td style={{ ...styles.cell, backgroundColor: "#fff3e0", fontWeight: 'bold', verticalAlign: 'top', textAlign: 'left', padding: '2mm' }} colSpan={4}>Segnalazione Operatore (note - NC)</td>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', verticalAlign: 'top', textAlign: 'left', padding: '2mm' }} colSpan={3}>Data e Firma Operatore</td>
-            </tr>
-            <tr style={{ height: '10mm', backgroundColor: 'white' }}>
-              <td style={styles.cell} colSpan={4}></td>
-              <td style={{ ...styles.cell, verticalAlign: 'bottom', textAlign: 'left', fontSize: '7.5pt', padding: '4mm' }} colSpan={3}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'flex-end', height: '100%', paddingBottom: '1mm' }}>
-                    <span style={{ fontWeight: 'bold' }}>DATA: ___/___/______</span>
-                    <span style={{ fontWeight: 'bold' }}>FIRMA: ___________________________________</span>
-                </div>
-              </td>
-            </tr>
-          </tbody>
+          {renderHeader()}
+          {renderJobDetails()}
+          {renderSectionHeader()}
+          {renderTableRows(trecciaItems, config.columns.treccia, 'treccia')}
+          {renderTableRows(tubiItems, config.columns.tubi, 'tubi')}
+          {renderTableRows(guainaItems, config.columns.guaina, 'guaina')}
+          {renderFooter()}
         </table>
       </div>
     </div>
