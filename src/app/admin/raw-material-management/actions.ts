@@ -206,20 +206,28 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         }
         mq = mq.limit(50);
     }
-    const [jobsSnap, materialsSnap, commitmentsSnap, articlesSnap, posSnap] = await Promise.all([
+    const [jobsSnap, materialsSnap, commitmentsSnap, posSnap] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
         mq.get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
-        adminDb.collection('articles').get(),
         adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get()
     ]);
+
     const codeToMat = new Map<string, RawMaterial>();
     materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
         codeToMat.set(data.code.toLowerCase().trim(), { ...data, id: docSnap.id });
     });
+
+    const commitmentArticles = [...new Set(commitmentsSnap.docs.map(d => d.data().articleCode.toUpperCase()))];
     const articlesMap = new Map();
-    articlesSnap.forEach(d => articlesMap.set(d.data().code.toLowerCase().trim(), d.data()));
+    if (commitmentArticles.length > 0) {
+        for (let i = 0; i < commitmentArticles.length; i += 30) {
+            const chunk = commitmentArticles.slice(i, i + 30);
+            const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
+            aSnap.forEach(d => articlesMap.set(d.data().code.toLowerCase().trim(), d.data()));
+        }
+    }
     const impMap = new Map<string, number>();
     jobsSnap.forEach(d => {
         const job = d.data() as JobOrder;

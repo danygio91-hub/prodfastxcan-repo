@@ -115,8 +115,14 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
         snap.forEach(d => validCodes.add(d.data().code.toUpperCase()));
     }
 
-    const existingArticlesSnap = await adminDb.collection("articles").get();
-    const existingCodes = new Set(existingArticlesSnap.docs.map(doc => doc.data().code.toUpperCase()));
+    const existingCodes = new Set<string>();
+    const importedCodes = articles.map(a => a.code.toUpperCase()).filter(Boolean);
+    
+    for (let i = 0; i < importedCodes.length; i += 30) {
+        const chunk = importedCodes.slice(i, i + 30);
+        const snap = await adminDb.collection("articles").where("code", "in", chunk).get();
+        snap.forEach(d => existingCodes.add(d.data().code.toUpperCase()));
+    }
 
     const newArticles: Omit<Article, 'id'>[] = [];
     const updatedArticles: Omit<Article, 'id'>[] = [];
@@ -157,13 +163,21 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
 }
 
 export async function validateArticleSettingsImport(rows: any[]) {
-    const [articlesSnap, cyclesSnap, phasesSnap] = await Promise.all([
-        adminDb.collection("articles").get(),
+    const codes = [...new Set(rows.map(row => 
+        String(row['CODICE ARTICOLO'] || row['codice articolo'] || '').trim().toUpperCase()
+    ).filter(Boolean))];
+
+    const articlesMap = new Map<string, Article>();
+    for (let i = 0; i < codes.length; i += 30) {
+        const chunk = codes.slice(i, i + 30);
+        const snap = await adminDb.collection("articles").where("code", "in", chunk).get();
+        snap.forEach(d => articlesMap.set(d.data().code.toUpperCase(), d.data() as Article));
+    }
+
+    const [cyclesSnap, phasesSnap] = await Promise.all([
         adminDb.collection("workCycles").get(),
         adminDb.collection("workPhaseTemplates").get()
     ]);
-
-    const articlesMap = new Map<string, Article>(articlesSnap.docs.map(d => [d.id.toUpperCase(), d.data() as Article]));
     const cyclesMap = new Map<string, WorkCycle>(cyclesSnap.docs.map(d => [String(d.data().name).toUpperCase(), { ...d.data(), id: d.id } as WorkCycle]));
     const phasesMap = new Map<string, string>(phasesSnap.docs.map(d => [String(d.data().name).toUpperCase(), d.id]));
 

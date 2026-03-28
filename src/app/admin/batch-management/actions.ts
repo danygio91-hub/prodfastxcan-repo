@@ -30,73 +30,58 @@ export type GroupedBatches = {
 
 
 export async function getAllGroupedBatches(searchTerm?: string): Promise<GroupedBatches[]> {
+    const materialsCol = adminDb.collection('rawMaterials');
     let materialsSnapshot;
 
-    // Fetch all materials to allow searching by lot ID (which is nested in an array of objects)
-    // and by description/code simultaneously.
-    materialsSnapshot = await adminDb.collection('rawMaterials').get();
+    const searchTermLower = (searchTerm || '').toLowerCase().trim();
+
+    // If search term is too short, return empty array to save reads
+    if (searchTerm !== undefined && searchTermLower.length < 2) {
+        return [];
+    }
+
+    let q = materialsCol.limit(100);
+
+    if (searchTermLower) {
+        // Use prefix matching for optimized server-side filtering
+        q = q.where('code_normalized', '>=', searchTermLower)
+             .where('code_normalized', '<=', searchTermLower + '\uf8ff');
+    } else {
+        // Default sort for the main list
+        q = q.orderBy('code_normalized').limit(50);
+    }
+
+    materialsSnapshot = await q.get();
 
     if (materialsSnapshot.empty) {
         return [];
     }
 
-    const searchTermLower = (searchTerm || '').toLowerCase().trim();
+    const materials = materialsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RawMaterial));
+    const materialIds = materials.map(m => m.id);
     
-    // Filter materials based on search term (if present)
-    const filteredDocs = materialsSnapshot.docs.filter(doc => {
-        if (!searchTermLower || searchTermLower.length < 2) return false;
-        
-        const data = doc.data() as RawMaterial;
-        const codeMatch = (data.code || '').toLowerCase().includes(searchTermLower) || 
-                         (data.code_normalized || '').includes(searchTermLower);
-        const descMatch = (data.description || '').toLowerCase().includes(searchTermLower);
-        const lotMatch = (data.batches || []).some(b => 
-            (b.lotto || '').toLowerCase().includes(searchTermLower)
-        );
-        
-        return codeMatch || descMatch || lotMatch;
-    });
-
-    if (filteredDocs.length === 0) {
-        return [];
+    // Fetch withdrawals ONLY for the materials we are about to display
+    const withdrawalsByMaterial: Record<string, MaterialWithdrawal[]> = {};
+    for (let i = 0; i < materialIds.length; i += 30) {
+        const chunk = materialIds.slice(i, i + 30);
+        const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "in", chunk).get();
+        wSnap.forEach(d => {
+            const w = { id: d.id, ...convertTimestampsToDates(d.data()) } as MaterialWithdrawal;
+            if (!withdrawalsByMaterial[w.materialId]) withdrawalsByMaterial[w.materialId] = [];
+            withdrawalsByMaterial[w.materialId].push(w);
+        });
     }
-
-    const materialIds = filteredDocs.map(doc => doc.id);
-    const allWithdrawals: MaterialWithdrawal[] = [];
-    
-    if (materialIds.length > 0) {
-        // Firestore 'in' query limit is 30 items
-        const chunkSize = 30;
-        for (let i = 0; i < materialIds.length; i += chunkSize) {
-            const chunk = materialIds.slice(i, i + chunkSize);
-            const withdrawalsSnapshot = await adminDb.collection("materialWithdrawals")
-                .where("materialId", "in", chunk)
-                .get();
-            
-            withdrawalsSnapshot.forEach(doc => {
-                allWithdrawals.push({ 
-                    id: doc.id, 
-                    ...convertTimestampsToDates(doc.data()) 
-                } as MaterialWithdrawal);
-            });
-        }
-    }
-
-    const withdrawalsByMaterial = allWithdrawals.reduce((acc, w) => {
-        if (!acc[w.materialId]) {
-            acc[w.materialId] = [];
-        }
-        acc[w.materialId].push(w);
-        return acc;
-    }, {} as Record<string, MaterialWithdrawal[]>);
-
 
     const allGroupedBatches: GroupedBatches[] = [];
 
-    filteredDocs.forEach(doc => {
-        const material = { id: doc.id, ...doc.data() } as RawMaterial;
-        
+    materials.forEach(material => {
         const materialWithdrawals = withdrawalsByMaterial[material.id] || [];
+        
+        const withdrawalsByLotto = materialWithdrawals.reduce((acc, w) => {
+            const l = w.lotto || 'SENZA_LOTTO';
+            acc[l] = (acc[l] || 0) + (w.consumedUnits || 0);
+            return acc;
+        }, {} as Record<string, number>);
 
         const batchesByLotto = (material.batches || []).reduce((acc, batch) => {
             const lottoKey = batch.lotto || 'SENZA_LOTTO';
@@ -105,16 +90,9 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
             return acc;
         }, {} as Record<string, EnrichedBatch[]>);
 
-        const lotWithdrawalsMap = materialWithdrawals.reduce((acc, w) => {
-            const lottoKey = w.lotto || 'SENZA_LOTTO';
-            if (!acc[lottoKey])  acc[lottoKey] = 0;
-            acc[lottoKey] += w.consumedUnits || 0;
-            return acc;
-        }, {} as Record<string, number>);
-
         const lots: LotInfo[] = Object.entries(batchesByLotto).map(([lotto, batchesInLot]) => {
             const totalLoaded = batchesInLot.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-            const totalWithdrawn = lotWithdrawalsMap[lotto] || 0;
+            const totalWithdrawn = withdrawalsByLotto[lotto] || 0;
             const available = totalLoaded - totalWithdrawn;
             
             const firstLoadDate = batchesInLot.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.date;
@@ -129,21 +107,13 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
             };
         });
         
-        const totalStockUnits = lots.reduce((sum, lot) => sum + lot.available, 0);
-        let totalWeightKg = 0;
-        if (material.unitOfMeasure === 'kg') {
-            totalWeightKg = totalStockUnits;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            totalWeightKg = totalStockUnits * material.conversionFactor;
-        }
-
         allGroupedBatches.push({
             materialId: material.id,
             materialCode: material.code,
             materialDescription: material.description,
             unitOfMeasure: material.unitOfMeasure,
-            currentStockUnits: totalStockUnits,
-            currentWeightKg: totalWeightKg,
+            currentStockUnits: material.currentStockUnits || 0,
+            currentWeightKg: material.currentWeightKg || 0,
             lots: lots.sort((a, b) => new Date(b.firstLoadDate).getTime() - new Date(a.firstLoadDate).getTime()),
         });
     });

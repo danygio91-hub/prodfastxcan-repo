@@ -7,10 +7,12 @@ export interface ColumnConfig {
   visible: boolean;
   textAlign?: 'left' | 'center' | 'right';
   verticalAlign?: 'top' | 'middle' | 'bottom';
+  fontSize?: number;
 }
 
 export interface HeaderColumnConfig extends ODLConfigColumn {
     field: 'reparto' | 'dataOdl' | 'ordinePf' | 'numeroOdl';
+    fontSize?: number;
 }
 
 interface ODLConfigColumn {
@@ -62,6 +64,12 @@ export interface ODLConfig {
     bgGuaina: string;
     border: string;
   };
+  info: {
+    labelWidth: string;
+    valueWidth: string;
+    fontSize: number;
+    columns: { id: string; label: string; field: string; visible: boolean; colorKey?: string }[];
+  };
   columns: {
     treccia: ColumnConfig[];
     tubi: ColumnConfig[];
@@ -82,6 +90,17 @@ export const DEFAULT_ODL_CONFIG: ODLConfig = {
         { id: 'h2', label: 'DATA ODL', width: '20%', field: 'dataOdl', visible: true },
         { id: 'h3', label: 'NUMERO ORDINE PF', width: '30%', field: 'ordinePf', visible: true },
         { id: 'h4', label: 'N° ODL', width: '30%', field: 'numeroOdl', visible: true },
+    ]
+  },
+  info: {
+    labelWidth: "15%",
+    valueWidth: "25%",
+    fontSize: 8,
+    columns: [
+        { id: 'i1', label: 'CLIENTE', field: 'cliente', visible: true },
+        { id: 'i2', label: 'CODICE ARTICOLO', field: 'details', visible: true, colorKey: 'bgValueGreen' },
+        { id: 'i3', label: 'QT', field: 'qta', visible: true, colorKey: 'bgValueGreen' },
+        { id: 'i4', label: 'DATA FINE PREPARAZIONE MATERIALE', field: 'dataConsegnaFinale', visible: true, colorKey: 'bgValueYellow' },
     ]
   },
   layout: {

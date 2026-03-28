@@ -167,224 +167,267 @@ export default function ODLPrintTemplate({
     const logoSrc = config.header.logoBase64 || config.header.logoUrl;
 
     return (
-      <>
-        <colgroup>
-          {Array.from({ length: GRID_COLS }).map((_, i) => (
-            <col key={i} width={`${colWidth}%`} />
-          ))}
-        </colgroup>
-        <tbody>
-          <tr>
-            <td style={{ ...styles.cell, borderBottom: '0', backgroundColor: 'white' }} colSpan={2} rowSpan={3}>
-              <div style={styles.qrWrapper}>
-                  {logoSrc && <img src={logoSrc} alt="Logo" style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />}
-              </div>
-            </td>
-            <td style={styles.title} colSpan={7}>
-              <div style={getCellFlexStyles()}>{config.header.title}</div>
-            </td>
-            <td style={{ ...styles.cell, textAlign: 'right', fontSize: '6pt', verticalAlign: 'top', padding: '2px', backgroundColor: 'white' }}>
-              {config.header.showRevInfo ? config.header.revText : ''}
-            </td>
-          </tr>
-          {/* HEADER LABELS */}
-          <tr style={{ backgroundColor: config.colors.headerBg }}>
-            {activeHeaderCols.map((col, idx) => {
-                // Map columns proportionally to the 8 available slots (from col index 2 to 9)
-                const span = idx === activeHeaderCols.length - 1 
-                    ? (10 - 2) - (Math.floor(8 / activeHeaderCols.length) * (activeHeaderCols.length - 1))
-                    : Math.floor(8 / activeHeaderCols.length);
-                return (
-                    <td key={col.id} style={styles.cell} colSpan={span}>
-                        <div style={styles.label}>{col.label}</div>
+      <div style={{ marginBottom: '3mm', position: 'relative' }}>
+        {/* Revision Info - Independent Top Right */}
+        {config.header.showRevInfo && (
+            <div style={{ 
+                position: 'absolute', 
+                top: '-2mm', 
+                right: '0', 
+                fontSize: '6pt', 
+                color: '#666',
+                fontStyle: 'italic'
+            }}>
+                {config.header.revText}
+            </div>
+        )}
+
+        <table style={{ ...styles.masterTable, borderBottom: '0' }}>
+            <colgroup>
+                <col width="20%" />
+                <col width="80%" />
+            </colgroup>
+            <tbody>
+                <tr>
+                    <td style={{ ...styles.cell, borderBottom: '0', backgroundColor: 'white' }}>
+                        <div style={styles.qrWrapper}>
+                            {logoSrc && <img src={logoSrc} alt="Logo" style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />}
+                        </div>
                     </td>
-                );
-            })}
-          </tr>
-          {/* HEADER VALUES */}
-          <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
-            {activeHeaderCols.map((col, idx) => {
+                    <td style={styles.title}>
+                        <div style={getCellFlexStyles()}>{config.header.title}</div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <table style={styles.masterTable}>
+          <colgroup>
+            {activeHeaderCols.map((col) => (
+              <col key={col.id} width={col.width || `${100 / activeHeaderCols.length}%`} />
+            ))}
+          </colgroup>
+          <tbody>
+            {/* HEADER LABELS */}
+            <tr style={{ backgroundColor: config.colors.headerBg }}>
+              {activeHeaderCols.map((col) => (
+                <td key={col.id} style={{ ...styles.cell, fontSize: `${col.fontSize || config.typography.headerFontSize}pt` }}>
+                  <div style={styles.label}>{col.label}</div>
+                </td>
+              ))}
+            </tr>
+            {/* HEADER VALUES */}
+            <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
+              {activeHeaderCols.map((col) => {
                 let val = '---';
                 if (col.field === 'reparto') val = getDeptSigla(job.department);
                 if (col.field === 'dataOdl') val = format(printDate || new Date(), 'dd/MM/yyyy');
                 if (col.field === 'ordinePf') val = job.ordinePF;
                 if (col.field === 'numeroOdl') val = job.numeroODLInterno || '---';
 
-                const span = idx === activeHeaderCols.length - 1 
-                    ? (10 - 2) - (Math.floor(8 / activeHeaderCols.length) * (activeHeaderCols.length - 1))
-                    : Math.floor(8 / activeHeaderCols.length);
-
                 return (
-                    <td key={col.id} style={{ ...styles.cell, backgroundColor: col.field === 'reparto' || col.field === 'ordinePf' || col.field === 'numeroOdl' ? config.colors.bgValueGreen : 'white' }} colSpan={span}>
-                        <div style={getCellFlexStyles(col)}>{val}</div>
-                    </td>
+                  <td key={col.id} style={{ ...styles.cell, fontSize: `${col.fontSize || 11}pt`, backgroundColor: col.field === 'reparto' || col.field === 'ordinePf' || col.field === 'numeroOdl' ? config.colors.bgValueGreen : 'white' }}>
+                    <div style={getCellFlexStyles(col)}>{val}</div>
+                  </td>
                 );
-            })}
-          </tr>
-          <tr style={styles.spacingRow}><td colSpan={GRID_COLS}></td></tr>
-        </tbody>
-      </>
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     );
   };
 
-  const renderJobDetails = () => (
-    <tbody>
-      <tr>
-        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold' }}>
-            <div style={getCellFlexStyles()}>CLIENTE</div>
-        </td>
-        <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: 'white' }} colSpan={2}>
-          <div style={getCellFlexStyles()}>{job.cliente}</div>
-        </td>
-        <td style={{ ...styles.cell, fontWeight: 'bold', backgroundColor: config.colors.primary, color: 'white' }} rowSpan={2}>
-          <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2px' }}>
-              <span style={{ fontSize: '7pt' }}>CODICE COMMESSA</span>
-              <div style={{ backgroundColor: 'white', padding: '1mm', borderRadius: '1mm' }}>
-                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={45} />
-              </div>
-          </div>
-        </td>
-        <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg }} rowSpan={4} colSpan={6}>
-          <div style={getCellFlexStyles()}>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
-        </td>
-      </tr>
-      <tr>
-        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold' }}>
-            <div style={getCellFlexStyles()}>CODICE ARTICOLO</div>
-        </td>
-        <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: config.colors.bgValueGreen }} colSpan={2}>
-          <div style={getCellFlexStyles()}>{job.details}</div>
-        </td>
-      </tr>
-      <tr>
-        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold' }}>
-            <div style={getCellFlexStyles()}>QT</div>
-        </td>
-        <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: config.colors.bgValueGreen }} colSpan={2}>
-            <div style={getCellFlexStyles()}>{job.qta}</div>
-        </td>
-        <td style={{ ...styles.cell, backgroundColor: 'white' }} rowSpan={2}></td>
-      </tr>
-      <tr>
-        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: '7pt' }}>
-          <div style={{ ...getCellFlexStyles(), lineHeight: '1.1' }}>DATA FINE PREPARAZIONE MATERIALE</div>
-        </td>
-        <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: config.colors.bgValueYellow }} colSpan={2}>
-          <div style={getCellFlexStyles()}>{formatDateSafe(job.dataConsegnaFinale)}</div>
-        </td>
-      </tr>
-      <tr style={styles.spacingRow}><td colSpan={GRID_COLS}></td></tr>
-    </tbody>
-  );
+  const renderJobDetails = () => {
+    const activeInfoCols = config.info.columns.filter(c => c.visible);
+    const rowCount = activeInfoCols.length || 1;
+    const qrRowSpan = Math.min(2, rowCount);
+    
+    // Label and Value widths from config. The rest for QR and Drawing.
+    const labelW = config.info.labelWidth || '15%';
+    const valueW = config.info.valueWidth || '25%';
+    
+    // Convert percentages to numbers to calculate remaining
+    const lVal = parseFloat(labelW);
+    const vVal = parseFloat(valueW);
+    const qrW = 15; // 15% fixed for QR
+    const drawW = 100 - lVal - vVal - qrW;
+
+    return (
+      <div style={{ marginBottom: '3mm' }}>
+        <table style={styles.masterTable}>
+          <colgroup>
+              <col width={labelW} />
+              <col width={valueW} />
+              <col width={`${qrW}%`} />
+              <col width={`${drawW}%`} />
+          </colgroup>
+          <tbody>
+            {(activeInfoCols.length > 0 ? activeInfoCols : [{ id: 'empty', label: '-', field: '', visible: true }]).map((col, idx) => {
+              let val = '---';
+              if (col.field === 'cliente') val = job.cliente;
+              if (col.field === 'details') val = job.details;
+              if (col.field === 'qta') val = `${job.qta}`;
+              if (col.field === 'dataConsegnaFinale') val = formatDateSafe(job.dataConsegnaFinale);
+
+              return (
+                <tr key={col.id} style={{ height: '8mm' }}>
+                  {/* LABEL */}
+                  <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
+                      <div style={getCellFlexStyles()}>{col.label}</div>
+                  </td>
+                  {/* VALUE */}
+                  <td style={{ ...styles.cell, backgroundColor: col.colorKey ? (config.colors as any)[col.colorKey] : 'white', fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
+                    <div style={getCellFlexStyles()}>{val}</div>
+                  </td>
+                  
+                  {/* QR CODE AREA */}
+                  {idx === 0 && (
+                     <td style={{ ...styles.cell, padding: '0', border: 'none' }} rowSpan={qrRowSpan}>
+                        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', border: `1px solid ${config.colors.border}`, overflow: 'hidden' }}>
+                            <div style={{ backgroundColor: config.colors.primary, color: 'white', fontSize: '6.5pt', fontWeight: 'bold', textAlign: 'center', padding: '1mm', borderBottom: `1px solid ${config.colors.border}` }}>
+                                CODICE COMMESSA
+                            </div>
+                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'white', padding: '1mm' }}>
+                                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={config.header.qrSize || 45} />
+                            </div>
+                        </div>
+                     </td>
+                  )}
+                  {/* Spacer for rows below QR but within Info section */}
+                  {idx >= qrRowSpan && (
+                     <td style={{ ...styles.cell, backgroundColor: 'white' }}></td>
+                  )}
+
+                  {/* DRAWING / NOTES AREA */}
+                  {idx === 0 && (
+                    <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle' }} rowSpan={rowCount}>
+                      <div style={getCellFlexStyles()}>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   const renderSectionHeader = () => (
-    <tbody>
-      <tr>
-        <td colSpan={GRID_COLS} style={{ ...styles.cell, backgroundColor: config.colors.tableHeaderBg, color: config.colors.tableHeaderText, height: "6mm", border: `1.5px solid ${config.colors.border}` }}>
-          <div style={getCellFlexStyles()}>PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO) {config.layout.splitByCategoryThreshold < allItems.length ? "(CONTINUA)" : ""}</div>
-        </td>
-      </tr>
-    </tbody>
+    <table style={{ ...styles.masterTable, marginBottom: '0' }}>
+      <tbody>
+        <tr>
+          <td style={{ ...styles.cell, backgroundColor: config.colors.tableHeaderBg, color: config.colors.tableHeaderText, height: "6mm", border: `1.5px solid ${config.colors.border}` }}>
+            <div style={getCellFlexStyles()}>PREPARAZIONE COMPONENTI {config.layout.splitByCategoryThreshold < allItems.length ? "(CONTINUA)" : ""}</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
   );
 
   const renderTableRows = (items: any[], columnConfigs: any[], sectionType: 'treccia' | 'tubi' | 'guaina') => {
     const visibleCols = columnConfigs.filter(c => c.visible);
     if (items.length === 0) return null;
 
-    // Distribute visible columns into the 10-column grid
-    // For simplicity, let's map them to proportional spans
-    const getColSpan = (idx: number) => {
-        if (idx === visibleCols.length - 1) {
-            return GRID_COLS - (Math.floor(GRID_COLS / visibleCols.length) * (visibleCols.length - 1));
-        }
-        return Math.floor(GRID_COLS / visibleCols.length);
-    };
-
     return (
-      <tbody>
-        <tr style={{ backgroundColor: config.colors.tableHeaderBg, color: config.colors.tableHeaderText, fontWeight: 'bold', fontSize: '7pt' }}>
-          {visibleCols.map((col, idx) => (
-            <td key={col.id} style={styles.cell} colSpan={getColSpan(idx)}>
-              <div style={getCellFlexStyles(col)}>{col.label}</div>
-            </td>
+      <table style={{ ...styles.masterTable, borderTop: '0' }}>
+        <colgroup>
+          {visibleCols.map((col) => (
+            <col key={col.id} width={col.width} />
           ))}
-        </tr>
-        {items.map((item, i) => {
-          const totalUnits = item.quantity * job.qta;
-          const factor = item.mat?.rapportoKgMt || item.mat?.conversionFactor || 0;
-          
-          const data: any = {
-            codice: item.component,
-            lunghezzaTaglio: item.lunghezzaTaglioMm || 0,
-            quantita: totalUnits,
-            pesoTotale: ((item.lunghezzaTaglioMm ? (item.lunghezzaTaglioMm / 1000) : 1) * totalUnits * factor).toFixed(1),
-            metriTotali: (item.lunghezzaTaglioMm ? (totalUnits * item.lunghezzaTaglioMm / 1000) : 0).toFixed(2),
-            placeholder: '',
-            checkbox: '□',
-            tempoPrevisto: ''
-          };
+        </colgroup>
+        <thead>
+          <tr style={{ backgroundColor: config.colors.tableHeaderBg, color: config.colors.tableHeaderText, fontWeight: 'bold', fontSize: '7pt' }}>
+            {visibleCols.map((col) => (
+              <td key={col.id} style={styles.cell}>
+                <div style={getCellFlexStyles(col)}>{col.label}</div>
+              </td>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, i) => {
+            const totalUnits = item.quantity * job.qta;
+            const factor = item.mat?.rapportoKgMt || item.mat?.conversionFactor || 0;
+            
+            const data: any = {
+              codice: item.component,
+              lunghezzaTaglio: item.lunghezzaTaglioMm || 0,
+              quantita: totalUnits,
+              pesoTotale: ((item.lunghezzaTaglioMm ? (item.lunghezzaTaglioMm / 1000) : 1) * totalUnits * factor).toFixed(1),
+              metriTotali: (item.lunghezzaTaglioMm ? (totalUnits * item.lunghezzaTaglioMm / 1000) : 0).toFixed(2),
+              placeholder: '',
+              checkbox: '□',
+              tempoPrevisto: '',
+              note: item.note || ''
+            };
 
-          return (
-            <tr key={`${sectionType}-${i}`} style={{ height: '9mm', backgroundColor: sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina }}>
-              {visibleCols.map((col, j) => {
-                const isTempoPrevisto = col.field === 'tempoPrevisto';
-                const span = getColSpan(j);
-                
-                if (isTempoPrevisto) {
-                  if (i === 0) {
-                    return (
-                      <td key={col.id} rowSpan={items.length} colSpan={span} style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt', backgroundColor: 'white' }}>
-                        <div style={getCellFlexStyles(col)}>
-                            {config.layout.showEstimatedTimes ? getEstimatedTimeForSection(
-                                sectionType === 'treccia' ? 'phase-template-1' : 
-                                sectionType === 'tubi' ? 'phase-template-7' : 'phase-template-6'
-                            ) : '---'}
-                        </div>
-                      </td>
-                    );
+            return (
+              <tr key={`${sectionType}-${i}`} style={{ height: '9mm', backgroundColor: sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina }}>
+                {visibleCols.map((col) => {
+                  const isTempoPrevisto = col.field === 'tempoPrevisto';
+                  const cellFontSize = col.fontSize || config.typography.baseFontSize;
+                  
+                  if (isTempoPrevisto) {
+                    if (i === 0) {
+                      return (
+                        <td key={col.id} rowSpan={items.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: `${cellFontSize}pt`, backgroundColor: 'white' }}>
+                          <div style={getCellFlexStyles(col)}>
+                              {config.layout.showEstimatedTimes ? getEstimatedTimeForSection(
+                                  sectionType === 'treccia' ? 'phase-template-1' : 
+                                  sectionType === 'tubi' ? 'phase-template-7' : 'phase-template-6'
+                              ) : '---'}
+                          </div>
+                        </td>
+                      );
+                    }
+                    return null;
                   }
-                  return null;
-                }
 
-                return (
-                  <td key={col.id} style={styles.cell} colSpan={span}>
-                    <div style={getCellFlexStyles(col)}>
-                      {col.field === 'placeholder' ? (
-                        <div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div>
-                      ) : (data[col.field] ?? '---')}
-                    </div>
-                  </td>
-                );
-              })}
-            </tr>
-          );
-        })}
-        <tr style={styles.spacingRow}><td colSpan={GRID_COLS}></td></tr>
-      </tbody>
+                  // Conditional rendering for notes: only show if present
+                  const displayValue = col.field === 'note' ? (data.note || '') : (data[col.field] ?? '---');
+
+                  return (
+                    <td key={col.id} style={{ ...styles.cell, fontSize: `${cellFontSize}pt` }}>
+                      <div style={getCellFlexStyles(col)}>
+                        {col.field === 'placeholder' ? (
+                          <div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div>
+                        ) : displayValue}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     );
   };
 
   const renderFooter = () => (
-    <tbody>
-      <tr style={styles.spacingRow}><td colSpan={GRID_COLS}></td></tr>
-      <tr style={{ height: '10mm' }}>
-        <td style={{ ...styles.cell, backgroundColor: config.colors.footerBg, color: config.colors.footerText, fontWeight: 'bold', padding: '2mm' }} colSpan={6}>
-            <div style={getCellFlexStyles({ textAlign: 'left', verticalAlign: 'top' })}>Segnalazione Operatore (note - NC)</div>
-        </td>
-        <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, color: config.colors.headerText || "#555", fontWeight: 'bold', padding: '2mm' }} colSpan={4}>
-            <div style={getCellFlexStyles({ textAlign: 'left', verticalAlign: 'top' })}>Data e Firma Operatore</div>
-        </td>
-      </tr>
-      <tr style={{ height: '10mm', backgroundColor: 'white' }}>
-        <td style={styles.cell} colSpan={6}></td>
-        <td style={{ ...styles.cell, padding: '4mm' }} colSpan={4}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'flex-end', height: '100%', paddingBottom: '1mm', fontSize: '7.5pt' }}>
-              <span style={{ fontWeight: 'bold' }}>DATA: ___/___/______</span>
-              <span style={{ fontWeight: 'bold' }}>FIRMA: ___________________________________</span>
-          </div>
-        </td>
-      </tr>
-    </tbody>
+    <table style={{ ...styles.masterTable, marginTop: '3mm' }}>
+      <tbody>
+        <tr style={{ height: '10mm' }}>
+          <td style={{ ...styles.cell, backgroundColor: config.colors.footerBg, color: config.colors.footerText, fontWeight: 'bold', padding: '2mm' }} colSpan={6}>
+              <div style={getCellFlexStyles({ textAlign: 'left', verticalAlign: 'top' })}>NOTE / NON CONFORMITÀ (NC)</div>
+          </td>
+          <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, color: config.colors.headerText || "#555", fontWeight: 'bold', padding: '2mm' }} colSpan={4}>
+              <div style={getCellFlexStyles({ textAlign: 'left', verticalAlign: 'top' })}>DATA E FIRMA OPERATORE</div>
+          </td>
+        </tr>
+        <tr style={{ height: '10mm', backgroundColor: 'white' }}>
+          <td style={styles.cell} colSpan={6}></td>
+          <td style={{ ...styles.cell, padding: '4mm' }} colSpan={4}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'flex-end', height: '100%', paddingBottom: '1mm', fontSize: '7.5pt' }}>
+                <span style={{ fontWeight: 'bold' }}>DATA: ___/___/______</span>
+                <span style={{ fontWeight: 'bold' }}>FIRMA: ___________________________________</span>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
   );
 
   const totalItemsRows = trecciaItems.length + tubiItems.length + guainaItems.length;

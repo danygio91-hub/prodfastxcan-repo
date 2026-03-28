@@ -31,9 +31,9 @@ const MOCK_JOB = {
   qta: 150,
   dataConsegnaFinale: new Date().toISOString(),
   billOfMaterials: [
-    { component: 'TRECCIA-CO-10', quantity: 2.5, lunghezzaTaglioMm: 450 },
+    { component: 'TRECCIA-CO-10', quantity: 2.5, lunghezzaTaglioMm: 450, note: 'ATTENZIONE: TAGLIO A 45°' },
     { component: 'TRECCIA-CU-20', quantity: 1.2, lunghezzaTaglioMm: 300 },
-    { component: 'TUBO-SIL-DN10', quantity: 1, lunghezzaTaglioMm: 0 },
+    { component: 'TUBO-SIL-DN10', quantity: 1, lunghezzaTaglioMm: 0, note: 'INSERIRE BOCCOLA' },
     { component: 'GUAINA-TERM-12', quantity: 0.5, lunghezzaTaglioMm: 120 },
   ]
 };
@@ -65,6 +65,7 @@ const FIELD_OPTIONS = [
   { value: 'tempoPrevisto', label: 'Tempo (hh:mm)' },
   { value: 'placeholder', label: 'Verifica' },
   { value: 'checkbox', label: 'Completo (□)' },
+  { value: 'note', label: 'Note BOM' },
 ];
 
 const HEADER_FIELD_OPTIONS = [
@@ -157,11 +158,11 @@ export default function ODLDesignerPage() {
         <div className="flex-1 overflow-y-auto p-5 space-y-8 scrollbar-hide">
           <Tabs defaultValue="header" className="w-full">
             <TabsList className="grid grid-cols-5 p-1 bg-gray-100/80 rounded-xl mb-6 shadow-inner shrink-0">
-              <TabsTrigger value="header" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white"><FileText className="w-4 h-4 mr-1 ml-1" /></TabsTrigger>
-              <TabsTrigger value="layout" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white"><Layout className="w-4 h-4 mr-1 ml-1" /></TabsTrigger>
-              <TabsTrigger value="columns" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white"><TableProperties className="w-4 h-4 mr-1 ml-1" /></TabsTrigger>
-              <TabsTrigger value="colors" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white"><Palette className="w-4 h-4 mr-1 ml-1" /></TabsTrigger>
-              <TabsTrigger value="typo" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white"><Type className="w-4 h-4 mr-1 ml-1" /></TabsTrigger>
+              <TabsTrigger value="header" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white text-[10px] font-bold">INT.</TabsTrigger>
+              <TabsTrigger value="info" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white text-[10px] font-bold">INFO</TabsTrigger>
+              <TabsTrigger value="columns" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white text-[10px] font-bold">COMP.</TabsTrigger>
+              <TabsTrigger value="colors" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white text-[10px] font-bold">STILE</TabsTrigger>
+              <TabsTrigger value="typo" className="rounded-lg data-[state=active]:shadow-md data-[state=active]:bg-white text-[10px] font-bold">FONT</TabsTrigger>
             </TabsList>
 
             {/* HEADER TAB */}
@@ -275,6 +276,20 @@ export default function ODLDesignerPage() {
                                     placeholder="Larghezza (ex. 15%)" 
                                   />
                               </div>
+                              <div className="flex items-center gap-3 px-1 mt-1">
+                                  <Label className="text-[9px] font-bold text-gray-400 uppercase w-10 shrink-0">Font</Label>
+                                  <Slider 
+                                      value={[col.fontSize || config.typography.headerFontSize]} 
+                                      min={4} max={18} step={0.5} 
+                                      onValueChange={([val]) => {
+                                          const newCols = [...config.header.columns];
+                                          newCols[idx] = { ...newCols[idx], fontSize: val };
+                                          updateConfig('header.columns', newCols);
+                                      }} 
+                                      className="flex-1"
+                                  />
+                                  <span className="text-[9px] font-mono font-bold text-blue-600 w-8">{col.fontSize || config.typography.headerFontSize}pt</span>
+                              </div>
                           </div>
                       ))}
                       {(!config.header.columns || config.header.columns.length === 0) && (
@@ -312,98 +327,108 @@ export default function ODLDesignerPage() {
                </div>
             </TabsContent>
 
-            {/* LAYOUT TAB */}
-            <TabsContent value="layout" className="space-y-6 animate-in fade-in slide-in-from-right-2">
-               <div className="space-y-5 p-5 border rounded-2xl bg-gray-50/70 shadow-sm">
-                  <Label className="text-sm font-extrabold text-blue-800 uppercase tracking-tighter">Global Cell Styling</Label>
-                  
-                  <div className="space-y-3">
-                      <Label className="text-[11px] font-bold text-gray-500 uppercase">Allineamento Orizzontale</Label>
-                      <div className="flex p-1 bg-gray-200/50 rounded-xl">
-                        <Button variant={config.layout.textAlign === 'left' ? 'default' : 'ghost'} size="sm" className="flex-1 h-9 rounded-lg" onClick={() => updateConfig('layout.textAlign', 'left')}><AlignLeft className="w-4 h-4" /></Button>
-                        <Button variant={config.layout.textAlign === 'center' ? 'default' : 'ghost'} size="sm" className="flex-1 h-9 rounded-lg" onClick={() => updateConfig('layout.textAlign', 'center')}><AlignCenter className="w-4 h-4" /></Button>
-                        <Button variant={config.layout.textAlign === 'right' ? 'default' : 'ghost'} size="sm" className="flex-1 h-9 rounded-lg" onClick={() => updateConfig('layout.textAlign', 'right')}><AlignRight className="w-4 h-4" /></Button>
-                      </div>
-                  </div>
-
-                  <div className="space-y-3">
-                      <Label className="text-[11px] font-bold text-gray-500 uppercase">Allineamento Verticale</Label>
-                      <div className="flex p-1 bg-gray-200/50 rounded-xl">
-                        <Button variant={config.layout.verticalAlign === 'top' ? 'default' : 'ghost'} size="sm" className="flex-1 h-9 rounded-lg" onClick={() => updateConfig('layout.verticalAlign', 'top')}><AlignVerticalJustifyStart className="w-4 h-4" /></Button>
-                        <Button variant={config.layout.verticalAlign === 'middle' ? 'default' : 'ghost'} size="sm" className="flex-1 h-9 rounded-lg" onClick={() => updateConfig('layout.verticalAlign', 'middle')}><AlignVerticalJustifyCenter className="w-4 h-4" /></Button>
-                        <Button variant={config.layout.verticalAlign === 'bottom' ? 'default' : 'ghost'} size="sm" className="flex-1 h-9 rounded-lg" onClick={() => updateConfig('layout.verticalAlign', 'bottom')}><AlignVerticalJustifyEnd className="w-4 h-4" /></Button>
-                      </div>
-                  </div>
-                  
-                  <div className="space-y-3 pt-2">
-                    <div className="flex justify-between items-center text-xs font-bold text-gray-600">
-                        <Label>Spaziatura Interna (Padding)</Label>
-                        <span className="text-blue-700 font-bold">{config.layout.cellPadding} px</span>
-                    </div>
-                    <Slider value={[config.layout.cellPadding || 0]} min={0} max={15} step={1} onValueChange={([v]) => updateConfig('layout.cellPadding', v)} className="py-2" />
-                  </div>
-               </div>
-
-              <div className="space-y-5 p-5 border rounded-2xl bg-white shadow-xl ring-1 ring-blue-50 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 rounded-full blur-3xl -z-0"></div>
-                  <div className="flex items-center justify-between relative z-10">
-                    <div>
-                        <Label className="font-bold text-base text-gray-800">Area Note / Disegno Libero</Label>
-                        <p className="text-[10px] text-gray-400 italic">Visualizza spazio per appunti manuali o NC</p>
-                    </div>
-                    <Switch checked={config.layout.showDrawingArea} onCheckedChange={(val) => updateConfig('layout.showDrawingArea', val)} />
-                  </div>
-                  <div className="relative z-10 space-y-4">
-                    <Input 
-                        placeholder="Titolo area (es. DISEGNO LIBERO NC)" 
-                        className="h-10 text-sm italic rounded-lg bg-gray-50/50 border-gray-200"
-                        value={config.layout.drawingAreaText || ''} 
-                        onChange={(e) => updateConfig('layout.drawingAreaText', e.target.value)} 
-                        disabled={!config.layout.showDrawingArea} 
-                    />
-                    {config.layout.showDrawingArea && (
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-bold text-gray-500 uppercase">Sfondo Area</Label>
-                                <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-lg border">
-                                    <Input type="color" value={config.colors.drawingAreaBg} onChange={(e) => updateConfig('colors.drawingAreaBg', e.target.value)} className="h-8 w-8 p-0 border-none shrink-0" />
-                                    <span className="text-[10px] font-mono text-gray-400">{config.colors.drawingAreaBg}</span>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-bold text-gray-500 uppercase">Colore Testo</Label>
-                                <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-lg border">
-                                    <Input type="color" value={config.colors.drawingAreaText} onChange={(e) => updateConfig('colors.drawingAreaText', e.target.value)} className="h-8 w-8 p-0 border-none shrink-0" />
-                                    <span className="text-[10px] font-mono text-gray-400">{config.colors.drawingAreaText}</span>
-                                </div>
-                            </div>
+            {/* INFO TAB */}
+            <TabsContent value="info" className="space-y-6 animate-in fade-in slide-in-from-right-2 pb-20">
+                <div className="space-y-4 pt-2">
+                    <Label className="text-sm font-bold tracking-tight text-gray-900 uppercase">INFORMAZIONI (AREA CENTRALE)</Label>
+                    
+                    <div className="grid grid-cols-2 gap-3 p-4 border rounded-2xl bg-gray-50/70 shadow-sm">
+                        <div className="space-y-2">
+                            <Label className="text-[10px] font-bold text-gray-400 uppercase">Larg. Etichette</Label>
+                            <Input className="h-8 text-xs font-mono" value={config.info.labelWidth} onChange={(e) => updateConfig('info.labelWidth', e.target.value)} placeholder="es. 15%" />
                         </div>
-                    )}
-                  </div>
-              </div>
-              
-              <div className="space-y-5 p-5 border rounded-2xl bg-gray-50/70 shadow-sm relative overflow-hidden group">
-                  <div className="flex items-center justify-between">
-                    <Label className="font-bold text-sm text-gray-800">Pagina Intelligente & Automazione</Label>
-                    <div className="bg-orange-100 text-orange-600 p-1 rounded-full"><RotateCcw className="w-3 h-3" /></div>
-                  </div>
-                  <div className="flex items-center justify-between text-sm bg-white p-3 rounded-xl border group-hover:border-blue-200 transition-colors">
-                    <Label className="font-medium">Includi Tempi Previsti (hh:mm)</Label>
-                    <Switch checked={config.layout.showEstimatedTimes} onCheckedChange={(val) => updateConfig('layout.showEstimatedTimes', val)} />
-                  </div>
-                  <div className="space-y-3 pt-2">
-                    <div className="flex justify-between items-center text-[11px] font-bold text-gray-600 uppercase">
-                      <span>Soglia Split Pagina</span>
-                      <span className="bg-orange-500 text-white px-2 py-0.5 rounded-md shadow-sm">{config.layout.splitByCategoryThreshold} righe</span>
+                        <div className="space-y-2">
+                            <Label className="text-[10px] font-bold text-gray-400 uppercase">Larg. Valori</Label>
+                            <Input className="h-8 text-xs font-mono" value={config.info.valueWidth} onChange={(e) => updateConfig('info.valueWidth', e.target.value)} placeholder="es. 25%" />
+                        </div>
+                        <div className="col-span-2 space-y-2">
+                            <div className="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase">
+                                <Label>Font Size Informazioni</Label>
+                                <span className="text-blue-600">{config.info.fontSize} pt</span>
+                            </div>
+                            <Slider value={[config.info.fontSize]} min={4} max={18} step={0.5} onValueChange={([val]) => updateConfig('info.fontSize', val)} />
+                        </div>
                     </div>
-                    <Slider value={[config.layout.splitByCategoryThreshold]} min={1} max={35} step={1} onValueChange={([val]) => updateConfig('layout.splitByCategoryThreshold', val)} />
-                    <p className="text-[9px] text-gray-400 italic">Oltre questo numero di righe totali, il sistema creerà un foglio separato per ogni categoria (Treccia, Tubi, Guaina).</p>
-                  </div>
-              </div>
+
+                    <div className="space-y-2">
+                        {config.info.columns.map((col, idx) => (
+                            <div key={col.id} className="p-3 border rounded-xl bg-white flex items-center gap-3 shadow-sm hover:border-blue-300 transition-colors">
+                                <Switch checked={col.visible} onCheckedChange={(val) => {
+                                    const newCols = [...config.info.columns];
+                                    newCols[idx] = { ...newCols[idx], visible: val };
+                                    updateConfig('info.columns', newCols);
+                                }} />
+                                <Input className="h-8 text-xs font-bold flex-1" value={col.label} onChange={(e) => {
+                                    const newCols = [...config.info.columns];
+                                    newCols[idx] = { ...newCols[idx], label: e.target.value };
+                                    updateConfig('info.columns', newCols);
+                                }} />
+                                <Select value={col.colorKey || 'white'} onValueChange={(val) => {
+                                    const newCols = [...config.info.columns];
+                                    newCols[idx] = { ...newCols[idx], colorKey: val === 'white' ? undefined : val };
+                                    updateConfig('info.columns', newCols);
+                                }}>
+                                    <SelectTrigger className="h-8 w-24 text-[10px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="white">Bianco</SelectItem>
+                                        <SelectItem value="bgValueGreen">Verde</SelectItem>
+                                        <SelectItem value="bgValueYellow">Giallo</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="space-y-4 p-5 border rounded-2xl bg-white shadow-xl ring-1 ring-blue-50 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 rounded-full blur-3xl -z-0"></div>
+                    <div className="flex items-center justify-between relative z-10">
+                      <div>
+                          <Label className="font-bold text-base text-gray-800">Spazio Disegno / Note</Label>
+                          <p className="text-[10px] text-gray-400 italic">Visualizza area per note manuali</p>
+                      </div>
+                      <Switch checked={config.layout.showDrawingArea} onCheckedChange={(val) => updateConfig('layout.showDrawingArea', val)} />
+                    </div>
+                    <div className="relative z-10 space-y-4">
+                      <Input 
+                          placeholder="Titolo area (es. DISEGNO LIBERO NC)" 
+                          className="h-10 text-sm italic rounded-lg bg-gray-50/50 border-gray-200"
+                          value={config.layout.drawingAreaText || ''} 
+                          onChange={(e) => updateConfig('layout.drawingAreaText', e.target.value)} 
+                          disabled={!config.layout.showDrawingArea} 
+                      />
+                    </div>
+                </div>
+
+                <div className="p-4 border rounded-2xl bg-gray-50/70 shadow-sm">
+                    <div className="flex justify-between items-center text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">
+                        <span>Dimensione QR Code</span>
+                        <span className="text-blue-600 bg-white px-3 py-1 rounded-full shadow-sm">{config.header.qrSize} px</span>
+                    </div>
+                    <div className="px-1">
+                        <Slider value={[config.header.qrSize || 80]} min={40} max={180} step={5} onValueChange={([v]) => updateConfig('header.qrSize', v)} />
+                    </div>
+                </div>
             </TabsContent>
 
-            {/* COLUMNS TAB */}
              <TabsContent value="columns" className="space-y-4 pb-20 animate-in fade-in slide-in-from-right-2">
+                <div className="space-y-4 p-5 border rounded-2xl bg-gray-50/70 shadow-sm relative overflow-hidden group">
+                      <div className="flex items-center justify-between">
+                        <Label className="font-bold text-sm text-gray-800 uppercase italic">PREPARAZIONE COMPONENTI</Label>
+                      </div>
+                      <div className="flex items-center justify-between text-sm bg-white p-3 rounded-xl border group-hover:border-blue-200 transition-colors">
+                        <Label className="font-medium text-xs">Includi Tempi Previsti (hh:mm)</Label>
+                        <Switch checked={config.layout.showEstimatedTimes} onCheckedChange={(val) => updateConfig('layout.showEstimatedTimes', val)} />
+                      </div>
+                      <div className="space-y-3 pt-2">
+                        <div className="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase">
+                          <span>Soglia Split Pagina</span>
+                          <span className="bg-blue-600 text-white px-2 py-0.5 rounded-md shadow-sm">{config.layout.splitByCategoryThreshold} righe</span>
+                        </div>
+                        <Slider value={[config.layout.splitByCategoryThreshold]} min={1} max={35} step={1} onValueChange={([val]) => updateConfig('layout.splitByCategoryThreshold', val)} />
+                      </div>
+                </div>
+
                 <Tabs defaultValue="treccia-cols">
                     <TabsList className="grid grid-cols-3 p-1 bg-blue-50/50 rounded-xl mb-4 shrink-0">
                         <TabsTrigger value="treccia-cols" className="text-[10px] rounded-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white">TRECCIA</TabsTrigger>
@@ -500,6 +525,21 @@ export default function ODLDesignerPage() {
                                                 updateConfig(`columns.${cat}`, newCols);
                                             }}><AlignRight className="w-3.5 h-3.5" /></Button>
                                         </div>
+                                    </div>
+                                    {/* Font Size Control for Column */}
+                                    <div className="flex items-center gap-3 px-1">
+                                        <Label className="text-[10px] font-bold text-gray-400 uppercase w-12 shrink-0">Font Size</Label>
+                                        <Slider 
+                                            value={[col.fontSize || config.typography.baseFontSize]} 
+                                            min={4} max={16} step={0.5} 
+                                            onValueChange={([val]) => {
+                                                const newCols = [...config.columns[cat]];
+                                                newCols[idx] = { ...newCols[idx], fontSize: val };
+                                                updateConfig(`columns.${cat}`, newCols);
+                                            }} 
+                                            className="flex-1"
+                                        />
+                                        <span className="text-[10px] font-mono font-bold text-blue-600 w-8">{col.fontSize || config.typography.baseFontSize}pt</span>
                                     </div>
                                 </div>
                             ))}
