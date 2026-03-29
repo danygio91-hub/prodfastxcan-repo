@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Article } from '@/lib/mock-data';
+import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Article, RawMaterial, PurchaseOrder, ManualCommitment } from '@/lib/mock-data';
 
 import { startOfWeek, endOfWeek, format, parseISO, eachDayOfInterval } from 'date-fns';
 import { getProductionTimeAnalysisMap } from '../production-console/actions';
@@ -125,13 +125,15 @@ export async function getPlanningData(dateIso: string) {
     const start = startOfWeek(targetDate, { weekStartsOn: 1 });
     const end = endOfWeek(targetDate, { weekStartsOn: 1 });
     
-    const [jobOrdersSnap, operatorsSnap, departmentsSnap, assignments, settingsSnap] = await Promise.all([
+    const [jobOrdersSnap, operatorsSnap, departmentsSnap, assignments, settingsSnap, rawMaterialsSnap, purchaseOrdersSnap, manualCommitmentsSnap] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
         adminDb.collection("operators").get(),
         adminDb.collection("departments").orderBy("name").get(),
-
         getOperatorAssignments(format(start, 'yyyy-MM-dd'), format(end, 'yyyy-MM-dd')),
-        adminDb.collection("system").doc("productionSettings").get()
+        adminDb.collection("system").doc("productionSettings").get(),
+        adminDb.collection("rawMaterials").get(),
+        adminDb.collection("purchaseOrders").where("status", "in", ["pending", "partially_received"]).get(),
+        adminDb.collection("manualCommitments").where("status", "==", "pending").get()
     ]);
 
 
@@ -139,6 +141,9 @@ export async function getPlanningData(dateIso: string) {
     const operators = operatorsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as Operator)).filter(op => op.isReal !== false);
     const departments = departmentsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as Department));
     const settings = settingsSnap.exists ? convertTimestampsToDates(settingsSnap.data()) as any : {};
+    const rawMaterials = rawMaterialsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as RawMaterial));
+    const purchaseOrders = purchaseOrdersSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as PurchaseOrder));
+    const manualCommitments = manualCommitmentsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as ManualCommitment));
 
 
     // Fetch only needed articles for the jobs
@@ -160,6 +165,9 @@ export async function getPlanningData(dateIso: string) {
         assignments,
         articles,
         settings,
+        rawMaterials,
+        purchaseOrders,
+        manualCommitments,
         dateRange: { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') }
     };
 }
@@ -372,4 +380,39 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
     return { ...snapshotResult, isFromCache: false };
 }
 
+/**
+ * Aggiorna in tempo reale la data di assegnazione Kanban di una o più commesse,
+ * abilitando la "Optimistic UI" nel Drag&Drop
+ */
+export async function assignJobToDate(jobId: string, assignedDate: string | null) {
+    try {
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            assignedDate: assignedDate, // e.g. '2024-03-29' or null for 'unassigned'
+        });
+        // We do not revalidatePath here if the client relies on optimistic UI 
+        // to avoid heavy refetching during rapid drag&drops.
+        // It's up to the client to decide when to call refresh.
+        return { success: true };
+    } catch (e) {
+        return { success: false, message: "Errore durante il salvataggio della data." };
+    }
+}
+
+/**
+ * Attiva o disattiva la priorità alta per una commessa.
+ */
+export async function toggleJobPriority(jobId: string, value: boolean) {
+    try {
+        await ensureAdmin();
+        const docRef = adminDb.collection("jobOrders").doc(jobId);
+        await docRef.update({ 
+            isPriority: value,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return { success: true, message: "Priorità aggiornata con successo" };
+    } catch (error: any) {
+        return { success: false, message: error.message || "Errore sconosciuto" };
+    }
+}
 

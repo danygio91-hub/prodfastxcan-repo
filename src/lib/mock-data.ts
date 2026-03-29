@@ -93,6 +93,8 @@ export interface JobOrder {
   jobOrderIds?: string[];
   jobOrderPFs?: string[];
   isPrinted?: boolean; // New field for print tracking
+  assignedDate?: string; // New field for Kanban planning (format: YYYY-MM-DD or 'unassigned')
+  isPriority?: boolean; // New field for urgent prioritizing
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';

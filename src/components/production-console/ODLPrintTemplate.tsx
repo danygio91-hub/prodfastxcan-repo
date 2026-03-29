@@ -10,6 +10,7 @@ interface ODLPrintTemplateProps {
   materials: RawMaterial[];
   printDate?: Date;
   config?: ODLConfig;
+  qrRule?: string;
 }
 
 export default function ODLPrintTemplate({ 
@@ -17,7 +18,8 @@ export default function ODLPrintTemplate({
   article, 
   materials, 
   printDate, 
-  config = DEFAULT_ODL_CONFIG 
+  config = DEFAULT_ODL_CONFIG,
+  qrRule = "{ordinePF}@{details}@{qta}"
 }: ODLPrintTemplateProps) {
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
 
@@ -248,7 +250,13 @@ export default function ODLPrintTemplate({
                                 CODICE COMMESSA
                             </div>
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1mm' }}>
-                                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={config.header.qrSize || 65} />
+                                <QRCode value={
+                                  (qrRule || "{ordinePF}@{details}@{qta}")
+                                  .replace('{ordinePF}', job.ordinePF || '')
+                                  .replace('{details}', job.details || '')
+                                  .replace('{qta}', String(job.qta || ''))
+                                  .replace('{numeroODLInterno}', job.numeroODLInterno || '')
+                                } size={config.header.qrSize || 65} />
                             </div>
                         </div>
                     </td>

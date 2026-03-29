@@ -11,6 +11,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import type { JobOrder, RawMaterial, Article } from '@/lib/mock-data';
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { getODLConfig } from '@/app/admin/settings/odl-actions';
+import { getGlobalSettings } from '@/lib/settings-actions';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 
 function PrintPageContent() {
@@ -21,6 +22,7 @@ function PrintPageContent() {
   const [article, setArticle] = useState<Article | null>(null);
   const [materials, setMaterials] = useState<RawMaterial[]>([]);
   const [config, setConfig] = useState<ODLConfig>(DEFAULT_ODL_CONFIG);
+  const [qrRule, setQrRule] = useState<string>("{ordinePF}@{details}@{qta}");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,12 +35,16 @@ function PrintPageContent() {
       }
 
       try {
-        const [jobData, odlConfig] = await Promise.all([
+        const [jobData, odlConfig, globalSettings] = await Promise.all([
           getJobDetailReport(jobId),
-          getODLConfig()
+          getODLConfig(),
+          getGlobalSettings()
         ]);
 
         setConfig(odlConfig);
+        if (globalSettings?.jobOrderQrCodeRule) {
+          setQrRule(globalSettings.jobOrderQrCodeRule);
+        }
 
         if (jobData) {
           const typedJob = jobData as unknown as JobOrder;
@@ -102,6 +108,7 @@ function PrintPageContent() {
             article={article}
             materials={materials}
             config={config}
+            qrRule={qrRule}
         />
       </div>
 

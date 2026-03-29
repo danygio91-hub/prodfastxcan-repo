@@ -40,6 +40,8 @@ import { cn, calculateCommitmentQty, formatDisplayStock, isJobReadyForProduction
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
+import { getODLConfig } from '@/app/admin/settings/odl-actions';
+import { getGlobalSettings } from '@/lib/settings-actions';
 import { Calendar } from '@/components/ui/calendar';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -260,6 +262,16 @@ export default function DataManagementClientPage({
   const [articleSuggestions, setArticleSuggestions] = useState<Article[]>([]);
   const [isSearchingArticles, setIsSearchingArticles] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const [odlConfig, setOdlConfig] = useState<any>(undefined);
+  const [qrRule, setQrRule] = useState<string>("{ordinePF}@{details}@{qta}");
+
+  useEffect(() => {
+    Promise.all([getODLConfig(), getGlobalSettings()]).then(([config, settings]) => {
+      if (config) setOdlConfig(config);
+      if (settings?.jobOrderQrCodeRule) setQrRule(settings.jobOrderQrCodeRule);
+    });
+  }, []);
 
   const handleSearchArticle = (term: string) => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
@@ -526,7 +538,7 @@ export default function DataManagementClientPage({
         </div>
       </header>
 
-      {pdfData && <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}><ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} /></div>}
+      {pdfData && <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}><ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} config={odlConfig} qrRule={qrRule} /></div>}
 
       <Tabs defaultValue="planned">
         <TabsList className="grid w-full grid-cols-3">

@@ -13,6 +13,7 @@ export interface GlobalSettings {
   productionProblemTypes: { id: string, label: string }[];
   phaseTypes: { id: string, label: string }[];
   materialSessionCategories: string[];
+  jobOrderQrCodeRule?: string; // e.g. "{ordinePF}@{details}@{qta}"
 }
 
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
@@ -37,4 +38,5 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
     { id: 'packaging', label: 'Imballaggio' },
   ],
   materialSessionCategories: ['TRECCIA', 'TUBI', 'GUAINA'],
+  jobOrderQrCodeRule: "{ordinePF}@{details}@{qta}",
 };

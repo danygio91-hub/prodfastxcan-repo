@@ -133,6 +133,7 @@ export default function GlobalParametersPage() {
               <TabsTrigger value="units" className="gap-2"><Ruler className="h-4 w-4" /> Unità</TabsTrigger>
               <TabsTrigger value="problems" className="gap-2"><AlertCircle className="h-4 w-4" /> Problemi</TabsTrigger>
               <TabsTrigger value="sessions" className="gap-2"><Layers className="h-4 w-4" /> Sessioni</TabsTrigger>
+              <TabsTrigger value="general" className="gap-2"><Settings2 className="h-4 w-4" /> Generali</TabsTrigger>
             </TabsList>
 
             {/* RAW MATERIAL TYPES */}
@@ -281,6 +282,43 @@ export default function GlobalParametersPage() {
                             </div>
                         ))}
                     </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* GENERAL SETTINGS */}
+            <TabsContent value="general" className="space-y-4 pt-4">
+               <Card>
+                <CardHeader>
+                  <CardTitle>Impostazioni Generali</CardTitle>
+                  <CardDescription>Regole di formattazione e comportamenti globali del sistema.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="space-y-2 border p-4 rounded-lg bg-muted/5 max-w-2xl">
+                    <Label className="text-base font-semibold">Regola Generazione QR Code Commessa</Label>
+                    <p className="text-sm text-muted-foreground pb-2">
+                      Definisci il formato del QR code generato per l'ODL. Puoi usare le variabili: <br />
+                      <code className="text-xs bg-muted p-1 rounded">{'{'}ordinePF{'}'}</code>, 
+                      <code className="text-xs bg-muted p-1 rounded mx-1">{'{'}details{'}'}</code> (Codice Articolo), 
+                      <code className="text-xs bg-muted p-1 rounded mx-1">{'{'}qta{'}'}</code>, 
+                      <code className="text-xs bg-muted p-1 rounded">{'{'}numeroODLInterno{'}'}</code>
+                    </p>
+                    <Input 
+                        value={settings.jobOrderQrCodeRule || '{ordinePF}@{details}@{qta}'} 
+                        onChange={(e) => setSettings({ ...settings, jobOrderQrCodeRule: e.target.value })} 
+                        placeholder="Es. {ordinePF}@{details}@{qta}" 
+                        className="font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Esempio Risultato: {
+                        (settings.jobOrderQrCodeRule || '{ordinePF}@{details}@{qta}')
+                        .replace('{ordinePF}', 'COM001')
+                        .replace('{details}', 'ART123')
+                        .replace('{qta}', '100')
+                        .replace('{numeroODLInterno}', '0001-26')
+                      }
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

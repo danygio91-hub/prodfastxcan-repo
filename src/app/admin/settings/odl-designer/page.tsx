@@ -17,6 +17,7 @@ import {
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { ODLConfig, DEFAULT_ODL_CONFIG, ColumnConfig, HeaderColumnConfig } from '@/lib/odl-config';
 import { getODLConfig, saveODLConfig } from '../odl-actions';
+import { getGlobalSettings } from '@/lib/settings-actions';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -80,13 +81,18 @@ export default function ODLDesignerPage() {
   const [config, setConfig] = useState<ODLConfig>(DEFAULT_ODL_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [qrRule, setQrRule] = useState<string>("{ordinePF}@{details}@{qta}");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     async function load() {
-      const savedConfig = await getODLConfig();
+      const [savedConfig, globalSettings] = await Promise.all([
+          getODLConfig(),
+          getGlobalSettings()
+      ]);
       setConfig(savedConfig || DEFAULT_ODL_CONFIG);
+      if (globalSettings?.jobOrderQrCodeRule) setQrRule(globalSettings.jobOrderQrCodeRule);
       setLoading(false);
     }
     load();
@@ -771,6 +777,7 @@ export default function ODLDesignerPage() {
                 article={MOCK_ARTICLE as any} 
                 materials={MOCK_MATERIALS as any} 
                 config={config} 
+                qrRule={qrRule}
               />
            </div>
            

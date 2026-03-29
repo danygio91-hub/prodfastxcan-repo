@@ -16,11 +16,12 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import GanttBoard from '@/components/production-console/GanttBoard';
-import { isJobReadyForProduction } from '@/lib/utils';
-import type { JobOrder, Operator, OperatorAssignment, Department, Article } from '@/lib/mock-data';
-import { cn } from '@/lib/utils';
 import ResourceAssignmentDialog from './ResourceAssignmentDialog';
 import { useAuth } from '@/components/auth/AuthProvider';
+import WeekKanbanBoard from '@/components/production-console/WeekKanbanBoard';
+import { buildMRPTimelines, isJobReadyForProduction, cn } from '@/lib/utils';
+import { assignJobToDate } from './actions';
+import type { JobOrder, Operator, OperatorAssignment, Department, Article } from '@/lib/mock-data';
 
 export default function ResourcePlanningClientPage() {
     const { toast } = useToast();
@@ -37,14 +38,17 @@ export default function ResourcePlanningClientPage() {
         departments: Department[],
         assignments: OperatorAssignment[],
         articles: Article[],
-        settings: any
+        settings: any,
+        rawMaterials?: any[],
+        purchaseOrders?: any[],
+        manualCommitments?: any[]
     } | null>(null);
     
     // Analysis Snapshot
     const [snapshot, setSnapshot] = useState<any>(null);
     const [activeTab, setActiveTab] = useState<string>('PRODUZIONE');
     const [activeSubTab, setActiveSubTab] = useState<string | null>(null);
-    const [viewMode, setViewMode] = useState<'split' | 'gantt' | 'list'>('split');
+    const [viewMode, setViewMode] = useState<'kanban' | 'split' | 'gantt' | 'list'>('kanban');
     const [isAssignmentDialogOpen, setIsAssignmentDialogOpen] = useState(false);
 
     useEffect(() => {
@@ -111,14 +115,14 @@ export default function ResourcePlanningClientPage() {
         return data.jobOrders.filter(job => {
             // First level: MacroArea
             if (activeTab === 'PREPARAZIONE') {
-                return job.status === 'planned' || job.phases?.some(p => p.type === 'preparation');
+                return job.status === 'planned' || job.phases?.some((p: any) => p.type === 'preparation');
             }
 
             if (activeTab === 'QLTY_PACK') {
-                return job.phases?.some(p => p.type === 'quality' || p.type === 'packaging');
+                return job.phases?.some((p: any) => p.type === 'quality' || p.type === 'packaging');
             }
             if (activeTab === 'PRODUZIONE') {
-                if (!activeSubTab) return job.phases?.some(p => p.type === 'production');
+                if (!activeSubTab) return job.phases?.some((p: any) => p.type === 'production');
                 return job.department === activeSubTab;
             }
 
@@ -139,7 +143,7 @@ export default function ResourcePlanningClientPage() {
         if (activeTab === 'PRODUZIONE' && activeSubTab) {
             return data.operators.filter(op => 
                 op.reparto.includes(activeSubTab) || 
-                data.assignments.some(a => a.operatorId === op.id && a.departmentCode === activeSubTab)
+                data.assignments.some((a: any) => a.operatorId === op.id && a.departmentCode === activeSubTab)
             );
         }
         // For Prep or QltyPack, we might show relevant depts
@@ -181,6 +185,35 @@ export default function ResourcePlanningClientPage() {
         const dept = data?.departments.find(d => d.code === activeSubTab);
         return dept?.dependsOnPreparation ?? true;
     }, [data, activeTab, activeSubTab]);
+
+    // MRP Timelines calculation
+    const mrpTimelines = useMemo(() => {
+        if (!data?.jobOrders || !data?.rawMaterials) return new Map();
+        return buildMRPTimelines(
+            data.jobOrders,
+            data.rawMaterials,
+            data.articles,
+            data.purchaseOrders || [],
+            data.manualCommitments || []
+        );
+    }, [data]);
+
+    const handleJobDrop = async (jobId: string, assignedDate: string | null) => {
+        // Optimistic update
+        if (data) {
+            const updatedJobs = data.jobOrders.map(j => 
+                j.id === jobId ? { ...j, assignedDate: assignedDate || undefined } : j
+            );
+            setData({ ...data, jobOrders: updatedJobs });
+        }
+
+        const res = await assignJobToDate(jobId, assignedDate);
+        if (!res.success) {
+            toast({ title: 'Errore', description: res.message, variant: 'destructive' });
+            // Revert on failure
+            loadData(false);
+        }
+    };
 
     if (loading && !data) return (
 
@@ -252,6 +285,7 @@ export default function ResourcePlanningClientPage() {
                     <div className="w-px h-8 bg-border mx-2" />
 
                     <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-lg">
+                        <Button variant={viewMode === 'kanban' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('kanban')}><LayoutGrid className="mr-1 h-3 w-3" /> SETTIMANA</Button>
                         <Button variant={viewMode === 'list' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('list')}><LayoutGrid className="mr-1 h-3 w-3" /> LISTA</Button>
                         <Button variant={viewMode === 'split' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('split')}><Briefcase className="mr-1 h-3 w-3" /> SPLIT</Button>
                         <Button variant={viewMode === 'gantt' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('gantt')}><Timer className="mr-1 h-3 w-3" /> GANTT</Button>
@@ -373,6 +407,23 @@ export default function ResourcePlanningClientPage() {
                         </Card>
                     )}
 
+                    {/* --- KANBAN BOARD (FULL WIDTH) --- */}
+                    {viewMode === 'kanban' && (
+                        <div className="h-[75vh]">
+                            <WeekKanbanBoard 
+                                jobOrders={filteredJobs}
+                                articles={data?.articles || []}
+                                snapshot={snapshot}
+                                activeTab={activeTab}
+                                activeSubTab={activeSubTab}
+                                currentWeekStart={startOfCurrentWeek}
+                                rawMaterials={data?.rawMaterials || []}
+                                mrpTimelines={mrpTimelines}
+                                onJobDrop={handleJobDrop}
+                            />
+                        </div>
+                    )}
+
                     {/* --- GANTT (RIGHT PANE) --- */}
                     {(viewMode === 'gantt' || viewMode === 'split') && (
                         <div className={cn("flex flex-col gap-4", viewMode === 'split' ? "xl:col-span-8" : "h-full")}>
@@ -384,7 +435,6 @@ export default function ResourcePlanningClientPage() {
                              articles={data?.articles || []}
                              timelineStartProp={currentDate}
                            />
-
                         </div>
                     )}
                 </div>
@@ -399,7 +449,7 @@ function ListCheckIcon() {
 
 function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { job: JobOrder, isReady: boolean, articles: Article[], activeTab: string, activeSubTab: string | null }) {
     const totalPhases = job.phases?.length || 1;
-    const completedPhases = job.phases?.filter(p => p.status === 'completed').length || 0;
+    const completedPhases = job.phases?.filter((p: any) => p.status === 'completed').length || 0;
     const progress = (completedPhases / totalPhases) * 100;
 
     // Calculate hours for the relevant phases in this macroarea/dept
@@ -410,18 +460,18 @@ function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { 
         let hasUsedFallback = false;
         if (!article || !article.phaseTimes) hasUsedFallback = true;
 
-        const relevantPhases = (job.phases || []).filter(phase => {
-            if (activeTab === 'PREPARAZIONE') return phase.type === 'preparation';
-            if (activeTab === 'QLTY_PACK') return phase.type === 'quality' || phase.type === 'packaging';
+        const relevantPhases = (job.phases || []).filter((p: any) => {
+            if (activeTab === 'PREPARAZIONE') return p.type === 'preparation';
+            if (activeTab === 'QLTY_PACK') return p.type === 'quality' || p.type === 'packaging';
             if (activeTab === 'PRODUZIONE') {
-                if (!activeSubTab) return phase.type === 'production';
-                return phase.type === 'production' && job.department === activeSubTab;
+                if (!activeSubTab) return p.type === 'production';
+                return p.type === 'production' && job.department === activeSubTab;
             }
 
             return false;
         });
 
-        const totalMinutes = relevantPhases.reduce((acc, phase) => {
+        const totalMinutes = relevantPhases.reduce((acc: number, phase: any) => {
             const phaseTimeObj = article?.phaseTimes?.[phase.name];
             if (!phaseTimeObj) hasUsedFallback = true;
             const time = phaseTimeObj?.expectedMinutesPerPiece || 10;

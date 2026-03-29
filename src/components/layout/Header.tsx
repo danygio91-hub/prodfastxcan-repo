@@ -86,7 +86,8 @@ export default function Header() {
         setHasAlerts(alerts.length > 0);
       }).catch((err: any) => console.error("Error fetching alerts for header:", err));
     }
-  }, [isAdminPage, pathname]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdminPage]);
 
   const avatarName = operator ? operator.nome : 'Operatore';
   const displayInitials = getInitials(avatarName);
