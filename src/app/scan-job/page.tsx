@@ -34,6 +34,8 @@ import MaterialAssociationDialog from './MaterialAssociationDialog';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import PauseReasonDialog, { PauseReason } from '@/components/production-console/PauseReasonDialog';
+import AttachmentViewerDialog from '@/components/production-console/AttachmentViewerDialog';
 
 function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
   let total = 0;
@@ -135,6 +137,11 @@ export default function ScanJobPage() {
   const [jobsToGroup, setJobsToGroup] = useState<JobOrder[]>([]);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [isDissolving, setIsDissolving] = useState(false);
+
+  const [isPauseReasonDialogOpen, setIsPauseReasonDialogOpen] = useState(false);
+  const [phaseIdToPause, setPhaseIdToPause] = useState<string | null>(null);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isAttachmentsDialogOpen, setIsAttachmentsDialogOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const groupingVideoRef = useRef<HTMLVideoElement>(null);
@@ -291,10 +298,20 @@ export default function ScanJobPage() {
     setIsDissolving(false);
   };
 
-  const handlePausePhase = async (id: string) => {
-    if (!activeJob || !operator) return;
-    await handlePhasePause(activeJob.id, id, operator.id);
+  const handlePausePhase = (id: string) => {
+    setPhaseIdToPause(id);
+    setIsPauseReasonDialogOpen(true);
+  };
+
+  const confirmPause = async (reason: PauseReason, notes?: string) => {
+    if (!activeJob || !operator || !phaseIdToPause) return;
+    setIsPausing(true);
+    await handlePhasePause(activeJob.id, phaseIdToPause, operator.id, reason, notes);
+    setIsPausing(false);
+    setIsPauseReasonDialogOpen(false);
+    setPhaseIdToPause(null);
     triggerJobRefresh();
+    toast({ title: 'Pausa registrata', description: `Causale: ${reason}` });
   };
 
 
@@ -432,9 +449,23 @@ export default function ScanJobPage() {
                       </div>
 
                     </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <p>ODL: <strong>{activeJob.numeroODLInterno || 'N/D'}</strong></p>
-                      <p>Qta Totale: <strong>{activeJob.qta}</strong></p>
+                    <CardContent className="space-y-4 text-sm">
+                      <div className="space-y-1">
+                        <p>ODL: <strong>{activeJob.numeroODLInterno || 'N/D'}</strong></p>
+                        <p>Qta Totale: <strong>{activeJob.qta}</strong></p>
+                      </div>
+
+                      {activeJob.attachments && activeJob.attachments.length > 0 && (
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="w-full border-primary text-primary hover:bg-primary/10"
+                          onClick={() => setIsAttachmentsDialogOpen(true)}
+                        >
+                          <View className="mr-2 h-4 w-4" />
+                          Visualizza Disegni / Allegati ({activeJob.attachments.length})
+                        </Button>
+                      )}
                     </CardContent>
                     <CardFooter className="flex flex-col gap-2">
                       <AlertDialog>
@@ -593,6 +624,19 @@ export default function ScanJobPage() {
               onWithdrawalComplete={() => { if (activeJob) getJobOrderById(activeJob.id).then(j => setActiveJob(j)); setIsMaterialAssociationDialogOpen(false); }} 
             />
           )}
+
+          <PauseReasonDialog 
+            isOpen={isPauseReasonDialogOpen} 
+            onOpenChange={setIsPauseReasonDialogOpen} 
+            onConfirm={confirmPause} 
+            isLoading={isPausing}
+          />
+
+          <AttachmentViewerDialog 
+            isOpen={isAttachmentsDialogOpen} 
+            onOpenChange={setIsAttachmentsDialogOpen} 
+            attachments={activeJob?.attachments || []} 
+          />
         </>
       </AppShell>
     </AuthGuard>

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Info, AlertTriangle, CheckCircle2, Loader2, Boxes, Factory, Archive, Briefcase, LayoutGrid, Clock, Users, Timer, RefreshCcw } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Info, AlertTriangle, CheckCircle2, Loader2, Boxes, Factory, Archive, Briefcase, LayoutGrid, Clock, Users, Timer, RefreshCcw, Search, X } from 'lucide-react';
 import { format, addWeeks, subWeeks, startOfWeek, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getPlanningData, getDepartmentPlanningSnapshot, getOperatorAssignments } from './actions';
@@ -19,8 +19,10 @@ import GanttBoard from '@/components/production-console/GanttBoard';
 import ResourceAssignmentDialog from './ResourceAssignmentDialog';
 import { useAuth } from '@/components/auth/AuthProvider';
 import WeekKanbanBoard from '@/components/production-console/WeekKanbanBoard';
-import { buildMRPTimelines, isJobReadyForProduction, cn } from '@/lib/utils';
-import { assignJobToDate } from './actions';
+import { isJobReadyForProduction, cn } from '@/lib/utils';
+import { buildMRPTimelines } from '@/lib/mrp';
+import { assignJobToDate, bulkAssignJobsToDate } from './actions';
+import { Input } from '@/components/ui/input';
 import type { JobOrder, Operator, OperatorAssignment, Department, Article } from '@/lib/mock-data';
 
 export default function ResourcePlanningClientPage() {
@@ -50,6 +52,10 @@ export default function ResourcePlanningClientPage() {
     const [activeSubTab, setActiveSubTab] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'kanban' | 'split' | 'gantt' | 'list'>('kanban');
     const [isAssignmentDialogOpen, setIsAssignmentDialogOpen] = useState(false);
+    
+    // Selection & Search
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
 
     useEffect(() => {
         loadData();
@@ -109,26 +115,34 @@ export default function ResourcePlanningClientPage() {
     const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
     const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
 
-    // Filter jobs by current tab and sub-tab
-    const filteredJobs = useMemo(() => {
+    // Filter jobs by current tab and sub-tab AND SearchTerm
+    // Raw jobs for the current tab (without search/toggles) to be passed to Kanban
+    const rawTabJobs = useMemo(() => {
         if (!data) return [];
         return data.jobOrders.filter(job => {
-            // First level: MacroArea
             if (activeTab === 'PREPARAZIONE') {
                 return job.status === 'planned' || job.phases?.some((p: any) => p.type === 'preparation');
-            }
-
-            if (activeTab === 'QLTY_PACK') {
+            } else if (activeTab === 'QLTY_PACK') {
                 return job.phases?.some((p: any) => p.type === 'quality' || p.type === 'packaging');
-            }
-            if (activeTab === 'PRODUZIONE') {
+            } else if (activeTab === 'PRODUZIONE') {
                 if (!activeSubTab) return job.phases?.some((p: any) => p.type === 'production');
                 return job.department === activeSubTab;
             }
-
             return false;
         });
     }, [data, activeTab, activeSubTab]);
+
+    // Filter jobs by current tab and search (for LIST/GANTT/SPLIT views)
+    const filteredJobs = useMemo(() => {
+        return rawTabJobs.filter(job => {
+            if (!searchTerm.trim()) return true;
+            const s = searchTerm.toLowerCase();
+            return (job.ordinePF?.toLowerCase().includes(s)) ||
+                   (job.details?.toLowerCase().includes(s)) ||
+                   (job.cliente?.toLowerCase().includes(s));
+        });
+    }, [rawTabJobs, searchTerm]);
+
 
     // Filter departments for SUB-TABS (Produzione only)
     const productionDepartments = useMemo(() => {
@@ -199,19 +213,44 @@ export default function ResourcePlanningClientPage() {
     }, [data]);
 
     const handleJobDrop = async (jobId: string, assignedDate: string | null) => {
+        // If the dropped job is part of the selection, we move the whole group
+        const jobsToMove = selectedJobIds.includes(jobId) ? selectedJobIds : [jobId];
+        
         // Optimistic update
         if (data) {
             const updatedJobs = data.jobOrders.map(j => 
-                j.id === jobId ? { ...j, assignedDate: assignedDate || undefined } : j
+                jobsToMove.includes(j.id) ? { ...j, assignedDate: assignedDate || undefined } : j
             );
             setData({ ...data, jobOrders: updatedJobs });
         }
 
-        const res = await assignJobToDate(jobId, assignedDate);
+        let res;
+        if (jobsToMove.length > 1) {
+            res = await bulkAssignJobsToDate(jobsToMove, assignedDate);
+            // Clear selection after successful move
+            if (res.success) setSelectedJobIds([]);
+        } else {
+            res = await assignJobToDate(jobId, assignedDate);
+        }
+
         if (!res.success) {
             toast({ title: 'Errore', description: res.message, variant: 'destructive' });
             // Revert on failure
             loadData(false);
+        }
+    };
+
+    const toggleJobSelection = (jobId: string) => {
+        setSelectedJobIds(prev => 
+            prev.includes(jobId) ? prev.filter(id => id !== jobId) : [...prev, jobId]
+        );
+    };
+
+    const setBatchSelection = (ids: string[], selected: boolean) => {
+        if (selected) {
+            setSelectedJobIds(prev => Array.from(new Set([...prev, ...ids])));
+        } else {
+            setSelectedJobIds(prev => prev.filter(id => !ids.includes(id)));
         }
     };
 
@@ -310,10 +349,7 @@ export default function ResourcePlanningClientPage() {
             {data && (
                 <ResourceAssignmentDialog 
                     isOpen={isAssignmentDialogOpen}
-                onClose={() => {
-                    setIsAssignmentDialogOpen(false);
-                    refreshSnapshot(true); // Solo snapshot, evita di ricaricare 700+ ordini
-                }}
+                    onClose={() => setIsAssignmentDialogOpen(false)}
                     operators={data.operators}
                     departments={data.departments}
                     initialAssignments={data.assignments}
@@ -339,22 +375,45 @@ export default function ResourcePlanningClientPage() {
                         ))}
 
                         {weekStats && (
-                            <div className="ml-auto flex items-center gap-4 px-3 py-1 bg-background rounded border shadow-sm">
-                                <div className="flex flex-col">
-                                    <span className="text-[8px] text-muted-foreground uppercase font-bold">Carico Ore</span>
-                                    <span className="text-xs font-black text-red-600">{weekStats.demand.toFixed(1)}h</span>
-                                </div>
-                                <div className="w-px h-6 bg-border" />
-                                <div className="flex flex-col">
-                                    <span className="text-[8px] text-muted-foreground uppercase font-bold">Capacità</span>
-                                    <span className="text-xs font-black text-emerald-600">{weekStats.supply.toFixed(1)}h</span>
-                                </div>
-                                <div className="w-px h-6 bg-border" />
-                                <div className="flex flex-col">
-                                    <span className="text-[8px] text-muted-foreground uppercase font-bold">Bilancio</span>
-                                    <span className={cn("text-xs font-black", weekStats.balance < 0 ? "text-red-600" : "text-emerald-600")}>
-                                        {weekStats.balance > 0 ? '+' : ''}{weekStats.balance.toFixed(1)}h
-                                    </span>
+                            <div className="ml-auto flex items-center gap-6">
+                                {/* ENLARGED SEARCH BAR - Hidden in Kanban as it has its own */}
+                                {viewMode !== 'kanban' && (
+                                    <div className="relative w-[350px] group shadow-sm">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-blue-600 transition-colors" />
+                                        <Input 
+                                            placeholder="Cerca per Commessa o Codice Articolo..." 
+                                            className="h-10 pl-10 pr-10 bg-white border-slate-200 border-2 focus-visible:ring-blue-500 font-bold text-sm rounded-lg"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                        {searchTerm && (
+                                            <button 
+                                                onClick={() => setSearchTerm('')}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-full transition-colors"
+                                            >
+                                                <X className="h-4 w-4 text-slate-400" />
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                <div className="flex items-center gap-4 px-4 py-2 bg-background rounded-xl border-2 border-slate-100 shadow-sm">
+                                    <div className="flex flex-col">
+                                        <span className="text-[9px] text-muted-foreground uppercase font-black">Carico Ore</span>
+                                        <span className="text-sm font-black text-red-600 leading-none">{weekStats.demand.toFixed(1)}h</span>
+                                    </div>
+                                    <div className="w-px h-8 bg-slate-200" />
+                                    <div className="flex flex-col">
+                                        <span className="text-[9px] text-muted-foreground uppercase font-black">Capacità</span>
+                                        <span className="text-sm font-black text-emerald-600 leading-none">{weekStats.supply.toFixed(1)}h</span>
+                                    </div>
+                                    <div className="w-px h-8 bg-slate-200" />
+                                    <div className="flex flex-col">
+                                        <span className="text-[9px] text-muted-foreground uppercase font-black">Bilancio</span>
+                                        <span className={cn("text-sm font-black leading-none", weekStats.balance < 0 ? "text-red-600" : "text-emerald-600")}>
+                                            {weekStats.balance > 0 ? '+' : ''}{weekStats.balance.toFixed(1)}h
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -396,6 +455,8 @@ export default function ResourcePlanningClientPage() {
                                                     articles={data?.articles || []}
                                                     activeTab={activeTab}
                                                     activeSubTab={activeSubTab}
+                                                    isSelected={selectedJobIds.includes(job.id)}
+                                                    onToggleSelect={() => toggleJobSelection(job.id)}
                                                 />
                                             ))
 
@@ -411,7 +472,7 @@ export default function ResourcePlanningClientPage() {
                     {viewMode === 'kanban' && (
                         <div className="h-[75vh]">
                             <WeekKanbanBoard 
-                                jobOrders={filteredJobs}
+                                jobOrders={rawTabJobs}
                                 articles={data?.articles || []}
                                 snapshot={snapshot}
                                 activeTab={activeTab}
@@ -420,6 +481,9 @@ export default function ResourcePlanningClientPage() {
                                 rawMaterials={data?.rawMaterials || []}
                                 mrpTimelines={mrpTimelines}
                                 onJobDrop={handleJobDrop}
+                                selectedJobIds={selectedJobIds}
+                                onToggleSelection={toggleJobSelection}
+                                onBatchSelection={setBatchSelection}
                             />
                         </div>
                     )}
@@ -447,7 +511,15 @@ function ListCheckIcon() {
     return <LayoutGrid className="h-4 w-4 text-primary" />;
 }
 
-function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { job: JobOrder, isReady: boolean, articles: Article[], activeTab: string, activeSubTab: string | null }) {
+function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab, isSelected, onToggleSelect }: { 
+    job: JobOrder, 
+    isReady: boolean, 
+    articles: Article[], 
+    activeTab: string, 
+    activeSubTab: string | null,
+    isSelected: boolean,
+    onToggleSelect: () => void
+}) {
     const totalPhases = job.phases?.length || 1;
     const completedPhases = job.phases?.filter((p: any) => p.status === 'completed').length || 0;
     const progress = (completedPhases / totalPhases) * 100;
@@ -482,15 +554,26 @@ function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { 
     }, [job, articles, activeTab, activeSubTab]);
 
     return (
-        <Card className="hover:shadow-lg transition-all cursor-pointer border-l-4 border-l-primary group bg-white">
+        <Card className={cn(
+            "hover:shadow-lg transition-all cursor-pointer border-l-4 group bg-white",
+            isSelected ? "border-l-blue-600 ring-2 ring-blue-100" : "border-l-primary"
+        )}>
             <CardContent className="p-3 space-y-3">
                 <div className="flex justify-between items-start">
-                    <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-black text-slate-800">{job.ordinePF}</span>
-                            <Badge variant="outline" className="text-[9px] h-4 leading-none bg-slate-50 font-mono">{job.numeroODLInterno || '-'}</Badge>
+                    <div className="flex items-start gap-2">
+                        <input 
+                            type="checkbox" 
+                            checked={isSelected} 
+                            onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
+                            className="mt-1 h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                        <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-black text-slate-800">{job.ordinePF}</span>
+                                <Badge variant="outline" className="text-[9px] h-4 leading-none bg-slate-50 font-mono">{job.numeroODLInterno || '-'}</Badge>
+                            </div>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase">{job.details} — {job.cliente}</p>
                         </div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{job.details} — {job.cliente}</p>
                     </div>
                     {isReady ? (
                         <div className="bg-emerald-500 text-white rounded-full p-1 shadow-sm"><CheckCircle2 className="h-4 w-4" /></div>

@@ -399,6 +399,24 @@ export async function assignJobToDate(jobId: string, assignedDate: string | null
 }
 
 /**
+ * Aggiorna massivamente la data di assegnazione per un gruppo di commesse.
+ */
+export async function bulkAssignJobsToDate(jobIds: string[], assignedDate: string | null) {
+  try {
+    const batch = adminDb.batch();
+    jobIds.forEach(id => {
+      const ref = adminDb.collection("jobOrders").doc(id);
+      batch.update(ref, { assignedDate: assignedDate });
+    });
+    await batch.commit();
+    return { success: true };
+  } catch (error) {
+    console.error("Bulk assign error:", error);
+    return { success: false, message: "Errore durante lo spostamento multiplo." };
+  }
+}
+
+/**
  * Attiva o disattiva la priorità alta per una commessa.
  */
 export async function toggleJobPriority(jobId: string, value: boolean) {
@@ -416,3 +434,34 @@ export async function toggleJobPriority(jobId: string, value: boolean) {
     }
 }
 
+/**
+ * Aggiorna l'indice di ordinamento di una commessa (per persistenza Drag&Drop)
+ */
+export async function updateJobSortOrder(jobId: string, sortIndex: number) {
+    try {
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            sortIndex: sortIndex
+        });
+        return { success: true };
+    } catch (e) {
+        return { success: false, message: "Errore nel salvataggio dell'ordinamento." };
+    }
+}
+
+/**
+ * Aggiorna massivamente l'ordine di più commesse (ottimizzazione batch)
+ */
+export async function bulkUpdateJobSortOrder(updates: { id: string, sortIndex: number }[]) {
+    try {
+        const batch = adminDb.batch();
+        updates.forEach(u => {
+            const ref = adminDb.collection("jobOrders").doc(u.id);
+            batch.update(ref, { sortIndex: u.sortIndex });
+        });
+        await batch.commit();
+        return { success: true };
+    } catch (error) {
+        console.error("Bulk sort update error:", error);
+        return { success: false, message: "Errore durante l'aggiornamento massivo dell'ordinamento." };
+    }
+}

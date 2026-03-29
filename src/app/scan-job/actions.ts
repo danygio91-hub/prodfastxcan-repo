@@ -134,7 +134,22 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
   if (!sanitizedId) return { error: 'ID Commessa non valido.', title: 'Errore' };
   const snap = await adminDb.collection("jobOrders").doc(sanitizedId).get();
   if (!snap.exists) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
-  const job = convertTimestampsToDates(snap.data()) as JobOrder;
+  
+  let job = convertTimestampsToDates(snap.data()) as JobOrder;
+  
+  // Enchancement: Fetch attachments from Article if not present on JobOrder
+  if (!job.attachments || job.attachments.length === 0) {
+      if (job.details) {
+          const articleSnap = await adminDb.collection("articles").where("code", "==", job.details).limit(1).get();
+          if (!articleSnap.empty) {
+              const articleData = articleSnap.docs[0].data() as any;
+              if (articleData.attachments) {
+                  job.attachments = articleData.attachments;
+              }
+          }
+      }
+  }
+
   if (job.workGroupId) {
       const group = await getJobOrderById(job.workGroupId);
       if (group) return JSON.parse(JSON.stringify(group));
@@ -243,7 +258,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
     revalidatePath('/admin/production-console');
 }
 
-export async function handlePhasePause(jobId: string, phaseId: string, opId: string) {
+export async function handlePhasePause(jobId: string, phaseId: string, opId: string, reason?: string, notes?: string) {
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
     
@@ -258,19 +273,40 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
             const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
             if (myWorkPeriodIndex !== -1) {
                 phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
+                phs[idx].workPeriods[myWorkPeriodIndex].reason = reason; // Save reason in period
                 
                 // If no one else is active, mark phase as paused
                 if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
                     phs[idx].status = 'paused';
+                    phs[idx].pauseReason = reason; // Save current pause reason in phase
                 }
                 
-                transaction.update(itemRef, { phases: phs });
+                const updateData: any = { phases: phs };
+
+                // Handle 'Manca Materiale' automation
+                if (reason === 'Manca Materiale') {
+                    const opSnap = await transaction.get(adminDb.collection('operators').doc(opId));
+                    phs[idx].materialStatus = 'missing';
+                    phs[idx].materialReady = false;
+                    updateData.isProblemReported = true;
+                    updateData.problemType = 'MANCA_MATERIALE';
+                    updateData.problemReportedBy = (opSnap.data() as any)?.nome || 'Operatore';
+                    updateData.problemNotes = notes || 'Segnalato automaticamente dalla pausa.';
+                } else if (reason === 'Altro' && notes) {
+                    // Update notes if reason is 'Altro'
+                    updateData.isProblemReported = true;
+                    updateData.problemType = 'ALTRO';
+                    updateData.problemNotes = notes;
+                }
+                
+                transaction.update(itemRef, updateData);
                 transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
             }
         }
     });
 
     revalidatePath('/scan-job');
+    revalidatePath('/admin/production-console');
 }
 
 

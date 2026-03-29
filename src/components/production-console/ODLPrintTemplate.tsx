@@ -310,7 +310,19 @@ export default function ODLPrintTemplate({
                   {/* DRAWING / NOTES AREA */}
                   {idx === 0 && (
                     <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}` }} rowSpan={rowCount}>
-                      <div style={getCellFlexStyles()}>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
+                      <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
+                        <div>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
+                        {job.attachments && job.attachments.length > 0 && (
+                          <div style={{ fontSize: '8pt', color: '#555', textAlign: 'left', width: '90%', marginTop: 'auto', borderTop: '1px dashed #ccc', paddingTop: '2mm' }}>
+                            <div style={{ textTransform: 'uppercase', marginBottom: '1mm', color: '#000' }}>📄 Documentazione MES:</div>
+                            {job.attachments.map((att, i) => (
+                              <div key={i} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                • {att.name}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>

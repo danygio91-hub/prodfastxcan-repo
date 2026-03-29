@@ -49,6 +49,9 @@ import { Separator } from '@/components/ui/separator';
 import BOMDialog from './BOMDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import PauseReasonDialog from './PauseReasonDialog';
+import AttachmentViewerDialog from './AttachmentViewerDialog';
+import { View, FileText } from 'lucide-react';
 
 
 interface ActivePhaseInfo {
@@ -124,7 +127,7 @@ interface JobOrderCardProps {
     onRevertForceFinishClick: (jobId: string) => void;
     onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void;
     onRevertPhaseClick: (jobId: string, phaseId: string) => void;
-    onForcePauseClick: (jobId: string, operatorIds: string[]) => void;
+    onForcePauseClick: (jobId: string, operatorIds: string[], reason?: string, notes?: string) => void;
     onForceCompleteClick: (jobId: string) => void;
     onResetJobOrderClick: (jobId: string) => void;
     onOpenPhaseManager: (item: JobOrder) => void;
@@ -164,7 +167,9 @@ export default function JobOrderCard({
     onCopyArticleCode,
 }: JobOrderCardProps) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
+  const [isPauseReasonDialogOpen, setIsPauseReasonDialogOpen] = useState(false);
   const [isBOMDialogOpen, setIsBOMDialogOpen] = useState(false);
+  const [isAttachmentsDialogOpen, setIsAttachmentsDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
   const hasMaterialMissing = jobOrder.phases.some(p => p.materialStatus === 'missing');
   const [remainingTime, setRemainingTime] = useState<string | null>(null);
@@ -232,9 +237,15 @@ export default function JobOrderCard({
   
   const handleConfirmPause = () => {
     if (selectedOperatorsToPause.length > 0) {
-      onForcePauseClick(jobOrder.id, selectedOperatorsToPause);
+      setIsPauseDialogOpen(false);
+      setIsPauseReasonDialogOpen(true);
     }
-    setIsPauseDialogOpen(false);
+  };
+
+  const handleReasonConfirm = (reason: string, notes?: string) => {
+    onForcePauseClick(jobOrder.id, selectedOperatorsToPause, reason, notes);
+    setIsPauseReasonDialogOpen(false);
+    setSelectedOperatorsToPause([]);
   };
 
   const toggleOperatorSelection = (opId: string) => {
@@ -352,6 +363,22 @@ export default function JobOrderCard({
                                         </TooltipTrigger>
                                         <TooltipContent><p>Stampa Scheda</p></TooltipContent>
                                     </Tooltip>
+
+                                    {jobOrder.attachments && jobOrder.attachments.length > 0 && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                                    onClick={(e) => { e.stopPropagation(); setIsAttachmentsDialogOpen(true); }}
+                                                >
+                                                    <FileText className="h-4 w-4" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent><p>Disegni Tecnici ({jobOrder.attachments.length})</p></TooltipContent>
+                                        </Tooltip>
+                                    )}
                                 </>
                             )}
                         </TooltipProvider>
@@ -418,253 +445,253 @@ export default function JobOrderCard({
                                       </AlertDialog>
                                   )}
                                    {jobOrder.forcedCompletion && (
-                                    <AlertDialog>
-                                      <AlertDialogTrigger asChild>
-                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-700">
-                                          <ArchiveRestore className="mr-2 h-4 w-4" />
-                                          <span>Riapri Commessa</span>
-                                        </DropdownMenuItem>
-                                      </AlertDialogTrigger>
-                                      <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                          <AlertDialogTitle>Sei sicuro di voler riaprire?</AlertDialogTitle>
-                                          <AlertDialogDescription>
-                                            Questa azione riporterà la commessa al suo ultimo stato di avanzamento, annullando la chiusura forzata.
-                                          </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                          <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                          <AlertDialogAction onClick={() => onRevertCompletionClick(jobOrder.id)}>Sì, riapri</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                      </AlertDialogContent>
-                                    </AlertDialog>
-                                  )}
-                                  <DropdownMenuSeparator />
-                                  <AlertDialog>
-                                      <AlertDialogTrigger asChild>
-                                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
-                                          <RefreshCcw className="mr-2 h-4 w-4" />
-                                          <span>Annulla e Resetta</span>
-                                      </DropdownMenuItem>
-                                      </AlertDialogTrigger>
-                                      <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                          <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                          <AlertDialogDescription>
-                                          Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
-                                          </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                          <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                          <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
-                                      </AlertDialogFooter>
-                                      </AlertDialogContent>
-                                  </AlertDialog>
-                              </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                    </div>
-                </div>
+                                     <AlertDialog>
+                                       <AlertDialogTrigger asChild>
+                                         <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-700">
+                                           <ArchiveRestore className="mr-2 h-4 w-4" />
+                                           <span>Riapri Commessa</span>
+                                         </DropdownMenuItem>
+                                       </AlertDialogTrigger>
+                                       <AlertDialogContent>
+                                         <AlertDialogHeader>
+                                           <AlertDialogTitle>Sei sicuro di voler riaprire?</AlertDialogTitle>
+                                           <AlertDialogDescription>
+                                             Questa azione riporterà la commessa al suo ultimo stato di avanzamento, annullando la chiusura forzata.
+                                           </AlertDialogDescription>
+                                         </AlertDialogHeader>
+                                         <AlertDialogFooter>
+                                           <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                           <AlertDialogAction onClick={() => onRevertCompletionClick(jobOrder.id)}>Sì, riapri</AlertDialogAction>
+                                         </AlertDialogFooter>
+                                       </AlertDialogContent>
+                                     </AlertDialog>
+                                   )}
+                                   <DropdownMenuSeparator />
+                                   <AlertDialog>
+                                       <AlertDialogTrigger asChild>
+                                       <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                                           <RefreshCcw className="mr-2 h-4 w-4" />
+                                           <span>Annulla e Resetta</span>
+                                       </DropdownMenuItem>
+                                       </AlertDialogTrigger>
+                                       <AlertDialogContent>
+                                       <AlertDialogHeader>
+                                           <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                           <AlertDialogDescription>
+                                           Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
+                                           </AlertDialogDescription>
+                                       </AlertDialogHeader>
+                                       <AlertDialogFooter>
+                                           <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                           <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
+                                       </AlertDialogFooter>
+                                       </AlertDialogContent>
+                                   </AlertDialog>
+                               </DropdownMenuContent>
+                           </DropdownMenu>
+                         )}
+                     </div>
+                 </div>
 
-                {(jobOrder.isProblemReported || hasMaterialMissing) && (
-                    <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-                        <ShieldAlert className="mr-2 h-4 w-4" /> 
-                        {jobOrder.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}
-                    </p>
-                )}
-            </CardHeader>
-            <CardContent className="pt-0 pb-4 px-6 space-y-4">
-                <div className="flex justify-between items-start gap-4">
-                    <div className="space-y-3 text-sm">
-                        <p className="flex items-center gap-2 text-muted-foreground">
-                            <ClipboardList className="h-4 w-4" />
-                            <span className="font-semibold text-foreground">{jobOrder.numeroODLInterno || 'N/D'}</span>
-                        </p>
-                        <p className="flex items-center gap-2 text-muted-foreground">
-                            <Factory className="h-4 w-4" />
-                            {jobOrder.department}
-                        </p>
-                        <ContextMenu>
-                          <ContextMenuTrigger>
-                            <p className="flex items-center gap-2 text-muted-foreground hover:text-primary cursor-pointer">
-                                <Package className="h-4 w-4" />
-                                <span className="hover:underline">{jobOrder.details}</span>
-                            </p>
-                          </ContextMenuTrigger>
-                           <ContextMenuContent>
-                              <ContextMenuItem onSelect={() => onNavigateToAnalysis(jobOrder.details)}>
-                                  <BarChart3 className="mr-2 h-4 w-4"/>
-                                  Analisi Tempi Articolo
-                              </ContextMenuItem>
-                              <ContextMenuItem onSelect={() => onCopyArticleCode(jobOrder.details)}>
-                                  <Copy className="mr-2 h-4 w-4"/>
-                                  Copia Codice Articolo
-                              </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                        
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <button 
-                                    className={cn(
-                                        "flex items-center gap-2 font-medium hover:text-primary transition-colors", 
-                                        isOverdue ? "text-destructive" : "text-muted-foreground"
-                                    )}
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <Calendar className="h-4 w-4" />
-                                    <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
-                                </button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                                <CalendarPicker
-                                    mode="single"
-                                    selected={deliveryDate || undefined}
-                                    onSelect={(date) => {
-                                        if (date) {
-                                            onUpdateDeliveryDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
-                                        }
-                                    }}
-                                    initialFocus
-                                />
-                            </PopoverContent>
-                        </Popover>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                        <div className="flex items-center gap-1 justify-end">
-                          <Package className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-bold">{jobOrder.qta}</span>
-                          <span className="text-muted-foreground text-xs">pz</span>
-                        </div>
-                    </div>
-                </div>
+                 {(jobOrder.isProblemReported || hasMaterialMissing) && (
+                     <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
+                         <ShieldAlert className="mr-2 h-4 w-4" /> 
+                         {jobOrder.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}
+                     </p>
+                 )}
+             </CardHeader>
+             <CardContent className="pt-0 pb-4 px-6 space-y-4">
+                 <div className="flex justify-between items-start gap-4">
+                     <div className="space-y-3 text-sm">
+                         <p className="flex items-center gap-2 text-muted-foreground">
+                             <ClipboardList className="h-4 w-4" />
+                             <span className="font-semibold text-foreground">{jobOrder.numeroODLInterno || 'N/D'}</span>
+                         </p>
+                         <p className="flex items-center gap-2 text-muted-foreground">
+                             <Factory className="h-4 w-4" />
+                             {jobOrder.department}
+                         </p>
+                         <ContextMenu>
+                           <ContextMenuTrigger>
+                             <p className="flex items-center gap-2 text-muted-foreground hover:text-primary cursor-pointer">
+                                 <Package className="h-4 w-4" />
+                                 <span className="hover:underline">{jobOrder.details}</span>
+                             </p>
+                           </ContextMenuTrigger>
+                            <ContextMenuContent>
+                               <ContextMenuItem onSelect={() => onNavigateToAnalysis(jobOrder.details)}>
+                                   <BarChart3 className="mr-2 h-4 w-4"/>
+                                   Analisi Tempi Articolo
+                               </ContextMenuItem>
+                               <ContextMenuItem onSelect={() => onCopyArticleCode(jobOrder.details)}>
+                                   <Copy className="mr-2 h-4 w-4"/>
+                                   Copia Codice Articolo
+                               </ContextMenuItem>
+                           </ContextMenuContent>
+                         </ContextMenu>
+                         
+                         <Popover>
+                             <PopoverTrigger asChild>
+                                 <button 
+                                     className={cn(
+                                         "flex items-center gap-2 font-medium hover:text-primary transition-colors", 
+                                         isOverdue ? "text-destructive" : "text-muted-foreground"
+                                     )}
+                                     onClick={(e) => e.stopPropagation()}
+                                 >
+                                     <Calendar className="h-4 w-4" />
+                                     <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
+                                 </button>
+                             </PopoverTrigger>
+                             <PopoverContent className="w-auto p-0" align="start">
+                                 <CalendarPicker
+                                     mode="single"
+                                     selected={deliveryDate || undefined}
+                                     onSelect={(date) => {
+                                         if (date) {
+                                             onUpdateDeliveryDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
+                                         }
+                                     }}
+                                     initialFocus
+                                 />
+                             </PopoverContent>
+                         </Popover>
+                     </div>
+                     <div className="text-right flex-shrink-0">
+                         <div className="flex items-center gap-1 justify-end">
+                           <Package className="h-4 w-4 text-muted-foreground" />
+                           <span className="font-bold">{jobOrder.qta}</span>
+                           <span className="text-muted-foreground text-xs">pz</span>
+                         </div>
+                     </div>
+                 </div>
 
-                {isAnyPhaseInProgress && (
-                  <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
-                      <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
-                          <Hourglass className="h-4 w-4 text-cyan-500"/>
-                          Operatori Attivi
-                      </h4>
-                      {activePhasesWithOperators.map(info => (
-                          <div key={info.phaseId} className="pl-2">
-                            <p className="font-semibold text-primary">{info.phaseName}:</p>
-                            <div className="flex flex-wrap gap-2 pt-1">
-                                {info.operators.map(op => (
-                                    <Badge key={op.id} variant="outline" className="flex items-center gap-1.5 py-1 bg-background">
-                                        <User className="h-3 w-3" />
-                                        {op.name}
-                                    </Badge>
-                                ))}
-                            </div>
-                          </div>
-                      ))}
-                  </div>
-                )}
-                
-                <div className="p-3 rounded-lg border bg-background/50 space-y-2">
-                    {remainingTime ? (
-                        <>
-                            <div className="flex justify-between items-center">
-                                <div className="flex items-center gap-2 text-sm font-semibold">
-                                    <Timer className="h-4 w-4 text-primary"/>
-                                    Ore Rimanenti Stimate
-                                </div>
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); updateRemainingTime(); }}>
-                                                <RefreshCcw className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent><p>Aggiorna stima</p></TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            </div>
-                            <p className="font-mono text-xl font-bold text-primary text-center">{remainingTime}</p>
-                        </>
-                    ) : (
-                        <Button onClick={onFetchAnalysis} disabled={isAnalysisLoading} className="w-full">
-                            {isAnalysisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Timer className="mr-2 h-4 w-4" />}
-                            Calcola Stima Tempi
-                        </Button>
-                    )}
-                </div>
-                
-                <div className="w-full pt-2">
-                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                        <span>Progresso</span>
-                        <span>{Math.round(progressPercentage)}%</span>
-                    </div>
-                    <Progress value={progressPercentage} className="h-2" />
-                </div>
-            </CardContent>
-          </div>
-          
-          <CollapsibleContent>
-            <CardContent className="flex-grow space-y-4 pt-4 px-6">
-              <Separator />
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
-                {jobOrder.phases && jobOrder.phases.length > 0 ? (
-                    jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                        <div key={phase.id} className="p-2 rounded-lg border bg-background/50 space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                    {getPhaseIcon(phase.status)}
-                                    <span className={cn("text-xs font-semibold uppercase tracking-wider", phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
-                                </div>
-                                {phase.status === 'completed' && overallStatus !== 'Completata' && !isPartOfGroup && (
-                                    <AlertDialog>
-                                        <AlertDialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
-                                                <Undo2 className="h-4 w-4" />
-                                            </Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader><AlertDialogTitle>Ripristinare la fase?</AlertDialogTitle><AlertDialogDescription>Questa azione riporterà la fase "{phase.name}" allo stato di pausa, conservando il tempo di lavoro già registrato. Sei sicuro?</AlertDialogDescription></AlertDialogHeader>
-                                            <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onRevertPhaseClick(jobOrder.id, phase.id)}>Sì, ripristina</AlertDialogAction></AlertDialogFooter>
-                                        </AlertDialogContent>
-                                    </AlertDialog>
-                                )}
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-center">
-                                 <div className="p-1 rounded-md bg-muted/50">
-                                     <Label className="text-xs text-muted-foreground">Tempo eff.</Label>
-                                     <PhaseLiveTimer phase={phase} />
+                 {isAnyPhaseInProgress && (
+                   <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
+                       <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
+                           <Hourglass className="h-4 w-4 text-cyan-500"/>
+                           Operatori Attivi
+                       </h4>
+                       {activePhasesWithOperators.map(info => (
+                           <div key={info.phaseId} className="pl-2">
+                             <p className="font-semibold text-primary">{info.phaseName}:</p>
+                             <div className="flex flex-wrap gap-2 pt-1">
+                                 {info.operators.map(op => (
+                                     <Badge key={op.id} variant="outline" className="flex items-center gap-1.5 py-1 bg-background">
+                                         <User className="h-3 w-3" />
+                                         {op.name}
+                                     </Badge>
+                                 ))}
+                             </div>
+                           </div>
+                       ))}
+                   </div>
+                 )}
+                 
+                 <div className="p-3 rounded-lg border bg-background/50 space-y-2">
+                     {remainingTime ? (
+                         <>
+                             <div className="flex justify-between items-center">
+                                 <div className="flex items-center gap-2 text-sm font-semibold">
+                                     <Timer className="h-4 w-4 text-primary"/>
+                                     Ore Rimanenti Stimate
                                  </div>
-                                 <div className="p-1 rounded-md bg-muted/50 flex flex-col justify-center items-center relative">
-                                     <Label className="text-xs text-muted-foreground">Tempo Stimato</Label>
-                                     <div className="flex items-center gap-2">
-                                         <p className="font-mono text-lg">
-                                             {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
-                                                 ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
-                                                 : 'N/D'
-                                             }
-                                         </p>
-                                         {analysisData?.phases[phase.name]?.confidenceWarning && (
-                                             <TooltipProvider>
-                                                 <Tooltip>
-                                                     <TooltipTrigger asChild>
-                                                         <ShieldAlert className="h-4 w-4 text-amber-500 animate-pulse" />
-                                                     </TooltipTrigger>
-                                                     <TooltipContent>
-                                                         <p>{analysisData.phases[phase.name].confidenceWarning}</p>
-                                                     </TooltipContent>
-                                                 </Tooltip>
-                                             </TooltipProvider>
-                                         )}
-                                     </div>
+                                 <TooltipProvider>
+                                     <Tooltip>
+                                         <TooltipTrigger asChild>
+                                             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); updateRemainingTime(); }}>
+                                                 <RefreshCcw className="h-4 w-4" />
+                                             </Button>
+                                         </TooltipTrigger>
+                                         <TooltipContent><p>Aggiorna stima</p></TooltipContent>
+                                     </Tooltip>
+                                 </TooltipProvider>
+                             </div>
+                             <p className="font-mono text-xl font-bold text-primary text-center">{remainingTime}</p>
+                         </>
+                     ) : (
+                         <Button onClick={onFetchAnalysis} disabled={isAnalysisLoading} className="w-full">
+                             {isAnalysisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Timer className="mr-2 h-4 w-4" />}
+                             Calcola Stima Tempi
+                         </Button>
+                     )}
+                 </div>
+                 
+                 <div className="w-full pt-2">
+                     <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                         <span>Progresso</span>
+                         <span>{Math.round(progressPercentage)}%</span>
+                     </div>
+                     <Progress value={progressPercentage} className="h-2" />
+                 </div>
+             </CardContent>
+           </div>
+           
+           <CollapsibleContent>
+             <CardContent className="flex-grow space-y-4 pt-4 px-6">
+               <Separator />
+               <div className="space-y-2">
+                 <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
+                 {jobOrder.phases && jobOrder.phases.length > 0 ? (
+                     jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
+                         <div key={phase.id} className="p-2 rounded-lg border bg-background/50 space-y-2">
+                             <div className="flex items-center justify-between gap-2">
+                                 <div className="flex items-center gap-2">
+                                     {getPhaseIcon(phase.status)}
+                                     <span className={cn("text-xs font-semibold uppercase tracking-wider", phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
                                  </div>
-                            </div>
-                        </div>
-                    ))
-                ) : (
-                    <p className="text-sm text-muted-foreground">Nessuna fase definita per questa commessa.</p>
-                )}
-            </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
+                                 {phase.status === 'completed' && overallStatus !== 'Completata' && !isPartOfGroup && (
+                                     <AlertDialog>
+                                         <AlertDialogTrigger asChild>
+                                             <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
+                                                 <Undo2 className="h-4 w-4" />
+                                             </Button>
+                                         </AlertDialogTrigger>
+                                         <AlertDialogContent>
+                                             <AlertDialogHeader><AlertDialogTitle>Ripristinare la fase?</AlertDialogTitle><AlertDialogDescription>Questa azione riporterà la fase "{phase.name}" allo stato di pausa, conservando il tempo di lavoro già registrato. Sei sicuro?</AlertDialogDescription></AlertDialogHeader>
+                                             <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onRevertPhaseClick(jobOrder.id, phase.id)}>Sì, ripristina</AlertDialogAction></AlertDialogFooter>
+                                         </AlertDialogContent>
+                                     </AlertDialog>
+                                 )}
+                             </div>
+                             <div className="grid grid-cols-2 gap-2 text-center">
+                                  <div className="p-1 rounded-md bg-muted/50">
+                                      <Label className="text-xs text-muted-foreground">Tempo eff.</Label>
+                                      <PhaseLiveTimer phase={phase} />
+                                  </div>
+                                  <div className="p-1 rounded-md bg-muted/50 flex flex-col justify-center items-center relative">
+                                      <Label className="text-xs text-muted-foreground">Tempo Stimato</Label>
+                                      <div className="flex items-center gap-2">
+                                          <p className="font-mono text-lg">
+                                              {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
+                                                  ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
+                                                  : 'N/D'
+                                              }
+                                          </p>
+                                          {analysisData?.phases[phase.name]?.confidenceWarning && (
+                                              <TooltipProvider>
+                                                  <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                          <ShieldAlert className="h-4 w-4 text-amber-500 animate-pulse" />
+                                                      </TooltipTrigger>
+                                                      <TooltipContent>
+                                                          <p>{analysisData.phases[phase.name].confidenceWarning}</p>
+                                                      </TooltipContent>
+                                                  </Tooltip>
+                                              </TooltipProvider>
+                                          )}
+                                      </div>
+                                  </div>
+                             </div>
+                         </div>
+                     ))
+                 ) : (
+                     <p className="text-sm text-muted-foreground">Nessuna fase definita per questa commessa.</p>
+                 )}
+               </div>
+             </CardContent>
+           </CollapsibleContent>
+         </Card>
       </Collapsible>
 
       {isBOMDialogOpen && (
@@ -695,12 +722,12 @@ export default function JobOrderCard({
                   {activePhasesWithOperators.flatMap(p => p.operators).map(op => (
                       <div key={op.id} className="flex items-center space-x-2 p-2 rounded-md border">
                            <Checkbox
-                              id={op.id}
-                              checked={selectedOperatorsToPause.includes(op.id)}
-                              onCheckedChange={() => toggleOperatorSelection(op.id)}
+                               id={op.id}
+                               checked={selectedOperatorsToPause.includes(op.id)}
+                               onCheckedChange={() => toggleOperatorSelection(op.id)}
                            />
                            <Label htmlFor={op.id} className="flex-1">
-                              <span className="font-semibold">{op.name}</span>
+                               <span className="font-semibold">{op.name}</span>
                            </Label>
                       </div>
                   ))}
@@ -714,6 +741,18 @@ export default function JobOrderCard({
               </DialogFooter>
           </DialogContent>
       </Dialog>
+
+      <PauseReasonDialog 
+        isOpen={isPauseReasonDialogOpen} 
+        onOpenChange={setIsPauseReasonDialogOpen} 
+        onConfirm={handleReasonConfirm as any}
+      />
+
+      <AttachmentViewerDialog 
+        isOpen={isAttachmentsDialogOpen} 
+        onOpenChange={setIsAttachmentsDialogOpen} 
+        attachments={jobOrder.attachments || []} 
+      />
     </>
   );
 }

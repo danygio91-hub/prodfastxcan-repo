@@ -252,34 +252,83 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
   } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
-export async function forcePauseOperators(jobId: string, operatorIdsToPause: string[], uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
+export async function forcePauseOperators(jobId: string, operatorIdsToPause: string[], uid: string | undefined | null, reason?: string, notes?: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
       const itemSnap = await transaction.get(itemRef);
       if (!itemSnap.exists) throw new Error('Non trovato.');
-      const itemData = itemSnap.data() as JobOrder | WorkGroup;
-      const updatedPhases = itemData.phases.map(phase => {
+      const itemData = itemSnap.data() as any;
+      
+      const updatedPhases = itemData.phases.map((phase: JobPhase) => {
         if (phase.status === 'in-progress') {
-          const updatedWorkPeriods = (phase.workPeriods || []).map(wp => { if (wp.end === null && operatorIdsToPause.includes(wp.operatorId)) { return { ...wp, end: new Date() }; } return wp; });
+          const updatedWorkPeriods = (phase.workPeriods || []).map(wp => { 
+            if (wp.end === null && operatorIdsToPause.includes(wp.operatorId)) { 
+              return { ...wp, end: new Date(), reason }; 
+            } 
+            return wp; 
+          });
           const isAnyoneStillWorking = updatedWorkPeriods.some(wp => wp.end === null);
-          return { ...phase, workPeriods: updatedWorkPeriods, status: isAnyoneStillWorking ? 'in-progress' : 'paused' as const };
+          
+          let newPhaseStatus = isAnyoneStillWorking ? 'in-progress' : 'paused' as const;
+          let newPauseReason = isAnyoneStillWorking ? phase.pauseReason : reason;
+
+          const updatedPhase = { 
+            ...phase, 
+            workPeriods: updatedWorkPeriods, 
+            status: newPhaseStatus,
+            pauseReason: newPauseReason
+          };
+
+          // Handle 'Manca Materiale' automatically
+          if (reason === 'Manca Materiale') {
+            updatedPhase.materialStatus = 'missing';
+            updatedPhase.materialReady = false;
+          }
+
+          return updatedPhase;
         }
         return phase;
       });
-      const isAnyActive = updatedPhases.some(p => p.status === 'in-progress');
-      const isAnyPaused = updatedPhases.some(p => p.status === 'paused');
+
+      const isAnyActive = updatedPhases.some((p: JobPhase) => p.status === 'in-progress');
+      const isAnyPaused = updatedPhases.some((p: JobPhase) => p.status === 'paused');
       const newStatus = isAnyActive ? 'production' : (isAnyPaused ? 'paused' : 'production');
-      transaction.update(itemRef, { phases: updatedPhases, status: newStatus });
-      if (isGroup) (itemData.jobOrderIds || []).forEach(id => { transaction.update(adminDb.collection('jobOrders').doc(id), { phases: updatedPhases, status: newStatus }); });
-      operatorIdsToPause.forEach(opId => { transaction.update(adminDb.collection("operators").doc(opId), { stato: 'inattivo', activePhaseName: null }); });
+      
+      const updatePayload: any = { phases: updatedPhases, status: newStatus };
+
+      // Update global problem status if 'Manca Materiale' or 'Altro' with notes
+      if (reason === 'Manca Materiale') {
+        updatePayload.isProblemReported = true;
+        updatePayload.problemType = 'MANCA_MATERIALE';
+        updatePayload.problemNotes = notes || 'Sospeso forzatamente dall\'Admin per mancanza materiale.';
+        updatePayload.problemReportedBy = 'Admin';
+      } else if (reason === 'Altro' && notes) {
+        updatePayload.isProblemReported = true;
+        updatePayload.problemType = 'ALTRO';
+        updatePayload.problemNotes = notes;
+        updatePayload.problemReportedBy = 'Admin';
+      }
+
+      transaction.update(itemRef, updatePayload);
+      
+      if (isGroup) {
+          (itemData.jobOrderIds || []).forEach((id: string) => { 
+              transaction.update(adminDb.collection('jobOrders').doc(id), updatePayload); 
+          });
+      }
+      
+      operatorIdsToPause.forEach(opId => { 
+          transaction.update(adminDb.collection("operators").doc(opId), { stato: 'inattivo', activePhaseName: null, activeJobId: null }); 
+      });
 
     });
     revalidatePath('/admin/production-console');
     await pulseOperatorsForJob(jobId);
-    return { success: true, message: `Operatori messi in pausa.` };
+    return { success: true, message: `Pausa forzata registrata con causale.` };
 
   } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }

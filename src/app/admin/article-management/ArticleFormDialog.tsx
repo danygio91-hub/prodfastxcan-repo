@@ -21,7 +21,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { PlusCircle, Trash2, Save, Loader2, Check } from 'lucide-react';
+import { PlusCircle, Trash2, Save, Loader2, Check, FileText, Link as LinkIcon, Ship } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
 
 import type { Article, RawMaterial, WorkCycle } from '@/lib/mock-data';
 import { saveArticle, getWorkCycles } from './actions';
@@ -42,6 +43,14 @@ const articleSchema = z.object({
   billOfMaterials: z.array(bomItemSchema).optional().default([]),
   workCycleId: z.string().optional(),
   secondaryWorkCycleId: z.string().optional(),
+  attachments: z.array(z.object({
+    name: z.string().min(1, "Nome obbligatorio"),
+    url: z.string().url("URL non valido")
+  })).optional().default([]),
+  packagingType: z.string().optional(),
+  packingInstructions: z.string().optional(),
+  unitWeightKg: z.coerce.number().min(0).optional(),
+  packagingTareWeightKg: z.coerce.number().min(0).optional(),
 });
 
 type ArticleFormValues = z.infer<typeof articleSchema>;
@@ -109,12 +118,18 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
       billOfMaterials: [],
       workCycleId: '',
       secondaryWorkCycleId: '',
+      attachments: [],
     },
   });
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "billOfMaterials",
+  });
+
+  const { fields: attachmentFields, append: appendAttachment, remove: removeAttachment } = useFieldArray({
+    control: form.control,
+    name: "attachments",
   });
 
   useEffect(() => {
@@ -126,6 +141,11 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
           billOfMaterials: article.billOfMaterials || [],
           workCycleId: article.workCycleId || '',
           secondaryWorkCycleId: article.secondaryWorkCycleId || '',
+          attachments: article.attachments || [],
+          packagingType: article.packagingType || '',
+          packingInstructions: article.packingInstructions || '',
+          unitWeightKg: article.unitWeightKg || 0,
+          packagingTareWeightKg: article.packagingTareWeightKg || 0,
         });
       } else {
         const defaultBOM = Array(5).fill({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
@@ -135,6 +155,11 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
           billOfMaterials: defaultBOM,
           workCycleId: '',
           secondaryWorkCycleId: '',
+          attachments: [],
+          packagingType: '',
+          packingInstructions: '',
+          unitWeightKg: 0,
+          packagingTareWeightKg: 0,
         });
       }
     }
@@ -368,6 +393,124 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                   <PlusCircle className="mr-2 h-4 w-4" />
                   Aggiungi Riga Componente
                 </Button>
+
+                <Separator className="my-8" />
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground flex items-center">
+                      <FileText className="mr-2 h-4 w-4" />
+                      Allegati Tecnici (Disegni, Schede)
+                    </h4>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {attachmentFields.map((field, index) => (
+                      <div key={field.id} className="flex gap-3 items-start p-3 border rounded-lg bg-blue-50/30">
+                        <FormField
+                          control={form.control}
+                          name={`attachments.${index}.name`}
+                          render={({ field }) => (
+                            <FormItem className="flex-1">
+                              <FormControl>
+                                <Input {...field} placeholder="Titolo Allegato (es. Disegno Tecnico)" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`attachments.${index}.url`}
+                          render={({ field }) => (
+                            <FormItem className="flex-[2]">
+                              <FormControl>
+                                <div className="relative">
+                                  <LinkIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                  <Input {...field} className="pl-9" placeholder="https://drive.google.com/..." />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeAttachment(index)}
+                          className="text-destructive shrink-0"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full border-blue-200 text-blue-600 hover:bg-blue-50"
+                      onClick={() => appendAttachment({ name: '', url: '' })}
+                    >
+                      <PlusCircle className="mr-2 h-4 w-4" />
+                      Aggiungi Nuovo Allegato
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-4 border-t pt-8 pb-8">
+                  <h4 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground flex items-center">
+                    <Ship className="mr-2 h-4 w-4" />
+                    Packing & Spedizioni
+                  </h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="packagingType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tipo Imballo (es. Scatola 50pz)</FormLabel>
+                          <FormControl><Input {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="unitWeightKg"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Peso Unitario Articolo (Kg)</FormLabel>
+                          <FormControl><Input type="number" step="0.001" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="packagingTareWeightKg"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Peso Tara Imballo (Kg)</FormLabel>
+                          <FormControl><Input type="number" step="0.001" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="packingInstructions"
+                      render={({ field }) => (
+                        <FormItem className="col-span-2">
+                          <FormLabel>Istruzioni Speciali Imballo</FormLabel>
+                          <FormControl><Input {...field} placeholder="Es. sigillare con nastro personalizzato..." /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
               </div>
             </ScrollArea>
 

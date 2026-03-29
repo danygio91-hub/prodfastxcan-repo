@@ -141,7 +141,10 @@ export default function ProductionConsoleClientPage() {
   
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
-  const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
+  const searchFromUrl = searchParams.get('search');
+  
+  const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || searchFromUrl || '');
+  const [isTargetedLoad, setIsTargetedLoad] = useState(!!(groupIdFromUrl || searchFromUrl));
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
@@ -176,59 +179,72 @@ export default function ProductionConsoleClientPage() {
     else setIsLoading(true);
     
     try {
-        // 1. Fetch Job Orders and Groups with limits
-        let queryStatuses = ["production", "suspended", "paused"];
-        if (showCompleted) queryStatuses.push("completed");
+        const currentGroupId = searchParams.get('groupId');
+        const currentSearch = searchParams.get('search');
+        let jobs: JobOrder[] = [];
+        let groups: WorkGroup[] = [];
 
-        let jobsQuery = query(
-          collection(db, "jobOrders"), 
-          where("status", "in", queryStatuses)
-        );
-        let groupsQuery = query(
-          collection(db, "workGroups"),
-          where("status", "in", queryStatuses)
-        );
-        
-        // If we are showing completed jobs, we limit to avoid massive reads
-        if (showCompleted) {
-          jobsQuery = query(jobsQuery, limit(100));
-          groupsQuery = query(groupsQuery, limit(50));
+        // TARGETED FETCH LOGIC
+        if ((currentGroupId || currentSearch) && !isManualRefresh) {
+            if (currentGroupId) {
+                // Fetch specific group
+                const gSnap = await getDocs(query(collection(db, "workGroups"), where("id", "==", currentGroupId)));
+                groups = gSnap.docs.map(d => d.data() as WorkGroup);
+                
+                // Fetch jobs belonging to this group
+                if (groups.length > 0 && groups[0].jobOrderIds?.length > 0) {
+                   const jSnap = await getDocs(query(collection(db, "jobOrders"), where("id", "in", groups[0].jobOrderIds)));
+                   jobs = jSnap.docs.map(d => d.data() as JobOrder);
+                }
+            } else if (currentSearch) {
+                // Fetch specific job by OrdinePF
+                const jSnap = await getDocs(query(collection(db, "jobOrders"), where("ordinePF", "==", currentSearch)));
+                jobs = jSnap.docs.map(d => d.data() as JobOrder);
+            }
+        } else {
+            // STANDARD FULL FETCH
+            let queryStatuses = ["production", "suspended", "paused"];
+            if (showCompleted) queryStatuses.push("completed");
+
+            let jobsQuery = query(collection(db, "jobOrders"), where("status", "in", queryStatuses));
+            let groupsQuery = query(collection(db, "workGroups"), where("status", "in", queryStatuses));
+            
+            if (showCompleted) {
+                jobsQuery = query(jobsQuery, limit(100));
+                groupsQuery = query(groupsQuery, limit(50));
+            }
+            
+            const [jobsSnap, groupsSnap] = await Promise.all([getDocs(jobsQuery), getDocs(groupsQuery)]);
+            jobs = jobsSnap.docs.map(d => d.data() as JobOrder);
+            groups = groupsSnap.docs.map(d => d.data() as WorkGroup);
+            setIsTargetedLoad(false);
         }
-        
-        const [jobsSnap, groupsSnap, opsSnap] = await Promise.all([
-            getDocs(jobsQuery),
-            getDocs(groupsQuery),
+
+        // Apply timestamp conversion
+        const processItem = (item: any) => JSON.parse(JSON.stringify(item, (key, value) => {
+            if ((['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate', 'createdAt']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
+            return value;
+        }));
+
+        const finalJobs = jobs.map(processItem);
+        const finalGroups = groups.map(processItem);
+
+        // Fetch remaining global data
+        const [opsSnap] = await Promise.all([
             getDocs(collection(db, "operators")),
             getWorkingHoursConfig().then(setWorkingHours),
             getProductionSettings().then(setSettings)
         ]);
 
-        const jobs = jobsSnap.docs.map(doc => {
-            const data = doc.data();
-            return JSON.parse(JSON.stringify(data, (key, value) => {
-                if ((['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate', 'createdAt']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
-                return value;
-            })) as JobOrder;
-        });
-        setJobOrders(jobs);
-        
-        const groups = groupsSnap.docs.map(doc => {
-            const data = doc.data();
-            return JSON.parse(JSON.stringify(data, (key, value) => {
-                if ((['createdAt', 'overallStartTime', 'overallEndTime']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
-                return value;
-            })) as WorkGroup;
-        });
-        setWorkGroups(groups);
+        setJobOrders(finalJobs);
+        setWorkGroups(finalGroups);
         setAllOperators(opsSnap.docs.map(d => d.data() as Operator));
 
-        // 2. Optimized fetching for Articles (materials are now lazy-loaded in BOMDialog)
-        const articleCodes = Array.from(new Set(jobs.map(j => j.details).filter(Boolean)));
+        const articleCodes = Array.from(new Set(finalJobs.map(j => j.details).filter(Boolean)));
         if (articleCodes.length > 0) {
             getArticlesByCodes(articleCodes).then(setAllArticles);
         }
 
-        // 3. Refresh assignments (filtered by date range)
         const start = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
         const end = format(addWeeks(parseISO(start), 4), 'yyyy-MM-dd');
         getOperatorAssignments(start, end).then(setAssignments);
@@ -241,7 +257,16 @@ export default function ProductionConsoleClientPage() {
         setIsLoading(false);
         setIsDataRefreshing(false);
     }
-  }, [toast, showCompleted]);
+  }, [toast, showCompleted, searchParams]);
+
+  useEffect(() => {
+    // If we are in targeted load and search term becomes empty, trigger full load
+    if (isTargetedLoad && searchTerm === '') {
+        setIsTargetedLoad(false);
+        router.replace('/admin/production-console'); // Clear query params
+        loadAllData(true);
+    }
+  }, [searchTerm, isTargetedLoad, loadAllData, router]);
 
   useEffect(() => {
     loadAllData();
@@ -384,7 +409,7 @@ export default function ProductionConsoleClientPage() {
   const handleToggleGuaina = async (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => { if (!user) return; await toggleGuainaPhasePosition(jobId, phaseId, currentState); };
   const handleRevertPhase = async (jobId: string, phaseId: string) => { if (!user) return; await revertPhaseCompletion(jobId, phaseId, user.uid); };
   const handleRevertCompletion = async (itemId: string) => { if (!user) return; await revertCompletion(itemId, user.uid); };
-  const handleForcePause = async (jobId: string, ops: string[]) => { if (!user) return; await forcePauseOperators(jobId, ops, user.uid); };
+  const handleForcePause = async (jobId: string, ops: string[], reason?: string, notes?: string) => { if (!user) return; await forcePauseOperators(jobId, ops, user.uid, reason, notes); };
   const onResetJobOrderClick = async (jobId: string) => { if (!user) return; await resetSingleCompletedJobOrder(jobId, user.uid); };
   const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => { if (!user) return; await updateJobDeliveryDate(itemId, newDate, user.uid); };
   const handleDissolveGroup = async (groupId: string) => { await dissolveWorkGroup(groupId); };

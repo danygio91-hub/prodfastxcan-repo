@@ -23,6 +23,10 @@ const articleSchema = z.object({
     secondaryWorkCycleId: z.string().optional(),
     expectedMinutesDefault: z.coerce.number().optional(),
     expectedMinutesSecondary: z.coerce.number().optional(),
+    attachments: z.array(z.object({
+        name: z.string().min(1, "Nome allegato obbligatorio"),
+        url: z.string().url("URL non valido")
+    })).optional().default([]),
 });
 
 export async function getArticles(searchTerm?: string, lastCode?: string, limitCount: number = 50): Promise<Article[]> {
@@ -57,7 +61,10 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
             return { success: false, message: 'Dati non validi: ' + validatedFields.error.errors.map(e => e.message).join(', ') };
         }
 
-        const { code, billOfMaterials, workCycleId, secondaryWorkCycleId, expectedMinutesDefault, expectedMinutesSecondary } = validatedFields.data;
+        const { 
+            code, billOfMaterials, workCycleId, secondaryWorkCycleId, 
+            expectedMinutesDefault, expectedMinutesSecondary, attachments 
+        } = validatedFields.data;
 
         // Check if components exist in rawMaterials
         const uniqueCodes = [...new Set(billOfMaterials.map(i => i.component).filter(Boolean))];
@@ -87,6 +94,7 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         if (secondaryWorkCycleId !== undefined) articleData.secondaryWorkCycleId = secondaryWorkCycleId;
         if (expectedMinutesDefault !== undefined) articleData.expectedMinutesDefault = expectedMinutesDefault;
         if (expectedMinutesSecondary !== undefined) articleData.expectedMinutesSecondary = expectedMinutesSecondary;
+        if (attachments !== undefined) articleData.attachments = attachments;
 
         await adminDb.collection('articles').doc(docId).set(articleData, { merge: true });
         revalidatePath('/admin/article-management');

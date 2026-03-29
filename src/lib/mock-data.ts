@@ -14,6 +14,7 @@ export interface WorkPeriod {
   start: Date;
   end: Date | null;
   operatorId: string;
+  reason?: string;
 }
 
 export interface MaterialConsumption {
@@ -50,6 +51,7 @@ export interface JobPhase {
   forced?: boolean;
   postponed?: boolean;
   isIndependent?: boolean; // New field
+  pauseReason?: string;
 }
 
 export interface JobBillOfMaterialsItem {
@@ -79,7 +81,7 @@ export interface JobOrder {
   problemType?: string; // 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | etc.
   problemNotes?: string;
   problemReportedBy?: string;
-  status: 'planned' | 'production' | 'completed' | 'suspended' | 'paused';
+  status: 'planned' | 'production' | 'completed' | 'suspended' | 'paused' | 'shipped';
   workCycleId?: string;
   billOfMaterials?: JobBillOfMaterialsItem[];
   // New fields for internal ODL number
@@ -95,6 +97,11 @@ export interface JobOrder {
   isPrinted?: boolean; // New field for print tracking
   assignedDate?: string; // New field for Kanban planning (format: YYYY-MM-DD or 'unassigned')
   isPriority?: boolean; // New field for urgent prioritizing
+  sortIndex?: number; // New field for custom Kanban sorting
+  isCarryover?: boolean; // UI flag for jobs from previous weeks
+  attachments?: { name: string, url: string }[];
+  actualWeightKg?: number; // Peso reale alla spedizione
+  numberOfPackages?: number; // Numero di colli nella spedizione
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
@@ -239,6 +246,11 @@ export interface Article {
   secondaryWorkCycleId?: string; // Secondario
   expectedMinutesDefault?: number; // Tempo previsto totale ciclo predefinito
   expectedMinutesSecondary?: number; // Tempo previsto totale ciclo secondario
+  attachments?: { name: string, url: string }[];
+  packagingType?: string;
+  packingInstructions?: string;
+  unitWeightKg?: number;
+  packagingTareWeightKg?: number;
 }
 
 
