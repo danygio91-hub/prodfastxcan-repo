@@ -18,7 +18,7 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
-  const snapshot = await adminDb.collection("purchaseOrders").get();
+  const snapshot = await adminDb.collection("purchaseOrders").orderBy("createdAt", "desc").limit(200).get();
   const list = snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
   return list.sort((a,b) => {
     const valA = a.expectedDeliveryDate as any;

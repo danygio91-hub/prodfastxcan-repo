@@ -50,9 +50,9 @@ function getPhaseIcon(status: JobPhase['status']) {
 }
 
 export default function WorkGroupCard({ 
-    group, jobsInGroup, allOperators, allRawMaterials, onProblemClick, onForceFinishClick, onForcePauseClick, onForceCompleteClick, onDissolveGroupClick, onOpenPhaseManager, onOpenMaterialManager, onToggleGuainaClick, onUpdateDeliveryDate, isSelected, onSelect, overallStatus, getOverallStatus, onNavigateToAnalysis, onCopyArticleCode,
+    group, jobsInGroup, allOperators, onProblemClick, onForceFinishClick, onForcePauseClick, onForceCompleteClick, onDissolveGroupClick, onOpenPhaseManager, onOpenMaterialManager, onToggleGuainaClick, onUpdateDeliveryDate, isSelected, onSelect, overallStatus, getOverallStatus, onNavigateToAnalysis, onCopyArticleCode,
 }: { 
-    group: WorkGroup; jobsInGroup: JobOrder[]; allOperators: Operator[]; allRawMaterials: RawMaterial[]; onProblemClick: () => void; onForceFinishClick: (groupId: string) => void | Promise<void>; onForcePauseClick: (groupId: string, operatorIds: string[]) => void | Promise<void>; onForceCompleteClick: (groupId: string) => void | Promise<void>; onDissolveGroupClick: (groupId: string) => void | Promise<void>; onOpenPhaseManager: (item: JobOrder | WorkGroup) => void; onOpenMaterialManager: (item: JobOrder | WorkGroup) => void; onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void | Promise<void>; onUpdateDeliveryDate: (itemId: string, newDate: string) => void | Promise<void>; isSelected: boolean; onSelect: (groupId: string) => void; overallStatus: OverallStatus; getOverallStatus: (job: JobOrder) => OverallStatus; onNavigateToAnalysis: (articleCode: string) => void; onCopyArticleCode: (articleCode: string) => void;
+    group: WorkGroup; jobsInGroup: JobOrder[]; allOperators: Operator[]; onProblemClick: () => void; onForceFinishClick: (groupId: string) => void | Promise<void>; onForcePauseClick: (groupId: string, operatorIds: string[]) => void | Promise<void>; onForceCompleteClick: (groupId: string) => void | Promise<void>; onDissolveGroupClick: (groupId: string) => void | Promise<void>; onOpenPhaseManager: (item: JobOrder | WorkGroup) => void; onOpenMaterialManager: (item: JobOrder | WorkGroup) => void; onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void | Promise<void>; onUpdateDeliveryDate: (itemId: string, newDate: string) => void | Promise<void>; isSelected: boolean; onSelect: (groupId: string) => void; overallStatus: OverallStatus; getOverallStatus: (job: JobOrder) => OverallStatus; onNavigateToAnalysis: (articleCode: string) => void; onCopyArticleCode: (articleCode: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
@@ -236,7 +236,7 @@ export default function WorkGroupCard({
         </div></CollapsibleContent>
       </Card></Collapsible>
       
-      {isBOMDialogOpen && <BOMDialog isOpen={isBOMDialogOpen} onOpenChange={setIsBOMDialogOpen} job={syntheticJob} allRawMaterials={allRawMaterials} />}
+      {isBOMDialogOpen && <BOMDialog isOpen={isBOMDialogOpen} onOpenChange={setIsBOMDialogOpen} job={syntheticJob} />}
 
       <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
           <DialogContent><DialogHeader><DialogTitle>Forza Pausa Operatori</DialogTitle></DialogHeader>
@@ -255,7 +255,7 @@ export default function WorkGroupCard({
       <Dialog open={isExplodeViewOpen} onOpenChange={setIsExplodeViewOpen}>
           <DialogContent className="max-w-7xl h-[90vh]"><DialogHeader><DialogTitle>Dettaglio Commesse nel Gruppo</DialogTitle></DialogHeader>
               <ScrollArea className="h-full mt-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {validJobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} allRawMaterials={allRawMaterials} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} onUpdateDeliveryDate={onUpdateDeliveryDate} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}
+                  {validJobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} onUpdateDeliveryDate={onUpdateDeliveryDate} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}
               </div></ScrollArea>
           </DialogContent>
       </Dialog>

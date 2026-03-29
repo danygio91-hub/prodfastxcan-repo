@@ -28,7 +28,14 @@ export interface ODLConfig {
     logoUrl: string;
     logoBase64?: string;
     logoHeight: number;
+    logoColumnWidth?: string;
+    logoBg?: string;
+    titleHeight?: string;
+    titleBg?: string;
+    qrColumnWidth?: string;
     qrSize: number;
+    qrTitleHeight?: string;
+    qrTitleBg?: string;
     showRevInfo: boolean;
     revText: string;
     columns: HeaderColumnConfig[];
@@ -82,7 +89,14 @@ export const DEFAULT_ODL_CONFIG: ODLConfig = {
     title: "SCHEDA DI LAVORAZIONE",
     logoUrl: "/logo.png",
     logoHeight: 40,
+    logoColumnWidth: "23.5%",
+    logoBg: "#ffffff",
+    titleHeight: "12mm",
+    titleBg: "#337ab7",
+    qrColumnWidth: "15%",
     qrSize: 80,
+    qrTitleHeight: "6mm",
+    qrTitleBg: "#337ab7",
     showRevInfo: true,
     revText: "MOD. 800_5_02 REV.0 del 08/05/2024",
     columns: [

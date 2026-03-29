@@ -182,57 +182,78 @@ export default function ODLPrintTemplate({
             </div>
         )}
 
-        <table style={{ ...styles.masterTable, borderBottom: '0' }}>
+        <table style={{ ...styles.masterTable }}>
             <colgroup>
-                <col width="20%" />
-                <col width="80%" />
+                <col width={`calc(100% - ${config.header.qrColumnWidth || '15%'})`} />
+                <col width={config.header.qrColumnWidth || '15%'} />
             </colgroup>
             <tbody>
                 <tr>
-                    <td style={{ ...styles.cell, borderBottom: '0', backgroundColor: 'white' }}>
-                        <div style={styles.qrWrapper}>
-                            {logoSrc && <img src={logoSrc} alt="Logo" style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />}
-                        </div>
+                    <td style={{ padding: 0, verticalAlign: 'top', borderRight: `1.5px solid ${config.colors.border}` }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                            <colgroup>
+                                <col width={config.header.logoColumnWidth || '23.5%'} />
+                                <col width={`calc(100% - ${config.header.logoColumnWidth || '23.5%'})`} />
+                            </colgroup>
+                            <tbody>
+                                <tr>
+                                    <td style={{ ...styles.cell, borderLeft: 0, borderTop: 0, borderBottom: 0, backgroundColor: config.header.logoBg || 'white' }}>
+                                        <div style={styles.qrWrapper}>
+                                            {logoSrc && <img src={logoSrc} alt="Logo" style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />}
+                                        </div>
+                                    </td>
+                                    <td style={{ ...styles.title, border: 0, borderLeft: `1px solid ${config.colors.border}`, backgroundColor: config.header.titleBg || config.colors.primary, height: config.header.titleHeight || '12mm' }}>
+                                        <div style={getCellFlexStyles()}>{config.header.title}</div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', borderTop: `1px solid ${config.colors.border}` }}>
+                          <colgroup>
+                            {activeHeaderCols.map((col) => (
+                              <col key={col.id} width={col.width || `${100 / activeHeaderCols.length}%`} />
+                            ))}
+                          </colgroup>
+                          <tbody>
+                            {/* HEADER LABELS */}
+                            <tr style={{ backgroundColor: config.colors.headerBg }}>
+                              {activeHeaderCols.map((col, idx) => (
+                                <td key={col.id} style={{ ...styles.cell, borderTop: 0, borderBottom: 0, borderLeft: idx === 0 ? 0 : `1px solid ${config.colors.border}`, borderRight: idx === activeHeaderCols.length - 1 ? 0 : `1px solid ${config.colors.border}`, fontSize: `${col.fontSize || config.typography.headerFontSize}pt` }}>
+                                  <div style={styles.label}>{col.label}</div>
+                                </td>
+                              ))}
+                            </tr>
+                            {/* HEADER VALUES */}
+                            <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
+                              {activeHeaderCols.map((col, idx) => {
+                                let val = '---';
+                                if (col.field === 'reparto') val = getDeptSigla(job.department);
+                                if (col.field === 'dataOdl') val = format(printDate || new Date(), 'dd/MM/yyyy');
+                                if (col.field === 'ordinePf') val = job.ordinePF;
+                                if (col.field === 'numeroOdl') val = job.numeroODLInterno || '---';
+
+                                return (
+                                  <td key={col.id} style={{ ...styles.cell, borderLeft: idx === 0 ? 0 : `1px solid ${config.colors.border}`, borderRight: idx === activeHeaderCols.length - 1 ? 0 : `1px solid ${config.colors.border}`, borderBottom: 0, fontSize: `${col.fontSize || 11}pt`, backgroundColor: col.field === 'reparto' || col.field === 'ordinePf' || col.field === 'numeroOdl' ? config.colors.bgValueGreen : 'white' }}>
+                                    <div style={getCellFlexStyles(col)}>{val}</div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          </tbody>
+                        </table>
                     </td>
-                    <td style={styles.title}>
-                        <div style={getCellFlexStyles()}>{config.header.title}</div>
+                    <td style={{ padding: 0, verticalAlign: 'top', backgroundColor: 'white' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div style={{ backgroundColor: config.header.qrTitleBg || config.colors.primary, color: 'white', fontSize: '6.5pt', fontWeight: 'bold', textAlign: 'center', padding: '1mm', borderBottom: `1px solid ${config.colors.border}`, flex: '0 0 auto', height: config.header.qrTitleHeight || '6mm', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                CODICE COMMESSA
+                            </div>
+                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1mm' }}>
+                                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={config.header.qrSize || 65} />
+                            </div>
+                        </div>
                     </td>
                 </tr>
             </tbody>
-        </table>
-
-        <table style={styles.masterTable}>
-          <colgroup>
-            {activeHeaderCols.map((col) => (
-              <col key={col.id} width={col.width || `${100 / activeHeaderCols.length}%`} />
-            ))}
-          </colgroup>
-          <tbody>
-            {/* HEADER LABELS */}
-            <tr style={{ backgroundColor: config.colors.headerBg }}>
-              {activeHeaderCols.map((col) => (
-                <td key={col.id} style={{ ...styles.cell, fontSize: `${col.fontSize || config.typography.headerFontSize}pt` }}>
-                  <div style={styles.label}>{col.label}</div>
-                </td>
-              ))}
-            </tr>
-            {/* HEADER VALUES */}
-            <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
-              {activeHeaderCols.map((col) => {
-                let val = '---';
-                if (col.field === 'reparto') val = getDeptSigla(job.department);
-                if (col.field === 'dataOdl') val = format(printDate || new Date(), 'dd/MM/yyyy');
-                if (col.field === 'ordinePf') val = job.ordinePF;
-                if (col.field === 'numeroOdl') val = job.numeroODLInterno || '---';
-
-                return (
-                  <td key={col.id} style={{ ...styles.cell, fontSize: `${col.fontSize || 11}pt`, backgroundColor: col.field === 'reparto' || col.field === 'ordinePf' || col.field === 'numeroOdl' ? config.colors.bgValueGreen : 'white' }}>
-                    <div style={getCellFlexStyles(col)}>{val}</div>
-                  </td>
-                );
-              })}
-            </tr>
-          </tbody>
         </table>
       </div>
     );
@@ -241,17 +262,15 @@ export default function ODLPrintTemplate({
   const renderJobDetails = () => {
     const activeInfoCols = config.info.columns.filter(c => c.visible);
     const rowCount = activeInfoCols.length || 1;
-    const qrRowSpan = Math.min(2, rowCount);
     
-    // Label and Value widths from config. The rest for QR and Drawing.
+    // Label and Value widths from config. The rest for Drawing.
     const labelW = config.info.labelWidth || '15%';
     const valueW = config.info.valueWidth || '25%';
     
     // Convert percentages to numbers to calculate remaining
     const lVal = parseFloat(labelW);
     const vVal = parseFloat(valueW);
-    const qrW = 15; // 15% fixed for QR
-    const drawW = 100 - lVal - vVal - qrW;
+    const drawW = 100 - lVal - vVal; // Full remaining width 
 
     return (
       <div style={{ marginBottom: '3mm' }}>
@@ -259,7 +278,6 @@ export default function ODLPrintTemplate({
           <colgroup>
               <col width={labelW} />
               <col width={valueW} />
-              <col width={`${qrW}%`} />
               <col width={`${drawW}%`} />
           </colgroup>
           <tbody>
@@ -280,28 +298,10 @@ export default function ODLPrintTemplate({
                   <td style={{ ...styles.cell, backgroundColor: col.colorKey ? (config.colors as any)[col.colorKey] : 'white', fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
                     <div style={getCellFlexStyles()}>{val}</div>
                   </td>
-                  
-                  {/* QR CODE AREA */}
-                  {idx === 0 && (
-                     <td style={{ ...styles.cell, padding: '0', border: 'none' }} rowSpan={qrRowSpan}>
-                        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', border: `1px solid ${config.colors.border}`, overflow: 'hidden' }}>
-                            <div style={{ backgroundColor: config.colors.primary, color: 'white', fontSize: '6.5pt', fontWeight: 'bold', textAlign: 'center', padding: '1mm', borderBottom: `1px solid ${config.colors.border}` }}>
-                                CODICE COMMESSA
-                            </div>
-                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'white', padding: '1mm' }}>
-                                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={config.header.qrSize || 45} />
-                            </div>
-                        </div>
-                     </td>
-                  )}
-                  {/* Spacer for rows below QR but within Info section */}
-                  {idx >= qrRowSpan && (
-                     <td style={{ ...styles.cell, backgroundColor: 'white' }}></td>
-                  )}
 
                   {/* DRAWING / NOTES AREA */}
                   {idx === 0 && (
-                    <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle' }} rowSpan={rowCount}>
+                    <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}` }} rowSpan={rowCount}>
                       <div style={getCellFlexStyles()}>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
                     </td>
                   )}

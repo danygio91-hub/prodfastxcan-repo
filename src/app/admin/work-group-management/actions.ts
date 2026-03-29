@@ -9,7 +9,7 @@ import { pulseOperatorsForJob } from '@/lib/job-sync-server';
 
 
 export async function getWorkGroups(): Promise<WorkGroup[]> {
-  const snapshot = await adminDb.collection('workGroups').get();
+  const snapshot = await adminDb.collection('workGroups').orderBy('createdAt', 'desc').limit(200).get();
   const list = snapshot.docs.map(doc => {
     const data = doc.data();
     // Convert Firestore Timestamp to a serializable format (ISO string)

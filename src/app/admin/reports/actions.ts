@@ -29,17 +29,30 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
   }, 0);
 }
 
+async function fetchRelevantJobsAndGroups(completedLimit = 400) {
+    const activeJobsQuery = adminDb.collection("jobOrders").where("status", "in", ["production", "suspended", "paused"]).get();
+    const completedJobsQuery = adminDb.collection("jobOrders").where("status", "==", "completed").limit(completedLimit).get();
+    
+    const activeGroupsQuery = adminDb.collection("workGroups").where("status", "in", ["production", "suspended", "paused"]).get();
+    const completedGroupsQuery = adminDb.collection("workGroups").where("status", "==", "completed").limit(Math.max(100, Math.floor(completedLimit / 4))).get();
+
+    const [activeJobs, completedJobs, activeGroups, completedGroups] = await Promise.all([
+        activeJobsQuery, completedJobsQuery, activeGroupsQuery, completedGroupsQuery
+    ]);
+
+    const jobs = [...activeJobs.docs, ...completedJobs.docs].map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    const groups = [...activeGroups.docs, ...completedGroups.docs].map(doc => convertTimestampsToDates(doc.data()) as WorkGroup);
+
+    return { jobs, groups };
+}
+
 export type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 
 export async function getJobsReport() {
-    const [jobsSnapshot, groupsSnapshot] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", ["production", "completed", "suspended", "paused"]).get(),
-        adminDb.collection("workGroups").get()
-    ]);
+    const { jobs, groups } = await fetchRelevantJobsAndGroups(200);
 
-    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
     const groupsMap = new Map<string, WorkGroup>();
-    groupsSnapshot.forEach(doc => groupsMap.set(doc.id, convertTimestampsToDates(doc.data()) as WorkGroup));
+    groups.forEach(group => groupsMap.set(group.id, group));
 
     const allOperatorIds = [...new Set([
         ...jobs.flatMap(job => (job.phases || []).flatMap(phase => (phase.workPeriods || []).map(wp => wp.operatorId))),
@@ -97,12 +110,7 @@ export async function getOperatorsReport(targetDateString?: string) {
     const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
     const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
 
-    const [jobsSnapshot, groupsSnapshot] = await Promise.all([
-        adminDb.collection("jobOrders").get(),
-        adminDb.collection("workGroups").get()
-    ]);
-    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
-    const groups = groupsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as WorkGroup);
+    const { jobs, groups } = await fetchRelevantJobsAndGroups(400);
 
     const allWorkPeriods = [
         ...jobs.flatMap(job => (job.phases || []).flatMap(phase => (phase.workPeriods || []))),
@@ -145,13 +153,7 @@ export async function getOperatorDetailReport(operatorId: string, date: string) 
     const dayStart = startOfDay(targetDate);
     const dayEnd = endOfDay(targetDate);
     
-    const [jobsSnapshot, groupsSnapshot] = await Promise.all([
-        adminDb.collection("jobOrders").get(),
-        adminDb.collection("workGroups").get()
-    ]);
-    
-    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
-    const groups = groupsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as WorkGroup);
+    const { jobs, groups } = await fetchRelevantJobsAndGroups(400);
 
     const timeMetrics = await getOperatorsReport(date);
     const operatorMetrics = timeMetrics.find(op => op.id === operatorId);
@@ -366,17 +368,21 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
     const MIN_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
     
-    // Fetch necessary templates and groups upfront to avoid N+1 queries
-    const [tSnap, gSnap] = await Promise.all([
-        adminDb.collection("workPhaseTemplates").get(),
-        adminDb.collection("workGroups").get()
-    ]);
+    // Fetch necessary templates upfront to avoid N+1 queries
+    const tSnap = await adminDb.collection("workPhaseTemplates").get();
     
     const typeMap = new Map<string, WorkPhaseTemplate['type']>();
     tSnap.forEach(d => typeMap.set(d.data().name, d.data().type));
     
+    const workGroupIds = [...new Set(jobs.map(j => j.workGroupId).filter(Boolean))] as string[];
     const groupsMap = new Map<string, WorkGroup>();
-    gSnap.forEach(d => groupsMap.set(d.id, convertTimestampsToDates(d.data()) as WorkGroup));
+    if (workGroupIds.length > 0) {
+        for (let i = 0; i < workGroupIds.length; i += 30) {
+            const chunk = workGroupIds.slice(i, i + 30);
+            const snap = await adminDb.collection("workGroups").where(admin.firestore.FieldPath.documentId(), "in", chunk).get();
+            snap.forEach(d => groupsMap.set(d.id, convertTimestampsToDates(d.data()) as WorkGroup));
+        }
+    }
     
     const analysis: { [code: string]: any } = {};
     const phaseData: { [code: string]: any } = {};

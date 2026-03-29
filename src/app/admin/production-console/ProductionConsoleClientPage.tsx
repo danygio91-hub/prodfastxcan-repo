@@ -88,7 +88,9 @@ import {
   reportMaterialMissing, 
   resolveMaterialMissing, 
   updateJobDeliveryDate,
-  getProductionTimeAnalysisMap,
+  getAnalysisForArticle,
+  getArticlesByCodes,
+  getRawMaterialsByCodes,
   type ProductionTimeData
 } from '@/app/admin/production-console/actions';
 import { getProductionSettings, type ProductionSettings } from '@/app/admin/production-settings/actions';
@@ -174,33 +176,59 @@ export default function ProductionConsoleClientPage() {
     else setIsLoading(true);
     
     try {
-        const [jobsSnap, groupsSnap, opsSnap, matsSnap, artsSnap] = await Promise.all([
-            getDocs(query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "completed", "paused"]))),
-            getDocs(collection(db, "workGroups")),
+        // 1. Fetch Job Orders and Groups with limits
+        let queryStatuses = ["production", "suspended", "paused"];
+        if (showCompleted) queryStatuses.push("completed");
+
+        let jobsQuery = query(
+          collection(db, "jobOrders"), 
+          where("status", "in", queryStatuses)
+        );
+        let groupsQuery = query(
+          collection(db, "workGroups"),
+          where("status", "in", queryStatuses)
+        );
+        
+        // If we are showing completed jobs, we limit to avoid massive reads
+        if (showCompleted) {
+          jobsQuery = query(jobsQuery, limit(100));
+          groupsQuery = query(groupsQuery, limit(50));
+        }
+        
+        const [jobsSnap, groupsSnap, opsSnap] = await Promise.all([
+            getDocs(jobsQuery),
+            getDocs(groupsQuery),
             getDocs(collection(db, "operators")),
-            getDocs(collection(db, "rawMaterials")),
-            getDocs(collection(db, "articles")),
             getWorkingHoursConfig().then(setWorkingHours),
             getProductionSettings().then(setSettings)
         ]);
 
-        const jobs = jobsSnap.docs.map(doc => JSON.parse(JSON.stringify(doc.data()), (key, value) => {
-            if ((['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate', 'createdAt']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
-            return value;
-        }) as JobOrder);
+        const jobs = jobsSnap.docs.map(doc => {
+            const data = doc.data();
+            return JSON.parse(JSON.stringify(data, (key, value) => {
+                if ((['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate', 'createdAt']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
+                return value;
+            })) as JobOrder;
+        });
         setJobOrders(jobs);
         
-        const groups = groupsSnap.docs.map(doc => JSON.parse(JSON.stringify(doc.data()), (key, value) => {
-            if ((['createdAt', 'overallStartTime', 'overallEndTime']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
-            return value;
-        }) as WorkGroup);
+        const groups = groupsSnap.docs.map(doc => {
+            const data = doc.data();
+            return JSON.parse(JSON.stringify(data, (key, value) => {
+                if ((['createdAt', 'overallStartTime', 'overallEndTime']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
+                return value;
+            })) as WorkGroup;
+        });
         setWorkGroups(groups);
-
         setAllOperators(opsSnap.docs.map(d => d.data() as Operator));
-        setAllRawMaterials(matsSnap.docs.map(d => ({id: d.id, ...d.data()} as RawMaterial)));
-        setAllArticles(artsSnap.docs.map(d => d.data() as Article));
 
-        // Refresh assignments
+        // 2. Optimized fetching for Articles (materials are now lazy-loaded in BOMDialog)
+        const articleCodes = Array.from(new Set(jobs.map(j => j.details).filter(Boolean)));
+        if (articleCodes.length > 0) {
+            getArticlesByCodes(articleCodes).then(setAllArticles);
+        }
+
+        // 3. Refresh assignments (filtered by date range)
         const start = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
         const end = format(addWeeks(parseISO(start), 4), 'yyyy-MM-dd');
         getOperatorAssignments(start, end).then(setAssignments);
@@ -213,7 +241,7 @@ export default function ProductionConsoleClientPage() {
         setIsLoading(false);
         setIsDataRefreshing(false);
     }
-  }, [toast]);
+  }, [toast, showCompleted]);
 
   useEffect(() => {
     loadAllData();
@@ -405,13 +433,20 @@ export default function ProductionConsoleClientPage() {
   };
 
   const handleFetchAnalysis = async (job: JobOrder) => {
-    if (!job.id) return;
+    if (!job.id || !job.details) return;
     setJobsWithLoadingAnalysis(prev => new Set(prev).add(job.id));
     try {
-        const map = await getProductionTimeAnalysisMap();
-        setAnalysisDataMap(prev => new Map(prev).set(job.id, map.get(job.details) || null));
-    } catch (e) { toast({ variant: "destructive", title: "Errore Analisi" }); }
-    finally { setJobsWithLoadingAnalysis(prev => { const n = new Set(prev); n.delete(job.id); return n; }); }
+        const analysis = await getAnalysisForArticle(job.details);
+        if (analysis) {
+            setAnalysisDataMap(prev => new Map(prev).set(job.id, analysis));
+        } else {
+            toast({ title: "Nessuna Analisi", description: "Dati insufficienti per generare una stima." });
+        }
+    } catch (e) { 
+        toast({ variant: "destructive", title: "Errore Analisi" }); 
+    } finally { 
+        setJobsWithLoadingAnalysis(prev => { const n = new Set(prev); n.delete(job.id); return n; }); 
+    }
   };
 
   const handleNavigateToAnalysis = (articleCode: string) => {
@@ -452,7 +487,6 @@ export default function ProductionConsoleClientPage() {
                 group={item as WorkGroup} 
                 jobsInGroup={jobsByGroupId.get(item.id) || []} 
                 allOperators={allOperators} 
-                allRawMaterials={allRawMaterials} 
                 onProblemClick={() => setProblemJob(item as WorkGroup)} 
                 onForceFinishClick={handleForceFinish} 
                 onForcePauseClick={handleForcePause} 
@@ -476,7 +510,6 @@ export default function ProductionConsoleClientPage() {
             key={item.id} 
             jobOrder={item as JobOrder} 
             allOperators={allOperators} 
-            allRawMaterials={allRawMaterials} 
             analysisData={analysisDataMap.get(item.id)} 
             onFetchAnalysis={() => handleFetchAnalysis(item as JobOrder)} 
             isAnalysisLoading={jobsWithLoadingAnalysis.has(item.id)} 

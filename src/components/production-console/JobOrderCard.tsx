@@ -1,5 +1,6 @@
 import type { JobOrder, JobPhase, Operator, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
+import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
@@ -45,7 +46,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 import BOMDialog from './BOMDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
@@ -112,19 +112,44 @@ function PhaseLiveTimer({ phase }: { phase: JobPhase }) {
 }
 
 
-export default function JobOrderCard({ 
+interface JobOrderCardProps {
+    jobOrder: JobOrder;
+    allOperators: Operator[];
+    analysisData?: ProductionTimeData | null;
+    onFetchAnalysis: () => void;
+    isAnalysisLoading: boolean;
+    groupPhases?: JobPhase[];
+    onProblemClick: () => void;
+    onForceFinishClick: (jobId: string) => void;
+    onRevertForceFinishClick: (jobId: string) => void;
+    onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void;
+    onRevertPhaseClick: (jobId: string, phaseId: string) => void;
+    onForcePauseClick: (jobId: string, operatorIds: string[]) => void;
+    onForceCompleteClick: (jobId: string) => void;
+    onResetJobOrderClick: (jobId: string) => void;
+    onOpenPhaseManager: (item: JobOrder) => void;
+    onOpenMaterialManager: (item: JobOrder) => void;
+    onRevertCompletionClick: (jobId: string) => void;
+    onUpdateDeliveryDate: (itemId: string, newDate: string) => void | Promise<void>;
+    isSelected: boolean;
+    onSelect: (jobId: string) => void;
+    overallStatus: OverallStatus;
+    onNavigateToAnalysis: (articleCode: string) => void;
+    onCopyArticleCode: (articleCode: string) => void;
+}
+
+export default function JobOrderCard({
     jobOrder,
     allOperators,
-    allRawMaterials,
     analysisData,
     onFetchAnalysis,
     isAnalysisLoading,
     groupPhases,
-    onProblemClick, 
+    onProblemClick,
     onForceFinishClick,
     onRevertForceFinishClick,
-    onToggleGuainaClick, 
-    onRevertPhaseClick, 
+    onToggleGuainaClick,
+    onRevertPhaseClick,
     onForcePauseClick,
     onForceCompleteClick,
     onResetJobOrderClick,
@@ -137,32 +162,7 @@ export default function JobOrderCard({
     overallStatus,
     onNavigateToAnalysis,
     onCopyArticleCode,
-}: { 
-    jobOrder: JobOrder;
-    allOperators: Operator[];
-    allRawMaterials: RawMaterial[];
-    analysisData?: ProductionTimeData | null;
-    onFetchAnalysis: () => void;
-    isAnalysisLoading: boolean;
-    groupPhases?: JobPhase[];
-    onProblemClick: () => void; 
-    onForceFinishClick: (jobId: string) => void;
-    onRevertForceFinishClick: (jobId: string) => void;
-    onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
-    onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
-    onForcePauseClick: (jobId: string, operatorIds: string[]) => void; 
-    onForceCompleteClick: (jobId: string) => void;
-    onResetJobOrderClick: (jobId: string) => void;
-    onOpenPhaseManager: (item: JobOrder) => void;
-    onOpenMaterialManager: (item: JobOrder) => void;
-    onRevertCompletionClick: (jobId: string) => void;
-    onUpdateDeliveryDate: (itemId: string, newDate: string) => void;
-    isSelected: boolean;
-    onSelect: (jobId: string) => void;
-    overallStatus: OverallStatus;
-    onNavigateToAnalysis: (articleCode: string) => void;
-    onCopyArticleCode: (articleCode: string) => void;
-}) {
+}: JobOrderCardProps) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isBOMDialogOpen, setIsBOMDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
@@ -672,7 +672,6 @@ export default function JobOrderCard({
             isOpen={isBOMDialogOpen}
             onOpenChange={setIsBOMDialogOpen}
             job={jobOrder}
-            allRawMaterials={allRawMaterials}
         />
       )}
 

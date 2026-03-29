@@ -167,13 +167,28 @@ export default function ODLDesignerPage() {
 
             {/* HEADER TAB */}
             <TabsContent value="header" className="space-y-6 animate-in fade-in slide-in-from-right-2">
-              <div className="space-y-3">
-                <Label className="text-sm font-semibold text-gray-700">Titolo Principale</Label>
+              <div className="space-y-4 p-5 border rounded-2xl bg-gray-50/70 shadow-sm">
+                <Label className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                    <Type className="w-4 h-4 text-blue-600" /> Titolo Principale
+                </Label>
                 <Input 
                   className="rounded-lg border-gray-200 focus:ring-blue-500 shadow-sm"
                   value={config.header.title || ''} 
                   onChange={(e) => updateConfig('header.title', e.target.value)} 
                 />
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                     <div className="space-y-2 group">
+                        <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Colore Sfondo Cella</Label>
+                        <div className="flex items-center gap-2 bg-white p-2 rounded-xl border group-hover:border-blue-500 transition-colors shadow-sm">
+                            <Input type="color" className="w-8 h-8 p-0 border-none cursor-pointer shrink-0" value={config.header.titleBg || config.colors.primary} onChange={(e) => updateConfig('header.titleBg', e.target.value)} />
+                            <span className="text-[10px] font-mono font-bold text-gray-400 select-all">{config.header.titleBg || config.colors.primary}</span>
+                        </div>
+                     </div>
+                     <div className="space-y-2">
+                        <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Altezza Cella Titolo</Label>
+                        <Input className="h-[43px] text-xs font-mono rounded-xl shadow-sm border border-gray-200" value={config.header.titleHeight || '12mm'} onChange={(e) => updateConfig('header.titleHeight', e.target.value)} placeholder="es. 12mm" />
+                     </div>
+                </div>
               </div>
 
                <div className="space-y-5 p-5 border rounded-2xl bg-gray-50/70 shadow-sm">
@@ -203,10 +218,23 @@ export default function ODLDesignerPage() {
                   </div>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center text-xs font-semibold text-gray-600">
-                        <Label>Altezza Visualizzazione (px)</Label>
+                        <Label>Altezza Visualizzazione Logo (px)</Label>
                         <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{config.header.logoHeight}</span>
                     </div>
                     <Slider value={[config.header.logoHeight]} min={20} max={180} step={2} onValueChange={([v]) => updateConfig('header.logoHeight', v)} className="py-2" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-2">
+                     <div className="space-y-2 group">
+                        <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Colore Sfondo Cella Logo</Label>
+                        <div className="flex items-center gap-2 bg-white p-2 rounded-xl border group-hover:border-blue-500 transition-colors shadow-sm">
+                            <Input type="color" className="w-8 h-8 p-0 border-none cursor-pointer shrink-0" value={config.header.logoBg || '#ffffff'} onChange={(e) => updateConfig('header.logoBg', e.target.value)} />
+                            <span className="text-[10px] font-mono font-bold text-gray-400 select-all">{config.header.logoBg || '#ffffff'}</span>
+                        </div>
+                     </div>
+                     <div className="space-y-2">
+                        <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Larghezza Cella Logo</Label>
+                        <Input className="h-[43px] text-xs font-mono rounded-xl shadow-sm border border-gray-200" value={config.header.logoColumnWidth || '23.5%'} onChange={(e) => updateConfig('header.logoColumnWidth', e.target.value)} placeholder="es. 23.5%" />
+                     </div>
                   </div>
                </div>
 
@@ -316,13 +344,30 @@ export default function ODLDesignerPage() {
                 </div>
               </div>
 
-               <div className="p-4 border rounded-2xl bg-gray-50/70 shadow-sm">
-                    <div className="flex justify-between items-center text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">
-                        <span>Dimensione QR Code</span>
+               <div className="p-4 border rounded-2xl bg-gray-50/70 shadow-sm space-y-4">
+                    <div className="flex justify-between items-center text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        <span>Configurazione QR Code Box</span>
                         <span className="text-blue-600 bg-white px-3 py-1 rounded-full shadow-sm">{config.header.qrSize} px</span>
                     </div>
                     <div className="px-1">
-                        <Slider value={[config.header.qrSize || 80]} min={40} max={180} step={5} onValueChange={([v]) => updateConfig('header.qrSize', v)} />
+                        <Slider value={[config.header.qrSize || 65]} min={40} max={180} step={5} onValueChange={([v]) => updateConfig('header.qrSize', v)} />
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 mt-2">
+                         <div className="space-y-2 group">
+                            <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Colore Titolo QR</Label>
+                            <div className="flex items-center gap-2 bg-white p-2 rounded-xl border group-hover:border-blue-500 transition-colors shadow-sm">
+                                <Input type="color" className="w-8 h-8 p-0 border-none cursor-pointer shrink-0" value={config.header.qrTitleBg || config.colors.primary} onChange={(e) => updateConfig('header.qrTitleBg', e.target.value)} />
+                                <span className="text-[10px] font-mono font-bold text-gray-400 select-all">{config.header.qrTitleBg || config.colors.primary}</span>
+                            </div>
+                         </div>
+                         <div className="space-y-2">
+                            <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Altezza Cella Titolo QR</Label>
+                            <Input className="h-[43px] text-xs font-mono rounded-xl shadow-sm border border-gray-200" value={config.header.qrTitleHeight || '6mm'} onChange={(e) => updateConfig('header.qrTitleHeight', e.target.value)} placeholder="es. 6mm" />
+                         </div>
+                         <div className="space-y-2">
+                            <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Larghezza Col. Destra (QR)</Label>
+                            <Input className="h-[43px] text-xs font-mono rounded-xl shadow-sm border border-gray-200" value={config.header.qrColumnWidth || '15%'} onChange={(e) => updateConfig('header.qrColumnWidth', e.target.value)} placeholder="es. 15%" />
+                         </div>
                     </div>
                </div>
             </TabsContent>
@@ -400,15 +445,32 @@ export default function ODLDesignerPage() {
                     </div>
                 </div>
 
-                <div className="p-4 border rounded-2xl bg-gray-50/70 shadow-sm">
-                    <div className="flex justify-between items-center text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">
-                        <span>Dimensione QR Code</span>
+                <div className="p-4 border rounded-2xl bg-gray-50/70 shadow-sm space-y-4">
+                    <div className="flex justify-between items-center text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        <span>Configurazione QR Code Box</span>
                         <span className="text-blue-600 bg-white px-3 py-1 rounded-full shadow-sm">{config.header.qrSize} px</span>
                     </div>
                     <div className="px-1">
-                        <Slider value={[config.header.qrSize || 80]} min={40} max={180} step={5} onValueChange={([v]) => updateConfig('header.qrSize', v)} />
+                        <Slider value={[config.header.qrSize || 65]} min={40} max={180} step={5} onValueChange={([v]) => updateConfig('header.qrSize', v)} />
                     </div>
-                </div>
+                    <div className="grid grid-cols-3 gap-4 mt-2">
+                         <div className="space-y-2 group">
+                            <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Colore Titolo QR</Label>
+                            <div className="flex items-center gap-2 bg-white p-2 rounded-xl border group-hover:border-blue-500 transition-colors shadow-sm">
+                                <Input type="color" className="w-8 h-8 p-0 border-none cursor-pointer shrink-0" value={config.header.qrTitleBg || config.colors.primary} onChange={(e) => updateConfig('header.qrTitleBg', e.target.value)} />
+                                <span className="text-[10px] font-mono font-bold text-gray-400 select-all">{config.header.qrTitleBg || config.colors.primary}</span>
+                            </div>
+                         </div>
+                         <div className="space-y-2">
+                            <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Altezza Titolo QR</Label>
+                            <Input className="h-[43px] text-xs font-mono rounded-xl shadow-sm border border-gray-200" value={config.header.qrTitleHeight || '6mm'} onChange={(e) => updateConfig('header.qrTitleHeight', e.target.value)} placeholder="es. 6mm o 12mm" />
+                         </div>
+                         <div className="space-y-2">
+                            <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Larghezza Col. Destra</Label>
+                            <Input className="h-[43px] text-xs font-mono rounded-xl shadow-sm border border-gray-200" value={config.header.qrColumnWidth || '15%'} onChange={(e) => updateConfig('header.qrColumnWidth', e.target.value)} placeholder="es. 15%" />
+                         </div>
+                    </div>
+               </div>
             </TabsContent>
 
              <TabsContent value="columns" className="space-y-4 pb-20 animate-in fade-in slide-in-from-right-2">

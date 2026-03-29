@@ -8,21 +8,40 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { JobOrder, JobBillOfMaterialsItem, RawMaterial, MaterialConsumption } from '@/lib/mock-data';
-import { ClipboardList, Check, Hourglass } from 'lucide-react';
+import { ClipboardList, Check, Hourglass, Loader2 } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { formatDisplayStock } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '@/lib/utils';
+import { getRawMaterialsByCodes } from '@/app/admin/production-console/actions';
+import { useState, useEffect } from 'react';
 
 interface BOMDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   job: JobOrder;
-  allRawMaterials: RawMaterial[];
 }
 
-export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }: BOMDialogProps) {
-  const materialsMap = useMemo(() => new Map(allRawMaterials.map(m => [m.code, m])), [allRawMaterials]);
+export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps) {
+  const [materials, setMaterials] = useState<RawMaterial[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && job) {
+      const bomCodes = (job.billOfMaterials || []).map(m => m.component);
+      const consumedCodes = (job.phases || []).flatMap(p => (p.materialConsumptions || []).map(c => c.materialCode));
+      const allCodes = Array.from(new Set([...bomCodes, ...consumedCodes])).filter(Boolean);
+      
+      if (allCodes.length > 0) {
+        setIsLoading(true);
+        getRawMaterialsByCodes(allCodes)
+          .then(setMaterials)
+          .finally(() => setIsLoading(false));
+      }
+    }
+  }, [isOpen, job]);
+
+  const materialsMap = useMemo(() => new Map(materials.map(m => [m.code, m])), [materials]);
 
   const withdrawnByComponent = useMemo(() => {
     const map = new Map<string, { units: number, hasActiveSession: boolean }>();
@@ -105,7 +124,13 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
             }
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[60vh] pr-4">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+            <p className="text-muted-foreground">Caricamento componenti...</p>
+          </div>
+        ) : (
+          <ScrollArea className="max-h-[60vh] pr-4">
           <Table>
             <TableHeader>
               <TableRow>
@@ -224,6 +249,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
             </TableBody>
           </Table>
         </ScrollArea>
+        )}
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="outline">Chiudi</Button>

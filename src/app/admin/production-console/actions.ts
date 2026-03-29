@@ -7,9 +7,10 @@ import { adminDb } from '@/lib/firebase-admin';
 // @ts-ignore
 import admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate, Article } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 import { pulseOperatorsForJob } from '@/lib/job-sync-server';
+import { convertTimestampsToDates } from '@/lib/utils';
 
 
 export type ProductionTimeData = {
@@ -558,4 +559,132 @@ export async function bulkUpdateJobOrders(jobs: JobOrder[], uid: string | undefi
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore nell'aggiornamento massivo." };
   }
+}
+
+/**
+ * Ottimizzazione Firebase: Recupera l'analisi tempi per un singolo articolo specifico.
+ * Sostituisce la necessità di caricare l'intero report per una sola visualizzazione.
+ */
+export async function getAnalysisForArticle(articleCode: string): Promise<ProductionTimeData | null> {
+    const jobsSnap = await adminDb.collection("jobOrders")
+        .where("details", "==", articleCode)
+        .where("status", "in", ["completed", "production", "suspended", "paused"])
+        .limit(50)
+        .get();
+
+    if (jobsSnap.empty) return null;
+
+    const jobs = jobsSnap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    
+    const articleSnap = await adminDb.collection("articles").where("code", "==", articleCode).limit(1).get();
+    const article = articleSnap.empty ? null : (articleSnap.docs[0].data() as Article);
+
+    const [tSnap, settingsDoc] = await Promise.all([
+        adminDb.collection("workPhaseTemplates").get(),
+        adminDb.collection('configuration').doc('timeTrackingSettings').get()
+    ]);
+    
+    const typeMap = new Map<string, string>();
+    tSnap.forEach(d => typeMap.set(d.data().name, d.data().type));
+    
+    const workGroupIds = [...new Set(jobs.map(j => j.workGroupId).filter(Boolean))] as string[];
+    const groupsMap = new Map<string, WorkGroup>();
+    if (workGroupIds.length > 0) {
+        for (let i = 0; i < workGroupIds.length; i += 30) {
+            const chunk = workGroupIds.slice(i, i + 30);
+            const snap = await adminDb.collection("workGroups").where(admin.firestore.FieldPath.documentId(), "in", chunk).get();
+            snap.forEach(d => groupsMap.set(d.id, convertTimestampsToDates(d.data()) as WorkGroup));
+        }
+    }
+
+    const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
+    const MIN_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
+
+    const phaseData: { [name: string]: { totalMinutes: number, totalQuantity: number, type: string } } = {};
+    let totalReliableMs = 0;
+    let totalReliableQty = 0;
+
+    for (const job of jobs) {
+        if (job.qta <= 0) continue;
+        
+        let totalMs = 0;
+        let isReliable = true;
+        let phasesWithDetails: any[] = [];
+        const calculateMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => wp.start && wp.end ? acc + (new Date(wp.end).getTime() - new Date(wp.start).getTime()) : acc, 0);
+
+        if (job.workGroupId && groupsMap.has(job.workGroupId)) {
+            const group = groupsMap.get(job.workGroupId)!;
+            isReliable = false;
+            phasesWithDetails = (group.phases || []).map(gp => {
+                const groupMs = calculateMs(gp);
+                const proportionalMs = group.totalQuantity > 0 ? (groupMs / group.totalQuantity) * job.qta : 0;
+                if (gp.tracksTime !== false) totalMs += proportionalMs;
+                return { phase: gp, timeMs: proportionalMs };
+            });
+        } else {
+            const tracking = (job.phases || []).filter(p => p.tracksTime !== false);
+            isReliable = tracking.length > 0 && tracking.every(p => p.status === 'completed') && !tracking.some(p => p.forced || (calculateMs(p) > 0 && calculateMs(p) < MIN_MS));
+            phasesWithDetails = (job.phases || []).map(p => {
+                const t = calculateMs(p);
+                if (p.tracksTime !== false) totalMs += t;
+                return { phase: p, timeMs: t };
+            });
+        }
+
+        if (isReliable) {
+            totalReliableMs += totalMs;
+            totalReliableQty += job.qta;
+        }
+
+        phasesWithDetails.filter(p => p.phase.tracksTime !== false).forEach(p => {
+            if (p.phase.status === 'completed' && !p.phase.forced && p.timeMs >= MIN_MS) {
+                if (!phaseData[p.phase.name]) phaseData[p.phase.name] = { totalMinutes: 0, totalQuantity: 0, type: typeMap.get(p.phase.name) || 'production' };
+                phaseData[p.phase.name].totalMinutes += p.timeMs / 60000;
+                phaseData[p.phase.name].totalQuantity += job.qta;
+            }
+        });
+    }
+
+    const phaseTimes: Record<string, { averageMinutesPerPiece: number; confidenceWarning?: string }> = {};
+    Object.entries(phaseData).forEach(([name, data]) => {
+        const avg = data.totalQuantity > 0 ? data.totalMinutes / data.totalQuantity : 0;
+        let warning: string | undefined = undefined;
+        const phaseTimesConfig = article?.phaseTimes;
+        if (phaseTimesConfig && (phaseTimesConfig as any)[name]) {
+            const expected = (phaseTimesConfig as any)[name].expectedMinutesPerPiece;
+            if (expected > 0) {
+                if (avg > expected * 1.5) warning = "⚠️ Tempo raddoppiato rispetto al Teorico!";
+                else if (avg < expected * 0.5) warning = "⚠️ Tempo dimezzato rispetto al Teorico!";
+            }
+        }
+        phaseTimes[name] = { averageMinutesPerPiece: avg, confidenceWarning: warning };
+    });
+
+    return {
+        averageMinutesPerPiece: totalReliableQty > 0 ? (totalReliableMs / 60000) / totalReliableQty : 0,
+        isTimeCalculationReliable: totalReliableQty > 0,
+        phases: phaseTimes
+    };
+}
+
+export async function getArticlesByCodes(codes: string[]): Promise<Article[]> {
+    if (codes.length === 0) return [];
+    const articles: Article[] = [];
+    for (let i = 0; i < codes.length; i += 30) {
+        const chunk = codes.slice(i, i + 30);
+        const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
+        aSnap.forEach(d => articles.push({ id: d.id, ...convertTimestampsToDates(d.data()) } as Article));
+    }
+    return articles;
+}
+
+export async function getRawMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
+    if (codes.length === 0) return [];
+    const materials: RawMaterial[] = [];
+    for (let i = 0; i < codes.length; i += 30) {
+        const chunk = codes.slice(i, i + 30);
+        const mSnap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
+        mSnap.forEach(d => materials.push({ id: d.id, ...convertTimestampsToDates(d.data()) } as RawMaterial));
+    }
+    return materials;
 }
