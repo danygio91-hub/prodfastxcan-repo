@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { CalendarException } from '@/lib/mock-data';
+import type { CalendarException } from '@/types';
 import { ensureAdmin } from '@/lib/server-auth';
 import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO, startOfDay, endOfDay, addWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';

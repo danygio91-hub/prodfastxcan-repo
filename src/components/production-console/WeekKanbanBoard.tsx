@@ -3,7 +3,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea
 import { useRouter } from 'next/navigation';
 import { format, addWeeks, subWeeks, addDays, parseISO, isBefore, startOfDay, getWeek, isPast, isSameWeek, isSameDay } from 'date-fns';
 import { it } from 'date-fns/locale';
-import { JobOrder, Article, RawMaterial } from '@/lib/mock-data';
+import { JobOrder, Article, RawMaterial } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';

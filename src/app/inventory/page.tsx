@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode } from '@/app/scan-job/actions';
 import { getPackagingItems, registerInventoryBatch } from './actions';
-import type { RawMaterial, Packaging } from '@/lib/mock-data';
+import type { RawMaterial, Packaging } from '@/types';
 import { Warehouse, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Weight, Archive, Send, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';

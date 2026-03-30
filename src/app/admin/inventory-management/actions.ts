@@ -2,10 +2,13 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord, Operator } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord, Operator } from '@/types';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
+
+import { getGlobalSettings } from '@/lib/settings-actions';
+import { calculateInventoryMovement } from '@/lib/inventory-utils';
 
 function convertTimestamps(obj: any): any {
     if (obj instanceof Date) return obj.toISOString();
@@ -46,20 +49,32 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
     await ensureAdmin(uid);
     const recordRef = adminDb.collection('inventoryRecords').doc(recordId);
     try {
+        const globalSettings = await getGlobalSettings();
+
         await adminDb.runTransaction(async (transaction) => {
             const rSnap = await transaction.get(recordRef);
-            if (!rSnap.exists || rSnap.data()?.status !== 'pending') throw new Error("Gia processata.");
+            if (!rSnap.exists || rSnap.data()?.status !== 'pending') throw new Error("Gìa processata.");
             const record = rSnap.data() as InventoryRecord;
             const mRef = adminDb.collection('rawMaterials').doc(record.materialId);
             const mSnap = await transaction.get(mRef);
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = mSnap.data() as RawMaterial;
             
-            const unitsToAdd = record.inputUnit === 'kg' 
-                ? (material.unitOfMeasure === 'kg' 
-                    ? record.netWeight 
-                    : record.netWeight / (material.rapportoKgMt || material.conversionFactor || 1)) 
-                : record.inputQuantity;
+            const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
+                id: material.type,
+                label: material.type,
+                defaultUnit: material.unitOfMeasure,
+                hasConversion: false
+            } as any;
+
+            const { unitsToChange, weightToChange } = calculateInventoryMovement(
+                material,
+                config,
+                record.inputQuantity,
+                record.inputUnit,
+                true, // Addition (Carico da inventario)
+                record.lotto
+            );
             
             const dateStr = (record.recordedAt instanceof admin.firestore.Timestamp) 
                 ? record.recordedAt.toDate().toISOString() 
@@ -72,15 +87,15 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 inventoryRecordId: recordId, 
                 date: dateStr, 
                 ddt: `Inventario`, 
-                netQuantity: unitsToAdd, 
-                grossWeight: record.grossWeight, 
+                netQuantity: unitsToChange, 
+                grossWeight: weightToChange + record.tareWeight, 
                 tareWeight: record.tareWeight, 
                 lotto: record.lotto 
             };
             
             transaction.update(mRef, { 
-                currentStockUnits: (material.currentStockUnits || 0) + unitsToAdd, 
-                currentWeightKg: (material.currentWeightKg || 0) + record.netWeight, 
+                currentStockUnits: (material.currentStockUnits || 0) + unitsToChange, 
+                currentWeightKg: (material.currentWeightKg || 0) + weightToChange, 
                 batches: [...(material.batches || []), newBatch] 
             });
             transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() });

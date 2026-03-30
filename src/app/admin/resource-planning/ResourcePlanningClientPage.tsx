@@ -7,7 +7,6 @@ import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Info, AlertTriangl
 import { format, addWeeks, subWeeks, startOfWeek, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getPlanningData, getDepartmentPlanningSnapshot, getOperatorAssignments } from './actions';
-import { migrateDepartments } from './maintenance';
 import { endOfWeek } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,7 +22,11 @@ import { isJobReadyForProduction, cn } from '@/lib/utils';
 import { buildMRPTimelines } from '@/lib/mrp';
 import { assignJobToDate, bulkAssignJobsToDate } from './actions';
 import { Input } from '@/components/ui/input';
-import type { JobOrder, Operator, OperatorAssignment, Department, Article } from '@/lib/mock-data';
+
+import type { JobOrder, Operator, OperatorAssignment, Department, Article, RawMaterial, ProductionSettings } from '@/types';
+import { useMasterData } from '@/contexts/MasterDataProvider';
+import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export default function ResourcePlanningClientPage() {
     const { toast } = useToast();
@@ -33,15 +36,19 @@ export default function ResourcePlanningClientPage() {
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     
-    // Core Data
+    const { 
+        operators: cachedOperators, 
+        articles: cachedArticles, 
+        departments: cachedDepartments, 
+        settings: cachedSettings, 
+        rawMaterials: cachedRawMaterials,
+        isLoading: isMasterLoading 
+    } = useMasterData();
+    
+    // Dynamic Week Data
     const [data, setData] = useState<{
         jobOrders: JobOrder[],
-        operators: Operator[],
-        departments: Department[],
         assignments: OperatorAssignment[],
-        articles: Article[],
-        settings: any,
-        rawMaterials?: any[],
         purchaseOrders?: any[],
         manualCommitments?: any[]
     } | null>(null);
@@ -67,6 +74,7 @@ export default function ResourcePlanningClientPage() {
         
         try {
             const dateStr = format(currentDate, 'yyyy-MM-dd');
+            
             const [planningData, snap] = await Promise.all([
                 getPlanningData(dateStr),
                 getDepartmentPlanningSnapshot(dateStr, force)
@@ -77,7 +85,7 @@ export default function ResourcePlanningClientPage() {
             
             // Set initial subtab for Produzione if not set
             if (activeTab === 'PRODUZIONE' && !activeSubTab) {
-                const firstProdDept = planningData.departments.find(d => d.macroAreas?.includes('PRODUZIONE'));
+                const firstProdDept = cachedDepartments.find(d => d.macroAreas?.includes('PRODUZIONE'));
                 if (firstProdDept) setActiveSubTab(firstProdDept.code);
             }
         } catch (error) {
@@ -87,6 +95,8 @@ export default function ResourcePlanningClientPage() {
             setIsRefreshing(false);
         }
     }
+
+    const isReallyLoading = loading || isMasterLoading;
 
     async function refreshSnapshot(force: boolean = true) {
         setIsRefreshing(true);
@@ -146,27 +156,26 @@ export default function ResourcePlanningClientPage() {
 
     // Filter departments for SUB-TABS (Produzione only)
     const productionDepartments = useMemo(() => {
-        if (!data) return [];
-        return data.departments.filter(d => d.macroAreas?.includes('PRODUZIONE'));
-    }, [data]);
+        return cachedDepartments.filter(d => d.macroAreas?.includes('PRODUZIONE'));
+    }, [cachedDepartments]);
 
     // Filter operators for the FOCUSED GANTT
     const focusedOperators = useMemo(() => {
-        if (!data) return [];
+        if (!data) return cachedOperators;
         // Show all if not in a specific department, or filter by current sub-tab
         if (activeTab === 'PRODUZIONE' && activeSubTab) {
-            return data.operators.filter(op => 
+            return cachedOperators.filter(op => 
                 op.reparto.includes(activeSubTab) || 
-                data.assignments.some((a: any) => a.operatorId === op.id && a.departmentCode === activeSubTab)
+                (data?.assignments || []).some((a: any) => a.operatorId === op.id && a.departmentCode === activeSubTab)
             );
         }
         // For Prep or QltyPack, we might show relevant depts
-        if (activeTab === 'PREPARAZIONE') return data.operators.filter(op => op.reparto.includes('MAG'));
+        if (activeTab === 'PREPARAZIONE') return cachedOperators.filter(op => op.reparto.includes('MAG'));
 
-        if (activeTab === 'QLTY_PACK') return data.operators.filter(op => op.reparto.includes('CG') || op.reparto.includes('MAG') || op.reparto.includes('Collaudo'));
+        if (activeTab === 'QLTY_PACK') return cachedOperators.filter(op => op.reparto.includes('CG') || op.reparto.includes('MAG') || op.reparto.includes('Collaudo'));
         
-        return data.operators;
-    }, [data, activeTab, activeSubTab]);
+        return cachedOperators;
+    }, [data, cachedOperators, activeTab, activeSubTab]);
 
     // Stats for the current selection
     const weekStats = useMemo(() => {
@@ -196,21 +205,21 @@ export default function ResourcePlanningClientPage() {
 
     const dependsOnPrep = useMemo(() => {
         if (activeTab !== 'PRODUZIONE' || !activeSubTab) return true;
-        const dept = data?.departments.find(d => d.code === activeSubTab);
+        const dept = cachedDepartments.find(d => d.code === activeSubTab);
         return dept?.dependsOnPreparation ?? true;
-    }, [data, activeTab, activeSubTab]);
+    }, [cachedDepartments, activeTab, activeSubTab]);
 
     // MRP Timelines calculation
     const mrpTimelines = useMemo(() => {
-        if (!data?.jobOrders || !data?.rawMaterials) return new Map();
+        if (!data?.jobOrders || !cachedRawMaterials) return new Map();
         return buildMRPTimelines(
             data.jobOrders,
-            data.rawMaterials,
-            data.articles,
+            cachedRawMaterials,
+            cachedArticles,
             data.purchaseOrders || [],
             data.manualCommitments || []
         );
-    }, [data]);
+    }, [data, cachedRawMaterials, cachedArticles]);
 
     const handleJobDrop = async (jobId: string, assignedDate: string | null) => {
         // If the dropped job is part of the selection, we move the whole group
@@ -295,20 +304,7 @@ export default function ResourcePlanningClientPage() {
                         GESTIONE RISORSE
                     </Button>
 
-                    <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={async () => {
-                            if (confirm("Aggiornare lo schema dei reparti (CG -> Connessioni Grandi, etc.)?")) {
-                                const res = await migrateDepartments(uid);
-                                toast({ title: res.success ? "Successo" : "Errore", description: res.message });
-                                if (res.success) loadData(true);
-                            }
-                        }}
-                        className="text-[10px] text-slate-600 hover:text-slate-400"
-                    >
-                        FIX SCHEMA
-                    </Button>
+
 
                     <Button 
                         variant="default" 
@@ -350,9 +346,9 @@ export default function ResourcePlanningClientPage() {
                 <ResourceAssignmentDialog 
                     isOpen={isAssignmentDialogOpen}
                     onClose={() => setIsAssignmentDialogOpen(false)}
-                    operators={data.operators}
-                    departments={data.departments}
-                    initialAssignments={data.assignments}
+                    operators={cachedOperators}
+                    departments={cachedDepartments}
+                    initialAssignments={data?.assignments || []}
                     currentDate={currentDate}
                     uid={uid}
                 />
@@ -400,18 +396,18 @@ export default function ResourcePlanningClientPage() {
                                 <div className="flex items-center gap-4 px-4 py-2 bg-background rounded-xl border-2 border-slate-100 shadow-sm">
                                     <div className="flex flex-col">
                                         <span className="text-[9px] text-muted-foreground uppercase font-black">Carico Ore</span>
-                                        <span className="text-sm font-black text-red-600 leading-none">{weekStats.demand.toFixed(1)}h</span>
+                                        <span className="text-sm font-black text-red-600 leading-none">{weekStats?.demand.toFixed(1) || '0'}h</span>
                                     </div>
                                     <div className="w-px h-8 bg-slate-200" />
                                     <div className="flex flex-col">
                                         <span className="text-[9px] text-muted-foreground uppercase font-black">Capacità</span>
-                                        <span className="text-sm font-black text-emerald-600 leading-none">{weekStats.supply.toFixed(1)}h</span>
+                                        <span className="text-sm font-black text-emerald-600 leading-none">{weekStats?.supply.toFixed(1) || '0'}h</span>
                                     </div>
                                     <div className="w-px h-8 bg-slate-200" />
                                     <div className="flex flex-col">
                                         <span className="text-[9px] text-muted-foreground uppercase font-black">Bilancio</span>
-                                        <span className={cn("text-sm font-black leading-none", weekStats.balance < 0 ? "text-red-600" : "text-emerald-600")}>
-                                            {weekStats.balance > 0 ? '+' : ''}{weekStats.balance.toFixed(1)}h
+                                        <span className={cn("text-sm font-black leading-none", (weekStats?.balance || 0) < 0 ? "text-red-600" : "text-emerald-600")}>
+                                            {(weekStats?.balance || 0) > 0 ? '+' : ''}{(weekStats?.balance || 0).toFixed(1)}h
                                         </span>
                                     </div>
                                 </div>
@@ -452,7 +448,7 @@ export default function ResourcePlanningClientPage() {
                                                     key={job.id} 
                                                     job={job} 
                                                     isReady={isJobReadyForProduction(job, dependsOnPrep)} 
-                                                    articles={data?.articles || []}
+                                                    articles={cachedArticles}
                                                     activeTab={activeTab}
                                                     activeSubTab={activeSubTab}
                                                     isSelected={selectedJobIds.includes(job.id)}
@@ -473,12 +469,12 @@ export default function ResourcePlanningClientPage() {
                         <div className="h-[75vh]">
                             <WeekKanbanBoard 
                                 jobOrders={rawTabJobs}
-                                articles={data?.articles || []}
+                                articles={cachedArticles}
                                 snapshot={snapshot}
                                 activeTab={activeTab}
                                 activeSubTab={activeSubTab}
                                 currentWeekStart={startOfCurrentWeek}
-                                rawMaterials={data?.rawMaterials || []}
+                                rawMaterials={cachedRawMaterials}
                                 mrpTimelines={mrpTimelines}
                                 onJobDrop={handleJobDrop}
                                 selectedJobIds={selectedJobIds}
@@ -495,8 +491,8 @@ export default function ResourcePlanningClientPage() {
                              jobOrders={filteredJobs} 
                              operators={focusedOperators} 
                              assignments={data?.assignments || []} 
-                             settings={data?.settings || {}} 
-                             articles={data?.articles || []}
+                             settings={cachedSettings as any || {}} 
+                             articles={cachedArticles}
                              timelineStartProp={currentDate}
                            />
                         </div>

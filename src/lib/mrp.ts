@@ -1,4 +1,4 @@
-import type { RawMaterial, JobOrder, Article, PurchaseOrder, ManualCommitment } from "./mock-data";
+import type { RawMaterial, JobOrder, Article, PurchaseOrder, ManualCommitment } from "@/types";
 
 /**
  * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).

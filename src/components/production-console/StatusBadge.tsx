@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { type OverallStatus } from "@/lib/types";
+import { type OverallStatus } from "@/types";
 
 export function StatusBadge({ status }: { status: OverallStatus }) {
   return (

@@ -33,8 +33,7 @@ import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as Calend
 import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type JobsReport, type EnrichedMaterialWithdrawal, declareWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/AuthProvider';
-import type { OverallStatus } from '@/lib/types';
-import type { RawMaterialType } from '@/lib/mock-data';
+import type { OverallStatus, RawMaterialType } from '@/types';
 import { useRouter } from 'next/navigation';
 import {
   ContextMenu,

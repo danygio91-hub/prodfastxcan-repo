@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { addBatchToRawMaterial, reportNonConformity, getPackagingItems, getOpenPurchaseOrdersForMaterial } from './actions';
 import { getRawMaterialByCode } from '@/app/scan-job/actions';
-import type { RawMaterial, Packaging, PurchaseOrder } from '@/lib/mock-data';
+import type { RawMaterial, Packaging, PurchaseOrder } from '@/types';
 import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive, TestTube, Truck, ClipboardList, Calendar } from 'lucide-react';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { cn } from '@/lib/utils';

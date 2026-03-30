@@ -4,11 +4,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
 
-export interface ProductionSettings {
-  capacityBufferPercent: number; // Percentuale di occupazione massima teorica (Gantt buffer)
-  autoUpdateGanttIntervalHours: number; // Ogni quanto il Gantt aggiorna lo stato lavorazioni (es. 1 o 2 ore)
-  prioritizeActualTime: boolean; // Se True, il Gantt predilige il Tempo Effettivo rispetto al Teorico
-}
+import type { ProductionSettings } from '@/types';
 
 export async function getProductionSettings(): Promise<ProductionSettings> {
   const snap = await adminDb.collection('system').doc('productionSettings').get();

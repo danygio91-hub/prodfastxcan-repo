@@ -1,7 +1,4 @@
-
-import type { JobOrder, WorkGroup } from "./mock-data";
-
-export type OverallStatus = 'Da Iniziare' | 'In Preparazione' | 'Pronto per Produzione' | 'In Lavorazione' | 'Completata' | 'Problema' | 'Sospesa' | 'Pronto per Finitura' | 'Manca Materiale';
+import type { JobOrder, WorkGroup, OverallStatus } from "@/types";
 
 
 export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {

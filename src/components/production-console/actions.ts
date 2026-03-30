@@ -7,7 +7,7 @@ import { adminDb } from '@/lib/firebase-admin';
 // @ts-ignore
 import admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/types';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 
 export type ProductionTimeData = {

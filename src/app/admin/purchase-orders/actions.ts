@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { PurchaseOrder } from '@/lib/mock-data';
+import type { PurchaseOrder } from '@/types';
 import { ensureAdmin } from '@/lib/server-auth';
 import { parse, isValid } from 'date-fns';
 

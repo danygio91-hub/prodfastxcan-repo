@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import type { RawMaterial, JobOrder, Article, PurchaseOrder, ManualCommitment } from "./mock-data";
+import type { RawMaterial, JobOrder, Article, PurchaseOrder, ManualCommitment } from "@/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

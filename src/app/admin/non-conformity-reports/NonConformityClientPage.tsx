@@ -26,7 +26,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { ShieldAlert, Loader2, Warehouse, AlertCircle, PackageCheck, Undo2, Trash2, ShieldCheck, ShieldX } from 'lucide-react';
 import { approveNonConformity, confirmReturn, deleteIncomingNonConformityReports, deleteProductionProblemReports } from './actions';
-import type { NonConformityReport, ProductionProblemReport } from '@/lib/mock-data';
+import type { NonConformityReport, ProductionProblemReport } from '@/types';
 
 interface NonConformityClientPageProps {
   initialIncomingReports: NonConformityReport[];

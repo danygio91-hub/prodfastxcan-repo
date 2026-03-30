@@ -41,14 +41,14 @@ import {
   CalendarDays,
   Clock
 } from 'lucide-react';
-import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, WorkingHoursConfig, OperatorAssignment, Article } from '@/lib/mock-data';
-import type { OverallStatus } from '@/lib/types';
+import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, WorkingHoursConfig, OperatorAssignment, Article, OverallStatus, ProductionSettings } from '@/types';
+import { useMasterData } from '@/contexts/MasterDataProvider';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import WorkGroupCard from '@/components/production-console/WorkGroupCard';
 import GanttBoard from '@/components/production-console/GanttBoard';
 import { getOperatorAssignments } from '@/app/admin/resource-planning/actions';
 import { useToast } from '@/hooks/use-toast';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useDebounce } from '../../../hooks/use-debounce';
 
@@ -93,7 +93,7 @@ import {
   getRawMaterialsByCodes,
   type ProductionTimeData
 } from '@/app/admin/production-console/actions';
-import { getProductionSettings, type ProductionSettings } from '@/app/admin/production-settings/actions';
+import { getProductionSettings } from '@/app/admin/production-settings/actions';
 import { getOverallStatus } from '@/lib/types';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -109,6 +109,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { getWorkingHoursConfig } from '@/app/admin/working-hours/actions';
 
+
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
 interface WeeklyGroup {
@@ -119,16 +120,21 @@ interface WeeklyGroup {
 }
 
 export default function ProductionConsoleClientPage() {
+  const { 
+    operators: cachedOperators, 
+    articlesMap, 
+    settings: cachedSettings, 
+    workingHours: cachedWorkingHours,
+    isLoading: isMasterLoading 
+  } = useMasterData();
+
   const [viewMode, setViewMode] = useState<'list'|'gantt'>('list');
+
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
-  const [allOperators, setAllOperators] = useState<Operator[]>([]);
-  const [allRawMaterials, setAllRawMaterials] = useState<RawMaterial[]>([]);
-  const [allArticles, setAllArticles] = useState<Article[]>([]);
   const [assignments, setAssignments] = useState<OperatorAssignment[]>([]);
-  const [workingHours, setWorkingHours] = useState<WorkingHoursConfig | null>(null);
-  const [settings, setSettings] = useState<ProductionSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isReallyLoading = isLoading || isMasterLoading;
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
   const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
@@ -181,44 +187,23 @@ export default function ProductionConsoleClientPage() {
     try {
         const currentGroupId = searchParams.get('groupId');
         const currentSearch = searchParams.get('search');
-        let jobs: JobOrder[] = [];
-        let groups: WorkGroup[] = [];
+        let jobsQuery = query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "paused"]));
+        let groupsQuery = query(collection(db, "workGroups"), where("status", "in", ["production", "suspended", "paused"]));
 
-        // TARGETED FETCH LOGIC
-        if ((currentGroupId || currentSearch) && !isManualRefresh) {
-            if (currentGroupId) {
-                // Fetch specific group
-                const gSnap = await getDocs(query(collection(db, "workGroups"), where("id", "==", currentGroupId)));
-                groups = gSnap.docs.map(d => d.data() as WorkGroup);
-                
-                // Fetch jobs belonging to this group
-                if (groups.length > 0 && groups[0].jobOrderIds?.length > 0) {
-                   const jSnap = await getDocs(query(collection(db, "jobOrders"), where("id", "in", groups[0].jobOrderIds)));
-                   jobs = jSnap.docs.map(d => d.data() as JobOrder);
-                }
-            } else if (currentSearch) {
-                // Fetch specific job by OrdinePF
-                const jSnap = await getDocs(query(collection(db, "jobOrders"), where("ordinePF", "==", currentSearch)));
-                jobs = jSnap.docs.map(d => d.data() as JobOrder);
-            }
-        } else {
-            // STANDARD FULL FETCH
-            let queryStatuses = ["production", "suspended", "paused"];
-            if (showCompleted) queryStatuses.push("completed");
-
-            let jobsQuery = query(collection(db, "jobOrders"), where("status", "in", queryStatuses));
-            let groupsQuery = query(collection(db, "workGroups"), where("status", "in", queryStatuses));
-            
-            if (showCompleted) {
-                jobsQuery = query(jobsQuery, limit(100));
-                groupsQuery = query(groupsQuery, limit(50));
-            }
-            
-            const [jobsSnap, groupsSnap] = await Promise.all([getDocs(jobsQuery), getDocs(groupsQuery)]);
-            jobs = jobsSnap.docs.map(d => d.data() as JobOrder);
-            groups = groupsSnap.docs.map(d => d.data() as WorkGroup);
-            setIsTargetedLoad(false);
+        if (showCompleted) {
+            jobsQuery = query(collection(db, "jobOrders"), where("status", "==", "completed"), limit(100));
+            groupsQuery = query(collection(db, "workGroups"), where("status", "==", "completed"), limit(50));
         }
+
+        const [jobsSnap, groupsSnap] = await Promise.all([
+            getDocs(jobsQuery),
+            getDocs(groupsQuery)
+        ]);
+
+        const jobs = jobsSnap.docs.map(d => d.data() as JobOrder);
+        const groups = groupsSnap.docs.map(d => d.data() as WorkGroup);
+
+        setIsTargetedLoad(false);
 
         // Apply timestamp conversion
         const processItem = (item: any) => JSON.parse(JSON.stringify(item, (key, value) => {
@@ -229,27 +214,14 @@ export default function ProductionConsoleClientPage() {
         const finalJobs = jobs.map(processItem);
         const finalGroups = groups.map(processItem);
 
-        // Fetch remaining global data
-        const [opsSnap] = await Promise.all([
-            getDocs(collection(db, "operators")),
-            getWorkingHoursConfig().then(setWorkingHours),
-            getProductionSettings().then(setSettings)
-        ]);
-
         setJobOrders(finalJobs);
         setWorkGroups(finalGroups);
-        setAllOperators(opsSnap.docs.map(d => d.data() as Operator));
-
-        const articleCodes = Array.from(new Set(finalJobs.map(j => j.details).filter(Boolean)));
-        if (articleCodes.length > 0) {
-            getArticlesByCodes(articleCodes).then(setAllArticles);
-        }
 
         const start = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
         const end = format(addWeeks(parseISO(start), 4), 'yyyy-MM-dd');
         getOperatorAssignments(start, end).then(setAssignments);
 
-        if (isManualRefresh) toast({ title: "Dati Aggiornati", description: "La console è stata sincronizzata con il server." });
+        if (isManualRefresh) toast({ title: "Dati LIVE Aggiornati", description: "Le commesse sono state sincronizzate." });
     } catch (error) {
         console.error("Error loading console data:", error);
         toast({ variant: "destructive", title: "Errore", description: "Impossibile caricare i dati." });
@@ -511,7 +483,7 @@ export default function ProductionConsoleClientPage() {
                 key={item.id} 
                 group={item as WorkGroup} 
                 jobsInGroup={jobsByGroupId.get(item.id) || []} 
-                allOperators={allOperators} 
+                allOperators={cachedOperators} 
                 onProblemClick={() => setProblemJob(item as WorkGroup)} 
                 onForceFinishClick={handleForceFinish} 
                 onForcePauseClick={handleForcePause} 
@@ -534,7 +506,7 @@ export default function ProductionConsoleClientPage() {
         <JobOrderCard 
             key={item.id} 
             jobOrder={item as JobOrder} 
-            allOperators={allOperators} 
+            allOperators={cachedOperators} 
             analysisData={analysisDataMap.get(item.id)} 
             onFetchAnalysis={() => handleFetchAnalysis(item as JobOrder)} 
             isAnalysisLoading={jobsWithLoadingAnalysis.has(item.id)} 
@@ -599,13 +571,13 @@ export default function ProductionConsoleClientPage() {
 
         </header>
 
-        {viewMode === 'gantt' && settings ? (
+        {viewMode === 'gantt' && cachedSettings ? (
           <GanttBoard 
             jobOrders={filteredItems as JobOrder[]} 
-            operators={allOperators} 
+            operators={cachedOperators} 
             assignments={assignments} 
-            settings={settings}
-            articles={allArticles}
+            settings={cachedSettings}
+            articles={Array.from(articlesMap.values())}
           />
         ) : (
           <>

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { createContext, useContext, useCallback, ReactNode } from 'react';
-import type { ActiveMaterialSessionData, RawMaterialType } from '@/lib/mock-data';
+import type { ActiveMaterialSessionData, RawMaterialType } from '@/types';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { updateOperatorMaterialSessions } from '@/app/scan-job/actions';
 

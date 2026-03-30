@@ -8,7 +8,7 @@ import { getJobDetailReport } from '@/app/admin/reports/actions';
 import { getRequiredDataForJobs } from '@/app/admin/data-management/actions';
 import { Button } from '@/components/ui/button';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
-import type { JobOrder, RawMaterial, Article } from '@/lib/mock-data';
+import type { JobOrder, RawMaterial, Article } from '@/types';
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { getODLConfig } from '@/app/admin/settings/odl-actions';
 import { getGlobalSettings } from '@/lib/settings-actions';

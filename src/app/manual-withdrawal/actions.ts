@@ -2,9 +2,12 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { RawMaterial } from '@/lib/mock-data';
+import type { RawMaterial } from '@/types';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
+
+import { getGlobalSettings } from '@/lib/settings-actions';
+import { calculateInventoryMovement } from '@/lib/inventory-utils';
 
 const manualWithdrawalSchema = z.object({
   materialId: z.string(),
@@ -26,26 +29,35 @@ export async function logManualWithdrawal(
   const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPF } = validated.data;
   
   try {
+    const globalSettings = await getGlobalSettings();
+    
     await adminDb.runTransaction(async (transaction) => {
         const materialRef = adminDb.collection("rawMaterials").doc(materialId);
         const materialDoc = await transaction.get(materialRef);
         if (!materialDoc.exists) throw new Error("Materiale non trovato.");
         const material = materialDoc.data() as RawMaterial;
         
-        let unitsConsumed = 0;
-        let consumedWeight = 0;
+        // Find config for this material type
+        const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
+            id: material.type,
+            label: material.type,
+            defaultUnit: material.unitOfMeasure,
+            hasConversion: false
+        } as any;
 
-        if (unit === 'kg') {
-          consumedWeight = quantity;
-          unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? quantity / material.conversionFactor : quantity;
-        } else {
-          unitsConsumed = quantity;
-          consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
-        }
+        const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+            material,
+            config,
+            quantity,
+            unit as any,
+            false, // isAddition = false (Scarico)
+            lotto
+        );
         
         transaction.update(materialRef, { 
-            currentStockUnits: (material.currentStockUnits || 0) - unitsConsumed, 
-            currentWeightKg: (material.currentWeightKg || 0) - consumedWeight 
+            currentStockUnits: (material.currentStockUnits || 0) - unitsToChange, 
+            currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
+            batches: updatedBatches
         });
         
         const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
@@ -54,13 +66,13 @@ export async function logManualWithdrawal(
             jobOrderPFs: jobOrderPF ? [jobOrderPF] : ['SCARICO_MANUALE'],
             materialId,
             materialCode: material.code,
-            consumedWeight,
-            consumedUnits: unitsConsumed,
+            consumedWeight: weightToChange,
+            consumedUnits: unitsToChange,
             operatorId,
             operatorName,
             withdrawalDate: admin.firestore.Timestamp.now(),
             notes: notes || null,
-            lotto: lotto || null,
+            lotto: usedLotto,
         });
     });
 

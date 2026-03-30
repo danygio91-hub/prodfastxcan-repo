@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { NonConformityReport, RawMaterial, RawMaterialBatch, ProductionProblemReport } from '@/lib/mock-data';
+import type { NonConformityReport, RawMaterial, RawMaterialBatch, ProductionProblemReport } from '@/types';
 
 // Helper to convert Timestamps for JSON serialization
 function convertTimestamps(obj: any): any {

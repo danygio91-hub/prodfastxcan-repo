@@ -19,9 +19,13 @@ import { Badge as UiBadge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
+import { useMasterData } from '@/contexts/MasterDataProvider';
+
 import { getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
 import { getMaterialWithdrawalsForMaterial, getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
-import type { RawMaterial } from '@/lib/mock-data';
+import type { RawMaterial } from '@/types';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera, Barcode, Package, Info, Boxes } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
@@ -42,6 +46,8 @@ export default function MaterialCheckPage() {
     const { operator, loading: authLoading } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
+
+    const { rawMaterialsMap, isLoading: isMasterLoading } = useMasterData();
 
     const [step, setStep] = useState<Step>('initial');
     const [foundMaterial, setFoundMaterial] = useState<RawMaterial | null>(null);
@@ -79,7 +85,16 @@ export default function MaterialCheckPage() {
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
         }
+        setIsCapturing(false);
     }, []);
+
+    if (authLoading || isMasterLoading) {
+        return (
+            <div className="flex h-screen items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        );
+    }
     
     const fetchMaterialDetails = async (material: RawMaterial, specificLotto?: string) => {
         try {
@@ -114,14 +129,23 @@ export default function MaterialCheckPage() {
                 setStep('initial');
             }
         } else {
-            const result = await getRawMaterialByCode(trimmedCode);
-            if ('error' in result) {
-                toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-                setStep('initial');
-            } else {
-                setFoundMaterial(result);
-                await fetchMaterialDetails(result);
+            // Check cache first
+            const cachedMat = rawMaterialsMap.get(trimmedCode.toUpperCase());
+            if (cachedMat) {
+                setFoundMaterial(cachedMat);
+                await fetchMaterialDetails(cachedMat);
                 setStep('result');
+            } else {
+                // Fallback to server if not in cache (could be a very new material)
+                const result = await getRawMaterialByCode(trimmedCode);
+                if ('error' in result) {
+                    toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+                    setStep('initial');
+                } else {
+                    setFoundMaterial(result);
+                    await fetchMaterialDetails(result);
+                    setStep('result');
+                }
             }
         }
         setIsSearching(false);

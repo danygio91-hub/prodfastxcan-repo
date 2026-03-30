@@ -7,7 +7,7 @@ import { adminDb } from '@/lib/firebase-admin';
 // @ts-ignore
 import admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate, Article } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate, Article } from '@/types';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 import { pulseOperatorsForJob } from '@/lib/job-sync-server';
 import { convertTimestampsToDates } from '@/lib/utils';
@@ -24,14 +24,14 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
     
     // Optimization: Only fetch articles present in the report instead of the whole collection
     const articleCodes = Array.from(new Set(report.map(r => r.articleCode)));
-    const articlesMap = new Map<string, import('@/lib/mock-data').Article>();
+    const articlesMap = new Map<string, import('@/types').Article>();
     
     if (articleCodes.length > 0) {
         for (let i = 0; i < articleCodes.length; i += 30) {
             const chunk = articleCodes.slice(i, i + 30);
             const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
             aSnap.forEach(d => {
-                const data = d.data() as import('@/lib/mock-data').Article;
+                const data = d.data() as import('@/types').Article;
                 articlesMap.set(data.code, data);
             });
         }

@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { getJobDetailReport, updateWorkPeriodsForPhase } from '../actions';
 import { notFound, useRouter } from 'next/navigation';
 import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle, Pencil, Save, Loader2, ThumbsDown, Copy } from 'lucide-react';
-import type { JobPhase, WorkPeriod } from '@/lib/mock-data';
+import type { JobPhase, WorkPeriod } from '@/types';
 import { cn } from '@/lib/utils';
 import { format, parseISO, toDate } from 'date-fns';
 import { it } from 'date-fns/locale';

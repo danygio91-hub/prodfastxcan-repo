@@ -4,7 +4,7 @@
 import React from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck, Warehouse, MinusSquare } from 'lucide-react';
+import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck, Warehouse, MinusSquare, Truck } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import { useAuth } from '@/components/auth/AuthProvider';
 
@@ -12,13 +12,19 @@ import { useAuth } from '@/components/auth/AuthProvider';
 export default function DashboardPage() {
   const { operator } = useAuth();
 
-  const allowedAccessReparti = ['MAG', 'Collaudo'];
-  const hasMagAccess = operator && (
-    operator.role === 'supervisor' || 
-    (Array.isArray(operator.reparto) 
-      ? operator.reparto.some(r => allowedAccessReparti.includes(r)) 
-      : allowedAccessReparti.includes(operator.reparto))
-  );
+  const checkAccess = (keywords: string[]) => {
+    if (!operator) return false;
+    if (operator.role === 'supervisor' || operator.role === 'admin') return true;
+    
+    const reparti = Array.isArray(operator.reparto) ? operator.reparto : [operator.reparto];
+    return reparti.some(r => {
+      const upperR = String(r || '').toUpperCase();
+      return keywords.some(k => upperR.includes(k.toUpperCase()));
+    });
+  };
+
+  const hasMagAccess = checkAccess(['MAG', 'MAGAZZINO', 'COLLAUDO']);
+  const hasPackingAccess = checkAccess(['MAG', 'MAGAZZINO', 'COLLAUDO', 'QUALIT', 'QLTY', 'IMBALLO', 'PACK']);
 
 
   return (
@@ -83,6 +89,14 @@ export default function DashboardPage() {
               icon={Clock}
               className="opacity-50 cursor-not-allowed"
             />
+            {hasPackingAccess && (
+                <DashboardItem
+                  title="Packing List"
+                  description="Gestisci l'imballaggio e la spedizione delle commesse completate."
+                  icon={Truck}
+                  href="/operator/packing"
+                />
+            )}
             <DashboardItem
               title="Segnala Problema"
               description="Segnala eventuali problemi riscontrati durante la produzione."

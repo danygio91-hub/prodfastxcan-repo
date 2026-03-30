@@ -3,7 +3,7 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { RawMaterial, RawMaterialBatch, MaterialWithdrawal } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, MaterialWithdrawal } from '@/types';
 
 export type EnrichedBatch = RawMaterialBatch & {
     materialId: string;

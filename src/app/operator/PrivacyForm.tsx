@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { FileLock, Check, Loader2 } from 'lucide-react';
-import { type Operator } from '@/lib/mock-data';
+import { type Operator } from '@/types';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from "@/hooks/use-toast";
 import { signPrivacyPolicy, getPrivacyPolicyContent } from './actions';

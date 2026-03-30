@@ -24,7 +24,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
 import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon, Search, ChevronDown, ShieldCheck, ShieldX, RefreshCw } from 'lucide-react';
-import { type InventoryRecord, type RawMaterial } from '@/lib/mock-data';
+import { type InventoryRecord, type RawMaterial } from '@/types';
 import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords, approveMultipleInventoryRecords, rejectMultipleInventoryRecords, getMaterialById } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';

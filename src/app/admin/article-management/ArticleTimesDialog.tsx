@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Timer, RefreshCcw, Save, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { Article, WorkPhaseTemplate, ArticlePhaseTime, WorkCycle } from '@/lib/mock-data';
+import type { Article, WorkPhaseTemplate, ArticlePhaseTime, WorkCycle } from '@/types';
 import { getProductionTimeAnalysisReport } from '../reports/actions';
 import { saveArticleStandardTimes } from './actions';
 import { getWorkCycles } from '../work-cycle-management/actions';

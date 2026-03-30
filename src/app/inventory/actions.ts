@@ -3,7 +3,7 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/types';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 

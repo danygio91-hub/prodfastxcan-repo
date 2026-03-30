@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { Operator } from '@/lib/mock-data';
+import type { Operator } from '@/types';
 
 const PRIVACY_DOC_ID = "currentPolicy";
 const CONFIG_COLLECTION = "configuration";

@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
-import type { ActiveMaterialSessionData } from '@/lib/mock-data';
+import type { ActiveMaterialSessionData } from '@/types';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';

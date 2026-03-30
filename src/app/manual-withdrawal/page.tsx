@@ -22,7 +22,7 @@ import { logManualWithdrawal } from './actions';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { closeMaterialSessionAndUpdateStock, getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
 import { getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
-import type { RawMaterial, ActiveMaterialSessionData } from '@/lib/mock-data';
+import type { RawMaterial, ActiveMaterialSessionData } from '@/types';
 
 import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info, PlayCircle } from 'lucide-react';
 

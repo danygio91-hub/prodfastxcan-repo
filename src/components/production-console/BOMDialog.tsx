@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { JobOrder, JobBillOfMaterialsItem, RawMaterial, MaterialConsumption } from '@/lib/mock-data';
+import type { JobOrder, JobBillOfMaterialsItem, RawMaterial, MaterialConsumption } from '@/types';
 import { ClipboardList, Check, Hourglass, Loader2 } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { formatDisplayStock } from '@/lib/utils';

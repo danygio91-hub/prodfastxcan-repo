@@ -7,7 +7,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import { type Packaging, type PackagingAssociation, RawMaterialTypeValues } from '@/lib/mock-data';
+import { type Packaging, type PackagingAssociation } from '@/types';
+import { RawMaterialTypeValues } from '@/lib/mock-data';
 import { getPackagingItems, savePackagingItem, deletePackagingItem } from './actions';
 
 import { Button } from '@/components/ui/button';

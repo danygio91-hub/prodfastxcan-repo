@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 
-import { type WorkGroup } from '@/lib/mock-data';
+import { type WorkGroup } from '@/types';
 import { dissolveWorkGroup } from './actions';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';

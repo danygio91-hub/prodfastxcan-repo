@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { Article, ArticlePhaseTime, WorkCycle } from '@/lib/mock-data';
+import type { Article, ArticlePhaseTime, WorkCycle } from '@/types';
 import * as z from 'zod';
 
 const bomItemSchema = z.object({

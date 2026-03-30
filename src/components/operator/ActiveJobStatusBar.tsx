@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { updateJob, updateWorkGroup, updateOperatorStatus } from '@/app/scan-job/actions';
 import { Play, Pause, Check, Activity } from 'lucide-react';
-import type { JobOrder, JobPhase, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkGroup } from '@/types';
 import { cn } from '@/lib/utils';
 
 export default function ActiveJobStatusBar() {

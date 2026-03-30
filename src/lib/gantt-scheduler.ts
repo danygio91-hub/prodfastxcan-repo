@@ -1,7 +1,5 @@
-import { JobOrder, Operator, JobPhase, Article, OperatorAssignment } from './mock-data';
-import { ProductionSettings } from '@/app/admin/production-settings/actions';
+import { JobOrder, Operator, JobPhase, Article, OperatorAssignment, ProductionSettings } from '@/types';
 import { subtractWorkingMinutes, snapToPreviousWorkingTime } from './calendar-utils';
-import { estimatePhaseTime } from './gantt-utils';
 import { isBefore, isAfter, max, min, format } from 'date-fns';
 
 export interface TimeSlot {

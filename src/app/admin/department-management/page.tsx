@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import { type Department } from '@/lib/mock-data';
+import { type Department } from '@/types';
 import { getDepartments, saveDepartment, deleteDepartments } from './actions';
 
 import { Button } from '@/components/ui/button';

@@ -4,12 +4,14 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import * as XLSX from 'xlsx';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 import {
   type RawMaterial,
@@ -18,7 +20,7 @@ import {
   type ScrapRecord,
   type Department,
   type Article
-} from '@/lib/mock-data';
+} from '@/types';
 
 import {
   saveRawMaterial,
@@ -31,7 +33,8 @@ import {
   type CommitmentDetail,
   getMaterialOrderedDetails,
   type OrderedDetail,
-  adjustRawMaterialStock
+  adjustRawMaterialStock,
+  bulkUpdateRawMaterials
 } from './actions';
 
 import { Button } from '@/components/ui/button';
@@ -88,7 +91,8 @@ import {
   PackagePlus,
   TestTube,
   Save,
-  Send
+  Send,
+  Upload
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -225,6 +229,11 @@ export default function RawMaterialManagementClientPage({
   const [isAdjustStockDialogOpen, setIsAdjustStockDialogOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
+  const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+  const [importedItems, setImportedItems] = useState<any[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useAuth();
 
   const { toast } = useToast();
 
@@ -364,6 +373,33 @@ export default function RawMaterialManagementClientPage({
                   <div className="space-y-1"><CardTitle>Magazzino Live</CardTitle><CardDescription>Giacenze ricalcolate.</CardDescription></div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="relative w-full sm:w-auto"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9 w-full sm:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept=".xlsx, .xls" 
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setIsImporting(true);
+                        try {
+                          const buffer = await file.arrayBuffer();
+                          const workbook = XLSX.read(buffer, { type: 'array' });
+                          const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                          setImportedItems(json);
+                          setIsImportPreviewOpen(true);
+                        } catch (err) {
+                          toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile leggere il file Excel.' });
+                        } finally {
+                          setIsImporting(false);
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                        }
+                      }}
+                    />
+                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+                      {isImporting ? <Loader2 className="mr-2 h-3 w-4 animate-spin" /> : <Upload className="mr-2 h-3 w-4" />}
+                      Importa Excel
+                    </Button>
                     <Button asChild variant="outline" size="sm"><Link href="/admin/purchase-orders"><Truck className="mr-2 h-4 w-4" /> Ordini</Link></Button>
                     <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: globalSettings.rawMaterialTypes[0]?.id || '', unitOfMeasure: globalSettings.unitsOfMeasure[0] || 'n', minStockLevel: null, reorderLot: null, leadTimeDays: null }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi</Button>
                   </div>
@@ -530,6 +566,72 @@ export default function RawMaterialManagementClientPage({
             >
               {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Salva Rettifica
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isImportPreviewOpen} onOpenChange={setIsImportPreviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Anteprima Importazione Materie Prime</DialogTitle>
+            <DialogDescription>
+              Verranno importati o aggiornati {importedItems.length} elementi. Verifica la corrispondenza delle colonne.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden border rounded-md my-4">
+            <ScrollArea className="h-full">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>CODICE</TableHead>
+                    <TableHead>DESCRIZIONE</TableHead>
+                    <TableHead>TIPO</TableHead>
+                    <TableHead>UOM</TableHead>
+                    <TableHead className="text-right">RAPPORTO KG/MT (o PZ)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {importedItems.slice(0, 100).map((item, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-bold">{item.CODICE || item.Codice || item.codice || '??'}</TableCell>
+                      <TableCell className="text-xs truncate max-w-[200px]">{item.DESCRIZIONE || item.Descrizione || item.descrizione}</TableCell>
+                      <TableCell>{item.TIPO || item.Tipo || item.tipo}</TableCell>
+                      <TableCell>{item.UOM || item.uom}</TableCell>
+                      <TableCell className="text-right font-mono">
+                        {item['RAPPORTO KG/MT'] || item['Rapporto KG/MT'] || item['KG/MT'] || item['KG/PZ'] || 0}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {importedItems.length > 100 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground italic">
+                        ... e altri {importedItems.length - 100} elementi.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsImportPreviewOpen(false)}>Annulla</Button>
+            <Button 
+              onClick={async () => {
+                if (!user) return;
+                setIsPending(true);
+                const res = await bulkUpdateRawMaterials(importedItems, user.uid);
+                toast({ title: res.message, variant: res.success ? 'default' : 'destructive' });
+                if (res.success) {
+                  setIsImportPreviewOpen(false);
+                  refreshData();
+                }
+                setIsPending(false);
+              }}
+              disabled={isPending}
+            >
+              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Conferma Importazione
             </Button>
           </DialogFooter>
         </DialogContent>

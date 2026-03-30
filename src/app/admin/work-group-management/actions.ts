@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { WorkGroup, JobOrder, JobPhase, WorkPeriod, Operator } from '@/lib/mock-data';
+import type { WorkGroup, JobOrder, JobPhase, WorkPeriod, Operator } from '@/types';
 import { pulseOperatorsForJob } from '@/lib/job-sync-server';
 
 

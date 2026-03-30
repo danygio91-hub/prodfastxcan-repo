@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
-import { type Operator, type Department } from '@/lib/mock-data';
+import { type Operator, type Department } from '@/types';
 
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 

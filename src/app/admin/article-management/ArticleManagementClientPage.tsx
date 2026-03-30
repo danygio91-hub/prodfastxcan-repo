@@ -35,7 +35,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import type { Article, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
+import type { Article, RawMaterial, WorkPhaseTemplate } from '@/types';
 import ArticleFormDialog from './ArticleFormDialog';
 import ArticleTimesDialog from './ArticleTimesDialog';
 import { deleteArticle, validateArticlesImport, bulkSaveArticles, validateArticleSettingsImport, bulkUpdateArticleSettings, getArticles } from './actions';

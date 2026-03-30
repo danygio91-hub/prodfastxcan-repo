@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { Department, MacroArea } from '@/lib/mock-data';
+import type { Department, MacroArea } from '@/types';
 
 export async function getDepartments(): Promise<Department[]> {
   const snapshot = await adminDb.collection("departments").get();

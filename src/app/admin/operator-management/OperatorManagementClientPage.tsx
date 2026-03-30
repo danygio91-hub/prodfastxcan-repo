@@ -8,10 +8,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type Operator, type Department, type WorkPhaseTemplate } from '@/lib/mock-data';
+import { type Operator, type Department, type WorkPhaseTemplate } from '@/types';
 import { saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
-import type { StatoOperatore, OperatorRole } from '@/lib/mock-data';
+import type { StatoOperatore, OperatorRole } from '@/types';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

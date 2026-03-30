@@ -45,7 +45,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { type Operator, type Department, type OperatorAssignment } from '@/lib/mock-data';
+import { type Operator, type Department, type OperatorAssignment } from '@/types';
 import { bulkSaveOperatorAssignments } from './actions';
 
 interface ResourceAssignmentDialogProps {

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Article, RawMaterial, PurchaseOrder, ManualCommitment } from '@/lib/mock-data';
+import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Article, RawMaterial, PurchaseOrder, ManualCommitment } from '@/types';
 
 import { startOfWeek, endOfWeek, format, parseISO, eachDayOfInterval } from 'date-fns';
 import { getProductionTimeAnalysisMap } from '../production-console/actions';

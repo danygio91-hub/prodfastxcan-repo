@@ -18,7 +18,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { type InventoryRecord, type Packaging, type RawMaterial } from '@/lib/mock-data';
+import { type InventoryRecord, type Packaging, type RawMaterial } from '@/types';
 import { updateInventoryRecord, getPackagingItems, getMaterialById } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';

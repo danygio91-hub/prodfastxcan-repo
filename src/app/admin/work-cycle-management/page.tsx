@@ -8,7 +8,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import { type WorkCycle, type WorkPhaseTemplate } from '@/lib/mock-data';
+import { type WorkCycle, type WorkPhaseTemplate } from '@/types';
 import { getWorkCycles, saveWorkCycle, deleteWorkCycle, getWorkPhaseTemplates, deleteSelectedWorkCycles } from './actions';
 
 import { Button } from '@/components/ui/button';

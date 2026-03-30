@@ -4,7 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 
-import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/types';
+import { getGlobalSettings } from '@/lib/settings-actions';
+import { calculateInventoryMovement } from '@/lib/inventory-utils';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { ensureAdmin } from '@/lib/server-auth';
 
@@ -19,50 +21,6 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
-/**
- * Deducts quantity from specific lot or follows FIFO if no lot is provided.
- * Updates both the batches array and the top-level stock.
- */
-function deductFromMaterialBatches(material: RawMaterial, quantity: number, lotto?: string): { updatedBatches: any[], usedLotto: string | null } {
-    let remaining = quantity;
-    let usedLotto: string | null = lotto || null;
-    let batches = [...(material.batches || [])];
-
-    if (lotto) {
-        // Specific Lot Deduction
-        const idx = batches.findIndex(b => b.lotto === lotto);
-        if (idx !== -1) {
-            batches[idx].netQuantity = (batches[idx].netQuantity || 0) - quantity;
-            batches[idx].grossWeight = batches[idx].netQuantity + (batches[idx].tareWeight || 0);
-            return { updatedBatches: batches, usedLotto: lotto };
-        }
-        // If lot not found in batches, we still proceed with top-level deduction
-        // but can't update specific batch record.
-        return { updatedBatches: batches, usedLotto: lotto };
-    } else {
-        // FIFO Proposal / Fallback
-        const sortedBatches = [...batches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        for (let i = 0; i < sortedBatches.length; i++) {
-            if (remaining <= 0) break;
-            const b = sortedBatches[i];
-            const avail = b.netQuantity || 0;
-            if (avail > 0) {
-                if (!usedLotto) usedLotto = b.lotto || 'Iniziale';
-                const toTake = Math.min(avail, remaining);
-                b.netQuantity = avail - toTake;
-                b.grossWeight = b.netQuantity + (b.tareWeight || 0);
-                remaining -= toTake;
-            }
-        }
-        // If still remaining, deduct from the very first (oldest) batch anyway to keep track (allows negative)
-        if (remaining > 0 && sortedBatches.length > 0) {
-            if (!usedLotto) usedLotto = sortedBatches[0].lotto || 'Iniziale';
-            sortedBatches[0].netQuantity = (sortedBatches[0].netQuantity || 0) - remaining;
-            sortedBatches[0].grossWeight = sortedBatches[0].netQuantity + (sortedBatches[0].tareWeight || 0);
-        }
-        return { updatedBatches: sortedBatches, usedLotto };
-    }
-}
 
 export async function resolveJobProblem(jobId: string, uid: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -361,18 +319,26 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             const consumedWeight = session.grossOpeningWeight - closingGrossWeight;
             if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
 
-            let unitsConsumed = 0;
-            if (material.unitOfMeasure === 'kg') {
-                unitsConsumed = consumedWeight;
-            } else if (material.conversionFactor && material.conversionFactor > 0) {
-                unitsConsumed = consumedWeight / material.conversionFactor;
-            }
+            const globalSettings = await getGlobalSettings();
+            const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
+                id: material.type,
+                label: material.type,
+                defaultUnit: material.unitOfMeasure,
+                hasConversion: false
+            } as any;
 
-            const { updatedBatches, usedLotto } = deductFromMaterialBatches(material, unitsConsumed, session.lotto as string | undefined);
+            const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+                material,
+                config,
+                consumedWeight, // Input is always weight in this session logic
+                'kg',
+                false,
+                session.lotto as string | undefined
+            );
 
             transaction.update(materialRef, {
-                currentStockUnits: (material.currentStockUnits || 0) - unitsConsumed,
-                currentWeightKg: (material.currentWeightKg || 0) - consumedWeight,
+                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange,
+                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
                 batches: updatedBatches
             });
 
@@ -382,8 +348,8 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF),
                 materialId: session.materialId,
                 materialCode: session.materialCode,
-                consumedWeight,
-                consumedUnits: unitsConsumed,
+                consumedWeight: weightToChange,
+                consumedUnits: unitsToChange,
                 operatorId: opId,
                 withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: usedLotto,
@@ -406,23 +372,26 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = mSnap.data() as RawMaterial;
             
-            let units = 0;
-            let weight = 0;
-            const q = Number(quantity);
+            const globalSettings = await getGlobalSettings();
+            const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
+                id: material.type,
+                label: material.type,
+                defaultUnit: material.unitOfMeasure,
+                hasConversion: false
+            } as any;
 
-            if (unit === 'kg') {
-                weight = q;
-                units = (material.conversionFactor && material.conversionFactor > 0) ? q / material.conversionFactor : q;
-            } else {
-                units = q;
-                weight = (material.conversionFactor && material.conversionFactor > 0) ? q * material.conversionFactor : 0;
-            }
-
-            const { updatedBatches, usedLotto } = deductFromMaterialBatches(material, units, lotto as string);
+            const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+                material,
+                config,
+                Number(quantity),
+                unit as any,
+                false,
+                lotto as string
+            );
 
             t.update(mRef, { 
-                currentStockUnits: (material.currentStockUnits || 0) - units, 
-                currentWeightKg: (material.currentWeightKg || 0) - weight,
+                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange, 
+                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
                 batches: updatedBatches
             });
 
@@ -432,8 +401,8 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
                 jobOrderPFs: [jobOrderPF],
                 materialId,
                 materialCode: material.code,
-                consumedWeight: weight,
-                consumedUnits: units,
+                consumedWeight: weightToChange,
+                consumedUnits: unitsToChange,
                 operatorId,
                 withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: usedLotto,

@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import type { JobOrder, Operator, OperatorAssignment, Article } from '@/lib/mock-data';
-import { type ProductionSettings } from '@/app/admin/production-settings/actions';
+import type { JobOrder, Operator, OperatorAssignment, Article, ProductionSettings } from '@/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { startOfWeek, addDays, addWeeks, addMonths, differenceInMinutes, differenceInDays, format, startOfDay } from 'date-fns';

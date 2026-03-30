@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, MaterialWithdrawal, RawMaterial } from '@/types';
 
 async function deleteAllFromCollection(collectionName: string) {
     const snapshot = await adminDb.collection(collectionName).get();

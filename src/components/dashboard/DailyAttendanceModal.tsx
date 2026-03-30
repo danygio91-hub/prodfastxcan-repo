@@ -18,7 +18,7 @@ import { Badge } from '@/components/ui/badge';
 
 import { getOperators } from '@/app/admin/operator-management/actions';
 import { bulkDeclareAttendance, getCalendarExceptions } from '@/app/admin/attendance-calendar/actions';
-import type { Operator, CalendarException } from '@/lib/mock-data';
+import type { Operator, CalendarException } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO } from 'date-fns';
 

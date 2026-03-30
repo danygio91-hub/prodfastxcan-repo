@@ -24,7 +24,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { PlusCircle, Trash2, Save, Loader2, Check, FileText, Link as LinkIcon, Ship } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
-import type { Article, RawMaterial, WorkCycle } from '@/lib/mock-data';
+import type { Article, RawMaterial, WorkCycle } from '@/types';
 import { saveArticle, getWorkCycles } from './actions';
 import { getRawMaterials, getMaterialsByCodes } from '../raw-material-management/actions';
 

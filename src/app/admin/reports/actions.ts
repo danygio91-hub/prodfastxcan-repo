@@ -2,7 +2,7 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, WorkPhaseTemplate, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, WorkPhaseTemplate, WorkGroup } from '@/types';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, format, getWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getOverallStatus } from '@/lib/types';

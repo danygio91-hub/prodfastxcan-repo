@@ -1,7 +1,7 @@
 import React from 'react';
 import QRCode from 'react-qr-code';
 import { format, isValid, parseISO } from 'date-fns';
-import type { JobOrder, RawMaterial, Article } from '@/lib/mock-data';
+import type { JobOrder, RawMaterial, Article } from '@/types';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 
 interface ODLPrintTemplateProps {

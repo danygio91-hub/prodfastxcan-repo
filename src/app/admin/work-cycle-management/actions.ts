@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { type WorkCycle, type WorkPhaseTemplate } from '@/lib/mock-data';
+import { type WorkCycle, type WorkPhaseTemplate } from '@/types';
 
 // --- Schemas ---
 const workCycleSchema = z.object({

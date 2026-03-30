@@ -1,6 +1,8 @@
 import React from 'react';
 import { getCompletedJobs } from './actions';
 import PackingClientPage from './PackingClientPage';
+import AuthGuard from '@/components/AuthGuard';
+import AppShell from '@/components/layout/AppShell';
 
 export const metadata = {
     title: 'Packing List & Spedizioni | MES',
@@ -14,8 +16,10 @@ export default async function PackingPage() {
     const serializedJobs = JSON.parse(JSON.stringify(completedJobs));
 
     return (
-        <main className="min-h-screen bg-slate-50/50">
-            <PackingClientPage initialJobs={serializedJobs} />
-        </main>
+        <AuthGuard>
+            <AppShell>
+                <PackingClientPage initialJobs={serializedJobs} />
+            </AppShell>
+        </AuthGuard>
     );
 }

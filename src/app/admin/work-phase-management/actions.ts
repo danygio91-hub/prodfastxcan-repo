@@ -10,7 +10,7 @@ import {
   type WorkPhaseTemplate, 
   type RawMaterialType, // Import RawMaterialType
   type Department,
-} from '@/lib/mock-data';
+} from '@/types';
 
 // --- Schemas ---
 const workPhaseSchema = z.object({

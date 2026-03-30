@@ -10,7 +10,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Factory, Save, Loader2, Info } from 'lucide-react';
-import { getProductionSettings, saveProductionSettings, type ProductionSettings } from './actions';
+import { getProductionSettings, saveProductionSettings } from './actions';
+import type { ProductionSettings } from '@/types';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';

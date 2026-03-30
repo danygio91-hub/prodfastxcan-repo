@@ -4,7 +4,7 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { WorkingHoursConfig } from '@/lib/mock-data';
+import type { WorkingHoursConfig } from '@/types';
 
 const CONFIG_ID = 'workingHours';
 const CONFIG_COLLECTION = 'configuration';

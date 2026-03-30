@@ -1,7 +1,6 @@
 import { collection, getDocs, query, where, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, WorkCycle } from '@/lib/mock-data';
-import { getProductionSettings } from '@/app/admin/production-settings/actions';
+import type { JobOrder, WorkCycle, ProductionSettings } from '@/types';
 import { getTimeTrackingSettings } from '@/app/admin/time-tracking-settings/actions';
 
 export interface PhaseTimeEstimate {
@@ -11,8 +10,13 @@ export interface PhaseTimeEstimate {
   confidenceWarning?: string;
 }
 
-export async function estimatePhaseTime(articleCode: string, phaseName: string, theoreticalTimeSeconds: number, unitQty: number = 1): Promise<PhaseTimeEstimate> {
-  const settings = await getProductionSettings();
+export async function estimatePhaseTime(
+  articleCode: string, 
+  phaseName: string, 
+  theoreticalTimeSeconds: number, 
+  settings: ProductionSettings,
+  unitQty: number = 1
+): Promise<PhaseTimeEstimate> {
   
   if (!settings.prioritizeActualTime) {
     return {

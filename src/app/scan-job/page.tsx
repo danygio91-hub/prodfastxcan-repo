@@ -23,7 +23,7 @@ import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCi
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import type { JobOrder, JobPhase, WorkPeriod, ActiveMaterialSessionData, RawMaterialType, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod, ActiveMaterialSessionData, RawMaterialType, WorkGroup } from '@/types';
 import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, handlePhasePause, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup, updateWorkGroup } from './actions';
 
 import { useActiveJob } from '@/contexts/ActiveJobProvider';

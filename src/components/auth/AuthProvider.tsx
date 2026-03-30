@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
-import type { Operator } from '@/lib/mock-data';
+import type { Operator } from '@/types';
 import { useRouter } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot, deleteField } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';

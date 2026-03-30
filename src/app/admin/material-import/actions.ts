@@ -3,8 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import * as admin from 'firebase-admin';
 import { adminDb } from '@/lib/firebase-admin';
-import type { RawMaterial, RawMaterialBatch, Packaging, Operator } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, Packaging, Operator } from '@/types';
 import { ensureAdmin } from '@/lib/server-auth';
+import { getGlobalSettings } from '@/lib/settings-actions';
+import { calculateInventoryMovement } from '@/lib/inventory-utils';
 
 export async function getPackagingItems(): Promise<Packaging[]> {
   const snapshot = await adminDb.collection('packaging').orderBy("name").get();
@@ -35,6 +37,7 @@ export async function importCaricoFromFile(
     return { success: false, message: 'Nessun dato da importare.' };
   }
 
+  const globalSettings = await getGlobalSettings();
   const uniqueMaterialCodes = Array.from(new Set(data.map(r => r['Codice Materiale']?.toString().trim().toLowerCase()).filter(Boolean)));
   const materialsMap = new Map<string, RawMaterial>();
 
@@ -97,24 +100,38 @@ export async function importCaricoFromFile(
         const freshMaterialDoc = await transaction.get(materialRef);
         if (!freshMaterialDoc.exists) throw new Error("Documento materiale sparito dal DB.");
         const currentMaterial = freshMaterialDoc.data() as RawMaterial;
+        
+        const config = globalSettings.rawMaterialTypes.find(t => t.id === currentMaterial.type) || {
+            id: currentMaterial.type,
+            label: currentMaterial.type,
+            defaultUnit: currentMaterial.unitOfMeasure,
+            hasConversion: false
+        } as any;
 
-        let netWeightForCalc = currentMaterial.unitOfMeasure === 'kg' ? netQuantity : (currentMaterial.conversionFactor ? netQuantity * currentMaterial.conversionFactor : 0);
+        const { unitsToChange, weightToChange } = calculateInventoryMovement(
+            currentMaterial,
+            config,
+            netQuantity,
+            currentMaterial.unitOfMeasure === 'kg' ? 'kg' : (currentMaterial.unitOfMeasure as any),
+            true, // isAddition
+            lotto
+        );
 
         const newBatch: RawMaterialBatch = {
           id: `batch-import-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           date: parsedDate.toISOString(),
           ddt: ddt || `IMPORT-${parsedDate.toISOString().split('T')[0]}`,
           lotto,
-          netQuantity,
+          netQuantity: unitsToChange,
           tareWeight,
-          grossWeight: netWeightForCalc + tareWeight,
+          grossWeight: weightToChange + tareWeight,
           packagingId: packagingId,
         };
 
         transaction.update(materialRef, {
           batches: admin.firestore.FieldValue.arrayUnion(newBatch),
-          currentStockUnits: (currentMaterial.currentStockUnits || 0) + netQuantity,
-          currentWeightKg: (currentMaterial.currentWeightKg || 0) + netWeightForCalc
+          currentStockUnits: (currentMaterial.currentStockUnits || 0) + unitsToChange,
+          currentWeightKg: (currentMaterial.currentWeightKg || 0) + weightToChange
         });
       });
       successCount++;
@@ -133,6 +150,7 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
 
   if (!data || data.length === 0) return { success: false, message: 'Nessun dato.' };
 
+  const globalSettings = await getGlobalSettings();
   const uniqueMaterialCodes = Array.from(new Set(data.map(r => r['Codice Materiale']?.toString().trim().toLowerCase()).filter(Boolean)));
   const materialsMap = new Map<string, RawMaterial>();
 
@@ -173,35 +191,26 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
         if (!materialDoc.exists) throw new Error(`Documento ID ${materialLookup.id} non trovato.`);
         const currentMaterial = materialDoc.data() as RawMaterial;
 
-        let consumedUnits = 0;
-        let consumedWeight = 0;
+        const config = globalSettings.rawMaterialTypes.find(t => t.id === currentMaterial.type) || {
+            id: currentMaterial.type,
+            label: currentMaterial.type,
+            defaultUnit: currentMaterial.unitOfMeasure,
+            hasConversion: false
+        } as any;
 
-        if (unit === 'kg') {
-          consumedWeight = quantity;
-          if (currentMaterial.unitOfMeasure === 'kg') {
-            consumedUnits = quantity;
-          } else {
-            if (!currentMaterial.conversionFactor || currentMaterial.conversionFactor <= 0) {
-              throw new Error(`Conversione KG in ${currentMaterial.unitOfMeasure} non configurata.`);
-            }
-            consumedUnits = quantity / currentMaterial.conversionFactor;
-          }
-        } else {
-          consumedUnits = quantity;
-          if (currentMaterial.unitOfMeasure === 'kg') {
-            consumedWeight = quantity;
-          } else if (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) {
-            consumedWeight = quantity * currentMaterial.conversionFactor;
-          } else if (currentMaterial.unitOfMeasure === 'mt' && currentMaterial.rapportoKgMt) {
-            consumedWeight = quantity * currentMaterial.rapportoKgMt;
-          } else {
-            throw new Error(`Impossibile calcolare il peso in KG per l'unità ${unit}.`);
-          }
-        }
+        const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+            currentMaterial,
+            config,
+            quantity,
+            unit as any,
+            false,
+            lotto
+        );
 
         transaction.update(materialRef, {
-          currentStockUnits: (currentMaterial.currentStockUnits || 0) - consumedUnits,
-          currentWeightKg: (currentMaterial.currentWeightKg || 0) - consumedWeight
+          currentStockUnits: (currentMaterial.currentStockUnits || 0) - unitsToChange,
+          currentWeightKg: (currentMaterial.currentWeightKg || 0) - weightToChange,
+          batches: updatedBatches
         });
 
         const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
@@ -210,13 +219,13 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
           jobOrderPFs: row['Commessa Associata'] ? [row['Commessa Associata'].toString()] : ['SCARICO_DA_FILE'],
           materialId: materialLookup.id,
           materialCode: currentMaterial.code,
-          consumedWeight,
-          consumedUnits: consumedUnits,
+          consumedWeight: weightToChange,
+          consumedUnits: unitsToChange,
           operatorId: uid,
           operatorName: adminProfile?.nome || 'Admin Import',
           withdrawalDate: admin.firestore.Timestamp.now(),
           notes: row['Note'] || 'Scarico da file',
-          lotto: lotto || null,
+          lotto: usedLotto,
         });
       });
       successCount++;

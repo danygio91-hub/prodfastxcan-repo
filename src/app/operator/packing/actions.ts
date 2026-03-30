@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { JobOrder, Article } from '@/lib/mock-data';
+import type { JobOrder, Article } from '@/types';
 
 /**
  * Recupera tutte le commesse che sono nello stato 'completed' (prontte per la spedizione).

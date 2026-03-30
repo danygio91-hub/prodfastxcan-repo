@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type Workstation, type Department } from '@/lib/mock-data';
+import { type Workstation, type Department } from '@/types';
 import { getWorkstations, saveWorkstation, deleteWorkstation, getDepartments } from './actions';
 
 import { Button } from '@/components/ui/button';

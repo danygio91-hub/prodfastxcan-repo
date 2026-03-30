@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type WorkPhaseTemplate, RawMaterialType, type Department } from '@/lib/mock-data';
+import { type WorkPhaseTemplate, RawMaterialType, type Department } from '@/types';
 import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartments, deleteSelectedWorkPhaseTemplates } from './actions';
 
 

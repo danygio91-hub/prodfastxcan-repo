@@ -16,8 +16,99 @@ import type {
     PurchaseOrder,
     InventoryRecord,
     Operator
-} from '@/lib/mock-data';
+} from '@/types';
 import { ensureAdmin } from '@/lib/server-auth';
+import { getGlobalSettings } from '@/lib/settings-actions';
+
+export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await ensureAdmin(uid);
+        const globalSettings = await getGlobalSettings();
+        
+        const batch = adminDb.batch();
+        
+        // Prima recuperiamo tutti i materiali esistenti per capire se fare UPDATE o CREATE
+        const codes = items.map(it => String(it.CODICE || it.Codice || it.codice || "").trim()).filter(Boolean);
+        if (codes.length === 0) return { success: false, message: "Nessun codice valido trovato nel file." };
+
+        const materialsCol = adminDb.collection("rawMaterials");
+        const existingDocs = await materialsCol.get();
+        const existingMap = new Map();
+        existingDocs.forEach(doc => {
+            const data = doc.data();
+            existingMap.set(data.code.toLowerCase().trim(), { id: doc.id, ...data });
+        });
+
+        for (const item of items) {
+            const code = String(item.CODICE || item.Codice || item.codice || "").trim();
+            if (!code) continue;
+            
+            const code_normalized = code.toLowerCase();
+            const uom = String(item.UOM || item.uom || "").toLowerCase().trim();
+            const ratioVal = item['RAPPORTO KG/MT'] || item['Rapporto KG/MT'] || item['KG/MT'] || item['KG/PZ'];
+            const ratio = Number(ratioVal || 0);
+
+            // Mapping del Tipo (Labels -> ID)
+            const excelTipo = String(item.TIPO || item.Tipo || item.tipo || "").trim().toUpperCase();
+            let matchedTypeId = excelTipo; // Fallback al valore inserito
+            
+            if (excelTipo) {
+                // Cerchiamo prima corrispondenza esatta con ID, poi per Label
+                const foundById = globalSettings.rawMaterialTypes.find(t => t.id.toUpperCase() === excelTipo);
+                if (foundById) {
+                    matchedTypeId = foundById.id;
+                } else {
+                    const foundByLabel = globalSettings.rawMaterialTypes.find(t => t.label.toUpperCase() === excelTipo);
+                    if (foundByLabel) matchedTypeId = foundByLabel.id;
+                }
+            }
+
+            const dataToSave: any = {
+                code,
+                code_normalized,
+                description: String(item.DESCRIZIONE || item.Descrizione || item.descrizione || "").trim(),
+                type: matchedTypeId,
+                unitOfMeasure: uom as any,
+            };
+
+            // Salviamo il rapporto se fornito (anche se non è MT/N, lo salviamo comunque per consistenza)
+            if (ratioVal !== undefined) {
+                dataToSave.rapportoKgMt = ratio;
+                dataToSave.conversionFactor = ratio;
+            }
+
+            const existing = existingMap.get(code_normalized);
+            if (existing) {
+                // Per un aggiornamento, filtriamo i campi null/undefined per non cancellare dati esistenti se non forniti nell'Excel
+                const cleanData: any = {};
+                if (dataToSave.description) cleanData.description = dataToSave.description;
+                if (dataToSave.type) cleanData.type = dataToSave.type;
+                if (dataToSave.unitOfMeasure) cleanData.unitOfMeasure = dataToSave.unitOfMeasure;
+                if (ratioVal !== undefined) {
+                    cleanData.rapportoKgMt = ratio;
+                    cleanData.conversionFactor = ratio;
+                }
+                batch.set(materialsCol.doc(existing.id), cleanData, { merge: true });
+            } else {
+                const newRef = materialsCol.doc();
+                batch.set(newRef, {
+                    ...dataToSave,
+                    id: newRef.id,
+                    currentStockUnits: 0,
+                    currentWeightKg: 0,
+                    batches: []
+                });
+            }
+        }
+
+        await batch.commit();
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: `Importati/Aggiornati ${items.length} elementi.` };
+    } catch (error) {
+        console.error("Bulk update error:", error);
+        return { success: false, message: "Errore durante l'importazione massiva." };
+    }
+}
 
 export type LotSelectionPayload = {
     materialId: string;
@@ -481,6 +572,7 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Stock aggiornato con successo.' };
 }
+
 
 export type ReorderAlert = {
     materialId: string;

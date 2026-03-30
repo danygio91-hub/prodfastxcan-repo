@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Users, User, Mail, Factory, FileLock, Check, Loader2, ArrowLeft } from 'lucide-react';
-import type { Operator } from '@/lib/mock-data';
+import type { Operator } from '@/types';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getDepartmentMap } from './actions';
 import PrivacyForm from './PrivacyForm';

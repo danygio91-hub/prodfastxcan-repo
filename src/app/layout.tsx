@@ -1,4 +1,3 @@
-
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
@@ -33,6 +32,7 @@ export const viewport: Viewport = {
   themeColor: '#3F51B5',
 };
 
+import { MasterDataProvider } from "@/contexts/MasterDataProvider";
 
 export default function RootLayout({
   children,
@@ -45,23 +45,25 @@ export default function RootLayout({
       </head>
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
-          <ActiveJobProvider>
-            <ActiveMaterialSessionProvider>
-              <ThemeProvider
-                attribute="class"
-                defaultTheme="dark"
-                enableSystem={false}
-                disableTransitionOnChange
-              >
-                <TooltipProvider>
-                  <NextTopLoader color="#0ea5e9" showSpinner={false} />
-                  {children}
-                  <Toaster />
-                  <PwaInstaller />
-                </TooltipProvider>
-              </ThemeProvider>
-            </ActiveMaterialSessionProvider>
-          </ActiveJobProvider>
+          <MasterDataProvider>
+            <ActiveJobProvider>
+              <ActiveMaterialSessionProvider>
+                <ThemeProvider
+                  attribute="class"
+                  defaultTheme="dark"
+                  enableSystem={false}
+                  disableTransitionOnChange
+                >
+                  <TooltipProvider>
+                    <NextTopLoader color="#0ea5e9" showSpinner={false} />
+                    {children}
+                    <Toaster />
+                    <PwaInstaller />
+                  </TooltipProvider>
+                </ThemeProvider>
+              </ActiveMaterialSessionProvider>
+            </ActiveJobProvider>
+          </MasterDataProvider>
         </AuthProvider>
       </body>
     </html>

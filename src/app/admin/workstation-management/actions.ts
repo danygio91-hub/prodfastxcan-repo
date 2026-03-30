@@ -12,7 +12,7 @@ import admin from 'firebase-admin';
 import {
   type Workstation,
   type Department,
-} from '@/lib/mock-data';
+} from '@/types';
 
 // --- Schemas ---
 const workstationSchema = z.object({

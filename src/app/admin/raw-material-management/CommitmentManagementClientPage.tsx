@@ -10,7 +10,7 @@ import { format, parseISO, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 
-import { type ManualCommitment, type Article, type RawMaterial, type RawMaterialBatch } from '@/lib/mock-data';
+import { type ManualCommitment, type Article, type RawMaterial, type RawMaterialBatch } from '@/types';
 import { saveManualCommitment, deleteManualCommitment, importManualCommitments, revertManualCommitmentFulfillment, declareCommitmentFulfillment, type LotSelectionPayload, getMaterialsByCodes, getLotInfoForMaterial, type LotInfo } from './actions';
 import { getArticles } from '../article-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';

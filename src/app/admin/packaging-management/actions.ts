@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { Packaging, PackagingAssociation } from '@/lib/mock-data';
+import type { Packaging, PackagingAssociation } from '@/types';
 
 // --- Schemas ---
 const packagingSchema = z.object({
