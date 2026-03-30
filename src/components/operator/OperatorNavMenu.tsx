@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck, Warehouse, MinusSquare, Truck } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { cn } from '@/lib/utils';
 
 function OperatorNavMenu() {
   const pathname = usePathname();
@@ -37,7 +38,6 @@ function OperatorNavMenu() {
     ...(hasShippingAccess ? [
       { href: '/operator/packing', label: 'Packing List', icon: Truck }
     ] : []),
-    ...(operator?.canAccessInventory ? [{ href: '/inventory', label: 'Inventario', icon: Warehouse }] : []),
     ...(operator?.canAccessMaterialWithdrawal ? [{ href: '/manual-withdrawal', label: 'Scarico Materiale', icon: MinusSquare }] : []),
     { href: '/operator', label: 'Dati Operatore', icon: Users },
     { href: '/report-problem', label: 'Segnala Problema', icon: AlertTriangle },

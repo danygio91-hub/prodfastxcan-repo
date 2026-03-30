@@ -61,7 +61,7 @@ function getPhaseIcon(status: JobPhase['status']) {
 const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, handlers: any }) => {
     const { operator } = useAuth();
     if (!operator) return null;
-    const isSuper = operator.role === 'supervisor';
+    const isSuper = operator.role === 'supervisor' || operator.role === 'admin';
     const operatorReparti = operator.reparto || [];
     const hasPerm = isSuper || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
     const isOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);

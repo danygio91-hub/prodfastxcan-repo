@@ -81,7 +81,7 @@ export default function InventoryPage() {
   }, [scannedMaterial, enteredQuantity, inputUnit, packagingItems, selectedPackagingId]);
 
   useEffect(() => {
-    if (!authLoading && operator && !operator.canAccessInventory && operator.role !== 'admin') {
+    if (!authLoading && operator && !operator.canAccessInventory && operator.role !== 'admin' && operator.role !== 'supervisor') {
       toast({
         variant: "destructive",
         title: "Accesso Negato",

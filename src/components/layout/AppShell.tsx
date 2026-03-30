@@ -3,6 +3,7 @@
 
 import React from 'react';
 import Header from './Header';
+import { usePathname } from 'next/navigation';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import ActiveJobStatusBar from '@/components/operator/ActiveJobStatusBar';
 import ActiveMaterialSessionBar from '@/components/operator/ActiveMaterialSessionBar';
@@ -16,6 +17,8 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   const { operator } = useAuth();
+  const pathname = usePathname();
+  const isAdminPage = pathname.startsWith('/admin') || pathname.startsWith('/supervisor');
   const isOperatorOrSupervisor = operator && (operator.role === 'operator' || operator.role === 'supervisor');
   const hasSignedPrivacy = isOperatorOrSupervisor && operator.privacySigned;
 
@@ -23,13 +26,14 @@ export default function AppShell({ children }: AppShellProps) {
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
       <main className="flex-grow w-full px-4 sm:px-6 lg:px-8 py-8">
-        {isOperatorOrSupervisor && hasSignedPrivacy && (
+        {isOperatorOrSupervisor && hasSignedPrivacy && !isAdminPage && (
           <>
             <OperatorNavMenu />
             <LiveClock />
           </>
         )}
-        {!isOperatorOrSupervisor && operator?.role === 'admin' && <LiveClock />}
+        {!isAdminPage && !isOperatorOrSupervisor && operator?.role === 'admin' && <LiveClock />}
+        {(isAdminPage || (operator?.role === 'admin' && isAdminPage)) && <LiveClock />}
         <div className="mt-6">
             {children}
         </div>

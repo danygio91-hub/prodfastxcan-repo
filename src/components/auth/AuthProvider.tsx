@@ -195,6 +195,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               router.replace(targetPath);
           } else if (operatorProfile.role === 'admin') {
               router.replace('/admin/dashboard');
+          } else if (operatorProfile.role === 'supervisor') {
+              router.replace('/supervisor/dashboard');
           } else {
               router.replace('/dashboard');
           }

@@ -16,14 +16,14 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps) {
 
   useEffect(() => {
     if (!loading) {
-      if (!operator || operator.role !== 'admin') {
-        // If not an admin, redirect to the main login/dashboard page
+      if (!operator || (operator.role !== 'admin' && operator.role !== 'supervisor')) {
+        // If not an admin or supervisor, redirect to the main login/dashboard page
         router.replace('/');
       }
     }
   }, [operator, loading, router]);
   
-  if (loading || !operator || operator.role !== 'admin') {
+  if (loading || !operator || (operator.role !== 'admin' && operator.role !== 'supervisor')) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />

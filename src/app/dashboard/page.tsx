@@ -4,9 +4,11 @@
 import React from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck, Warehouse, MinusSquare, Truck } from 'lucide-react';
+import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck, Warehouse, MinusSquare, Truck, LayoutGrid } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { Button } from '@/components/ui/button';
+import Link from 'next/link';
 
 
 export default function DashboardPage() {
@@ -31,11 +33,22 @@ export default function DashboardPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-8">
-          <header className="space-y-2">
-            <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard Operatore</h1>
-            <p className="text-muted-foreground">
-              Seleziona un'opzione qui sotto per accedere alle funzioni di ProdFastXcan.
-            </p>
+          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold font-headline tracking-tight uppercase">Dashboard Operatore</h1>
+              <p className="text-muted-foreground text-sm font-medium">
+                Seleziona un'opzione qui sotto per accedere alle funzioni di ProdFastXcan.
+              </p>
+            </div>
+            
+            {(operator?.role === 'admin' || operator?.role === 'supervisor') && (
+              <Button asChild variant="outline" className="border-primary text-primary hover:bg-primary/10 font-bold uppercase text-[10px] h-9 gap-2 shadow-sm">
+                <Link href={operator.role === 'admin' ? '/admin/dashboard' : '/supervisor/dashboard'}>
+                  <LayoutGrid className="h-4 w-4" />
+                  Torna alla Gestione
+                </Link>
+              </Button>
+            )}
           </header>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -61,7 +74,7 @@ export default function DashboardPage() {
                 />
               </>
             )}
-             {operator?.canAccessInventory && (
+             {(operator?.canAccessInventory || operator?.role === 'admin' || operator?.role === 'supervisor') && (
                 <DashboardItem
                   title="Inventario"
                   description="Gestisci l'inventario delle materie prime."
@@ -69,7 +82,7 @@ export default function DashboardPage() {
                   href="/inventory"
                 />
             )}
-             {operator?.canAccessMaterialWithdrawal && (
+             {(operator?.canAccessMaterialWithdrawal || operator?.role === 'admin' || operator?.role === 'supervisor') && (
                 <DashboardItem
                   title="Scarico Materiale"
                   description="Registra uno scarico manuale di materiale per la produzione"

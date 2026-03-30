@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity } from 'lucide-react';
+import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, ArrowRightLeft } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -49,6 +49,13 @@ const adminNavItems = [
   { href: '/admin/app-settings', label: 'Gestione App', icon: Settings },
 ];
 
+const supervisorNavItems = [
+  { href: '/supervisor/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/resource-planning', label: 'Pianificazione Risorse', icon: Activity },
+  { href: '/admin/attendance-calendar', label: 'Calendario Presenze', icon: CalendarDays },
+  { href: '/admin/data-management', label: 'Gestione ODL', icon: ListChecks },
+];
+
 export default function Header() {
   const { operator, logout } = useAuth();
   const { activeJob } = useActiveJob();
@@ -76,9 +83,11 @@ export default function Header() {
   
   const operatorName = operator ? operator.nome : null;
   const isAdmin = operator?.role === 'admin';
+  const isSupervisor = operator?.role === 'supervisor';
+  const isManagement = isAdmin || isSupervisor;
   const [hasAlerts, setHasAlerts] = React.useState(false);
   
-  const isAdminPage = pathname.startsWith('/admin');
+  const isAdminPage = pathname.startsWith('/admin') || pathname.startsWith('/supervisor');
 
   React.useEffect(() => {
     if (isAdminPage) {
@@ -94,7 +103,9 @@ export default function Header() {
   
   const showExitButton = pathname === '/scan-job' && activeJob;
 
-  const homeLink = isAdmin ? '/admin/dashboard' : '/dashboard';
+  const homeLink = isAdmin 
+    ? '/admin/dashboard' 
+    : (isSupervisor ? '/supervisor/dashboard' : '/dashboard');
 
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
@@ -109,7 +120,7 @@ export default function Header() {
           <div className="flex-1 hidden md:flex items-center justify-center">
              <TooltipProvider delayDuration={0}>
                 <div className="flex items-center justify-center p-2 gap-2 flex-wrap">
-                {adminNavItems.map((item) => {
+                {(isAdmin ? adminNavItems : supervisorNavItems).map((item) => {
                     const isActive = pathname.startsWith(item.href);
                     const showDot = item.icon === Bell && hasAlerts;
                     return (
@@ -162,6 +173,41 @@ export default function Header() {
                     </TooltipContent>
                 </Tooltip>
             )}
+
+            {/* Integrated Text+Icon View Switcher */}
+            {isManagement && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    asChild 
+                    variant="default" 
+                    className={cn(
+                      "h-10 px-4 font-black uppercase text-[11px] gap-2 hidden md:flex min-w-[140px]",
+                      isAdminPage 
+                        ? "bg-slate-800 hover:bg-slate-900 text-white" 
+                        : "bg-blue-600 hover:bg-blue-700 text-white"
+                    )}
+                  >
+                    <Link href={isAdminPage ? '/dashboard' : (isAdmin ? '/admin/dashboard' : '/supervisor/dashboard')}>
+                      {isAdminPage ? (
+                        <>
+                          <ArrowRightLeft className="h-4 w-4" />
+                          <span>Vista Officina</span>
+                        </>
+                      ) : (
+                        <>
+                          <LayoutDashboard className="h-4 w-4" />
+                          <span>Vista Gestione</span>
+                        </>
+                      )}
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isAdminPage ? 'Passa alla visualizzazione operativa' : 'Torna al pannello di controllo gestionale'}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" onClick={handleRefresh} aria-label="Aggiorna pagina">
@@ -192,6 +238,23 @@ export default function Header() {
                   </p>
                 </div>
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {isManagement && !isAdminPage && (
+                 <DropdownMenuItem asChild className="cursor-pointer md:hidden">
+                    <Link href={isAdmin ? '/admin/dashboard' : '/supervisor/dashboard'} className="flex items-center w-full">
+                        <LayoutDashboard className="mr-2 h-4 w-4" />
+                        <span>Vista Gestionale</span>
+                    </Link>
+                 </DropdownMenuItem>
+              )}
+              {isManagement && isAdminPage && (
+                 <DropdownMenuItem asChild className="cursor-pointer">
+                    <Link href="/dashboard" className="flex items-center w-full">
+                        <ArrowRightLeft className="mr-2 h-4 w-4" />
+                        <span>Vista Operatore</span>
+                    </Link>
+                 </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={logout} className="cursor-pointer">
                 <LogOut className="mr-2 h-4 w-4" />

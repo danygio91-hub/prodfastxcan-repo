@@ -125,7 +125,7 @@ export default function ManualWithdrawalPage() {
   }, [lottoValue, scannedMaterial, updateLotInfo]);
 
   useEffect(() => {
-    if (!authLoading && operator && !operator.canAccessMaterialWithdrawal && operator.role !== 'admin') {
+    if (!authLoading && operator && !operator.canAccessMaterialWithdrawal && operator.role !== 'admin' && operator.role !== 'supervisor') {
       toast({
         variant: "destructive",
         title: "Accesso Negato",
