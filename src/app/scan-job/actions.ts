@@ -12,6 +12,8 @@ import { ensureAdmin } from '@/lib/server-auth';
 
 export { dissolveWorkGroup };
 
+import { pulseOperatorsForJob } from '@/lib/job-sync-server';
+
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
     if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();
@@ -19,6 +21,95 @@ function convertTimestampsToDates(obj: any): any {
     const newObj: { [key: string]: any } = {};
     for (const key in obj) { newObj[key] = convertTimestampsToDates(obj[key]); }
     return newObj;
+}
+
+function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
+    const sorted = [...phases].sort((a, b) => a.sequence - b.sequence);
+    const allPrepDone = sorted.filter(p => p.type === 'preparation' && !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
+    for (let i = 0; i < sorted.length; i++) {
+        const curr = sorted[i];
+        if (curr.isIndependent || curr.type === 'preparation') { curr.materialReady = true; continue; }
+        if (!allPrepDone) { curr.materialReady = false; continue; }
+        let prev: JobPhase | null = null;
+        for (let j = i - 1; j >= 0; j--) { if (!sorted[j].isIndependent) { prev = sorted[j]; break; } }
+        if (!prev) curr.materialReady = true;
+        else curr.materialReady = ['in-progress', 'completed', 'skipped', 'paused'].includes(prev.status);
+    }
+    return sorted;
+}
+
+export async function fastForwardToPackaging(jobId: string, opId: string): Promise<{ success: boolean; message: string }> {
+    try {
+        const opSnap = await adminDb.collection('operators').doc(opId).get();
+        if (!opSnap.exists) throw new Error("Operatore non trovato.");
+        const opData = opSnap.data();
+        
+        // Permission check: Magazzino or Quality
+        const allowedDepts = ['MAG', 'MAGAZZINO', 'COLLAUDO', 'QUALITA', 'QUALITÀ', 'QLTY', 'IMBALLO', 'PACK'];
+        const hasAccess = (opData?.reparto || []).some((r: string) => allowedDepts.includes(r.toUpperCase()));
+        
+        if (!hasAccess && opData?.role !== 'admin') {
+            throw new Error("Permesso negato: Solo il magazzino o il collaudo possono saltare la produzione per il Phased Rollout.");
+        }
+
+        const isGroup = jobId.startsWith('group-');
+        const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+
+        await adminDb.runTransaction(async (transaction) => {
+            const snap = await transaction.get(itemRef);
+            if (!snap.exists) throw new Error("Commessa non trovata.");
+            const data = snap.data() as JobOrder;
+            
+            const phs = [...(data.phases || [])];
+            let modified = false;
+
+            phs.forEach((p, idx) => {
+                // Saltiamo solo le fasi di produzione centrali
+                if (p.type === 'production' && p.status !== 'completed' && p.status !== 'skipped') {
+                    // Chiudiamo eventuali workPeriods aperti (anche se improbabile in questo scenario)
+                    const updatedWPs = (p.workPeriods || []).map(wp => wp.end === null ? { ...wp, end: new Date(), reason: 'Fast-Forward' } : wp);
+                    
+                    phs[idx] = {
+                        ...p,
+                        status: 'completed',
+                        workPeriods: updatedWPs,
+                        forced: true,
+                        paper_tracked: true
+                    };
+                    modified = true;
+                }
+            });
+
+            if (!modified) throw new Error("Nessuna fase di produzione da saltare trovata.");
+
+            // Aggiorniamo la material readiness per le fasi successive (Quality/Packaging)
+            const updatedPhases = updatePhasesMaterialReadiness(phs);
+            
+            const updates: any = { phases: updatedPhases };
+            // Forza lo stato a production se era in sospeso o altro, per permettere il collaudo
+            if (data.status !== 'completed' && data.status !== 'shipped') {
+                updates.status = 'production';
+            }
+
+            transaction.update(itemRef, updates);
+
+            // Se è un gruppo, propaghiamo alle commesse figlie
+            if (isGroup) {
+                (data.jobOrderIds || []).forEach(id => {
+                    transaction.update(adminDb.collection('jobOrders').doc(id), updates);
+                });
+            }
+        });
+
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
+        await pulseOperatorsForJob(jobId);
+
+        return { success: true, message: "Fast-Forward completato. La commessa è ora pronta per il Collaudo/Packaging." };
+    } catch (e) {
+        console.error("Error in fastForwardToPackaging:", e);
+        return { success: false, message: e instanceof Error ? e.message : "Errore durante il salto produzione." };
+    }
 }
 
 
@@ -308,7 +399,7 @@ export async function updateOperatorMaterialSessions(opId: string, sessions: Act
     return { success: true };
 }
 
-export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterialSessionData, closingGrossWeight: number, opId: string) {
+export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterialSessionData, closingGrossWeight: number, opId: string, isFinished: boolean = false) {
     try {
         await adminDb.runTransaction(async (transaction) => {
             const materialRef = adminDb.collection('rawMaterials').doc(session.materialId);
@@ -316,8 +407,14 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
             const material = matSnap.data() as RawMaterial;
 
-            const consumedWeight = session.grossOpeningWeight - closingGrossWeight;
-            if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
+            let consumedWeight = 0;
+            if (isFinished) {
+                // Forziamo lo scarico di tutto il netto residuo
+                consumedWeight = session.netOpeningWeight;
+            } else {
+                consumedWeight = session.grossOpeningWeight - closingGrossWeight;
+                if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
+            }
 
             const globalSettings = await getGlobalSettings();
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
@@ -330,15 +427,25 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
                 material,
                 config,
-                consumedWeight, // Input is always weight in this session logic
+                consumedWeight, 
                 'kg',
                 false,
                 session.lotto as string | undefined
             );
 
+            // Se l'operatore ha premuto "Materiale Finito", marchiamo il lotto come esaurito
+            if (isFinished && usedLotto) {
+                const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
+                if (bIdx !== -1) {
+                    updatedBatches[bIdx].isExhausted = true;
+                    updatedBatches[bIdx].netQuantity = 0;
+                    updatedBatches[bIdx].grossWeight = 0; // Opzionale, ma pulito
+                }
+            }
+
             transaction.update(materialRef, {
-                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange,
-                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
+                currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange),
+                currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
                 batches: updatedBatches
             });
 
@@ -353,15 +460,16 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 operatorId: opId,
                 withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: usedLotto,
+                isFinal: isFinished // Flag informativo
             });
         });
-        return { success: true, message: "Sessione chiusa e magazzino aggiornato." };
+        return { success: true, message: isFinished ? "Materiale segnato come esaurito e magazzino azzerato." : "Sessione chiusa e magazzino aggiornato." };
     } catch (e) {
         return { success: false, message: e instanceof Error ? e.message : "Errore chiusura sessione." };
     }
 }
 
-export async function logTubiGuainaWithdrawal(formData: FormData) {
+export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: boolean = false) {
     const rawData = Object.fromEntries(formData.entries());
     const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity, unit, lotto } = rawData;
     
@@ -380,18 +488,37 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
                 hasConversion: false
             } as any;
 
+            let qtyToUse = Number(quantity);
+            if (isFinished && lotto) {
+                // Se è "Materiale Finito", cerchiamo la quantità esatta residua del lotto
+                const batch = (material.batches || []).find(b => b.lotto === lotto);
+                if (batch) {
+                    qtyToUse = batch.netQuantity;
+                }
+            }
+
             const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
                 material,
                 config,
-                Number(quantity),
+                qtyToUse,
                 unit as any,
                 false,
                 lotto as string
             );
 
+            // Marcatura esaurito se richiesto
+            if (isFinished && usedLotto) {
+                const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
+                if (bIdx !== -1) {
+                    updatedBatches[bIdx].isExhausted = true;
+                    updatedBatches[bIdx].netQuantity = 0;
+                    updatedBatches[bIdx].grossWeight = 0;
+                }
+            }
+
             t.update(mRef, { 
-                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange, 
-                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
+                currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange), 
+                currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
                 batches: updatedBatches
             });
 
@@ -406,10 +533,11 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
                 operatorId,
                 withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: usedLotto,
+                isFinal: isFinished
             });
         });
-        return { success: true, message: "Scarico registrato." };
-    } catch (e) { return { success: false, message: "Errore scarico." }; }
+        return { success: true, message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato." };
+    } catch (e) { return { success: false, message: e instanceof Error ? e.message : "Errore scarico." }; }
 }
 
 export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<any> {
@@ -437,7 +565,7 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
     const materialsSnap = await adminDb.collection("rawMaterials").get();
     for (const mDoc of materialsSnap.docs) {
         const mData = mDoc.data() as RawMaterial;
-        const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto);
+        const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto && !b.isExhausted);
         if (matchingBatch) {
             const netWeight = matchingBatch.netQuantity || (matchingBatch.grossWeight - matchingBatch.tareWeight);
             return {

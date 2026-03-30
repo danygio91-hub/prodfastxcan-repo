@@ -32,102 +32,222 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
   try {
     const groupRef = adminDb.collection('workGroups').doc(groupId);
     
-    // BLOCCA SCIOGLIMENTO SE SESSIONE MATERIALE ATTIVA
+    // 1. SAFETY CHECK: BLOCCA SCIOGLIMENTO SE SESSIONI ATTIVE (LAVORO O MATERIALE)
     const opsSnap = await adminDb.collection("operators").get();
-    const hasActiveSession = opsSnap.docs.some(docSnap => {
+    const activeOperators = opsSnap.docs.filter(docSnap => {
         const op = docSnap.data() as Operator;
-        return (op.activeMaterialSessions || []).some(s => s.originatorJobId === groupId || s.associatedJobs.some(aj => aj.jobId === groupId));
+        const hasActiveJob = op.activeJobId === groupId;
+        const hasActiveMaterialSession = (op.activeMaterialSessions || []).some(s => 
+            s.originatorJobId === groupId || s.associatedJobs.some(aj => aj.jobId === groupId)
+        );
+        return hasActiveJob || hasActiveMaterialSession;
     });
 
-    if (hasActiveSession) {
-        return { success: false, message: "NON E' POSSIBILE SCOLLEGARE IL GRUPPO: SESSIONE MATERIALE ATTIVA" };
+    if (activeOperators.length > 0) {
+        return { 
+            success: false, 
+            message: "Impossibile sciogliere il gruppo: ci sono sessioni di lavoro o prelievo ancora aperte. Chiuderle prima di procedere." 
+        };
     }
 
     const groupSnap = await groupRef.get();
     if (!groupSnap.exists) {
         return { success: false, message: "Gruppo di lavoro non trovato." };
     }
-    const groupDataForIds = groupSnap.data() as WorkGroup;
-    const jobOrderIds = groupDataForIds.jobOrderIds || [];
+    
+    const groupDataRaw = groupSnap.data();
+    // Convert timestamps for initial checks
+    if (groupDataRaw?.createdAt?.toDate) groupDataRaw.createdAt = groupDataRaw.createdAt.toDate();
+    if (groupDataRaw?.overallStartTime?.toDate) groupDataRaw.overallStartTime = groupDataRaw.overallStartTime.toDate();
+    if (groupDataRaw?.overallEndTime?.toDate) groupDataRaw.overallEndTime = groupDataRaw.overallEndTime.toDate();
+    
+    const groupData = groupDataRaw as WorkGroup;
+    const jobOrderIds = groupData.jobOrderIds || [];
 
+    // Check for open work periods in any phase (clock-in attivo)
+    const hasOpenWorkPeriods = (groupData.phases || []).some(p => 
+        (p.workPeriods || []).some(wp => !wp.end)
+    );
+    if (hasOpenWorkPeriods) {
+        return { 
+            success: false, 
+            message: "Impossibile sciogliere il gruppo: ci sono sessioni di lavoro ancora aperte (clock-in attivo). Chiuderle prima di procedere." 
+        };
+    }
+
+    if (jobOrderIds.length === 0) {
+        await groupRef.delete();
+        return { success: true, message: "Gruppo vuoto eliminato." };
+    }
+
+    // 2. RECUPERA PRELIEVI (Per lo split contabile)
+    const withdrawalsSnap = await adminDb.collection("materialWithdrawals")
+        .where("jobIds", "array-contains", groupId)
+        .get();
+    
+    const groupWithdrawals = withdrawalsSnap.docs.map(doc => {
+        const data = doc.data();
+        if (data.withdrawalDate?.toDate) data.withdrawalDate = data.withdrawalDate.toDate();
+        return { id: doc.id, ...data } as any;
+    });
+
+    // 3. TRANSAZIONE DI SCIOGLIMENTO E RIPARTIZIONE (REMAINDER METHOD)
     await adminDb.runTransaction(async (transaction) => {
-        const groupSnapTx = await transaction.get(groupRef);
-        if (!groupSnapTx.exists) {
-          throw new Error("Gruppo di lavoro non trovato.");
-        }
+        const gSnapTx = await transaction.get(groupRef);
+        if (!gSnapTx.exists) throw new Error("Gruppo di lavoro non trovato.");
         
-        const groupData = groupSnapTx.data() as WorkGroup;
-        // ... rest of transaction
-
-        
-        if (jobOrderIds.length === 0) {
-            // If no jobs, just delete the group
-            transaction.delete(groupRef);
-            return;
-        }
-
-        // 1. READ all associated jobs to get their original data
+        const gData = gSnapTx.data() as WorkGroup;
         const jobRefs = jobOrderIds.map(id => adminDb.collection('jobOrders').doc(id));
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
         
-        const isGroupCompleted = forceComplete;
+        const jobs = jobDocs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data(), 
+            ref: doc.ref 
+        } as any));
 
-        // 2. Iterate through each job and build its new phase data
-        for (const jobDoc of jobDocs) {
-             if (!jobDoc.exists) continue;
-             
-             const jobOriginalData = jobDoc.data() as JobOrder;
-             // Deep copy of the group's phase structure
-             const groupPhases: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
+        const totalQty = gData.totalQuantity;
+        const totalJobsCount = jobs.length;
 
-             // Unisci l'avanzamento del gruppo con le fasi originali della commessa
-             // Le fasi individuali (es. Qualità) rimangono intatte
-             const proportion = groupData.totalQuantity > 0 ? (jobOriginalData.qta / groupData.totalQuantity) : 1;
+        // Accumulatori per Metodo del Resto (Remainder Method)
+        const accWorkDurations = new Map<string, number>(); // key: phaseId-periodIdx
+        const accMaterialValues = new Map<string, { gross: number, net: number, close: number, pcs: number }>(); // key: phaseId-consIdx
+        const accWithdrawalValues = new Map<string, { weight: number, units: number }>(); // key: withdrawalId
 
-             const finalJobPhases = (jobOriginalData.phases || []).map(originalPhase => {
-                 const matchedGroupPhase = groupPhases.find(gp => gp.id === originalPhase.id);
-                 if (matchedGroupPhase) {
-                     // Scaling work periods proportionally
-                     const scaledWorkPeriods = (matchedGroupPhase.workPeriods || []).map(wp => {
-                         if (!wp.end) return wp;
-                         const startTs = new Date(wp.start).getTime();
-                         const endTs = new Date(wp.end).getTime();
-                         const duration = endTs - startTs;
-                         const scaledDuration = Math.round(duration * proportion);
-                         return {
-                             ...wp,
-                             start: new Date(startTs),
-                             end: new Date(startTs + scaledDuration)
-                         };
-                     });
+        for (let i = 0; i < totalJobsCount; i++) {
+            const job = jobs[i];
+            const isLastJob = i === totalJobsCount - 1;
+            const jobShare = totalQty > 0 ? (job.qta / totalQty) : (1 / totalJobsCount);
 
-                     return {
-                         ...originalPhase,
-                         status: matchedGroupPhase.status,
-                         workPeriods: scaledWorkPeriods,
-                         materialConsumptions: matchedGroupPhase.materialConsumptions || originalPhase.materialConsumptions,
-                         materialReady: matchedGroupPhase.materialReady
-                     };
-                 }
-                 return originalPhase;
-             });
+            // A. RIPARTIZIONE FASI (TEMPI E CONSUMI)
+            const finalJobPhases = (job.phases || []).map((originalPhase: JobPhase) => {
+                const matchedGroupPhase = (gData.phases || []).find(gp => gp.id === originalPhase.id);
+                if (!matchedGroupPhase) return originalPhase;
 
+                // 1. Ripartizione Tempi (Work Periods)
+                const scaledWorkPeriods = (matchedGroupPhase.workPeriods || []).map((wp, wpIdx) => {
+                    const startTs = wp.start?.toDate ? wp.start.toDate().getTime() : new Date(wp.start).getTime();
+                    const endTs = wp.end?.toDate ? wp.end.toDate().getTime() : (wp.end ? new Date(wp.end).getTime() : startTs);
+                    const totalDuration = endTs - startTs;
+                    const key = `${matchedGroupPhase.id}-${wpIdx}`;
 
-             const finalStatus = isGroupCompleted ? 'completed' : 'paused';
-                
-             transaction.update(jobDoc.ref, { 
-                workGroupId: admin.firestore.FieldValue.delete(),
-                phases: finalJobPhases, // Inherit phase progress, keeping material consumptions
-                status: finalStatus,
-                overallStartTime: groupData.overallStartTime || jobOriginalData.overallStartTime || null,
-                overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
-                isProblemReported: groupData.isProblemReported || false,
-                problemType: groupData.problemType || admin.firestore.FieldValue.delete(),
-                problemNotes: groupData.problemNotes || admin.firestore.FieldValue.delete(),
-                problemReportedBy: groupData.problemReportedBy || admin.firestore.FieldValue.delete(),
+                    let allocatedDuration: number;
+                    if (!isLastJob) {
+                        allocatedDuration = Math.round(totalDuration * jobShare);
+                        accWorkDurations.set(key, (accWorkDurations.get(key) || 0) + allocatedDuration);
+                    } else {
+                        allocatedDuration = totalDuration - (accWorkDurations.get(key) || 0);
+                    }
+
+                    return {
+                        ...wp,
+                        start: admin.firestore.Timestamp.fromMillis(startTs),
+                        end: admin.firestore.Timestamp.fromMillis(startTs + Math.max(0, allocatedDuration))
+                    };
+                });
+
+                // 2. Ripartizione Materiali (Consumptions)
+                const scaledConsumptions = (matchedGroupPhase.materialConsumptions || []).map((mc, mcIdx) => {
+                    const key = `${matchedGroupPhase.id}-${mcIdx}`;
+                    const acc = accMaterialValues.get(key) || { gross: 0, net: 0, close: 0, pcs: 0 };
+                    
+                    let allocated = { gross: 0, net: 0, close: 0, pcs: 0 };
+                    const round3 = (v: number) => Math.round(v * 1000) / 1000;
+
+                    if (!isLastJob) {
+                        allocated.gross = round3((mc.grossOpeningWeight || 0) * jobShare);
+                        allocated.net = round3((mc.netOpeningWeight || 0) * jobShare);
+                        allocated.close = round3((mc.closingWeight || 0) * jobShare);
+                        allocated.pcs = Math.round((mc.pcs || 0) * jobShare);
+
+                        accMaterialValues.set(key, {
+                            gross: acc.gross + allocated.gross,
+                            net: acc.net + allocated.net,
+                            close: acc.close + allocated.close,
+                            pcs: acc.pcs + allocated.pcs
+                        });
+                    } else {
+                        allocated.gross = round3((mc.grossOpeningWeight || 0) - acc.gross);
+                        allocated.net = round3((mc.netOpeningWeight || 0) - acc.net);
+                        allocated.close = round3((mc.closingWeight || 0) - acc.close);
+                        allocated.pcs = (mc.pcs || 0) - acc.pcs;
+                    }
+
+                    return {
+                        ...mc,
+                        grossOpeningWeight: allocated.gross,
+                        netOpeningWeight: allocated.net,
+                        closingWeight: allocated.close,
+                        pcs: allocated.pcs
+                    };
+                });
+
+                return {
+                    ...originalPhase,
+                    status: matchedGroupPhase.status,
+                    workPeriods: scaledWorkPeriods,
+                    materialConsumptions: scaledConsumptions,
+                    materialReady: matchedGroupPhase.materialReady,
+                    materialStatus: matchedGroupPhase.materialStatus || originalPhase.materialStatus
+                };
             });
+
+            // B. AGGIORNAMENTO COMMESSA
+            const isGroupCompleted = forceComplete || gData.status === 'completed';
+            const finalStatus = isGroupCompleted ? 'completed' : 'paused';
+            
+            transaction.update(job.ref, { 
+                workGroupId: admin.firestore.FieldValue.delete(),
+                phases: finalJobPhases,
+                status: finalStatus,
+                overallStartTime: gData.overallStartTime || job.overallStartTime || null,
+                overallEndTime: isGroupCompleted ? (gData.overallEndTime || admin.firestore.FieldValue.serverTimestamp()) : null, 
+                isProblemReported: gData.isProblemReported || false,
+                problemType: gData.problemType || admin.firestore.FieldValue.delete(),
+                problemNotes: gData.problemNotes || admin.firestore.FieldValue.delete(),
+                problemReportedBy: gData.problemReportedBy || admin.firestore.FieldValue.delete(),
+            });
+
+            // C. SPLIT PRELIEVI (Solo Contabilità)
+            for (const w of groupWithdrawals) {
+                const key = `withdrawal-${w.id}`;
+                const acc = accWithdrawalValues.get(key) || { weight: 0, units: 0 };
+                
+                let allocated = { weight: 0, units: 0 };
+                const round3 = (v: number) => Math.round(v * 1000) / 1000;
+
+                if (!isLastJob) {
+                    allocated.weight = round3((w.consumedWeight || 0) * jobShare);
+                    allocated.units = round3((w.consumedUnits || 0) * jobShare);
+                    accWithdrawalValues.set(key, {
+                        weight: acc.weight + allocated.weight,
+                        units: acc.units + allocated.units
+                    });
+                } else {
+                    allocated.weight = round3((w.consumedWeight || 0) - acc.weight);
+                    allocated.units = round3((w.consumedUnits || 0) - acc.units);
+                }
+
+                // Crea nuovo prelievo per la singola commessa
+                if (allocated.weight > 0 || allocated.units > 0) {
+                    const newWithdrawalRef = adminDb.collection("materialWithdrawals").doc();
+                    transaction.set(newWithdrawalRef, {
+                        ...w,
+                        id: newWithdrawalRef.id,
+                        jobIds: [job.id],
+                        jobOrderPFs: [job.ordinePF],
+                        consumedWeight: allocated.weight,
+                        consumedUnits: allocated.units,
+                        withdrawalDate: w.withdrawalDate // Usiamo la data originale
+                    });
+                }
+            }
         }
-        
+
+        // D. PULIZIA: ELIMINA PRELIEVI ORIGINALI DEL GRUPPO E IL GRUPPO STESSO
+        for (const w of groupWithdrawals) {
+            transaction.delete(adminDb.collection("materialWithdrawals").doc(w.id));
+        }
         transaction.delete(groupRef);
     });
 
@@ -135,14 +255,13 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
     
-    // We pulse the group ID (so operators on the group see the change) 
-    // AND the job IDs (to be safe, though most operators were on the group)
     await pulseOperatorsForJob([groupId, ...jobOrderIds]);
 
-    return { success: true, message: `Gruppo sciolto.` };
+    return { success: true, message: `Gruppo sciolto e dati ripartiti correttamente.` };
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Errore.";
+    console.error("Error dissolving work group:", error);
+    const errorMessage = error instanceof Error ? error.message : "Errore durante lo scioglimento.";
     return { success: false, message: errorMessage };
   }
 }

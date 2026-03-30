@@ -333,62 +333,102 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
   } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
-export async function forceCompleteJob(jobId: string, uid: string | undefined | null): Promise<{ success: boolean, message: string }> {
-  try {
-    await ensureAdmin(uid);
+async function internalForceCompleteJob(transaction: admin.firestore.Transaction, jobId: string, uid: string) {
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
     
-    await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-        const snap = await transaction.get(itemRef);
-        if (!snap.exists) throw new Error("Non trovato.");
-        const item = snap.data() as JobOrder;
-        
-        const operatorIdsToPulse: Set<string> = new Set();
-        const updatedPhases = (item.phases || []).map(phase => {
-            if (phase.status === 'in-progress' || phase.status === 'paused' || phase.status === 'pending') {
-                const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
-                    if (wp.end === null) {
-                        operatorIdsToPulse.add(wp.operatorId);
-                        return { ...wp, end: new Date() };
-                    }
-                    return wp;
-                });
-                return { ...phase, status: 'completed' as const, workPeriods: updatedWorkPeriods, forced: true };
+    const snap = await transaction.get(itemRef);
+    if (!snap.exists) throw new Error(`Elemento ${jobId} non trovato.`);
+    const item = snap.data() as JobOrder;
+    
+    const operatorIdsToPulse: Set<string> = new Set();
+    const updatedPhases = (item.phases || []).map(phase => {
+        // Chiudiamo i periodi aperti se presenti
+        const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
+            if (wp.end === null) {
+                operatorIdsToPulse.add(wp.operatorId);
+                return { ...wp, end: new Date(), reason: 'Chiusura Sanatoria' };
             }
-            return phase;
+            return wp;
         });
 
-        const updates = { 
-            status: 'completed' as const, 
-            overallEndTime: admin.firestore.Timestamp.now(), 
-            forcedCompletion: true,
-            phases: updatedPhases 
-        };
-
-        transaction.update(itemRef, updates);
-        
-        if (isGroup) {
-            (item.jobOrderIds || []).forEach(id => {
-                transaction.update(adminDb.collection('jobOrders').doc(id), updates);
-            });
+        // Forza il completamento della fase se non già completata/saltata
+        if (phase.status !== 'completed' && phase.status !== 'skipped') {
+            return { 
+                ...phase, 
+                status: 'completed' as const, 
+                workPeriods: updatedWorkPeriods, 
+                forced: true,
+                isSanatoria: true 
+            };
         }
+        return { ...phase, workPeriods: updatedWorkPeriods };
+    });
 
-        // De-activate operators
-        for (const opId of Array.from(operatorIdsToPulse)) {
-            transaction.update(adminDb.collection('operators').doc(opId), {
-                stato: 'inattivo',
-                activePhaseName: null
-            });
-        }
+    const updates = { 
+        status: 'completed' as const, 
+        overallEndTime: admin.firestore.Timestamp.now(), 
+        forcedCompletion: true,
+        isSanatoria: true,
+        phases: updatedPhases 
+    };
+
+    transaction.update(itemRef, updates);
+    
+    // Se è un gruppo, propaghiamo alle commesse figlie
+    if (isGroup) {
+        (item.jobOrderIds || []).forEach(id => {
+            transaction.update(adminDb.collection('jobOrders').doc(id), updates);
+        });
+    }
+
+    // Sanatoria Impegni Manuali: Cerca impegni collegati a questo ODL e annullali (senza storno stock)
+    // Usiamo l'ordinePF/ODL come chiave per cercare nei manualCommitments
+    const jobOrderCodes = isGroup ? (item.jobOrderIds || []) : [item.ordinePF];
+    // NOTA: il filtro 'jobOrderCode' in manualCommitments usa l'ordinePF stringa.
+    // In questo progetto spesso si usa ordinePF come identificativo parlante.
+    
+    const mcSnap = await adminDb.collection('manualCommitments')
+        .where('jobOrderCode', 'in', isGroup ? (item as any).jobOrderCodes || [] : [item.ordinePF])
+        .where('status', '==', 'pending')
+        .get();
+
+    mcSnap.forEach(doc => {
+        transaction.update(doc.ref, { 
+            status: 'cancelled_sanatoria', 
+            cancelledAt: admin.firestore.Timestamp.now(),
+            cancellationReason: 'Chiusura di Sanatoria Commessa'
+        });
+    });
+
+    // De-attivazione operatori
+    for (const opId of Array.from(operatorIdsToPulse)) {
+        transaction.update(adminDb.collection('operators').doc(opId), {
+            stato: 'inattivo',
+            activePhaseName: null,
+            activeJobId: null
+        });
+    }
+
+    return { operatorIds: Array.from(operatorIdsToPulse) };
+}
+
+export async function forceCompleteJob(jobId: string, uid: string | undefined | null): Promise<{ success: boolean, message: string }> {
+  try {
+    await ensureAdmin(uid);
+    if (!uid) throw new Error("ID utente mancante.");
+    
+    await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
+        await internalForceCompleteJob(transaction, jobId, uid);
     });
 
     revalidatePath('/admin/production-console');
     await pulseOperatorsForJob(jobId);
-    return { success: true, message: `Commessa chiusa correttamente.` };
+    return { success: true, message: `Sanatoria completata correttamente.` };
 
   } catch (error) { 
-    return { success: false, message: error instanceof Error ? error.message : "Errore durante la chiusura." }; 
+    console.error("Error in forceCompleteJob:", error);
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante la sanatoria." }; 
   }
 }
 
@@ -508,17 +548,31 @@ export async function forceFinishMultiple(jobIds: string[], uid: string): Promis
 
 export async function forceCompleteMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
-  const batch = adminDb.batch();
-  jobIds.forEach(id => {
-      const isGroup = id.startsWith('group-');
-      const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-      batch.update(adminDb.collection(collectionName).doc(id), { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true });
-  });
-  await batch.commit();
-  revalidatePath('/admin/production-console');
-  await pulseOperatorsForJob(jobIds);
-  return { success: true, message: 'Completato.' };
+  if (!uid) return { success: false, message: "ID utente mancante." };
 
+  let successCount = 0;
+  let errorCount = 0;
+
+  for (const id of jobIds) {
+    try {
+      await adminDb.runTransaction(async (transaction) => {
+        await internalForceCompleteJob(transaction, id, uid);
+      });
+      successCount++;
+    } catch (e) {
+      console.error(`Error forcing completion for ${id}:`, e);
+      errorCount++;
+    }
+  }
+
+  revalidatePath('/admin/production-console');
+  // Pulsiamo tutti (anche se un po' pesante, è necessario per la coerenza della UI degli operatori)
+  await Promise.all(jobIds.map(id => pulseOperatorsForJob(id)));
+
+  return { 
+    success: errorCount === 0, 
+    message: `Sanatoria completata: ${successCount} riuscite, ${errorCount} fallite.` 
+  };
 }
 
 export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {

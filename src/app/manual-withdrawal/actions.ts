@@ -14,10 +14,11 @@ const manualWithdrawalSchema = z.object({
   operatorId: z.string(),
   operatorName: z.string(),
   lotto: z.string().optional(),
-  quantity: z.coerce.number().positive(),
+  quantity: z.coerce.number().min(0), // Can be 0 if isFinished is true
   unit: z.enum(['n', 'mt', 'kg']),
   notes: z.string().optional(),
   jobOrderPF: z.string().optional(),
+  isFinished: z.boolean().optional(),
 });
 
 export async function logManualWithdrawal(
@@ -26,7 +27,7 @@ export async function logManualWithdrawal(
   const validated = manualWithdrawalSchema.safeParse(data);
   if (!validated.success) return { success: false, message: 'Dati non validi.' };
   
-  const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPF } = validated.data;
+  const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPF, isFinished } = validated.data;
   
   try {
     const globalSettings = await getGlobalSettings();
@@ -37,7 +38,16 @@ export async function logManualWithdrawal(
         if (!materialDoc.exists) throw new Error("Materiale non trovato.");
         const material = materialDoc.data() as RawMaterial;
         
-        // Find config for this material type
+        let qtyToUse = quantity;
+        if (isFinished && lotto) {
+            const batch = (material.batches || []).find(b => b.lotto === lotto);
+            if (batch) {
+                // Se UOM è kg, il calcolo di calculateInventoryMovement si aspetta KG se unit='kg'
+                // Se UOM è altro, si aspetta unità base.
+                qtyToUse = batch.netQuantity;
+            }
+        }
+
         const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
             id: material.type,
             label: material.type,
@@ -48,15 +58,24 @@ export async function logManualWithdrawal(
         const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
             material,
             config,
-            quantity,
+            qtyToUse,
             unit as any,
-            false, // isAddition = false (Scarico)
+            false, 
             lotto
         );
+
+        if (isFinished && usedLotto) {
+            const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
+            if (bIdx !== -1) {
+                updatedBatches[bIdx].isExhausted = true;
+                updatedBatches[bIdx].netQuantity = 0;
+                updatedBatches[bIdx].grossWeight = 0;
+            }
+        }
         
         transaction.update(materialRef, { 
-            currentStockUnits: (material.currentStockUnits || 0) - unitsToChange, 
-            currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
+            currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange), 
+            currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
             batches: updatedBatches
         });
         
@@ -73,12 +92,13 @@ export async function logManualWithdrawal(
             withdrawalDate: admin.firestore.Timestamp.now(),
             notes: notes || null,
             lotto: usedLotto,
+            isFinal: isFinished
         });
     });
 
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/reports');
-    return { success: true, message: `Scarico registrato.` };
+    return { success: true, message: isFinished ? `Lotto esaurito e scaricato.` : `Scarico registrato.` };
   } catch (error) {
      return { success: false, message: "Errore durante la registrazione." };
   }

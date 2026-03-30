@@ -39,6 +39,7 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Acti
     const { closeSession } = useActiveMaterialSession();
     const { operator } = useAuth();
     const { toast } = useToast();
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const form = useForm<ClosingWeightFormValues>({
         resolver: zodResolver(closingWeightSchema),
@@ -54,15 +55,17 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Acti
     const handleCloseSessionSubmit = async (values: ClosingWeightFormValues) => {
         if (!operator) return;
 
-        if (values.closingWeight > session.grossOpeningWeight) {
+        if (values.closingWeight > session.grossOpeningWeight + 0.01) { // Tolleranza minima
             form.setError("closingWeight", { type: "manual", message: "Il peso di chiusura non può essere maggiore di quello di apertura." });
             return;
         }
 
+        setIsProcessing(true);
         const result = await closeMaterialSessionAndUpdateStock(
             session,
             values.closingWeight,
-            operator.id
+            operator.id,
+            false // isFinished = false
         );
 
         toast({
@@ -72,48 +75,138 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Acti
         });
 
         if (result.success) {
-            // BUG FIX: Passa anche il lotto per rimuovere solo questa sessione specifica
             closeSession(session.materialId, session.lotto);
             onOpenChange(false);
         }
+        setIsProcessing(false);
     };
+
+    const handleFinishedSubmit = async () => {
+        if (!operator) return;
+        setIsProcessing(true);
+        
+        // Passiamo 0 come peso lordo di chiusura (non verrà usato se isFinished=true)
+        const result = await closeMaterialSessionAndUpdateStock(
+            session,
+            0,
+            operator.id,
+            true // isFinished = true
+        );
+
+        toast({
+            title: result.success ? "Materiale Finito" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+
+        if (result.success) {
+            closeSession(session.materialId, session.lotto);
+            onOpenChange(false);
+        }
+        setIsProcessing(false);
+    };
+
+    const currentGrossOnScale = form.watch('closingWeight') || 0;
+    const netCalculated = Math.max(0, currentGrossOnScale - (session.tareWeight || 0));
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent>
+            <DialogContent className="max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Chiudi Sessione Materiale</DialogTitle>
-                    <DialogDescription>
-                        Inserisci il peso finale per il materiale <span className="font-bold">{session.materialCode}</span>.
-                        Il consumo totale verrà scaricato dal magazzino e associato a tutte le commesse lavorate.
-                        <br />
-                        Lotto: <span className="font-bold">{session.lotto || 'N/D'}</span> - Apertura: <span className="font-bold">{session.grossOpeningWeight.toFixed(2)} kg</span>.
+                    <DialogTitle className="flex items-center gap-2">
+                        <Boxes className="h-5 w-5 text-primary" /> Chiudi Sessione 
+                    </DialogTitle>
+                    <DialogDescription className="text-xs">
+                        Stai chiudendo il prelievo per <span className="font-bold text-foreground">{session.materialCode}</span>.
                     </DialogDescription>
                 </DialogHeader>
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleCloseSessionSubmit)} className="space-y-4">
-                        <FormField
-                            control={form.control}
-                            name="closingWeight"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" />Peso Finale (KG)</FormLabel>
-                                    <FormControl>
-                                        <Input type="number" step="0.01" autoFocus {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
-                            <Button type="submit" disabled={form.formState.isSubmitting}>
-                                {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                                Conferma e Scarica
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                </Form>
+
+                <div className="space-y-4 py-2">
+                    {/* Transparency Panel */}
+                    <div className="p-4 rounded-xl bg-muted/50 border-2 border-primary/10 space-y-3">
+                        <div className="flex justify-between items-center border-b border-primary/10 pb-2">
+                            <span className="text-[10px] uppercase font-black text-muted-foreground">Situazione Attuale</span>
+                            <Badge variant="outline" className="font-mono text-[10px]">{session.lotto || 'SENZA LOTTO'}</Badge>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="text-center">
+                                <p className="text-[8px] uppercase font-bold text-muted-foreground">Netto Residuo</p>
+                                <p className="text-sm font-black">{session.netOpeningWeight.toFixed(3)}</p>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-[8px] uppercase font-bold text-muted-foreground">Tara ({session.packagingId === 'none' ? 'Inesistente' : 'Bobina'})</p>
+                                <p className="text-sm font-black text-orange-600">{session.tareWeight?.toFixed(3) || "0.000"}</p>
+                            </div>
+                            <div className="text-center bg-primary/5 rounded-md py-1">
+                                <p className="text-[8px] uppercase font-bold text-primary">Lordo Atteso</p>
+                                <p className="text-sm font-black text-primary">{session.grossOpeningWeight.toFixed(3)}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <Form {...form}>
+                        <form onSubmit={form.handleSubmit(handleCloseSessionSubmit)} className="space-y-6">
+                            <FormField
+                                control={form.control}
+                                name="closingWeight"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-1">
+                                        <div className="flex justify-between items-end mb-1">
+                                            <FormLabel className="text-xs font-black uppercase text-primary">
+                                                PESO LORDO (Sulla Bilancia)
+                                            </FormLabel>
+                                            <span className="text-[10px] font-bold text-muted-foreground italic">
+                                                Netto risultante: {netCalculated.toFixed(3)} kg
+                                            </span>
+                                        </div>
+                                        <FormControl>
+                                            <div className="relative">
+                                                <Weight className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                                                <Input 
+                                                    type="number" 
+                                                    step="0.001" 
+                                                    autoFocus 
+                                                    className="pl-10 h-14 text-2xl font-black font-mono border-2 border-primary/20 focus-visible:border-primary"
+                                                    {...field} 
+                                                />
+                                            </div>
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            <div className="grid gap-2">
+                                <Button 
+                                    type="submit" 
+                                    className="w-full h-12 text-lg font-black uppercase tracking-tight"
+                                    disabled={isProcessing}
+                                >
+                                    {isProcessing ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Send className="mr-2 h-5 w-5" />}
+                                    Conferma Peso Lordo
+                                </Button>
+                                
+                                <Button 
+                                    type="button" 
+                                    variant="destructive" 
+                                    className="w-full h-12 text-lg font-black uppercase tracking-tight border-2 border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive hover:text-white"
+                                    onClick={handleFinishedSubmit}
+                                    disabled={isProcessing}
+                                >
+                                    <X className="mr-2 h-5 w-5" />
+                                    Materiale Finito
+                                </Button>
+                            </div>
+                        </form>
+                    </Form>
+                </div>
+                
+                <DialogFooter className="sm:justify-center">
+                    <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} className="text-muted-foreground text-[10px] uppercase font-bold">
+                        Annulla e mantieni attiva
+                    </Button>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     );
@@ -122,6 +215,16 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Acti
 export default function ActiveMaterialSessionBar() {
     const { activeSessions, isLoading } = useActiveMaterialSession();
     const [closingSession, setClosingSession] = useState<ActiveMaterialSessionData | null>(null);
+
+    React.useEffect(() => {
+        const handleCloseEvent = (e: any) => {
+            if (e.detail) {
+                setClosingSession(e.detail);
+            }
+        };
+        window.addEventListener('close-material-session', handleCloseEvent);
+        return () => window.removeEventListener('close-material-session', handleCloseEvent);
+    }, []);
 
     if (isLoading || !activeSessions || activeSessions.length === 0) {
         return null;

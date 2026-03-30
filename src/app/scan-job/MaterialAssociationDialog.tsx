@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { QrCode, Loader2, Weight, Archive, Send, Barcode, Play, Camera, AlertTriangle, Boxes, Info } from 'lucide-react';
+import { QrCode, Loader2, Weight, Archive, Send, Barcode, Play, Camera, AlertTriangle, Boxes, Info, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { formatDisplayStock } from '@/lib/utils';
@@ -263,9 +263,8 @@ export default function MaterialAssociationDialog({
     }
     setIsProcessing(false);
   };
-  
-  const onPrelevaMateriale = async (values: FormValues) => {
-      if (!selectedMaterial || !job || !operator || !values.quantityToWithdraw) return;
+    const onPrelevaMateriale = async (values: FormValues, isFinished: boolean = false) => {
+      if (!selectedMaterial || !job || !operator || (!values.quantityToWithdraw && !isFinished)) return;
       setIsProcessing(true);
       const formData = new FormData();
       formData.append('materialId', selectedMaterial.id);
@@ -273,13 +272,13 @@ export default function MaterialAssociationDialog({
       formData.append('jobId', job.id);
       formData.append('jobOrderPF', job.ordinePF);
       formData.append('phaseId', phase.id);
-      formData.append('quantity', String(values.quantityToWithdraw));
+      formData.append('quantity', String(values.quantityToWithdraw || 0));
       formData.append('unit', inputUnit === 'kg' ? 'kg' : selectedMaterial.unitOfMeasure);
       formData.append('lotto', values.lotto || '');
       
-      const result = await logTubiGuainaWithdrawal(formData);
+      const result = await logTubiGuainaWithdrawal(formData, isFinished);
       toast({
-          title: result.success ? 'Prelievo Registrato' : 'Errore',
+          title: result.success ? (isFinished ? 'Materiale Finito' : 'Prelievo Registrato') : 'Errore',
           description: result.message,
           variant: result.success ? 'default' : 'destructive',
       });
@@ -317,6 +316,12 @@ export default function MaterialAssociationDialog({
 
   const renderForm = () => {
     const isBobina = (phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0') && selectedMaterial?.unitOfMeasure !== 'n';
+    
+    const isKgMode = selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
+    const selectedPackaging = packagingItems.find(p => p.id === form.watch('packagingId'));
+    const tare = selectedPackaging?.weightKg || 0;
+    const netResidue = lotAvailability?.available || 0;
+    const expectedGross = netResidue + tare;
 
     return (
      <Form {...form}>
@@ -324,67 +329,93 @@ export default function MaterialAssociationDialog({
           <ScrollArea className="flex-1 px-6 py-2">
             <div className="space-y-4">
               {selectedMaterial ? (
-                  <div className="p-4 border rounded-lg bg-muted/50 border-primary/20 space-y-4">
-                      <div className="text-center">
-                        <p className="font-black text-xl tracking-tight">{selectedMaterial.code}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">{selectedMaterial.description}</p>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="p-2 rounded-md bg-background border flex flex-col items-center justify-center text-center">
-                            <Label className="text-[8px] uppercase font-black text-muted-foreground">Totale Magazzino</Label>
-                            <p className="text-sm font-black text-primary leading-tight">
-                                {formatDisplayStock(selectedMaterial.currentStockUnits, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
-                            </p>
-                            <p className="text-[9px] font-bold text-muted-foreground">
-                                ({formatDisplayStock(selectedMaterial.currentWeightKg, 'kg')} KG)
-                            </p>
-                        </div>
+                  <div className="space-y-3">
+                      <div className="p-4 border rounded-xl bg-muted/50 border-primary/20 space-y-3">
+                          <div className="text-center">
+                            <p className="font-black text-xl tracking-tight leading-none mb-1">{selectedMaterial.code}</p>
+                            <p className="text-[9px] text-muted-foreground uppercase font-bold tracking-widest">{selectedMaterial.description}</p>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="p-2 rounded-lg bg-background border flex flex-col items-center justify-center text-center shadow-sm">
+                                <Label className="text-[8px] uppercase font-black text-muted-foreground mb-1">Totale Magazzino</Label>
+                                <p className="text-sm font-black text-primary leading-tight">
+                                    {formatDisplayStock(selectedMaterial.currentStockUnits, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
+                                </p>
+                                <p className="text-[9px] font-bold text-muted-foreground">
+                                    ({formatDisplayStock(selectedMaterial.currentWeightKg, 'kg')} KG)
+                                </p>
+                            </div>
 
-                        <div className={cn(
-                            "p-2 rounded-md border flex flex-col items-center justify-center text-center transition-all",
-                            lotAvailability ? "bg-primary/10 border-primary/40" : "bg-muted border-dashed opacity-50"
-                        )}>
-                            <Label className="text-[8px] uppercase font-black text-muted-foreground">Stock Lotto Attivo</Label>
-                            {lotAvailability ? (
-                                <>
-                                    <p className="text-sm font-black text-primary leading-tight">
-                                        {formatDisplayStock(lotAvailability.available, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
-                                    </p>
-                                    <p className="text-[9px] font-bold text-primary/70">Lotto: {lotAvailability.lotto}</p>
-                                </>
-                            ) : (
-                                <p className="text-[10px] font-bold text-muted-foreground italic">Nessun Lotto</p>
-                            )}
-                        </div>
+                            <div className={cn(
+                                "p-2 rounded-lg border flex flex-col items-center justify-center text-center transition-all shadow-sm",
+                                lotAvailability ? "bg-primary/10 border-primary/40" : "bg-muted border-dashed opacity-50"
+                            )}>
+                                <Label className="text-[8px] uppercase font-black text-muted-foreground mb-1">In Uso (Lotto)</Label>
+                                {lotAvailability ? (
+                                    <>
+                                        <p className="text-sm font-black text-primary leading-tight">
+                                            {formatDisplayStock(lotAvailability.available, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
+                                        </p>
+                                        <p className="text-[9px] font-bold text-primary/70">{lotAvailability.lotto}</p>
+                                    </>
+                                ) : (
+                                    <p className="text-[10px] font-bold text-muted-foreground italic">Seleziona Lotto</p>
+                                )}
+                            </div>
+                          </div>
                       </div>
+
+                      {/* Ferrous Rule 1: Transparency Panel for KG */}
+                      {isKgMode && lotAvailability && (
+                          <div className="p-3 border-2 border-orange-500/20 bg-orange-500/5 rounded-xl space-y-2 animate-in slide-in-from-top-2">
+                              <div className="flex justify-between items-center text-[10px] uppercase font-black text-orange-700/70 mb-1">
+                                  <span>Trasparenza Peso (KG)</span>
+                                  <Info className="h-3 w-3" />
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 text-center">
+                                  <div>
+                                      <p className="text-[8px] font-bold text-muted-foreground uppercase leading-none mb-1">Netto</p>
+                                      <p className="text-xs font-black">{netResidue.toFixed(3)}</p>
+                                  </div>
+                                  <div>
+                                      <p className="text-[8px] font-bold text-muted-foreground uppercase leading-none mb-1">Tara</p>
+                                      <p className="text-xs font-black text-orange-600">+{tare.toFixed(3)}</p>
+                                  </div>
+                                  <div className="bg-orange-500/10 rounded py-1">
+                                      <p className="text-[8px] font-bold text-orange-700 uppercase leading-none mb-1">Lordo</p>
+                                      <p className="text-xs font-black text-orange-700">{expectedGross.toFixed(3)}</p>
+                                  </div>
+                              </div>
+                          </div>
+                      )}
                   </div>
-              ) : <Alert><AlertDescription>Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
+              ) : <Alert className="border-primary/20 bg-primary/5 text-primary"><AlertDescription className="font-bold text-xs uppercase">Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <Button type="button" onClick={() => handleScanTrigger('material')} className="w-full h-12">
-                      <QrCode className="mr-2 h-4 w-4" /> Materiale
+              <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" onClick={() => handleScanTrigger('material')} className="h-10 text-[10px] uppercase font-black tracking-widest">
+                      <QrCode className="mr-2 h-3 w-3" /> Materiale
                   </Button>
-                   <Button type="button" onClick={() => handleScanTrigger('lotto')} className="w-full h-12" variant="secondary">
-                      <Barcode className="mr-2 h-4 w-4" /> Lotto
+                   <Button type="button" onClick={() => handleScanTrigger('lotto')} className="h-10 text-[10px] uppercase font-black tracking-widest" variant="secondary">
+                      <Barcode className="mr-2 h-3 w-3" /> Lotto
                   </Button>
               </div>
               
               {selectedMaterial && (
                 <div className="space-y-4">
                     <FormField control={form.control} name="lotto" render={({field}) => (
-                        <FormItem>
-                            <FormLabel className="font-bold text-xs uppercase text-muted-foreground">Numero Lotto Scansionato</FormLabel>
-                            <FormControl><Input {...field} value={field.value ?? ''} placeholder="Scansiona o digita il lotto" className="font-mono font-bold border-primary/30" /></FormControl>
+                        <FormItem className="space-y-1">
+                            <FormLabel className="font-black text-[10px] uppercase text-muted-foreground tracking-wider">Numero Lotto Attezzato</FormLabel>
+                            <FormControl><Input {...field} value={field.value ?? ''} placeholder="Scansiona o digita..." className="font-mono font-bold text-sm h-9 border-primary/30" /></FormControl>
                         </FormItem>
                     )}/>
 
                     {availableBatches.length > 0 && (
                         <div className="space-y-2">
-                            <Label className="font-bold text-[10px] uppercase text-muted-foreground flex items-center gap-2">
-                                <Boxes className="h-3 w-3" /> Lotti Disponibili a Sistema ({availableBatches.length})
+                            <Label className="font-black text-[9px] uppercase text-muted-foreground flex items-center gap-2">
+                                <Boxes className="h-3 w-3" /> Lotti Disponibili ({availableBatches.length})
                             </Label>
-                            <ScrollArea className="h-24 border rounded-md p-1 bg-muted/20">
+                            <ScrollArea className="h-28 border-2 rounded-xl p-1 bg-muted/30 border-muted">
                                 <div className="grid grid-cols-1 gap-1">
                                     {availableBatches.map((b, idx) => {
                                         const isOldest = idx === 0 && (b.netQuantity || 0) > 0;
@@ -393,20 +424,21 @@ export default function MaterialAssociationDialog({
                                             <Button 
                                                 key={b.id || b.lotto || idx}
                                                 type="button"
-                                                variant={isSelected ? "default" : "outline"}
+                                                variant={isSelected ? "default" : "ghost"}
                                                 size="sm"
                                                 className={cn(
-                                                    "justify-between text-[11px] h-8 font-bold",
-                                                    isOldest && !isSelected && "border-green-500/50 bg-green-500/5 text-green-700"
+                                                    "justify-between text-[11px] h-9 font-black px-3 rounded-lg border",
+                                                    isSelected ? "border-primary" : "border-transparent hover:bg-primary/5",
+                                                    isOldest && !isSelected && "border-green-500/20 bg-green-500/5 text-green-700"
                                                 )}
                                                 onClick={() => handleLotSelect(b.lotto || '')}
                                             >
                                                 <div className="flex items-center gap-2">
                                                     <Barcode className="h-3 w-3 opacity-50" />
                                                     {b.lotto || 'Senza Lotto'}
-                                                    {isOldest && <Badge className="text-[8px] h-3 px-1 bg-green-500 hover:bg-green-600">CONSIGLIATO</Badge>}
+                                                    {isOldest && <Badge className="text-[7px] h-3 px-1 bg-green-500 font-black">FIFO</Badge>}
                                                 </div>
-                                                <div className="text-[10px] opacity-70">
+                                                <div className="text-[10px] font-mono opacity-80">
                                                     {formatDisplayStock(b.netQuantity, selectedMaterial.unitOfMeasure)}
                                                 </div>
                                             </Button>
@@ -414,109 +446,137 @@ export default function MaterialAssociationDialog({
                                     })}
                                 </div>
                             </ScrollArea>
-                            <p className="text-[9px] text-muted-foreground italic flex items-center gap-1">
-                                <Info className="h-3 w-3" /> Clicca su un lotto per caricarne i dati (peso, ddt, etc.)
-                            </p>
                         </div>
                     )}
 
-                    {lotAvailability && (
-                        <Alert className="bg-green-500/10 border-green-500/30 py-2 animate-in fade-in slide-in-from-top-1">
-                            <div className="flex items-center gap-3">
-                                <Boxes className="h-5 w-5 text-green-600" />
-                                <div>
-                                    <AlertTitle className="text-xs font-bold text-green-700 uppercase">Lotto {lotAvailability.lotto} Riconosciuto</AlertTitle>
-                                    <AlertDescription className="text-sm font-black text-green-600">
-                                        Disponibilità: {formatDisplayStock(lotAvailability.available, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
-                                    </AlertDescription>
-                                </div>
-                            </div>
-                        </Alert>
-                    )}
+                    <div className="grid grid-cols-2 gap-3 border-t pt-4">
+                         <FormField control={form.control} name="packagingId" render={({field}) => (
+                            <FormItem className="space-y-1">
+                                <FormLabel className="text-[10px] font-black uppercase text-muted-foreground">Applica Tara Bobina</FormLabel>
+                                <Select onValueChange={(val) => field.onChange(val || 'none')} value={field.value || 'none'}>
+                                    <FormControl><SelectTrigger className="text-xs h-9"><SelectValue placeholder="Seleziona..." /></SelectTrigger></FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="none">Nessuna (0.0 kg)</SelectItem>
+                                        {packagingItems.filter(p => !selectedMaterial || (p.associatedTypes && p.associatedTypes.includes(selectedMaterial.type))).map(item => (
+                                            <SelectItem key={item.id} value={item.id} className="text-xs">{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </FormItem>
+                        )} />
 
-                    <FormField control={form.control} name="ddt" render={({field}) => (
-                        <FormItem>
-                            <FormLabel className="font-bold text-xs uppercase text-muted-foreground">DDT / Origine</FormLabel>
-                            <FormControl><Input {...field} value={field.value ?? ''} className="text-xs h-8" /></FormControl>
-                        </FormItem>
-                    )}/>
+                        <FormField control={form.control} name="ddt" render={({field}) => (
+                            <FormItem className="space-y-1">
+                                <FormLabel className="text-[10px] font-black uppercase text-muted-foreground">Rif. DDT / Note</FormLabel>
+                                <FormControl><Input {...field} value={field.value ?? ''} className="text-xs h-9" /></FormControl>
+                            </FormItem>
+                        )}/>
+                    </div>
 
-                    <div className="space-y-4 border-t pt-4">
+                    <div className="space-y-4 pt-2">
                         {isBobina ? (
                             <FormField control={form.control} name="openingWeightManual" render={({field}) => (
-                                <FormItem>
-                                    <FormLabel className="text-primary font-black uppercase text-xs">Quantità Iniziale ({selectedMaterial.unitOfMeasure === 'kg' ? 'PESO ' : ''}NETTO {selectedMaterial.unitOfMeasure.toUpperCase()})</FormLabel>
+                                <FormItem className="space-y-1">
+                                    <FormLabel className="text-primary font-black uppercase text-[10px]">
+                                        PESO NETTO ATTUALE ({selectedMaterial.unitOfMeasure.toUpperCase()})
+                                    </FormLabel>
                                     <FormControl>
-                                        <Input 
-                                            type="number"
-                                            step="any"
-                                            className="bg-background font-mono text-xl font-black h-12 border-2 border-primary/30" 
-                                            {...field}
-                                            value={field.value ?? ''}
-                                        />
+                                        <div className="relative">
+                                            <Weight className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                                            <Input 
+                                                type="number"
+                                                step="any"
+                                                className="pl-10 bg-background font-mono text-2xl font-black h-14 border-2 border-primary/30" 
+                                                {...field}
+                                                value={field.value ?? ''}
+                                            />
+                                        </div>
                                     </FormControl>
-                                    <p className="text-[10px] text-muted-foreground italic">Inserire il peso netto attuale del rocchetto prima di iniziare.</p>
                                 </FormItem>
                             )}/>
                         ) : (
-                            <>
-                                <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center bg-muted/20">
-                                    <Label htmlFor="unit-switch-assoc" className="text-xs font-bold">{selectedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                            <div className="space-y-3">
+                                <div className="flex items-center space-x-2 rounded-xl border-2 p-2 justify-center bg-muted/40">
+                                    <Label htmlFor="unit-switch-assoc" className="text-[10px] font-black uppercase">{selectedMaterial.unitOfMeasure}</Label>
                                     <Switch
                                         id="unit-switch-assoc"
                                         checked={inputUnit === 'kg'}
                                         onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
                                     />
-                                    <Label htmlFor="unit-switch-assoc" className="text-xs font-bold">KG</Label>
+                                    <Label htmlFor="unit-switch-assoc" className="text-[10px] font-black uppercase text-orange-600">KG (Bilancia)</Label>
                                 </div>
                                 <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
-                                    <FormItem>
-                                        <FormLabel className="text-primary font-black uppercase text-xs">Quantità da prelevare ({inputUnit === 'primary' ? selectedMaterial.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
-                                        <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} className="font-mono text-lg font-bold" /></FormControl>
+                                    <FormItem className="space-y-1">
+                                        <FormLabel className="text-primary font-black uppercase text-[10px]">
+                                            {isKgMode ? 'PESO LORDO (Sulla Bilancia)' : `QUANTITÀ NETTA (${selectedMaterial.unitOfMeasure.toUpperCase()})`}
+                                        </FormLabel>
+                                        <FormControl>
+                                            <div className="relative">
+                                                <Weight className={cn("absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5", isKgMode ? "text-orange-600" : "text-muted-foreground")} />
+                                                <Input 
+                                                    type="number" 
+                                                    step="0.001" 
+                                                    {...field} 
+                                                    value={field.value ?? ''} 
+                                                    className={cn(
+                                                        "pl-10 h-14 text-2xl font-black font-mono border-2",
+                                                        isKgMode ? "border-orange-500/30" : "border-primary/30"
+                                                    )}
+                                                />
+                                            </div>
+                                        </FormControl>
+                                        {isKgMode && (
+                                            <p className="text-[10px] text-muted-foreground italic text-right font-bold uppercase">
+                                                L'app sottrarrà automaticamente {tare.toFixed(3)}kg di tara
+                                            </p>
+                                        )}
                                         <FormMessage/>
                                     </FormItem>
                                 )}/>
-                            </>
-                        )}
-
-                        {isBobina && (
-                            <FormField control={form.control} name="packagingId" render={({field}) => (
-                                <FormItem>
-                                    <FormLabel className="flex items-center gap-2 text-xs font-bold uppercase text-muted-foreground"><Archive className="h-3 w-3" />Tara Imballo Applicata</FormLabel>
-                                    <Select onValueChange={(val) => field.onChange(val || 'none')} value={field.value || 'none'}>
-                                        <FormControl><SelectTrigger className="text-xs h-8"><SelectValue placeholder="Seleziona..." /></SelectTrigger></FormControl>
-                                        <SelectContent>
-                                            <SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>
-                                            {packagingItems.filter(p => !selectedMaterial || (p.associatedTypes && p.associatedTypes.includes(selectedMaterial.type))).map(item => (
-                                                <SelectItem key={item.id} value={item.id} className="text-xs">{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </FormItem>
-                            )} />
+                            </div>
                         )}
                     </div>
                 </div>
               )}
             </div>
           </ScrollArea>
-          <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t sticky bottom-0 bg-background">
+          <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t sticky bottom-0 bg-background shadow-[0_-4px_10px_-5px_rgba(0,0,0,0.1)]">
               {isBobina ? (
-                <Button type="button" onClick={onAvviaSessione} disabled={!selectedMaterial || isProcessing} className="w-full h-14 text-lg font-black uppercase tracking-tighter">
+                <Button type="button" onClick={onAvviaSessione} disabled={!selectedMaterial || isProcessing} className="w-full h-14 text-lg font-black uppercase tracking-tighter rounded-xl">
                     {isProcessing ? <Loader2 className="mr-2 h-5 w-5 animate-spin"/> : <Play className="mr-2 h-5 w-5 fill-current" />} 
                     Avvia Sessione Bobina
                 </Button>
               ) : (
-                <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} className="w-full h-14 text-lg font-black uppercase tracking-tighter">
-                    {isProcessing ? <Loader2 className="mr-2 h-5 w-5 animate-spin"/> : <Send className="mr-2 h-5 w-5" />}
-                    Registra Scarico
-                </Button>
+                <div className="grid grid-cols-1 gap-2 w-full">
+                    <Button 
+                        type="button" 
+                        onClick={form.handleSubmit((v) => onPrelevaMateriale(v, false))} 
+                        disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} 
+                        className="w-full h-14 text-lg font-black uppercase tracking-tighter rounded-xl"
+                    >
+                        {isProcessing ? <Loader2 className="mr-2 h-5 w-5 animate-spin"/> : <Send className="mr-2 h-5 w-5" />}
+                        Registra Scarico
+                    </Button>
+                    
+                    {/* Ferrous Rule 2: Materiale Finito Button */}
+                    {selectedMaterial && lotAvailability && (
+                        <Button 
+                            type="button" 
+                            variant="destructive"
+                            onClick={() => onPrelevaMateriale(form.getValues(), true)}
+                            disabled={isProcessing}
+                            className="w-full h-12 text-sm font-black uppercase tracking-tight rounded-xl border-2 border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive hover:text-white"
+                        >
+                            <X className="mr-2 h-4 w-4" /> Materiale Finito
+                        </Button>
+                    )}
+                </div>
               )}
           </DialogFooter>
         </form>
       </Form>
     );
-  }
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>

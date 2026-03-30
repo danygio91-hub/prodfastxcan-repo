@@ -18,13 +18,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw, FastForward } from 'lucide-react';
 
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import type { JobOrder, JobPhase, WorkPeriod, ActiveMaterialSessionData, RawMaterialType, WorkGroup } from '@/types';
-import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, handlePhasePause, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup, updateWorkGroup } from './actions';
+import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, handlePhasePause, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup, updateWorkGroup, fastForwardToPackaging } from './actions';
 
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -142,6 +142,7 @@ export default function ScanJobPage() {
   const [phaseIdToPause, setPhaseIdToPause] = useState<string | null>(null);
   const [isPausing, setIsPausing] = useState(false);
   const [isAttachmentsDialogOpen, setIsAttachmentsDialogOpen] = useState(false);
+  const [isFastForwarding, setIsFastForwarding] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const groupingVideoRef = useRef<HTMLVideoElement>(null);
@@ -468,6 +469,68 @@ export default function ScanJobPage() {
                       )}
                     </CardContent>
                     <CardFooter className="flex flex-col gap-2">
+                      {/* FAST FORWARD TO PACKAGING (Phased Rollout ONLY) */}
+                      {(() => {
+                        if (!activeJob || !operator) return null;
+                        
+                        const isMagOrQuality = (operator.reparto || []).some(r => 
+                          ['MAG', 'MAGAZZINO', 'COLLAUDO', 'QUALITA', 'QUALITÀ', 'QLTY', 'IMBALLO', 'PACK'].includes(r.toUpperCase())
+                        );
+                        
+                        if (!isMagOrQuality && operator.role !== 'admin') return null;
+
+                        const phases = activeJob.phases || [];
+                        const prepDone = phases.filter(p => p.type === 'preparation').every(p => p.status === 'completed' || p.status === 'skipped');
+                        const hasProdToSkip = phases.some(p => p.type === 'production' && p.status !== 'completed' && p.status !== 'skipped');
+                        const qualNotStarted = phases.filter(p => p.type === 'quality' || p.type === 'packaging').every(p => p.status === 'pending');
+
+                        if (prepDone && hasProdToSkip && qualNotStarted) {
+                          return (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-b-4 border-indigo-900 active:border-b-0 active:translate-y-1 transition-all">
+                                  <FastForward className="mr-2 h-4 w-4" /> 
+                                  Salta Produzione (Vai a Qlty & Pack)
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle className="text-indigo-600 flex items-center gap-2">
+                                    <FastForward className="h-6 w-6" />
+                                    Conferma Salto Produzione
+                                  </AlertDialogTitle>
+                                  <AlertDialogDescription className="space-y-3">
+                                    <p>Stai per marcare tutte le fasi di <strong>Produzione</strong> come completate per passare direttamente al Collaudo/Packaging.</p>
+                                    <p className="font-bold text-amber-600 italic underline">Questa azione è necessaria se la produzione è stata tracciata su carta (Phased Rollout).</p>
+                                    <p className="text-xs opacity-70">Nota: Non verranno scaricati materiali dal magazzino per le fasi saltate.</p>
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                  <AlertDialogAction 
+                                    className="bg-indigo-600 hover:bg-indigo-700"
+                                    onClick={async () => {
+                                      setIsFastForwarding(true);
+                                      const result = await fastForwardToPackaging(activeJob.id, operator.id);
+                                      setIsFastForwarding(false);
+                                      if (result.success) {
+                                        toast({ title: "Fast-Forward Eseguito", description: result.message });
+                                        refreshJob();
+                                      } else {
+                                        toast({ variant: "destructive", title: "Errore", description: result.message });
+                                      }
+                                    }}
+                                  >
+                                    {isFastForwarding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sì, Salta Produzione"}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          );
+                        }
+                        return null;
+                      })()}
+
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button className="w-full bg-orange-600 hover:bg-orange-700 text-white">

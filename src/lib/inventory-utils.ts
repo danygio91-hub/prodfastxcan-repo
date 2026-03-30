@@ -66,6 +66,10 @@ export function calculateInventoryMovement(
       if (idx !== -1) {
         batches[idx].netQuantity = (batches[idx].netQuantity || 0) + unitsToChange;
         batches[idx].grossWeight = (batches[idx].grossWeight || 0) + weightToChange;
+        // Se la quantità torna > 0, riattiviamo il lotto (Resurrection Logic)
+        if (batches[idx].netQuantity > 0) {
+          batches[idx].isExhausted = false;
+        }
       } else {
         // Create a basic batch if it doesn't exist? 
         // Usually additions create specific batches with more info (DDT, etc.)

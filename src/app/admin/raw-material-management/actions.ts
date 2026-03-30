@@ -536,11 +536,34 @@ export type LotInfo = { lotto: string; available: number; batches: RawMaterialBa
 export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo[]> {
     const mSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
     if (!mSnap.exists) return [];
+    
     const mat = mSnap.data() as RawMaterial;
     const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
-    const wByLotto = wSnap.docs.reduce((acc, d) => { const w = d.data(); const l = w.lotto || 'SENZA_LOTTO'; acc[l] = (acc[l] || 0) + (w.consumedUnits || 0); return acc; }, {} as Record<string, number>);
-    const bByLotto = (mat.batches || []).reduce((acc, b) => { const l = b.lotto || 'SENZA_LOTTO'; if (!acc[l]) acc[l] = []; acc[l].push(b); return acc; }, {} as Record<string, RawMaterialBatch[]>);
-    return Object.entries(bByLotto).map(([lotto, batches]) => { const tL = batches.reduce((s, b) => s + b.netQuantity, 0); const tW = wByLotto[lotto] || 0; return { lotto, available: tL - tW, batches }; }).filter(l => l.available > 0.001);
+    
+    const wByLotto = wSnap.docs.reduce((acc, d) => { 
+        const w = d.data(); 
+        const l = w.lotto || 'SENZA_LOTTO'; 
+        acc[l] = (acc[l] || 0) + (w.consumedUnits || 0); 
+        return acc; 
+    }, {} as Record<string, number>);
+
+    // Filtriamo i lotti esauriti (isExhausted) a monte
+    const activeBatches = (mat.batches || []).filter(b => !b.isExhausted);
+
+    const bByLotto = activeBatches.reduce((acc, b) => { 
+        const l = b.lotto || 'SENZA_LOTTO'; 
+        if (!acc[l]) acc[l] = []; 
+        acc[l].push(b); 
+        return acc; 
+    }, {} as Record<string, RawMaterialBatch[]>);
+
+    return Object.entries(bByLotto)
+        .map(([lotto, batches]) => { 
+            const tL = batches.reduce((s, b) => s + b.netQuantity, 0); 
+            const tW = wByLotto[lotto] || 0; 
+            return { lotto, available: tL - tW, batches }; 
+        })
+        .filter(l => l.available > 0.001); // Filtro aggiuntivo per precisione numerica
 }
 
 export async function adjustRawMaterialStock(materialId: string, newStockUnits: number) {

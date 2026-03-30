@@ -78,6 +78,8 @@ export interface JobPhase {
   postponed?: boolean;
   isIndependent?: boolean;
   pauseReason?: string;
+  isSanatoria?: boolean;
+  paper_tracked?: boolean;
 }
 
 export interface JobBillOfMaterialsItem {
@@ -115,6 +117,7 @@ export interface JobOrder {
   odlCreationDate?: Date | any;
   workGroupId?: string | null;
   forcedCompletion?: boolean;
+  isSanatoria?: boolean;
   jobOrderIds?: string[];
   jobOrderPFs?: string[];
   isPrinted?: boolean;
@@ -180,6 +183,7 @@ export interface RawMaterialBatch {
   packagingId?: string;
   lotto?: string | null;
   purchaseOrderId?: string;
+  isExhausted?: boolean;
 }
 
 export interface RawMaterial {
@@ -262,6 +266,7 @@ export interface WorkGroup {
   qta?: number;
   ordinePF?: string;
   forcedCompletion?: boolean;
+  isSanatoria?: boolean;
 }
 
 export interface WorkingShift {
@@ -292,10 +297,12 @@ export interface ManualCommitment {
   articleCode: string;
   quantity: number;
   deliveryDate: string; // ISO Date String
-  status: 'pending' | 'fulfilled';
+  status: 'pending' | 'fulfilled' | 'cancelled' | 'cancelled_sanatoria';
   createdAt: any; // Firestore Timestamp
   fulfilledAt?: any; // Firestore Timestamp
   fulfilledBy?: string; // Operator UID
+  cancelledAt?: any; // Firestore Timestamp
+  cancellationReason?: string;
 }
 
 export interface PurchaseOrder {
@@ -382,6 +389,7 @@ export interface ProductionProblemReport {
   status: 'open' | 'resolved';
   resolvedAt?: Date | string;
   resolvedBy?: string;
+  isSanatoria?: boolean;
 }
 
 export interface InventoryRecord {
