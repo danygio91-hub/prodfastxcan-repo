@@ -1,37 +1,22 @@
 import type { RawMaterial, JobOrder, Article, PurchaseOrder, ManualCommitment } from "@/types";
+import { RawMaterialTypeConfig } from "./settings-types";
+import { calculateMaterialRequirement } from "./inventory-utils";
 
 /**
  * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).
  */
-export function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
-    if (!material) return 0;
-    
-    const qta = Number(jobQta) || 0;
-    const bomQty = Number(bomItem.quantity) || 0;
-    const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
-    
-    if (material.unitOfMeasure === 'kg') {
-        let totalMeters = 0;
-        if (lengthMm > 0) {
-            totalMeters = (qta * bomQty * lengthMm) / 1000;
-        } else if (bomItem.unit === 'mt') {
-            totalMeters = qta * bomQty;
-        }
-
-        if (totalMeters > 0) {
-            return totalMeters * (material.rapportoKgMt || material.conversionFactor || 0);
-        }
-        
-        return (qta * bomQty) * (material.conversionFactor || 0);
-    }
-    
-    if (material.unitOfMeasure === 'mt') {
-        if (lengthMm > 0) return (qta * bomQty * lengthMm) / 1000;
-        if (bomItem.unit === 'mt') return qta * bomQty;
-        return qta * bomQty;
-    }
-    
-    return qta * bomQty;
+/**
+ * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).
+ * Ora utilizza la logica centralizzata di inventory-utils.
+ */
+export function calculateCommitmentQty(
+    jobQta: number, 
+    bomItem: any, 
+    material: RawMaterial | undefined,
+    config: RawMaterialTypeConfig | undefined
+): number {
+    if (!material || !config) return 0;
+    return calculateMaterialRequirement(jobQta, bomItem, material, config);
 }
 
 /**
@@ -42,7 +27,8 @@ export function buildMRPTimelines(
     rawMaterials: RawMaterial[],
     articles: Article[],
     purchaseOrders: PurchaseOrder[],
-    manualCommitments: ManualCommitment[]
+    manualCommitments: ManualCommitment[],
+    materialTypesConfig: RawMaterialTypeConfig[]
 ) {
     const timelines = new Map<string, { date: string, qty: number, jobId: string }[]>();
     const demands: { materialCode: string, qty: number, date: string, deliveryDate: string, id: string }[] = [];
@@ -54,9 +40,10 @@ export function buildMRPTimelines(
             if (item.status !== 'withdrawn') {
                 const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
                 if (mat) {
+                    const config = materialTypesConfig.find(c => c.id === mat.type);
                     demands.push({
                         materialCode: mat.code.toUpperCase(),
-                        qty: calculateCommitmentQty(job.qta, item, mat),
+                        qty: calculateCommitmentQty(job.qta, item, mat, config),
                         date: job.assignedDate || '9999-12-31',
                         deliveryDate: job.dataConsegnaFinale || '9999-12-31',
                         id: job.id
@@ -73,9 +60,10 @@ export function buildMRPTimelines(
             art.billOfMaterials.forEach(item => {
                 const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
                 if (mat) {
+                    const config = materialTypesConfig.find(c => c.id === mat.type);
                     demands.push({
                         materialCode: mat.code.toUpperCase(),
-                        qty: calculateCommitmentQty(c.quantity, item, mat),
+                        qty: calculateCommitmentQty(c.quantity, item, mat, config),
                         date: '9999-12-31',
                         deliveryDate: c.deliveryDate || '9999-12-31',
                         id: c.id

@@ -42,6 +42,7 @@ export default function ResourcePlanningClientPage() {
         departments: cachedDepartments, 
         settings: cachedSettings, 
         rawMaterials: cachedRawMaterials,
+        globalSettings: cachedGlobalSettings,
         isLoading: isMasterLoading 
     } = useMasterData();
     
@@ -217,9 +218,10 @@ export default function ResourcePlanningClientPage() {
             cachedRawMaterials,
             cachedArticles,
             data.purchaseOrders || [],
-            data.manualCommitments || []
+            data.manualCommitments || [],
+            cachedGlobalSettings?.rawMaterialTypes || []
         );
-    }, [data, cachedRawMaterials, cachedArticles]);
+    }, [data, cachedRawMaterials, cachedArticles, cachedGlobalSettings]);
 
     const handleJobDrop = async (jobId: string, assignedDate: string | null) => {
         // If the dropped job is part of the selection, we move the whole group

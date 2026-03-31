@@ -11,6 +11,7 @@ import type {
     WorkingHoursConfig, 
     ProductionSettings 
 } from '@/types';
+import { GlobalSettings, DEFAULT_GLOBAL_SETTINGS } from '@/lib/settings-types';
 
 interface MasterDataContextType {
     operators: Operator[];
@@ -20,6 +21,7 @@ interface MasterDataContextType {
     rawMaterials: RawMaterial[];
     rawMaterialsMap: Map<string, RawMaterial>;
     settings: ProductionSettings | null;
+    globalSettings: GlobalSettings | null;
     workingHours: WorkingHoursConfig | null;
     isLoading: boolean;
     refreshMasterData: () => Promise<void>;
@@ -35,6 +37,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
     const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
     const [rawMaterialsMap, setRawMaterialsMap] = useState<Map<string, RawMaterial>>(new Map());
     const [settings, setSettings] = useState<ProductionSettings | null>(null);
+    const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
     const [workingHours, setWorkingHours] = useState<WorkingHoursConfig | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -51,14 +54,16 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
                 matsSnap,
                 artsSnap,
                 prodSettingsSnap,
-                hoursConfigSnap
+                hoursConfigSnap,
+                globalSettingsSnap
             ] = await Promise.all([
                 getDocs(collection(db, "operators")),
                 getDocs(collection(db, "departments")),
                 getDocs(collection(db, "rawMaterials")),
                 getDocs(collection(db, "articles")),
                 getDoc(doc(db, "system", "productionSettings")),
-                getDoc(doc(db, "configuration", "workingHours"))
+                getDoc(doc(db, "configuration", "workingHours")),
+                getDoc(doc(db, "settings", "global"))
             ]);
 
             const ops = opsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Operator));
@@ -75,6 +80,10 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
                 ? hoursConfigSnap.data() as WorkingHoursConfig
                 : { workingDays: [1,2,3,4,5], shifts: [], efficiencyPercentage: 95 };
 
+            const gSettings = globalSettingsSnap.exists()
+                ? { ...DEFAULT_GLOBAL_SETTINGS, ...globalSettingsSnap.data() } as GlobalSettings
+                : DEFAULT_GLOBAL_SETTINGS;
+
             // Build dictionary for articles
             const artMap = new Map<string, Article>();
             arts.forEach((a: Article) => artMap.set(a.code.toUpperCase(), a));
@@ -89,6 +98,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
             setArticles(arts);
             setArticlesMap(artMap);
             setSettings(prodSettings);
+            setGlobalSettings(gSettings);
             setWorkingHours(hoursConfig);
 
             const end = performance.now();
@@ -113,6 +123,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
         rawMaterials,
         rawMaterialsMap,
         settings,
+        globalSettings,
         workingHours,
         isLoading,
         refreshMasterData: loadMasterData
