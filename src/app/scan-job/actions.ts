@@ -493,8 +493,8 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             }
 
             transaction.update(materialRef, {
-                currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange),
-                currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
+                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange,
+                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
                 batches: updatedBatches
             });
 
@@ -514,6 +514,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         });
         return { success: true, message: isFinished ? "Materiale segnato come esaurito e magazzino azzerato." : "Sessione chiusa e magazzino aggiornato." };
     } catch (e) {
+        console.error("Close material session error:", e);
         return { success: false, message: e instanceof Error ? e.message : "Errore chiusura sessione." };
     }
 }
@@ -566,8 +567,8 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
             }
 
             t.update(mRef, { 
-                currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange), 
-                currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
+                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange, 
+                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
                 batches: updatedBatches
             });
 
@@ -586,7 +587,10 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
             });
         });
         return { success: true, message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato." };
-    } catch (e) { return { success: false, message: e instanceof Error ? e.message : "Errore scarico." }; }
+    } catch (e) { 
+        console.error("Log tubi/guaina error:", e);
+        return { success: false, message: e instanceof Error ? e.message : "Errore scarico." }; 
+    }
 }
 
 export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<any> {

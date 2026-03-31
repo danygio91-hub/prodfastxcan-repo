@@ -74,8 +74,8 @@ export async function logManualWithdrawal(
         }
         
         transaction.update(materialRef, { 
-            currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange), 
-            currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
+            currentStockUnits: (material.currentStockUnits || 0) - unitsToChange, 
+            currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
             batches: updatedBatches
         });
         
@@ -100,6 +100,8 @@ export async function logManualWithdrawal(
     revalidatePath('/admin/reports');
     return { success: true, message: isFinished ? `Lotto esaurito e scaricato.` : `Scarico registrato.` };
   } catch (error) {
-     return { success: false, message: "Errore durante la registrazione." };
+     console.error("Manual withdrawal error:", error);
+     const message = error instanceof Error ? error.message : "Errore durante la registrazione.";
+     return { success: false, message };
   }
 }

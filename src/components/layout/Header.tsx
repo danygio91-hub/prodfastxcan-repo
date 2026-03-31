@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, ArrowRightLeft } from 'lucide-react';
+import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, ArrowRightLeft, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -45,6 +45,7 @@ const adminNavItems = [
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },
   { href: '/admin/production-time-analysis', label: 'Analisi Tempi', icon: Timer },
   { href: '/admin/non-conformity-reports', label: 'Non Conformità', icon: ShieldAlert },
+  { href: '/admin/data-healing', label: 'Audit Corruzione', icon: ShieldCheck },
   { href: '/admin/settings', label: 'Configurazione Azienda', icon: Building2 },
   { href: '/admin/app-settings', label: 'Gestione App', icon: Settings },
 ];

@@ -53,10 +53,6 @@ export function calculateInventoryMovement(
     }
   }
 
-  // If it's a subtraction, invert the numbers for internal batch math
-  // but we return positive delta values for the caller to add/subtract as needed.
-  const signedUnits = isAddition ? unitsToChange : -unitsToChange;
-  
   const batches = [...(material.batches || [])];
   let usedLotto: string | null = specificLotto || null;
 
@@ -66,53 +62,41 @@ export function calculateInventoryMovement(
       if (idx !== -1) {
         batches[idx].netQuantity = (batches[idx].netQuantity || 0) + unitsToChange;
         batches[idx].grossWeight = (batches[idx].grossWeight || 0) + weightToChange;
-        // Se la quantità torna > 0, riattiviamo il lotto (Resurrection Logic)
-        if (batches[idx].netQuantity > 0) {
-          batches[idx].isExhausted = false;
-        }
-      } else {
-        // Create a basic batch if it doesn't exist? 
-        // Usually additions create specific batches with more info (DDT, etc.)
-        // But for generic additions we can push a simple record.
+        if (batches[idx].netQuantity > 0) batches[idx].isExhausted = false;
       }
-    } else {
-        // Addition without lot? Maybe not standard, but we'll leave it to caller
     }
   } else {
-    // SUBTRACTION (Scarico)
+    // SUBTRACTION (Withdrawal/Scarico) - HARDENED LOGIC
+    // 2. Validate availability
     if (specificLotto) {
       const idx = batches.findIndex(b => b.lotto === specificLotto);
-      if (idx !== -1) {
-        batches[idx].netQuantity = (batches[idx].netQuantity || 0) - unitsToChange;
-        // Approximation for weight in batch if needed
-        batches[idx].grossWeight = (batches[idx].grossWeight || 0) - weightToChange;
-      } else {
-        // Lot not found. User said: Consenti giacenza negativa. 
-        // We can't update a non-existent batch record, but we still return usedLotto.
+      if (idx === -1) throw new Error(`Lotto "${specificLotto}" non trovato.`);
+      const avail = batches[idx].netQuantity || 0;
+      if (avail < unitsToChange - 0.0001) {
+          throw new Error(`Giacenza insufficiente: il lotto selezionato ha solo ${avail} ${baseUom.toUpperCase()} (richiesti ${unitsToChange}).`);
       }
+      batches[idx].netQuantity = avail - unitsToChange;
+      batches[idx].grossWeight = Math.max(0, (batches[idx].grossWeight || 0) - weightToChange);
     } else {
-      // FIFO Logic
+      // FIFO Withdrawal
+      const totalAvail = batches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+      if (totalAvail < unitsToChange - 0.0001) {
+          throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail} ${baseUom.toUpperCase()} (richiesti ${unitsToChange}).`);
+      }
+
       let remainingToDeduct = unitsToChange;
-      // Sort batches by date (oldest first)
       const sortedBatches = batches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       for (const b of sortedBatches) {
         if (remainingToDeduct <= 0) break;
         const avail = b.netQuantity || 0;
         if (avail > 0) {
-          if (!usedLotto) usedLotto = b.lotto || 'Iniziale';
+          if (!usedLotto) usedLotto = (b.lotto as string | null);
           const toTake = Math.min(avail, remainingToDeduct);
           b.netQuantity = avail - toTake;
           b.grossWeight = Math.max(0, (b.grossWeight || 0) - (toTake * factor));
           remainingToDeduct -= toTake;
         }
-      }
-
-      // If still remaining, deduct from the oldest batch anyway (allows negative)
-      if (remainingToDeduct > 0 && sortedBatches.length > 0) {
-        if (!usedLotto) usedLotto = sortedBatches[0].lotto || 'Iniziale';
-        sortedBatches[0].netQuantity = (sortedBatches[0].netQuantity || 0) - remainingToDeduct;
-        sortedBatches[0].grossWeight = (sortedBatches[0].grossWeight || 0) - (remainingToDeduct * factor);
       }
     }
   }
