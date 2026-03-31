@@ -330,6 +330,19 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         getGlobalSettings()
     ]);
 
+    const mIds = materialsSnap.docs.map(doc => doc.id);
+    const withdrawalsByMaterial: Record<string, number> = {};
+    if (mIds.length > 0) {
+        for (let i = 0; i < mIds.length; i += 30) {
+            const chunk = mIds.slice(i, i + 30);
+            const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "in", chunk).get();
+            wSnap.forEach(d => {
+                const w = d.data();
+                withdrawalsByMaterial[w.materialId] = (withdrawalsByMaterial[w.materialId] || 0) + (w.consumedUnits || 0);
+            });
+        }
+    }
+
     const codeToMat = new Map<string, RawMaterial>();
     materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
@@ -391,10 +404,25 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
     return materialsSnap.docs.map(docSnap => {
         const m = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
         const normCode = m.code.toLowerCase().trim();
-        const stock = m.currentStockUnits || 0;
+        
+        // LIVE AGGREGATION: Sum of all batches - sum of all withdrawals
+        const totalCharged = (m.batches || []).reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+        const totalWithdrawn = withdrawalsByMaterial[m.id] || 0;
+        let liveStockUnits = totalCharged - totalWithdrawn;
+        if (m.unitOfMeasure === 'n') liveStockUnits = Math.round(liveStockUnits);
+
         const imp = impMap.get(normCode) || 0;
         const ord = ordMap.get(normCode) || 0;
-        return { id: m.id, code: m.code, description: m.description, stock, impegnato: imp, disponibile: stock - imp, ordinato: ord, unitOfMeasure: m.unitOfMeasure };
+        return { 
+            id: m.id, 
+            code: m.code, 
+            description: m.description, 
+            stock: liveStockUnits, 
+            impegnato: imp, 
+            disponibile: liveStockUnits - imp, 
+            ordinato: ord, 
+            unitOfMeasure: m.unitOfMeasure 
+        };
     });
 }
 

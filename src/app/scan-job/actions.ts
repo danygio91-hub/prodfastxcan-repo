@@ -25,15 +25,44 @@ function convertTimestampsToDates(obj: any): any {
 
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sorted = [...phases].sort((a, b) => a.sequence - b.sequence);
-    const allPrepDone = sorted.filter(p => p.type === 'preparation' && !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
+    
+    // 1. Idenpendent PREP: Always ready
+    // 2. PRODUCTION/QLTY: Ready if ALL mandatory PREP are done/skipped AND previous non-independent phase is at least in-progress.
+    
+    const allPrepDone = sorted
+        .filter(p => p.type === 'preparation' && !p.postponed)
+        .every(p => ['completed', 'skipped'].includes(p.status));
+
     for (let i = 0; i < sorted.length; i++) {
         const curr = sorted[i];
-        if (curr.isIndependent || curr.type === 'preparation') { curr.materialReady = true; continue; }
-        if (!allPrepDone) { curr.materialReady = false; continue; }
+        
+        // Preparation phases are always ready to start
+        if (curr.isIndependent || curr.type === 'preparation') { 
+            curr.materialReady = true; 
+            continue; 
+        }
+
+        // Production phases need PREP to be finished
+        if (!allPrepDone) { 
+            curr.materialReady = false; 
+            continue; 
+        }
+
+        // Check previous non-independent phase status for simultaneity (Start)
         let prev: JobPhase | null = null;
-        for (let j = i - 1; j >= 0; j--) { if (!sorted[j].isIndependent) { prev = sorted[j]; break; } }
-        if (!prev) curr.materialReady = true;
-        else curr.materialReady = ['in-progress', 'completed', 'skipped', 'paused'].includes(prev.status);
+        for (let j = i - 1; j >= 0; j--) { 
+            if (!sorted[j].isIndependent) { 
+                prev = sorted[j]; 
+                break; 
+            } 
+        }
+
+        if (!prev) {
+            curr.materialReady = true;
+        } else {
+            // SIMULTANEITY: Can start if previous is at least 'in-progress'
+            curr.materialReady = ['in-progress', 'completed', 'skipped', 'paused'].includes(prev.status);
+        }
     }
     return sorted;
 }
@@ -66,12 +95,12 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
             phs.forEach((p, idx) => {
                 // Saltiamo solo le fasi di produzione centrali
                 if (p.type === 'production' && p.status !== 'completed' && p.status !== 'skipped') {
-                    // Chiudiamo eventuali workPeriods aperti (anche se improbabile in questo scenario)
+                    // Chiudiamo eventuali workPeriods aperti
                     const updatedWPs = (p.workPeriods || []).map(wp => wp.end === null ? { ...wp, end: new Date(), reason: 'Fast-Forward' } : wp);
                     
                     phs[idx] = {
                         ...p,
-                        status: 'completed',
+                        status: 'skipped', // New Policy: Use 'skipped' instead of 'completed'
                         workPeriods: updatedWPs,
                         forced: true,
                         paper_tracked: true
@@ -253,6 +282,21 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
         if (idx !== -1) {
             if (isCompletion) {
                 // Handle Completion
+                
+                // NEW: Strict Completion Order Policy
+                // Cannot complete phase N if N-1 (non-independent) is not COMPLETED or SKIPPED
+                let prev: JobPhase | null = null;
+                for (let j = idx - 1; j >= 0; j--) { 
+                    if (!phs[j].isIndependent) { 
+                        prev = phs[j]; 
+                        break; 
+                    } 
+                }
+
+                if (prev && !['completed', 'skipped'].includes(prev.status)) {
+                    throw new Error(`Impossibile completare "${phs[idx].name}": la fase precedente "${prev.name}" è ancora attiva.`);
+                }
+
                 const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
                 if (myWorkPeriodIndex !== -1) {
                     phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
@@ -263,19 +307,21 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
                     phs[idx].status = 'completed';
                 }
 
-                // CHECK FOR JOB COMPLETION (New Requirement)
-                const allCompleted = phs.every(p => p.status === 'completed' || p.status === 'skipped');
-                if (allCompleted) {
+                // Aggiorniamo la material readiness per le fasi successive (Cascata Simultanea)
+                const updatedPhases = updatePhasesMaterialReadiness(phs);
+
+                // CHECK FOR JOB COMPLETION
+                const allFinished = updatedPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+                if (allFinished) {
                     transaction.update(itemRef, { 
-                        phases: phs, 
+                        phases: updatedPhases, 
                         status: 'completed', 
                         overallEndTime: new Date() 
                     });
                 } else {
-                    transaction.update(itemRef, { phases: phs });
+                    transaction.update(itemRef, { phases: updatedPhases });
                 }
 
-                // Operator is now inactive on this job
                 transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
 
             } else {
@@ -287,9 +333,12 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
                 if (!phs[idx].workPeriods.some((wp: any) => wp.operatorId === opId && wp.end === null)) {
                     phs[idx].workPeriods.push({ start: new Date(), end: null, operatorId: opId });
                 }
+
+                // Aggiorniamo la material readiness per le fasi successive (IMPORTANTE per Simultaneità START)
+                const updatedPhases = updatePhasesMaterialReadiness(phs);
                 
                 transaction.update(itemRef, { 
-                    phases: phs, 
+                    phases: updatedPhases, 
                     status: 'production', 
                     overallStartTime: data.overallStartTime || new Date() 
                 });

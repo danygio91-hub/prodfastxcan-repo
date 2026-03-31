@@ -179,10 +179,20 @@ export default function MaterialLoadingPage() {
         if (isNaN(numEnteredQuantity)) return 0;
 
         const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
+        const uom = scannedMaterial.unitOfMeasure.toLowerCase();
+        
+        let netWeightKg = 0;
+        if (inputUnit === 'kg') {
+            netWeightKg = numEnteredQuantity;
+        } else {
+            // Seleziona il fattore corretto in base alla UOM
+            const factor = (uom === 'mt' ? scannedMaterial.rapportoKgMt : scannedMaterial.conversionFactor) || 1;
+            netWeightKg = numEnteredQuantity * factor;
+        }
 
-        // Lordo (KG) = Netto (KG) + Tara (KG). Pura addizione senza moltiplicatori.
-        return numEnteredQuantity + selectedTara;
-    }, [enteredQuantity, packagingItems, selectedPackagingId]);
+        // Lordo (KG) = Netto (KG) + Tara (KG)
+        return Number((netWeightKg + selectedTara).toFixed(3));
+    }, [enteredQuantity, packagingItems, selectedPackagingId, scannedMaterial, inputUnit]);
 
     
     const handleMaterialScanned = useCallback(async (code: string) => {

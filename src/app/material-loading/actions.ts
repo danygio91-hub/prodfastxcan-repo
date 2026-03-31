@@ -90,21 +90,20 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               if (material.unitOfMeasure === 'kg') {
                   unitsToAdd = netWeightKg;
               } else {
-                  if (!material.conversionFactor || material.conversionFactor <= 0) {
-                      throw new Error(`Impossibile convertire KG in ${material.unitOfMeasure} senza un fattore di conversione.`);
+                  const factor = (material.unitOfMeasure === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 0;
+                  if (factor <= 0) {
+                      throw new Error(`Impossibile convertire KG in ${material.unitOfMeasure.toUpperCase()} senza un fattore di conversione valido.`);
                   }
-                  unitsToAdd = netWeightKg / material.conversionFactor;
+                  unitsToAdd = netWeightKg / factor;
+                  if (material.unitOfMeasure === 'n') unitsToAdd = Math.round(unitsToAdd);
               }
           } else { 
               unitsToAdd = quantity;
               if (material.unitOfMeasure === 'kg') {
                   netWeightKg = unitsToAdd;
-              } else if (material.conversionFactor && material.conversionFactor > 0) {
-                  netWeightKg = unitsToAdd * material.conversionFactor;
-              } else if (material.unitOfMeasure === 'mt' && material.rapportoKgMt) {
-                  netWeightKg = unitsToAdd * material.rapportoKgMt;
               } else {
-                  netWeightKg = 0; 
+                  const factor = (material.unitOfMeasure === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 1;
+                  netWeightKg = unitsToAdd * factor;
               }
           }
 

@@ -40,7 +40,14 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
   const records = snap.docs.map(docSnap => {
     const data = docSnap.data() as Omit<InventoryRecord, 'id'>;
     const material = materialsMap.get(data.materialId);
-    return { id: docSnap.id, ...data, materialUnitOfMeasure: material?.unitOfMeasure } as InventoryRecord;
+    return { 
+        id: docSnap.id, 
+        ...data, 
+        materialUnitOfMeasure: material?.unitOfMeasure,
+        // Ensure conversion factors are present even if not in the record itself (legacy support)
+        conversionFactor: data.conversionFactor || material?.conversionFactor || undefined,
+        rapportoKgMt: data.rapportoKgMt || material?.rapportoKgMt || undefined
+    } as InventoryRecord;
   });
   return JSON.parse(JSON.stringify(convertTimestamps(records)));
 }

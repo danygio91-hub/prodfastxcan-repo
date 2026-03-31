@@ -23,6 +23,8 @@ export type GroupedBatches = {
     materialCode: string;
     materialDescription: string;
     unitOfMeasure: string; // 'n' | 'mt' | 'kg' (configurable)
+    conversionFactor?: number;
+    rapportoKgMt?: number;
     currentStockUnits: number;
     currentWeightKg: number;
     lots: LotInfo[];
@@ -107,13 +109,26 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
             };
         });
         
+        const totalUnits = lots.reduce((sum, lot) => sum + lot.available, 0);
+        const finalUnits = material.unitOfMeasure === 'n' ? Math.round(totalUnits) : totalUnits;
+        
+        let totalWeightKg = 0;
+        if (material.unitOfMeasure === 'kg') {
+            totalWeightKg = finalUnits;
+        } else {
+            const factor = (material.unitOfMeasure === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 1;
+            totalWeightKg = finalUnits * factor;
+        }
+
         allGroupedBatches.push({
             materialId: material.id,
             materialCode: material.code,
             materialDescription: material.description,
             unitOfMeasure: material.unitOfMeasure,
-            currentStockUnits: material.currentStockUnits || 0,
-            currentWeightKg: material.currentWeightKg || 0,
+            conversionFactor: material.conversionFactor || undefined,
+            rapportoKgMt: material.rapportoKgMt || undefined,
+            currentStockUnits: finalUnits,
+            currentWeightKg: totalWeightKg,
             lots: lots.sort((a, b) => new Date(b.firstLoadDate).getTime() - new Date(a.firstLoadDate).getTime()),
         });
     });

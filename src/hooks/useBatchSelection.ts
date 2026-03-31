@@ -86,11 +86,30 @@ export function useBatchSelection({
 
   // Real-time calculation of Net based on Gross input
   useEffect(() => {
-    if (batchMetadata || lotAvailability) {
-      const tare = batchMetadata?.tareWeight || 0;
+    if (batchMetadata) {
+      const tare = batchMetadata.tareWeight || 0;
       const gross = Number(currentGross) || 0;
-      const net = Math.max(0, gross - tare);
-      setCalculatedNet(net);
+      const netWeightKg = Math.max(0, gross - tare);
+      
+      const material = batchMetadata.material;
+      if (material) {
+        const uom = material.unitOfMeasure?.toLowerCase();
+        if (uom === 'n') {
+          const factor = material.conversionFactor || 1;
+          setCalculatedNet(Math.round(netWeightKg / factor));
+        } else if (uom === 'mt') {
+          const factor = material.rapportoKgMt || 1;
+          setCalculatedNet(Number((netWeightKg / factor).toFixed(3)));
+        } else {
+          setCalculatedNet(Number(netWeightKg.toFixed(3)));
+        }
+      } else {
+        setCalculatedNet(Number(netWeightKg.toFixed(3)));
+      }
+    } else if (lotAvailability) {
+      // Fallback if we only have summary info
+      const gross = Number(currentGross) || 0;
+      setCalculatedNet(gross); // This case might need more data if we want precise units without batchMetadata
     }
   }, [currentGross, batchMetadata, lotAvailability]);
 

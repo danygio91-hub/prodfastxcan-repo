@@ -57,13 +57,24 @@ export default function BatchFormDialog({ isOpen, onClose, material, batch }: Ba
   useEffect(() => {
     if (watchedGross !== undefined) {
         const tareWeight = packagingItems.find(p => p.id === watchedPackagingId)?.weightKg || 0;
-        const calculatedNet = Math.max(0, watchedGross - tareWeight);
+        const netWeightKg = Math.max(0, watchedGross - tareWeight);
         
-        // Aggiorna il netto solo se il materiale è in KG (o se vogliamo che il campo Netto rifletta sempre il peso lordo - tara fisicamente)
-        // L'utente ha chiesto: "se scrivo il Lordo, il sistema calcola da solo il Netto"
-        form.setValue('netQuantity', Number(calculatedNet.toFixed(3)));
+        let calculatedNet = netWeightKg;
+        const uom = material.unitOfMeasure.toLowerCase();
+
+        if (uom === 'n') {
+          const factor = material.conversionFactor || 1;
+          calculatedNet = Math.round(netWeightKg / factor);
+        } else if (uom === 'mt') {
+          const factor = material.rapportoKgMt || 1;
+          calculatedNet = Number((netWeightKg / factor).toFixed(3));
+        } else {
+          calculatedNet = Number(netWeightKg.toFixed(3));
+        }
+
+        form.setValue('netQuantity', calculatedNet);
     }
-  }, [watchedGross, watchedPackagingId, packagingItems, form]);
+  }, [watchedGross, watchedPackagingId, packagingItems, form, material]);
 
   useEffect(() => {
     if (isOpen) {

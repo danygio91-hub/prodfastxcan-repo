@@ -412,6 +412,7 @@ export interface InventoryRecord {
   inputUnit: UnitOfMeasure;
   inputQuantity: number;
   conversionFactor?: number;
+  rapportoKgMt?: number;
   materialUnitOfMeasure?: UnitOfMeasure;
 }
 

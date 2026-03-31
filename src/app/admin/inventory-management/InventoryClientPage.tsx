@@ -443,8 +443,10 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                 let displayQuantity;
                                                 // If input was in KG, convert net weight to units for display
                                                 if (record.inputUnit === 'kg') {
-                                                    if (record.conversionFactor && record.conversionFactor > 0) {
-                                                        displayQuantity = record.netWeight / record.conversionFactor;
+                                                    const factor = (record.materialUnitOfMeasure === 'mt' ? record.rapportoKgMt : record.conversionFactor) || 0;
+                                                    if (factor > 0) {
+                                                        displayQuantity = record.netWeight / factor;
+                                                        if (record.materialUnitOfMeasure === 'n') displayQuantity = Math.round(displayQuantity);
                                                     } else {
                                                         displayQuantity = record.inputQuantity; // Fallback
                                                     }

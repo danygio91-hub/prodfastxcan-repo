@@ -76,12 +76,11 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     const { inputQuantity, inputUnit, packagingId } = watchedValues;
     const tareWeight = packagingItems.find(p => p.id === packagingId)?.weightKg || 0;
     
-    if (inputUnit === 'kg') return (inputQuantity || 0) - tareWeight;
-    
-    const factor = (inputUnit === 'mt')
-        ? (material.rapportoKgMt || material.conversionFactor || 0)
-        : (material.conversionFactor || 0);
+    const factor = (inputUnit === 'kg') 
+        ? 1 
+        : (material.unitOfMeasure === 'mt' || inputUnit === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 1;
         
+    if (inputUnit === 'kg') return (inputQuantity || 0) - tareWeight;
     return (inputQuantity || 0) * factor;
   }, [material, watchedValues, packagingItems]);
 

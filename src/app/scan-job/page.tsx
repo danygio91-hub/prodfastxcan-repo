@@ -18,11 +18,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw, FastForward } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw, FastForward, Clock } from 'lucide-react';
 
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { JobOrder, JobPhase, WorkPeriod, ActiveMaterialSessionData, RawMaterialType, WorkGroup } from '@/types';
 import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, handlePhasePause, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup, updateWorkGroup, fastForwardToPackaging } from './actions';
 
@@ -47,13 +53,14 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
   return `${h > 0 ? h + 'h ' : ''}${m > 0 ? m + 'm ' : ''}${s}s`;
 }
 
-function getPhaseIcon(status: JobPhase['status']) {
+function getPhaseIcon(status: JobPhase['status'], type?: string) {
   if (status === 'completed') return <PhaseCompletedIcon className="h-4 w-4 text-green-500" />;
+  if (status === 'skipped') return <EyeOff className="h-4 w-4 text-blue-400" />;
+  
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
     case 'in-progress': return <Hourglass className="h-4 w-4 text-blue-500 animate-spin" />;
     case 'paused': return <PausePhaseIcon className="h-4 w-4 text-orange-500" />;
-    case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
     default: return <Circle className="h-4 w-4 text-muted-foreground" />;
   }
 }
@@ -65,43 +72,99 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
     const operatorReparti = operator.reparto || [];
     const hasPerm = isSuper || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
     const isOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
+    
+    // START POLICY: Can start if ready (N started) OR if it's a prep phase
     const canStart = hasPerm && phase.status === 'pending' && phase.materialReady;
+    
     const canPause = !job.isProblemReported && phase.status === 'in-progress' && isOwner;
     const canResume = hasPerm && !job.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isOwner));
     const canJoin = hasPerm && !job.isProblemReported && phase.status === 'in-progress' && !isOwner;
-    const canComplete = (phase.status === 'in-progress' || phase.status === 'paused') && isOwner;
 
-    
+    // COMPLETE POLICY: Only if owner AND previous non-independent phase is completed/skipped
+    const phs = [...(job.phases || [])].sort((a,b) => a.sequence - b.sequence);
+    const idx = phs.findIndex(p => p.id === phase.id);
+    let prev: JobPhase | null = null;
+    for (let j = idx - 1; j >= 0; j--) { 
+      if (!phs[j].isIndependent) { prev = phs[j]; break; } 
+    }
+
+    const isPrevFinished = !prev || ['completed', 'skipped'].includes(prev.status);
+    const canComplete = (phase.status === 'in-progress' || phase.status === 'paused') && isOwner && isPrevFinished;
+    const isCompleteBlockedByPrev = (phase.status === 'in-progress' || phase.status === 'paused') && isOwner && !isPrevFinished;
+
     return (
-      <Card className={cn("p-4 bg-card/50", !hasPerm && 'opacity-60 bg-muted/30')}>
+      <Card className={cn(
+        "p-4 border-l-4 transition-all",
+        phase.status === 'completed' ? "border-l-green-500 bg-green-50/30" : 
+        phase.status === 'skipped' ? "border-l-blue-400 bg-blue-50/30 opacity-80" :
+        phase.status === 'in-progress' ? "border-l-blue-500 bg-blue-50/50 shadow-md" :
+        !hasPerm ? 'opacity-60 bg-muted/30 border-l-transparent' : 'bg-card/50 border-l-slate-200'
+      )}>
           <div className="flex items-center justify-between">
-            <div className="flex items-center">{getPhaseIcon(phase.status)}<span className="font-semibold ml-2">{phase.name}</span></div>
-            <div className="flex items-center space-x-2"><Label className="text-sm">Mat. Pronto:</Label>{phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}</div>
+            <div className="flex items-center">
+              {getPhaseIcon(phase.status, phase.type)}
+              <span className={cn("font-bold ml-2", phase.status === 'completed' && "text-green-700")}>
+                {phase.name}
+              </span>
+              {phase.status === 'skipped' && <Badge variant="outline" className="ml-2 text-[8px] bg-blue-100 text-blue-600 border-blue-200">SALTA</Badge>}
+            </div>
+            <div className="flex items-center space-x-2">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Materiale:</Label>
+              {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-400" />}
+            </div>
           </div>
-          {isOwner && <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1">Stai lavorando qui.</p>}
+          
+          {isOwner && <p className="text-[10px] text-green-600 font-bold mt-2 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/> SEI ATTIVO IN QUESTA FASE</p>}
+          
           <div className="mt-2 space-y-1 text-xs text-muted-foreground border-t pt-2 border-muted">
             {(phase.materialConsumptions || []).length > 0 ? (
                 phase.materialConsumptions.map((mc, i) => (
-                    <div key={i} className="flex justify-between items-center bg-muted/50 p-1 rounded px-2">
-                        <span>{mc.materialCode}</span>
-                        {mc.lottoBobina && <span className="opacity-70">Lotto: {mc.lottoBobina}</span>}
+                    <div key={i} className="flex justify-between items-center bg-white/50 p-1 rounded px-2 border border-slate-100">
+                        <span className="font-semibold">{mc.materialCode}</span>
+                        {mc.lottoBobina && <span className="opacity-70 font-mono">Lot: {mc.lottoBobina}</span>}
                     </div>
                 ))
             ) : (
-                <p className="italic opacity-50">Nessun materiale associato.</p>
+                <p className="italic opacity-50 text-[10px]">Nessun materiale associato.</p>
             )}
-            {phase.type !== 'quality' && <p className="pt-1">Tempo effettivo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
+            {phase.type !== 'quality' && <p className="pt-1 flex items-center gap-1 font-mono text-[10px]"><Clock className="h-3 w-3" /> Tempo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
           </div>
 
-          <div className="mt-3 flex gap-2">
-            {hasPerm && phase.type === 'preparation' && <Button size="sm" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>}
-            {canStart && <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline"><QrCode className="mr-2 h-4 w-4" /> Avvia</Button>}
-            {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-blue-500 border-blue-500"><Combine className="mr-2 h-4 w-4" /> Partecipa</Button>}
-            {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500">Pausa</Button>}
-            {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500">Riprendi</Button>}
-            {canComplete && <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700">Completa</Button>}
-          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {hasPerm && phase.type === 'preparation' && phase.status !== 'completed' && phase.status !== 'skipped' && (
+              <Button size="sm" variant="secondary" className="h-8 text-xs font-bold" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
+            )}
+            
+            {canStart && <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="h-8 text-xs font-bold ring-2 ring-primary/10"><QrCode className="mr-2 h-4 w-4" /> Avvia</Button>}
+            
+            {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 text-xs font-bold text-blue-600 border-blue-200 bg-blue-50/50"><Combine className="mr-2 h-4 w-4" /> Partecipa</Button>}
+            
+            {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="h-8 text-xs font-bold text-orange-600 border-orange-200">Pausa</Button>}
+            
+            {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 text-xs font-bold text-yellow-600 border-yellow-200 bg-yellow-50/50">Riprendi</Button>}
+            
+            {canComplete && (
+              <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="h-8 text-xs font-bold bg-green-600 hover:bg-green-700 shadow-md">Completa</Button>
+            )}
 
+            {isCompleteBlockedByPrev && (
+               <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="cursor-not-allowed">
+                      <Button size="sm" disabled className="h-8 text-xs font-bold opacity-50">Completa</Button>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="bg-slate-900 text-white border-none text-[10px]">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-3 w-3 text-amber-500" />
+                      In attesa di chiusura fase precedente: {prev?.name}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
       </Card>
     );
 };

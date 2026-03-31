@@ -48,7 +48,7 @@ export function isJobReadyForProduction(job: any, deptDependsOnPrep: boolean = t
     if (!job.phases || job.phases.length === 0) return true;
     const prepPhases = job.phases.filter((p: any) => p.type === 'preparation');
     if (prepPhases.length === 0) return true;
-    return prepPhases.every((p: any) => p.status === 'completed');
+    return prepPhases.every((p: any) => p.status === 'completed' || p.status === 'skipped');
 }
 
 
