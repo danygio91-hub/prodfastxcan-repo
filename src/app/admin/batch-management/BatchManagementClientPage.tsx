@@ -244,7 +244,10 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                     <TableRow>
                                       <TableHead>Data Carico</TableHead>
                                       <TableHead>Origine/DDT</TableHead>
-                                      <TableHead>Quantità</TableHead>
+                                      <TableHead>Qtà ({group.unitOfMeasure.toUpperCase()})</TableHead>
+                                      <TableHead>Lordo (KG)</TableHead>
+                                      <TableHead>Tara (KG)</TableHead>
+                                      <TableHead>Netto (KG)</TableHead>
                                       <TableHead className="text-right">Azioni</TableHead>
                                     </TableRow>
                                   </TableHeader>
@@ -252,8 +255,11 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                     {lotInfo.batches.map(batch => (
                                       <TableRow key={batch.id}>
                                         <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                                        <TableCell className="text-xs truncate max-w-[150px]">{batch.ddt}</TableCell>
-                                        <TableCell className="font-mono">{formatDisplayStock(batch.netQuantity, group.unitOfMeasure)}</TableCell>
+                                        <TableCell className="text-xs truncate max-w-[120px]">{batch.ddt}</TableCell>
+                                        <TableCell className="font-mono font-bold">{formatDisplayStock(batch.netQuantity, group.unitOfMeasure)}</TableCell>
+                                        <TableCell className="text-xs">{batch.grossWeight ? `${batch.grossWeight.toFixed(3)}` : '-'}</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">{batch.tareWeight ? `${batch.tareWeight.toFixed(3)} (${batch.tareName || 'Tara'})` : '-'}</TableCell>
+                                        <TableCell className="text-xs font-semibold">{(batch.grossWeight && batch.tareWeight) ? (batch.grossWeight - batch.tareWeight).toFixed(3) : (group.unitOfMeasure === 'kg' ? batch.netQuantity.toFixed(3) : '-')}</TableCell>
                                         <TableCell className="text-right space-x-2">
                                           <Button variant="outline" size="icon" onClick={() => setEditingBatchInfo({material: group, batch: batch})}>
                                             <Edit className="h-4 w-4" />

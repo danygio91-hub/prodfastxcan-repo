@@ -179,20 +179,10 @@ export default function MaterialLoadingPage() {
         if (isNaN(numEnteredQuantity)) return 0;
 
         const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
-        let netWeightKg = 0;
 
-        if (inputUnit === 'kg') {
-            netWeightKg = numEnteredQuantity;
-        } else { 
-            if (scannedMaterial.conversionFactor && scannedMaterial.conversionFactor > 0) {
-                netWeightKg = numEnteredQuantity * scannedMaterial.conversionFactor;
-            } else if (scannedMaterial.unitOfMeasure === 'kg') {
-                netWeightKg = numEnteredQuantity;
-            }
-        }
-
-        return netWeightKg + selectedTara;
-    }, [scannedMaterial, enteredQuantity, inputUnit, packagingItems, selectedPackagingId]);
+        // Lordo (KG) = Netto (KG) + Tara (KG). Pura addizione senza moltiplicatori.
+        return numEnteredQuantity + selectedTara;
+    }, [enteredQuantity, packagingItems, selectedPackagingId]);
 
     
     const handleMaterialScanned = useCallback(async (code: string) => {
@@ -250,6 +240,14 @@ export default function MaterialLoadingPage() {
 
         const finalUnit = inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure : 'kg';
         formData.set('unit', finalUnit || 'n');
+        
+        // Pass trace weights to action
+        const packaging = packagingItems.find(p => p.id === values.packagingId);
+        const tareWeight = packaging?.weightKg || 0;
+        formData.set('tareWeight', String(tareWeight));
+        formData.set('tareName', packaging?.name || 'Nessuna Tara');
+        formData.set('grossWeight', String(calculatedGrossWeight));
+        formData.set('netWeightKg', String(calculatedGrossWeight - tareWeight));
 
 
         const result = await addBatchToRawMaterial(formData);

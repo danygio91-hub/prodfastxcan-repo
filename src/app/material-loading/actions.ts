@@ -16,6 +16,9 @@ const batchFormSchema = z.object({
   unit: z.enum(['n', 'kg', 'mt']),
   packagingId: z.string().optional(),
   purchaseOrderId: z.string().optional(),
+  tareWeight: z.coerce.number().optional(),
+  tareName: z.string().optional(),
+  grossWeight: z.coerce.number().optional(),
 });
 
 function convertTimestampsToDates(obj: any): any {
@@ -56,7 +59,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
-  const { materialId, date, ddt, quantity, lotto, packagingId, unit, purchaseOrderId } = validatedFields.data;
+  const { materialId, date, ddt, quantity, lotto, packagingId, unit, purchaseOrderId, tareWeight: formTare, tareName, grossWeight: formGross } = validatedFields.data;
   const materialRef = adminDb.collection("rawMaterials").doc(materialId);
   
   try {
@@ -125,8 +128,9 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
             netQuantity: unitsToAdd, 
-            tareWeight: tareWeight,
-            grossWeight: netWeightKg + tareWeight,
+            tareWeight: formTare ?? tareWeight,
+            grossWeight: formGross ?? (netWeightKg + tareWeight),
+            tareName: tareName || 'Nessuna Tara',
             lotto: lotto || null,
           };
           

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -27,13 +28,15 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '@/components/ui/badge';
 import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle, Upload, Download, Undo2, TestTube, Send, Search } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatDisplayStock } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
-import { formatDisplayStock } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { GlobalSettings } from '@/lib/settings-types';
+import { getGlobalSettings } from '@/lib/settings-actions';
 
 // Schemas and types at top level
 const declarationSchema = z.object({
@@ -50,12 +53,14 @@ function DeclarationDialog({
   commitment,
   articleCode,
   onDeclare,
+  globalSettings
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   commitment: ManualCommitment;
   articleCode: string;
   onDeclare: (values: DeclarationFormValues, lotSelections: LotSelectionPayload[]) => void;
+  globalSettings: GlobalSettings | null;
 }) {
   const { toast } = useToast();
   const form = useForm<DeclarationFormValues>({
@@ -110,17 +115,17 @@ function DeclarationDialog({
   }, [isOpen, articleCode, commitment.quantity, form]);
 
   const bomItem = useMemo(() => article?.billOfMaterials?.[0], [article]);
-  const displayUnit = useMemo(() => bomItem?.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 ? 'mt' : bomItem?.unit || 'n', [bomItem]);
+  const material = componentMaterials[0];
 
-  const totalRequirement = useMemo(() => {
-    if (!bomItem) return 0;
+  const reqDetails = useMemo(() => {
+    if (!bomItem || !material || !globalSettings) return null;
     const totalPieces = (Number(goodPieces) || 0) + (Number(scrapPieces) || 0);
+    const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || { defaultUnit: material.unitOfMeasure };
+    return calculateBOMRequirement(totalPieces, bomItem, material, config as any);
+  }, [bomItem, material, goodPieces, scrapPieces, globalSettings]);
 
-    if (displayUnit === 'mt' && bomItem.lunghezzaTaglioMm) {
-      return (totalPieces * bomItem.quantity * bomItem.lunghezzaTaglioMm) / 1000;
-    }
-    return totalPieces * bomItem.quantity;
-  }, [bomItem, goodPieces, scrapPieces, displayUnit]);
+  const totalRequirement = reqDetails?.totalInBaseUnits || 0;
+  const displayUnit = reqDetails?.totalMeters !== undefined ? 'mt' : reqDetails?.baseUnit || 'n';
 
   const sortedSelectedLottos = useMemo(() => {
     return lotInfo
@@ -157,7 +162,6 @@ function DeclarationDialog({
     const selectionsPayload: LotSelectionPayload[] = [];
     consumptionMap.forEach((consumed, lotto) => {
       if (consumed > 0) {
-        const material = componentMaterials[0];
         if (material) {
           selectionsPayload.push({
             materialId: material.id,
@@ -283,6 +287,7 @@ export default function CommitmentManagementClientPage({
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [declarationTarget, setDeclarationTarget] = useState<ManualCommitment | null>(null);
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -297,6 +302,10 @@ export default function CommitmentManagementClientPage({
   const [articleSuggestions, setArticleSuggestions] = useState<Article[]>([]);
   const [isSearchingArticles, setIsSearchingArticles] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    getGlobalSettings().then(setGlobalSettings);
+  }, []);
 
   const handleSearchArticle = (term: string) => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
@@ -696,6 +705,7 @@ export default function CommitmentManagementClientPage({
           commitment={declarationTarget}
           articleCode={declarationTarget.articleCode}
           onDeclare={handleDeclare}
+          globalSettings={globalSettings}
         />
       )}
     </>

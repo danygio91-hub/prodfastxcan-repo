@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -10,11 +10,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import type { JobOrder, JobBillOfMaterialsItem, RawMaterial, MaterialConsumption } from '@/types';
 import { ClipboardList, Check, Hourglass, Loader2 } from 'lucide-react';
 import { Badge } from '../ui/badge';
-import { formatDisplayStock } from '@/lib/utils';
+import { formatDisplayStock, cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { cn } from '@/lib/utils';
 import { getRawMaterialsByCodes } from '@/app/admin/production-console/actions';
-import { useState, useEffect } from 'react';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { useMasterData } from '@/contexts/MasterDataProvider';
 
 interface BOMDialogProps {
   isOpen: boolean;
@@ -25,6 +25,7 @@ interface BOMDialogProps {
 export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps) {
   const [materials, setMaterials] = useState<RawMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const { globalSettings } = useMasterData();
 
   useEffect(() => {
     if (isOpen && job) {
@@ -152,31 +153,24 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
 
                   let totalRequirement = 0;
                   let displayUnit = item.unit;
-
-                  // CALCOLO FABBISOGNO REALE (Inclusa Lunghezza Taglio)
-                  if (item.isFromTemplate) {
-                    if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
-                      totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
-                      displayUnit = 'mt';
-                    } else {
-                      totalRequirement = item.quantity * job.qta;
-                      displayUnit = item.unit;
-                    }
-                  } else {
-                    totalRequirement = withdrawnQty || (withdrawData.hasActiveSession ? 0.001 : 0);
-                    displayUnit = material?.unitOfMeasure || 'n';
-                  }
-
-                  // CALCOLO PESO STIMATO CORRETTO (Basato su rapportoKgMt o conversionFactor)
                   let estimatedWeight = 0;
-                  if (material) {
-                    if (displayUnit === 'mt' || (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0)) {
-                      estimatedWeight = totalRequirement * (material.rapportoKgMt || 0);
-                    } else if (material.unitOfMeasure === 'kg') {
-                      estimatedWeight = totalRequirement;
-                    } else if (material.conversionFactor && material.conversionFactor > 0) {
-                      estimatedWeight = totalRequirement * material.conversionFactor;
-                    }
+
+                  if (material && globalSettings) {
+                    const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || { defaultUnit: material.unitOfMeasure };
+                    
+                    // Case for template items (standard BOM) or manual/consumed items
+                    const calcQty = item.isFromTemplate ? job.qta : 1;
+                    const calcBomItem = item.isFromTemplate ? item : { ...item, quantity: withdrawnQty || (withdrawData.hasActiveSession ? 0.001 : 0) };
+                    
+                    const req = calculateBOMRequirement(calcQty, calcBomItem as any, material, config as any);
+                    
+                    totalRequirement = req.totalInBaseUnits;
+                    displayUnit = req.totalMeters !== undefined ? 'mt' : req.baseUnit;
+                    estimatedWeight = req.weightKg;
+                  } else {
+                    // Fallback simpler math if settings/material not yet ready
+                    totalRequirement = item.isFromTemplate ? item.quantity * job.qta : (withdrawnQty || 0);
+                    displayUnit = item.unit;
                   }
 
                   const isFullyWithdrawn = totalRequirement > 0 && withdrawnQty >= totalRequirement - 0.001;

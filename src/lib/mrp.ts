@@ -1,13 +1,10 @@
 import type { RawMaterial, JobOrder, Article, PurchaseOrder, ManualCommitment } from "@/types";
 import { RawMaterialTypeConfig } from "./settings-types";
-import { calculateMaterialRequirement } from "./inventory-utils";
+import { calculateBOMRequirement } from "./inventory-utils";
 
 /**
  * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).
- */
-/**
- * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).
- * Ora utilizza la logica centralizzata di inventory-utils.
+ * Ora utilizza la logica centralizzata di inventory-utils per precisione totale.
  */
 export function calculateCommitmentQty(
     jobQta: number, 
@@ -16,7 +13,8 @@ export function calculateCommitmentQty(
     config: RawMaterialTypeConfig | undefined
 ): number {
     if (!material || !config) return 0;
-    return calculateMaterialRequirement(jobQta, bomItem, material, config);
+    const res = calculateBOMRequirement(jobQta, bomItem, material, config as any);
+    return res.totalInBaseUnits;
 }
 
 /**

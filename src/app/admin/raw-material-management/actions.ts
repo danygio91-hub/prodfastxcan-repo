@@ -19,6 +19,7 @@ import type {
 } from '@/types';
 import { ensureAdmin } from '@/lib/server-auth';
 import { getGlobalSettings } from '@/lib/settings-actions';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
 
 export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -126,25 +127,7 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
-function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
-    if (!material) return 0;
-    const qta = Number(jobQta) || 0;
-    const bomQty = Number(bomItem.quantity) || 0;
-    const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
-    if (material.unitOfMeasure === 'kg') {
-        let totalMeters = 0;
-        if (lengthMm > 0) totalMeters = (qta * bomQty * lengthMm) / 1000;
-        else if (bomItem.unit === 'mt') totalMeters = qta * bomQty;
-        if (totalMeters > 0) return totalMeters * (material.rapportoKgMt || material.conversionFactor || 0);
-        return (qta * bomQty) * (material.conversionFactor || 0);
-    }
-    if (material.unitOfMeasure === 'mt') {
-        if (lengthMm > 0) return (qta * bomQty * lengthMm) / 1000;
-        if (bomItem.unit === 'mt') return qta * bomQty;
-        return qta * bomQty;
-    }
-    return qta * bomQty;
-}
+// Removed local calculateCommitmentQty in favor of centralized calculateBOMRequirement from inventory-utils.ts
 
 export async function getDepartments(): Promise<Department[]> {
     const snapshot = await adminDb.collection("departments").get();
@@ -224,11 +207,34 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             if (idx === -1) throw new Error('Lotto non trovato.');
             const old = batches[idx];
             const newQty = Number(rawData.netQuantity);
-            let newWeight = material.unitOfMeasure === 'kg' ? newQty : (material.conversionFactor ? newQty * material.conversionFactor : 0);
-            batches[idx] = { ...old, date: new Date(rawData.date as string).toISOString(), ddt: (rawData.ddt as string) || old.ddt, lotto: (rawData.lotto as string) || old.lotto, netQuantity: newQty, grossWeight: newWeight + (old.tareWeight || 0) };
+            const newGross = Number(rawData.grossWeight || 0);
+            const newTare = Number(rawData.tareWeight || 0);
+            const tareName = (rawData.tareName as string) || 'N/D';
+            
+            // Lavoriamo sempre sul Netto reale in KG per lo stock di peso
+            let newNetWeight = (newGross > 0) ? (newGross - newTare) : (material.unitOfMeasure === 'kg' ? newQty : (material.conversionFactor ? newQty * material.conversionFactor : 0));
+            
+            batches[idx] = { 
+                ...old, 
+                date: new Date(rawData.date as string).toISOString(), 
+                ddt: (rawData.ddt as string) || old.ddt, 
+                lotto: (rawData.lotto as string) || old.lotto, 
+                netQuantity: newQty, 
+                grossWeight: newGross > 0 ? newGross : (newNetWeight + (old.tareWeight || 0)),
+                tareWeight: newGross > 0 ? newTare : (old.tareWeight || 0),
+                tareName: tareName,
+                packagingId: (rawData.packagingId as string) || old.packagingId
+            };
+
             const diffU = newQty - old.netQuantity;
-            const diffW = newWeight - (old.grossWeight - (old.tareWeight || 0));
-            t.update(materialRef, { batches, currentStockUnits: (material.currentStockUnits || 0) + diffU, currentWeightKg: (material.currentWeightKg || 0) + diffW });
+            const oldNetWeight = (old.grossWeight || 0) - (old.tareWeight || 0);
+            const diffW = newNetWeight - oldNetWeight;
+
+            t.update(materialRef, { 
+                batches, 
+                currentStockUnits: (material.currentStockUnits || 0) + diffU, 
+                currentWeightKg: (material.currentWeightKg || 0) + diffW 
+            });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiornato.' };
@@ -245,9 +251,28 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             if (!docSnap.exists) throw new Error('Non trovata.');
             const material = docSnap.data() as RawMaterial;
             const netQty = Number(rawData.netQuantity);
-            let netWeight = material.unitOfMeasure === 'kg' ? netQty : (material.conversionFactor ? netQty * material.conversionFactor : 0);
-            const newBatch: RawMaterialBatch = { id: `batch-${Date.now()}`, date: new Date(rawData.date as string).toISOString(), ddt: (rawData.ddt as string) || 'CARICO', netQuantity: netQty, tareWeight: 0, grossWeight: netWeight, lotto: (rawData.lotto as string) || null };
-            t.update(materialRef, { batches: [...(material.batches || []), newBatch], currentStockUnits: (material.currentStockUnits || 0) + netQty, currentWeightKg: (material.currentWeightKg || 0) + netWeight });
+            const grossWeight = Number(rawData.grossWeight || 0);
+            const tareWeight = Number(rawData.tareWeight || 0);
+            const tareName = (rawData.tareName as string) || 'N/D';
+            
+            let netWeight = (grossWeight > 0) ? (grossWeight - tareWeight) : (material.unitOfMeasure === 'kg' ? netQty : (material.conversionFactor ? netQty * material.conversionFactor : 0));
+            
+            const newBatch: RawMaterialBatch = { 
+                id: `batch-${Date.now()}`, 
+                date: new Date(rawData.date as string).toISOString(), 
+                ddt: (rawData.ddt as string) || 'CARICO', 
+                netQuantity: netQty, 
+                tareWeight: tareWeight, 
+                grossWeight: grossWeight > 0 ? grossWeight : netWeight,
+                tareName: tareName,
+                lotto: (rawData.lotto as string) || null,
+                packagingId: (rawData.packagingId as string) || undefined
+            };
+            t.update(materialRef, { 
+                batches: [...(material.batches || []), newBatch], 
+                currentStockUnits: (material.currentStockUnits || 0) + netQty, 
+                currentWeightKg: (material.currentWeightKg || 0) + netWeight 
+            });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiunto.' };
@@ -297,11 +322,12 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         }
         mq = mq.limit(50);
     }
-    const [jobsSnap, materialsSnap, commitmentsSnap, posSnap] = await Promise.all([
+    const [jobsSnap, materialsSnap, commitmentsSnap, posSnap, settings] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
         mq.get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
-        adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get()
+        adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get(),
+        getGlobalSettings()
     ]);
 
     const codeToMat = new Map<string, RawMaterial>();
@@ -327,7 +353,9 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
                 const code = item.component.toLowerCase().trim();
                 const mat = codeToMat.get(code);
                 if (mat) {
-                    const qty = calculateCommitmentQty(job.qta, item, mat);
+                    const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                    const req = calculateBOMRequirement(job.qta, item, mat, config as any);
+                    const qty = req.totalInBaseUnits;
                     impMap.set(code, (impMap.get(code) || 0) + qty);
                 }
             }
@@ -342,7 +370,9 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
                 const mCode = bomItem.component.toLowerCase().trim();
                 const mat = codeToMat.get(mCode);
                 if (mat) {
-                    const qty = calculateCommitmentQty(comm.quantity, bomItem, mat);
+                    const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                    const req = calculateBOMRequirement(comm.quantity, bomItem, mat, config as any);
+                    const qty = req.totalInBaseUnits;
                     impMap.set(mCode, (impMap.get(mCode) || 0) + qty);
                 }
             });
@@ -372,11 +402,12 @@ export type CommitmentDetail = { jobId: string; type: 'PRODUZIONE' | 'MANUALE'; 
 
 export async function getMaterialCommitmentDetails(materialCode: string): Promise<CommitmentDetail[]> {
     const norm = materialCode.toLowerCase().trim();
-    const [jobsSnap, commitmentsSnap, articlesSnap, materialsSnap] = await Promise.all([
+    const [jobsSnap, commitmentsSnap, articlesSnap, materialsSnap, settings] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('articles').get(),
-        adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get()
+        adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get(),
+        getGlobalSettings()
     ]);
     const mat = materialsSnap.docs[0]?.data() as RawMaterial;
     if (!mat) return [];
@@ -387,7 +418,9 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         const job = d.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
             if (item.component.toLowerCase().trim() === norm && item.status !== 'withdrawn') {
-                details.push({ jobId: job.ordinePF, type: 'PRODUZIONE', quantity: calculateCommitmentQty(job.qta, item, mat), deliveryDate: job.dataConsegnaFinale || 'N/D', client: job.cliente || 'N/D', articleCode: job.details });
+                const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                const req = calculateBOMRequirement(job.qta, item, mat, config as any);
+                details.push({ jobId: job.ordinePF, type: 'PRODUZIONE', quantity: req.totalInBaseUnits, deliveryDate: job.dataConsegnaFinale || 'N/D', client: job.cliente || 'N/D', articleCode: job.details });
             }
         });
     });
@@ -397,7 +430,9 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         if (art && art.billOfMaterials) {
             art.billOfMaterials.forEach((bomItem: any) => {
                 if (bomItem.component.toLowerCase().trim() === norm) {
-                    details.push({ jobId: comm.jobOrderCode, type: 'MANUALE', quantity: calculateCommitmentQty(comm.quantity, bomItem, mat), deliveryDate: comm.deliveryDate || 'N/D', client: 'N/D', articleCode: comm.articleCode });
+                    const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                    const req = calculateBOMRequirement(comm.quantity, bomItem, mat, config as any);
+                    details.push({ jobId: comm.jobOrderCode, type: 'MANUALE', quantity: req.totalInBaseUnits, deliveryDate: comm.deliveryDate || 'N/D', client: 'N/D', articleCode: comm.articleCode });
                 }
             });
         } else if (comm.articleCode.toLowerCase().trim() === norm) {
@@ -611,11 +646,12 @@ export type ReorderAlert = {
 };
 
 export async function getReorderAlerts(): Promise<ReorderAlert[]> {
-    const [materialsSnap, jobsSnap, commitmentsSnap, articlesSnap] = await Promise.all([
+    const [materialsSnap, jobsSnap, commitmentsSnap, articlesSnap, settings] = await Promise.all([
         adminDb.collection("rawMaterials").get(),
         adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('articles').get(),
+        getGlobalSettings(),
     ]);
 
     const materials = materialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
@@ -640,7 +676,9 @@ export async function getReorderAlerts(): Promise<ReorderAlert[]> {
             const job = d.data() as JobOrder;
             (job.billOfMaterials || []).forEach(item => {
                 if (item.component.toLowerCase().trim() === normCode && item.status !== 'withdrawn') {
-                    const qty = calculateCommitmentQty(job.qta, item, mat);
+                    const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                    const req = calculateBOMRequirement(job.qta, item, mat, config as any);
+                    const qty = req.totalInBaseUnits;
                     if (qty > 0) {
                         events.push({ 
                             date: job.dataConsegnaFinale ? new Date(job.dataConsegnaFinale) : new Date(), 
@@ -660,7 +698,9 @@ export async function getReorderAlerts(): Promise<ReorderAlert[]> {
             if (art && art.billOfMaterials) {
                 art.billOfMaterials.forEach((bomItem: any) => {
                     if (bomItem.component.toLowerCase().trim() === normCode) {
-                        const qty = calculateCommitmentQty(comm.quantity, bomItem, mat);
+                        const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                        const req = calculateBOMRequirement(comm.quantity, bomItem, mat, config as any);
+                        const qty = req.totalInBaseUnits;
                         if (qty > 0) {
                             events.push({ 
                                 date: new Date(comm.deliveryDate), 

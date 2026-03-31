@@ -3,6 +3,8 @@ import QRCode from 'react-qr-code';
 import { format, isValid, parseISO } from 'date-fns';
 import type { JobOrder, RawMaterial, Article } from '@/types';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { GlobalSettings } from '@/lib/settings-types';
 
 interface ODLPrintTemplateProps {
   job: JobOrder;
@@ -11,6 +13,7 @@ interface ODLPrintTemplateProps {
   printDate?: Date;
   config?: ODLConfig;
   qrRule?: string;
+  globalSettings?: GlobalSettings | null;
 }
 
 export default function ODLPrintTemplate({ 
@@ -19,7 +22,8 @@ export default function ODLPrintTemplate({
   materials, 
   printDate, 
   config = DEFAULT_ODL_CONFIG,
-  qrRule = "{ordinePF}@{details}@{qta}"
+  qrRule = "{ordinePF}@{details}@{qta}",
+  globalSettings
 }: ODLPrintTemplateProps) {
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
 
@@ -368,15 +372,15 @@ export default function ODLPrintTemplate({
         </thead>
         <tbody>
           {items.map((item, i) => {
-            const totalUnits = item.quantity * job.qta;
-            const factor = item.mat?.rapportoKgMt || item.mat?.conversionFactor || 0;
+            const configMat = globalSettings?.rawMaterialTypes.find(t => t.id === item.mat?.type) || { defaultUnit: item.mat?.unitOfMeasure };
+            const req = calculateBOMRequirement(job.qta, item, item.mat as any, configMat as any);
             
             const data: any = {
               codice: item.component,
               lunghezzaTaglio: item.lunghezzaTaglioMm || 0,
-              quantita: totalUnits,
-              pesoTotale: ((item.lunghezzaTaglioMm ? (item.lunghezzaTaglioMm / 1000) : 1) * totalUnits * factor).toFixed(1),
-              metriTotali: (item.lunghezzaTaglioMm ? (totalUnits * item.lunghezzaTaglioMm / 1000) : 0).toFixed(2),
+              quantita: req.totalInBaseUnits,
+              pesoTotale: req.weightKg.toFixed(1),
+              metriTotali: req.totalMeters?.toFixed(2) || '0.00',
               placeholder: '',
               checkbox: '□',
               tempoPrevisto: '',

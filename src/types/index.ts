@@ -180,6 +180,7 @@ export interface RawMaterialBatch {
   netQuantity: number;
   grossWeight: number;
   tareWeight: number;
+  tareName?: string;
   packagingId?: string;
   lotto?: string | null;
   purchaseOrderId?: string;
@@ -399,6 +400,7 @@ export interface InventoryRecord {
   lotto: string;
   grossWeight: number;
   tareWeight: number;
+  tareName?: string;
   netWeight: number;
   packagingId?: string;
   operatorId: string;

@@ -145,6 +145,14 @@ export function getConversionFactor(material: RawMaterial, config: RawMaterialTy
   return 1; // Last resort fallback
 }
 
+export interface BOMRequirementDetails {
+  totalInBaseUnits: number; // Final value for stock (KG, MT or N)
+  baseUnit: UnitOfMeasure;  // The official UOM of the material
+  weightKg: number;         // Estimated weight in KG
+  totalMeters?: number;     // Meters calculated if lunghezzaTaglioMm was used
+  totalPieces: number;      // Total pieces (jobQta * bomItem.quantity)
+}
+
 /**
  * Calculates the material requirement (commitment) based on BOM data.
  * Centralizes the logic for length-to-base conversion (mm -> mt -> kg/others).
@@ -154,44 +162,58 @@ export function getConversionFactor(material: RawMaterial, config: RawMaterialTy
  * @param material The raw material document
  * @param config The configuration for this material's type
  */
-export function calculateMaterialRequirement(
+export function calculateBOMRequirement(
   jobQta: number,
-  bomItem: any,
-  material: RawMaterial,
-  config: RawMaterialTypeConfig
-): number {
+  bomItem: { quantity: number; lunghezzaTaglioMm?: number; unit: string },
+  material: Pick<RawMaterial, 'unitOfMeasure' | 'conversionFactor' | 'rapportoKgMt'>,
+  config: { defaultUnit: string; hasConversion?: boolean; conversionType?: string }
+): BOMRequirementDetails {
   const qta = Number(jobQta) || 0;
   const bomQty = Number(bomItem.quantity) || 0;
   const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
-  const baseUom = config.defaultUnit as UnitOfMeasure;
-  const factor = getConversionFactor(material, config);
+  const baseUnit = config.defaultUnit as UnitOfMeasure;
+  const totalPieces = qta * bomQty;
+  const factor = getConversionFactor(material as any, config as any);
 
-  // 1. Calculate Length if applicable
   let totalInBaseUnits = 0;
+  let totalMeters: number | undefined = undefined;
 
-  if (baseUom === 'kg') {
-      let totalMeters = 0;
-      if (lengthMm > 0) {
-          totalMeters = (qta * bomQty * lengthMm) / 1000;
-      } else if (bomItem.unit === 'mt') {
-          totalMeters = qta * bomQty;
-      }
+  // 1. Calculate Length if applicable (mm -> mt)
+  if (lengthMm > 0) {
+      totalMeters = (totalPieces * lengthMm) / 1000;
+  } else if (bomItem.unit === 'mt') {
+      totalMeters = totalPieces;
+  }
 
-      if (totalMeters > 0) {
+  // 2. Derive base units
+  if (baseUnit === 'kg') {
+      if (totalMeters !== undefined) {
           // Mt to Kg: Meters * Factor
-          return totalMeters * factor;
+          totalInBaseUnits = totalMeters * factor;
+      } else {
+          // Generic Unit to Kg: Units * Factor
+          totalInBaseUnits = totalPieces * factor;
       }
-      
-      // Generic Unit to Kg: Units * Factor
-      return (qta * bomQty) * factor;
+  } else if (baseUnit === 'mt') {
+      totalInBaseUnits = totalMeters ?? totalPieces;
+  } else {
+      // Default for 'n' or others: direct multiplication
+      totalInBaseUnits = totalPieces;
   }
-  
-  if (baseUom === 'mt') {
-      if (lengthMm > 0) return (qta * bomQty * lengthMm) / 1000;
-      // If BOM unit is already MT, it's just a direct multiplication
-      return qta * bomQty;
+
+  // 3. Calculate Weight in KG for estimate/printing
+  let weightKg = 0;
+  if (baseUnit === 'kg') {
+      weightKg = totalInBaseUnits;
+  } else {
+      weightKg = totalInBaseUnits * factor;
   }
-  
-  // Default for 'n' or others: direct multiplication
-  return qta * bomQty;
+
+  return {
+      totalInBaseUnits,
+      baseUnit,
+      weightKg,
+      totalMeters: totalMeters !== undefined ? Number(totalMeters.toFixed(4)) : undefined,
+      totalPieces
+  };
 }

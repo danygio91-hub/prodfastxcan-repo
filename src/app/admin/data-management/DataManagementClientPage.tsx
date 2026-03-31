@@ -35,7 +35,9 @@ import { getArticles } from '../article-management/actions';
 import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { cn, calculateCommitmentQty, formatDisplayStock, isJobReadyForProduction } from '@/lib/utils';
+import { cn, formatDisplayStock, isJobReadyForProduction } from '@/lib/utils';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { GlobalSettings } from '@/lib/settings-types';
 
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -70,7 +72,7 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sor
 
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
-  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onDownloadPdf, onAction, isDownloadingPdf
+  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onDownloadPdf, onAction, isDownloadingPdf, globalSettings
 }: {
   data: JobOrder[];
   departments: Department[];
@@ -85,6 +87,7 @@ const JobTableRows = ({
   onDownloadPdf: (job: JobOrder) => void;
   onAction: (id: string, type: 'start' | 'cancel') => void;
   isDownloadingPdf: string | null;
+  globalSettings: GlobalSettings | null;
 }) => {
   return (
     <>
@@ -109,7 +112,11 @@ const JobTableRows = ({
             const matCode = item.component.toUpperCase();
             const mat = rawMaterials.find(m => m.code.toUpperCase() === matCode);
             if (!mat) { lines.push(`❌ ${item.component}: Non in anagrafica`); return; }
-            const required = calculateCommitmentQty(j.qta, item, mat);
+            
+            const config = globalSettings?.rawMaterialTypes.find((t: any) => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+            const req = calculateBOMRequirement(j.qta, item, mat, config as any);
+            const required = req.totalInBaseUnits;
+            
             const timeline = mrpTimelines.get(matCode) || [];
             const jobEntry = timeline.find(entry => entry.jobId === j.id);
             if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
@@ -265,11 +272,15 @@ export default function DataManagementClientPage({
   
   const [odlConfig, setOdlConfig] = useState<any>(undefined);
   const [qrRule, setQrRule] = useState<string>("{ordinePF}@{details}@{qta}");
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
 
   useEffect(() => {
     Promise.all([getODLConfig(), getGlobalSettings()]).then(([config, settings]) => {
       if (config) setOdlConfig(config);
-      if (settings?.jobOrderQrCodeRule) setQrRule(settings.jobOrderQrCodeRule);
+      if (settings) {
+          setGlobalSettings(settings);
+          if (settings.jobOrderQrCodeRule) setQrRule(settings.jobOrderQrCodeRule);
+      }
     });
   }, []);
 
@@ -331,9 +342,11 @@ export default function DataManagementClientPage({
         if (item.status !== 'withdrawn') {
           const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
           if (mat) {
+            const config = globalSettings?.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+            const req = calculateBOMRequirement(job.qta, item, mat, config as any);
             demands.push({
               materialCode: mat.code.toUpperCase(),
-              qty: calculateCommitmentQty(job.qta, item, mat),
+              qty: req.totalInBaseUnits,
               date: job.dataConsegnaFinale || '9999-12-31',
               id: job.id
             });
@@ -348,9 +361,11 @@ export default function DataManagementClientPage({
         art.billOfMaterials.forEach(item => {
           const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
           if (mat) {
+            const config = globalSettings?.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+            const req = calculateBOMRequirement(c.quantity, item, mat, config as any);
             demands.push({
               materialCode: mat.code.toUpperCase(),
-              qty: calculateCommitmentQty(c.quantity, item, mat),
+              qty: req.totalInBaseUnits,
               date: c.deliveryDate || '9999-12-31',
               id: c.id
             });
@@ -404,7 +419,7 @@ export default function DataManagementClientPage({
     });
 
     return timelines;
-  }, [plannedJobOrders, productionJobOrders, rawMaterials, purchaseOrders, manualCommitments, articles]);
+  }, [plannedJobOrders, productionJobOrders, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings]);
 
   const handleSort = (key: keyof JobOrder | 'reparto_codice') => {
     setSortConfig(current => {
@@ -538,7 +553,7 @@ export default function DataManagementClientPage({
         </div>
       </header>
 
-      {pdfData && <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}><ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} config={odlConfig} qrRule={qrRule} /></div>}
+      {pdfData && <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}><ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} config={odlConfig} qrRule={qrRule} globalSettings={globalSettings} /></div>}
 
       <Tabs defaultValue="planned">
         <TabsList className="grid w-full grid-cols-3">
@@ -591,6 +606,7 @@ export default function DataManagementClientPage({
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
+                    globalSettings={globalSettings}
                   />
                 </TableBody>
               </Table>
@@ -635,6 +651,7 @@ export default function DataManagementClientPage({
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
+                    globalSettings={globalSettings}
                   />
                 </TableBody>
               </Table>
@@ -679,6 +696,7 @@ export default function DataManagementClientPage({
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
+                    globalSettings={globalSettings}
                   />
                 </TableBody>
               </Table>
