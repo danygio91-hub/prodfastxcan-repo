@@ -142,8 +142,17 @@ export default function MaterialAssociationDialog({
          form.setValue('material', materialResult);
       }
     } else if (scanType === 'lotto') {
-        form.setValue('lotto', scannedValue);
+        const lottoData = await findLastWeightForLotto(selectedMaterial?.id, scannedValue.trim());
+        if (lottoData?.material) {
+            form.setValue('material', lottoData.material);
+            form.setValue('lotto', scannedValue.trim());
+            toast({ title: "Lotto Riconosciuto", description: `Materiale: ${lottoData.material.code}, Lotto: ${scannedValue.trim()}` });
+        } else {
+            form.setValue('lotto', scannedValue.trim());
+            toast({ title: 'Lotto Nuovo', description: 'Nessuno storico trovato per questo lotto.' });
+        }
     }
+
     setScanType(null); 
   }, [scanType, form, toast]);
 

@@ -134,8 +134,18 @@ export default function ManualWithdrawalPage() {
         toast({ title: "Materiale Trovato", description: result.code });
       }
     } else if (scanType === 'lotto') {
-        form.setValue('lotto', code.trim());
+        const lottoData = await findLastWeightForLotto(scannedMaterial?.id, code.trim());
+        if (lottoData?.material) {
+            setScannedMaterial(lottoData.material);
+            form.setValue('materialId', lottoData.material.id);
+            form.setValue('lotto', code.trim());
+            toast({ title: "Lotto Riconosciuto", description: `Materiale: ${lottoData.material.code}, Lotto: ${code.trim()}` });
+        } else {
+            form.setValue('lotto', code.trim());
+            toast({ title: 'Lotto Nuovo', description: 'Nessuno storico trovato per questo lotto.' });
+        }
     }
+
     setScanType(null);
     setIsCapturing(false);
   }, [scanType, form, toast]);
