@@ -41,9 +41,9 @@ export default function DashboardPage() {
               </p>
             </div>
             
-            {(operator?.role === 'admin' || operator?.role === 'supervisor') && (
+            {operator?.role === 'supervisor' && (
               <Button asChild variant="outline" className="border-primary text-primary hover:bg-primary/10 font-bold uppercase text-[10px] h-9 gap-2 shadow-sm">
-                <Link href={operator.role === 'admin' ? '/admin/dashboard' : '/supervisor/dashboard'}>
+                <Link href="/supervisor/dashboard">
                   <LayoutGrid className="h-4 w-4" />
                   Torna alla Gestione
                 </Link>

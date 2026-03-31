@@ -174,8 +174,8 @@ export default function Header() {
                 </Tooltip>
             )}
 
-            {/* Integrated Text+Icon View Switcher */}
-            {isManagement && (
+            {/* Integrated Text+Icon View Switcher - ONLY FOR SUPERVISORS */}
+            {isSupervisor && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button 
@@ -239,7 +239,7 @@ export default function Header() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {isManagement && !isAdminPage && (
+              {isSupervisor && !isAdminPage && (
                  <DropdownMenuItem asChild className="cursor-pointer md:hidden">
                     <Link href={isAdmin ? '/admin/dashboard' : '/supervisor/dashboard'} className="flex items-center w-full">
                         <LayoutDashboard className="mr-2 h-4 w-4" />
@@ -247,7 +247,7 @@ export default function Header() {
                     </Link>
                  </DropdownMenuItem>
               )}
-              {isManagement && isAdminPage && (
+              {isSupervisor && isAdminPage && (
                  <DropdownMenuItem asChild className="cursor-pointer">
                     <Link href="/dashboard" className="flex items-center w-full">
                         <ArrowRightLeft className="mr-2 h-4 w-4" />
