@@ -128,6 +128,9 @@ export interface JobOrder {
   attachments?: { name: string, url: string }[];
   actualWeightKg?: number;
   numberOfPackages?: number;
+  hasAnomaly?: boolean;
+  anomalyType?: string;
+  anomalyNote?: string;
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
@@ -268,6 +271,9 @@ export interface WorkGroup {
   ordinePF?: string;
   forcedCompletion?: boolean;
   isSanatoria?: boolean;
+  hasAnomaly?: boolean;
+  anomalyType?: string;
+  anomalyNote?: string;
 }
 
 export interface WorkingShift {

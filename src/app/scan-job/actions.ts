@@ -268,7 +268,14 @@ export async function isOperatorActiveOnAnyJob(opId: string, currentJobId: strin
     return { available: true };
 }
 
-export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string, isCompletion: boolean = false) {
+export async function handlePhaseScanResult(
+    jobId: string, 
+    phaseId: string, 
+    opId: string, 
+    isCompletion: boolean = false,
+    anomalyData?: { hasAnomaly: boolean, anomalyType: string, anomalyNote?: string },
+    packagingUpdates?: { jobId: string, actualQty: number }[]
+) {
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
     
@@ -284,7 +291,6 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
                 // Handle Completion
                 
                 // NEW: Strict Completion Order Policy
-                // Cannot complete phase N if N-1 (non-independent) is not COMPLETED or SKIPPED
                 let prev: JobPhase | null = null;
                 for (let j = idx - 1; j >= 0; j--) { 
                     if (!phs[j].isIndependent) { 
@@ -307,21 +313,42 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
                     phs[idx].status = 'completed';
                 }
 
-                // Aggiorniamo la material readiness per le fasi successive (Cascata Simultanea)
                 const updatedPhases = updatePhasesMaterialReadiness(phs);
-
-                // CHECK FOR JOB COMPLETION
                 const allFinished = updatedPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-                if (allFinished) {
-                    transaction.update(itemRef, { 
-                        phases: updatedPhases, 
-                        status: 'completed', 
-                        overallEndTime: new Date() 
-                    });
-                } else {
-                    transaction.update(itemRef, { phases: updatedPhases });
+                
+                const updates: any = { 
+                    phases: updatedPhases,
+                    ...(allFinished ? { status: 'completed', overallEndTime: new Date() } : {})
+                };
+
+                // HANDLE ANOMALIES (Quality)
+                if (anomalyData?.hasAnomaly) {
+                    updates.hasAnomaly = true;
+                    updates.anomalyType = anomalyData.anomalyType;
+                    updates.anomalyNote = anomalyData.anomalyNote;
                 }
 
+                // HANDLE PACKAGING UPDATES (WorkGroup / Single Job)
+                if (packagingUpdates && packagingUpdates.length > 0) {
+                    for (const update of packagingUpdates) {
+                        const childRef = adminDb.collection('jobOrders').doc(update.jobId);
+                        const childSnap = await transaction.get(childRef);
+                        if (childSnap.exists) {
+                            const childData = childSnap.data() as JobOrder;
+                            const childUpdates: any = { qta: update.actualQty };
+                            
+                            // Check for quantity mismatch anomaly
+                            if (update.actualQty < childData.qta) {
+                                childUpdates.hasAnomaly = true;
+                                childUpdates.anomalyType = 'QTY_MISMATCH';
+                                childUpdates.anomalyNote = `Quantità ridotta durante l'imballo: da ${childData.qta} a ${update.actualQty}`;
+                            }
+                            transaction.update(childRef, childUpdates);
+                        }
+                    }
+                }
+
+                transaction.update(itemRef, updates);
                 transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
 
             } else {
@@ -329,12 +356,10 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
                 phs[idx].status = 'in-progress';
                 if (!phs[idx].workPeriods) phs[idx].workPeriods = [];
                 
-                // Only add if not already active
                 if (!phs[idx].workPeriods.some((wp: any) => wp.operatorId === opId && wp.end === null)) {
                     phs[idx].workPeriods.push({ start: new Date(), end: null, operatorId: opId });
                 }
 
-                // Aggiorniamo la material readiness per le fasi successive (IMPORTANTE per Simultaneità START)
                 const updatedPhases = updatePhasesMaterialReadiness(phs);
                 
                 transaction.update(itemRef, { 

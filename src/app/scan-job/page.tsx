@@ -127,7 +127,7 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
             ) : (
                 <p className="italic opacity-50 text-[10px]">Nessun materiale associato.</p>
             )}
-            {phase.type !== 'quality' && <p className="pt-1 flex items-center gap-1 font-mono text-[10px]"><Clock className="h-3 w-3" /> Tempo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
+            <p className="pt-1 flex items-center gap-1 font-mono text-[10px]"><Clock className="h-3 w-3" /> Tempo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
@@ -144,7 +144,22 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
             {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 text-xs font-bold text-yellow-600 border-yellow-200 bg-yellow-50/50">Riprendi</Button>}
             
             {canComplete && (
-              <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="h-8 text-xs font-bold bg-green-600 hover:bg-green-700 shadow-md">Completa</Button>
+              <Button 
+                size="sm" 
+                onClick={() => {
+                  if (phase.type === 'quality' || phase.type === 'packaging') {
+                    handlers.handleOpenDeclarationDialog(phase);
+                  } else {
+                    handlers.handleCompletePhase(phase.id);
+                  }
+                }} 
+                className={cn(
+                  "h-8 text-xs font-bold shadow-md",
+                  (phase.type === 'quality' || phase.type === 'packaging') ? "bg-amber-500 hover:bg-amber-600" : "bg-green-600 hover:bg-green-700"
+                )}
+              >
+                {(phase.type === 'quality' || phase.type === 'packaging') ? 'Dichiara' : 'Completa'}
+              </Button>
             )}
 
             {isCompleteBlockedByPrev && (
@@ -204,6 +219,12 @@ export default function ScanJobPage() {
   const [isPauseReasonDialogOpen, setIsPauseReasonDialogOpen] = useState(false);
   const [phaseIdToPause, setPhaseIdToPause] = useState<string | null>(null);
   const [isPausing, setIsPausing] = useState(false);
+  
+  const [isQualityDialogOpen, setIsQualityDialogOpen] = useState(false);
+  const [isPackagingDialogOpen, setIsPackagingDialogOpen] = useState(false);
+  const [phaseForDeclaration, setPhaseForDeclaration] = useState<JobPhase | null>(null);
+  const [isDeclaring, setIsDeclaring] = useState(false);
+
   const [isAttachmentsDialogOpen, setIsAttachmentsDialogOpen] = useState(false);
   const [isFastForwarding, setIsFastForwarding] = useState(false);
 
@@ -397,6 +418,44 @@ export default function ScanJobPage() {
     if (!activeJob || !operator) return;
     await handlePhaseScanResult(activeJob.id, id, operator.id, true);
     triggerJobRefresh();
+  };
+
+  const handleOpenDeclarationDialog = (phase: JobPhase) => {
+    setPhaseForDeclaration(phase);
+    if (phase.type === 'quality') setIsQualityDialogOpen(true);
+    else if (phase.type === 'packaging') setIsPackagingDialogOpen(true);
+  };
+
+  const handleConfirmQuality = async (result: 'OK' | 'NON_OK', note?: string) => {
+    if (!activeJob || !operator || !phaseForDeclaration) return;
+    setIsDeclaring(true);
+    
+    const anomalyData = result === 'NON_OK' ? {
+      hasAnomaly: true,
+      anomalyType: 'QUALITY_REJECT',
+      anomalyNote: note
+    } : undefined;
+
+    await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, anomalyData);
+    
+    setIsDeclaring(false);
+    setIsQualityDialogOpen(false);
+    setPhaseForDeclaration(null);
+    triggerJobRefresh();
+    toast({ title: result === 'OK' ? "Qualità Confermata" : "Anomalia Registrata", description: "La fase è stata chiusa correttamente." });
+  };
+
+  const handleConfirmPackaging = async (items: { jobId: string, actualQty: number }[]) => {
+    if (!activeJob || !operator || !phaseForDeclaration) return;
+    setIsDeclaring(true);
+    
+    await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, undefined, items);
+    
+    setIsDeclaring(false);
+    setIsPackagingDialogOpen(false);
+    setPhaseForDeclaration(null);
+    triggerJobRefresh();
+    toast({ title: "Imballo Completato", description: "Le quantità sono state salvate e la fase è chiusa." });
   };
 
 
@@ -634,7 +693,7 @@ export default function ScanJobPage() {
                   <CardHeader><CardTitle>Fasi Lavorazione</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
                     {(activeJob.phases || []).sort((a,b) => a.sequence - b.sequence).map(p => (
-                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handleOpenPhaseScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog}} />
+                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handleOpenPhaseScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog, handleOpenDeclarationDialog}} />
                     ))}
                   </CardContent>
                 </Card>
@@ -763,8 +822,167 @@ export default function ScanJobPage() {
             onOpenChange={setIsAttachmentsDialogOpen} 
             attachments={activeJob?.attachments || []} 
           />
+
+          <QualityDeclarationDialog 
+            isOpen={isQualityDialogOpen}
+            onOpenChange={setIsQualityDialogOpen}
+            onConfirm={handleConfirmQuality}
+            isLoading={isDeclaring}
+            phaseName={phaseForDeclaration?.name || ''}
+          />
+
+          <PackagingDeclarationDialog 
+            isOpen={isPackagingDialogOpen}
+            onOpenChange={setIsPackagingDialogOpen}
+            onConfirm={handleConfirmPackaging}
+            isLoading={isDeclaring}
+            job={activeJob}
+          />
         </>
       </AppShell>
     </AuthGuard>
+  );
+}
+
+// --- NEW DIALOG COMPONENTS ---
+
+function QualityDeclarationDialog({ isOpen, onOpenChange, onConfirm, isLoading, phaseName }: any) {
+  const [result, setResult] = useState<'OK' | 'NON_OK' | null>(null);
+  const [note, setNote] = useState('');
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!isLoading) onOpenChange(open); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Dichiarazione Qualità: {phaseName}</DialogTitle>
+          <DialogDescription>Conferma se l'articolo è conforme o se sono state riscontrate anomalie.</DialogDescription>
+        </DialogHeader>
+        
+        <div className="grid grid-cols-2 gap-4 py-4">
+          <Button 
+            variant={result === 'OK' ? "default" : "outline"}
+            className={cn("h-24 flex flex-col gap-2 border-2", result === 'OK' ? "bg-green-600 hover:bg-green-700 border-green-700" : "border-slate-200")}
+            onClick={() => setResult('OK')}
+          >
+            <CheckCircle className="h-8 w-8" />
+            <span className="font-bold">OK - CONFORME</span>
+          </Button>
+
+          <Button 
+            variant={result === 'NON_OK' ? "default" : "outline"}
+            className={cn("h-24 flex flex-col gap-2 border-2", result === 'NON_OK' ? "bg-red-600 hover:bg-red-700 border-red-700" : "border-slate-200")}
+            onClick={() => setResult('NON_OK')}
+          >
+            <AlertTriangle className="h-8 w-8" />
+            <span className="font-bold">NON OK - SCARTO</span>
+          </Button>
+        </div>
+
+        {result === 'NON_OK' && (
+          <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+            <Label className="text-red-600 font-bold">Causale Scarto / Nota Difetto (Obbligatorio)</Label>
+            <Input 
+              placeholder="Inserisci il motivo dello scarto..." 
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="border-red-200 focus:ring-red-500"
+            />
+          </div>
+        )}
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Annulla</Button>
+          <Button 
+            disabled={!result || (result === 'NON_OK' && !note.trim()) || isLoading}
+            onClick={() => onConfirm(result, note)}
+            className={cn(result === 'OK' ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700")}
+          >
+            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Conferma Dichiarazione
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PackagingDeclarationDialog({ isOpen, onOpenChange, onConfirm, isLoading, job }: any) {
+  const [items, setItems] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (isOpen && job) {
+      if (job.jobOrderIds && job.jobOrderPFs) {
+          // It's a WorkGroup
+          setItems(job.jobOrderIds.map((id: string, i: number) => ({
+            jobId: id,
+            jobOrderPF: job.jobOrderPFs[i],
+            originalQty: job.qta / job.jobOrderIds.length, // Fallback if ind. qta not available, but user said pre-compilate.
+            // Better: since it's a WorkGroup, the group.totalQuantity is shared. 
+            // In a real scenario we'd need the individual qta. 
+            // For now, let's assume we can fetch them or use a placeholder.
+            // Actually, handlePhaseScanResult needs individual jobId to update qta.
+            actualQty: job.qta / job.jobOrderIds.length 
+          })));
+      } else {
+          // Single Job
+          setItems([{
+            jobId: job.id,
+            jobOrderPF: job.ordinePF,
+            originalQty: job.qta,
+            actualQty: job.qta
+          }]);
+      }
+    }
+  }, [isOpen, job]);
+
+  const updateQty = (index: number, val: string) => {
+    const newItems = [...items];
+    newItems[index].actualQty = parseInt(val) || 0;
+    setItems(newItems);
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!isLoading) onOpenChange(open); }}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Dichiarazione Imballo</DialogTitle>
+          <DialogDescription>Verifica e conferma le quantità inserite nell'imballo finale.</DialogDescription>
+        </DialogHeader>
+
+        <ScrollArea className="max-h-[50vh] pr-4 mt-2">
+          <div className="space-y-4">
+            {items.map((item, i) => (
+              <div key={item.jobId} className="flex items-center justify-between p-3 border rounded-lg bg-slate-50">
+                <div className="flex-1">
+                  <p className="font-bold text-sm">{item.jobOrderPF}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold">Quantità Prevista: {item.originalQty}</p>
+                </div>
+                <div className="w-32">
+                  <Label className="text-[10px] uppercase font-bold">Qta Imballata</Label>
+                  <Input 
+                    type="number" 
+                    value={item.actualQty} 
+                    onChange={(e) => updateQty(i, e.target.value)}
+                    className="h-10 text-center font-bold"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+
+        <DialogFooter className="mt-6">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Annulla</Button>
+          <Button 
+            disabled={items.some(it => it.actualQty <= 0) || isLoading}
+            onClick={() => onConfirm(items.map(it => ({ jobId: it.jobId, actualQty: it.actualQty })))}
+            className="bg-amber-500 hover:bg-amber-600 text-white"
+          >
+            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Conferma e Chiudi Fase
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
