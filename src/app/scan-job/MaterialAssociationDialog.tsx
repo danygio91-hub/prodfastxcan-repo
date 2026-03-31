@@ -23,10 +23,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { QrCode, Loader2, Weight, Archive, Send, Barcode, Play, Camera, AlertTriangle, Boxes, Info, X } from 'lucide-react';
+import { QrCode, Loader2, Weight, Archive, Send, Barcode, Play, Camera, AlertTriangle, Boxes, Info, X, Lock } from 'lucide-react';
+
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { formatDisplayStock } from '@/lib/utils';
+import { useBatchSelection } from '@/hooks/useBatchSelection';
+
 
 const formSchema = z.object({
   material: z.custom<RawMaterial>().nullable(),
@@ -64,8 +67,8 @@ export default function MaterialAssociationDialog({
   const [scanType, setScanType] = useState<ScanType>(null);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
-  const [lotAvailability, setLotAvailability] = useState<LotInfo | null>(null);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
+
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -84,77 +87,21 @@ export default function MaterialAssociationDialog({
 
   const selectedMaterial = form.watch('material');
   const lottoValue = form.watch('lotto');
+  const isBobina = useMemo(() => (phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0') && selectedMaterial?.unitOfMeasure !== 'n', [phase.name, selectedMaterial]);
 
-  useEffect(() => {
-    getPackagingItems().then(setPackagingItems);
-  }, []);
+  const {
+      isLoading: isLoadingMetadata,
+      lotAvailability,
+      isFixedTare,
+      calculatedNet,
+      batchMetadata
+  } = useBatchSelection({
+      form,
+      materialId: selectedMaterial?.id,
+      quantityFieldName: isBobina ? 'openingWeightManual' : 'quantityToWithdraw',
+      packagingFieldName: 'packagingId'
+  });
 
-  const handleMaterialSelect = useCallback((material: RawMaterial) => {
-    form.setValue('material', material);
-  }, [form]);
-
-  const updateLotInfo = useCallback(async (materialId: string, lotto: string) => {
-      const lots = await getLotInfoForMaterial(materialId);
-      const matched = lots.find(l => l.lotto === lotto);
-      setLotAvailability(matched || null);
-  }, []);
-
-  const handleLotSelect = useCallback(async (lotto: string) => {
-    if (!selectedMaterial) return;
-    form.setValue('lotto', lotto);
-    
-    setIsProcessing(true);
-    try {
-        const lottoData = await findLastWeightForLotto(selectedMaterial.id, lotto);
-        const lots = await getLotInfoForMaterial(selectedMaterial.id);
-        const matched = lots.find(l => l.lotto === lotto);
-        setLotAvailability(matched || null);
-        
-        if (lottoData && lottoData.material) {
-            form.setValue('openingWeightManual', lottoData.netWeight);
-            form.setValue('ddt', 'Storico Lotto');
-            form.setValue('packagingId', lottoData.packagingId || 'none');
-        } else {
-            const batch = selectedMaterial.batches?.find(b => b.lotto === lotto);
-            if (batch) {
-                form.setValue('openingWeightManual', batch.netQuantity);
-                form.setValue('ddt', batch.ddt || '');
-                form.setValue('packagingId', batch.packagingId || 'none');
-            }
-        }
-    } catch (e) {
-        console.error(e);
-    } finally {
-        setIsProcessing(false);
-    }
-  }, [selectedMaterial, form]);
-
-  useEffect(() => {
-    if (selectedMaterial) {
-      setInputUnit('primary');
-      const batches = [...(selectedMaterial.batches || [])].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      setAvailableBatches(batches);
-      
-      const currentLotto = form.getValues('lotto');
-      if (!currentLotto && batches.length > 0) {
-          const oldestLotto = batches.find(b => (b.netQuantity || 0) > 0) || batches[0];
-          handleLotSelect(oldestLotto.lotto || '');
-      }
-    } else {
-        setAvailableBatches([]);
-    }
-  }, [selectedMaterial, form, handleLotSelect]);
-
-  useEffect(() => {
-    if (lottoValue && lottoValue.length >= 3 && selectedMaterial) {
-        const timer = setTimeout(async () => {
-            await updateLotInfo(selectedMaterial.id, lottoValue);
-        }, 800);
-        return () => clearTimeout(timer);
-    } else if (!lottoValue) {
-        setLotAvailability(null);
-    }
-  }, [lottoValue, selectedMaterial, updateLotInfo]);
   
   const handleScanTrigger = (type: ScanType) => {
     setScanType(type);
@@ -192,24 +139,14 @@ export default function MaterialAssociationDialog({
       if ('error' in materialResult) {
         toast({ variant: 'destructive', title: materialResult.title, description: materialResult.error });
       } else {
-        handleMaterialSelect(materialResult);
+         form.setValue('material', materialResult);
       }
     } else if (scanType === 'lotto') {
-      const lottoData = await findLastWeightForLotto(selectedMaterial?.id, scannedValue);
-      if (lottoData?.material) {
-        handleMaterialSelect(lottoData.material);
         form.setValue('lotto', scannedValue);
-        form.setValue('openingWeightManual', lottoData.netWeight);
-        form.setValue('ddt', 'Storico Lotto');
-        form.setValue('packagingId', lottoData.packagingId || 'none');
-        await updateLotInfo(lottoData.material.id, scannedValue);
-      } else {
-        form.setValue('lotto', scannedValue);
-        toast({ title: 'Lotto Nuovo', description: 'Nessuno storico trovato. Inserire il peso manualmente.' });
-      }
     }
     setScanType(null); 
-  }, [scanType, form, toast, selectedMaterial, updateLotInfo]);
+  }, [scanType, form, toast]);
+
 
   const onAvviaSessione = async () => {
     const values = form.getValues();
@@ -315,13 +252,13 @@ export default function MaterialAssociationDialog({
   );
 
   const renderForm = () => {
-    const isBobina = (phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0') && selectedMaterial?.unitOfMeasure !== 'n';
-    
     const isKgMode = selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
     const selectedPackaging = packagingItems.find(p => p.id === form.watch('packagingId'));
     const tare = selectedPackaging?.weightKg || 0;
-    const netResidue = lotAvailability?.available || 0;
-    const expectedGross = netResidue + tare;
+    // Use calculated net from hook
+    const effectiveNet = calculatedNet > 0 ? calculatedNet : (lotAvailability?.available || 0);
+    const expectedGross = effectiveNet + tare;
+
 
     return (
      <Form {...form}>
@@ -366,7 +303,7 @@ export default function MaterialAssociationDialog({
                           </div>
                       </div>
 
-                      {/* Ferrous Rule 1: Transparency Panel for KG */}
+                       {/* Ferrous Rule 1: Transparency Panel for KG */}
                       {isKgMode && lotAvailability && (
                           <div className="p-3 border-2 border-orange-500/20 bg-orange-500/5 rounded-xl space-y-2 animate-in slide-in-from-top-2">
                               <div className="flex justify-between items-center text-[10px] uppercase font-black text-orange-700/70 mb-1">
@@ -376,19 +313,23 @@ export default function MaterialAssociationDialog({
                               <div className="grid grid-cols-3 gap-2 text-center">
                                   <div>
                                       <p className="text-[8px] font-bold text-muted-foreground uppercase leading-none mb-1">Netto</p>
-                                      <p className="text-xs font-black">{netResidue.toFixed(3)}</p>
+                                      <p className="text-xs font-black">{effectiveNet.toFixed(3)}</p>
                                   </div>
                                   <div>
                                       <p className="text-[8px] font-bold text-muted-foreground uppercase leading-none mb-1">Tara</p>
-                                      <p className="text-xs font-black text-orange-600">+{tare.toFixed(3)}</p>
+                                      <p className={cn("text-xs font-black", isFixedTare ? "text-primary" : "text-orange-600")}>
+                                          {isFixedTare && <Lock className="inline-block h-2 w-2 mr-0.5 mb-0.5" />}
+                                          +{tare.toFixed(3)}
+                                      </p>
                                   </div>
                                   <div className="bg-orange-500/10 rounded py-1">
-                                      <p className="text-[8px] font-bold text-orange-700 uppercase leading-none mb-1">Lordo</p>
-                                      <p className="text-xs font-black text-orange-700">{expectedGross.toFixed(3)}</p>
+                                      <p className="text-[8px] font-bold text-orange-700 uppercase leading-none mb-1">Lordo (Input)</p>
+                                      <p className="text-xs font-black text-orange-700">{(Number(form.watch(isBobina ? 'openingWeightManual' : 'quantityToWithdraw')) || 0).toFixed(3)}</p>
                                   </div>
                               </div>
                           </div>
                       )}
+
                   </div>
               ) : <Alert className="border-primary/20 bg-primary/5 text-primary"><AlertDescription className="font-bold text-xs uppercase">Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
 
@@ -431,7 +372,8 @@ export default function MaterialAssociationDialog({
                                                     isSelected ? "border-primary" : "border-transparent hover:bg-primary/5",
                                                     isOldest && !isSelected && "border-green-500/20 bg-green-500/5 text-green-700"
                                                 )}
-                                                onClick={() => handleLotSelect(b.lotto || '')}
+                                                onClick={() => form.setValue('lotto', b.lotto || '')}
+
                                             >
                                                 <div className="flex items-center gap-2">
                                                     <Barcode className="h-3 w-3 opacity-50" />
@@ -452,9 +394,12 @@ export default function MaterialAssociationDialog({
                     <div className="grid grid-cols-2 gap-3 border-t pt-4">
                          <FormField control={form.control} name="packagingId" render={({field}) => (
                             <FormItem className="space-y-1">
-                                <FormLabel className="text-[10px] font-black uppercase text-muted-foreground">Applica Tara Bobina</FormLabel>
-                                <Select onValueChange={(val) => field.onChange(val || 'none')} value={field.value || 'none'}>
-                                    <FormControl><SelectTrigger className="text-xs h-9"><SelectValue placeholder="Seleziona..." /></SelectTrigger></FormControl>
+                                <FormLabel className="text-[10px] font-black uppercase text-muted-foreground flex items-center justify-between">
+                                    <span>Applica Tara Bobina</span>
+                                    {isFixedTare && <Badge variant="outline" className="text-[7px] h-3 px-1 border-primary text-primary font-black"><Lock className="h-2 w-2 mr-0.5" /> CERTIFICATA</Badge>}
+                                </FormLabel>
+                                <Select onValueChange={(val) => field.onChange(val || 'none')} value={field.value || 'none'} disabled={isFixedTare}>
+                                    <FormControl><SelectTrigger className={cn("text-xs h-9", isFixedTare && "bg-primary/5 border-primary/20")}><SelectValue placeholder="Seleziona..." /></SelectTrigger></FormControl>
                                     <SelectContent>
                                         <SelectItem value="none">Nessuna (0.0 kg)</SelectItem>
                                         {packagingItems.filter(p => !selectedMaterial || (p.associatedTypes && p.associatedTypes.includes(selectedMaterial.type))).map(item => (
@@ -464,6 +409,7 @@ export default function MaterialAssociationDialog({
                                 </Select>
                             </FormItem>
                         )} />
+
 
                         <FormField control={form.control} name="ddt" render={({field}) => (
                             <FormItem className="space-y-1">

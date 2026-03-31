@@ -24,10 +24,13 @@ import { closeMaterialSessionAndUpdateStock, getRawMaterialByCode, findLastWeigh
 import { getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
 import type { RawMaterial, ActiveMaterialSessionData } from '@/types';
 
-import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info, PlayCircle, Weight, X } from 'lucide-react';
+import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info, PlayCircle, Weight, X, Lock } from 'lucide-react';
+
 
 import { useCameraStream } from '@/hooks/use-camera-stream';
+import { useBatchSelection } from '@/hooks/useBatchSelection';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+
 import { 
   Select, 
   SelectContent, 
@@ -52,9 +55,11 @@ const withdrawalFormSchema = z.object({
   }, "La quantità deve essere un numero positivo."),
   notes: z.string().optional(),
   jobOrderPF: z.string().optional(),
+  packagingId: z.string().optional(),
 }).refine((data) => {
   return true;
 }, { path: ['quantity'] });
+
 type WithdrawalFormValues = z.infer<typeof withdrawalFormSchema>;
 
 type ScanType = 'material' | 'lotto' | null;
@@ -65,14 +70,13 @@ export default function ManualWithdrawalPage() {
   const { toast } = useToast();
 
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
-  const [lotAvailability, setLotAvailability] = useState<LotInfo | null>(null);
   const [allLots, setAllLots] = useState<LotInfo[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
-  const [isLoadingLots, setIsLoadingLots] = useState(false);
   const [useSession, setUseSession] = useState(false);
+
 
   const { activeSessions, startSession, closeSession, getSessionByMaterialId } = useActiveMaterialSession();
 
@@ -85,44 +89,27 @@ export default function ManualWithdrawalPage() {
     defaultValues: {
       lotto: '',
       notes: '',
-      jobOrderPF: ''
+      jobOrderPF: '',
+      packagingId: 'none'
     }
   });
 
   const lottoValue = form.watch('lotto');
+  const packagingIdValue = form.watch('packagingId');
 
-  useEffect(() => {
-    if (scannedMaterial) {
-      setInputUnit('primary');
-      setIsLoadingLots(true);
-      getLotInfoForMaterial(scannedMaterial.id)
-        .then(setAllLots)
-        .finally(() => setIsLoadingLots(false));
-    } else {
-      setAllLots([]);
-    }
-  }, [scannedMaterial]);
+  const {
+      isLoading: isLoadingLots,
+      lotAvailability,
+      isFixedTare,
+      calculatedNet,
+      batchMetadata
+  } = useBatchSelection({
+      form,
+      materialId: scannedMaterial?.id,
+      quantityFieldName: 'quantity',
+      packagingFieldName: 'packagingId'
+  });
 
-  const updateLotInfo = useCallback(async (materialId: string, lotto: string) => {
-    try {
-      const lots = await getLotInfoForMaterial(materialId);
-      const matched = lots.find(l => l.lotto === lotto);
-      setLotAvailability(matched || null);
-    } catch (e) {
-      setLotAvailability(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (lottoValue && lottoValue.length >= 2 && scannedMaterial) {
-      const timer = setTimeout(() => {
-        updateLotInfo(scannedMaterial.id, lottoValue);
-      }, 600);
-      return () => clearTimeout(timer);
-    } else {
-      setLotAvailability(null);
-    }
-  }, [lottoValue, scannedMaterial, updateLotInfo]);
 
   useEffect(() => {
     if (!authLoading && operator && !operator.canAccessMaterialWithdrawal && operator.role !== 'admin' && operator.role !== 'supervisor') {
@@ -147,21 +134,12 @@ export default function ManualWithdrawalPage() {
         toast({ title: "Materiale Trovato", description: result.code });
       }
     } else if (scanType === 'lotto') {
-      const lottoData = await findLastWeightForLotto(scannedMaterial?.id, code.trim());
-      if (lottoData?.material) {
-        setScannedMaterial(lottoData.material);
-        form.setValue('materialId', lottoData.material.id);
         form.setValue('lotto', code.trim());
-        toast({ title: "Lotto Riconosciuto", description: `Materiale: ${lottoData.material.code}, Lotto: ${code.trim()}` });
-        await updateLotInfo(lottoData.material.id, code.trim());
-      } else {
-        form.setValue('lotto', code.trim());
-        toast({ title: 'Lotto Nuovo', description: 'Nessuno storico trovato per questo lotto.' });
-      }
     }
     setScanType(null);
     setIsCapturing(false);
-  }, [scanType, form, toast, scannedMaterial, updateLotInfo]);
+  }, [scanType, form, toast]);
+
 
   const triggerScan = async () => {
     if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -241,19 +219,25 @@ export default function ManualWithdrawalPage() {
 
   const resetFlow = () => {
     setScannedMaterial(null);
-    setLotAvailability(null);
     setAllLots([]);
-    setPackagingIdValue('none');
     form.reset({
       lotto: '',
       notes: '',
       jobOrderPF: '',
-      quantity: undefined
+      quantity: undefined,
+      packagingId: 'none'
     });
   };
 
-  const [packagingIdValue, setPackagingIdValue] = useState('none');
+
   const [packagingItems, setPackagingItems] = useState<any[]>([]);
+
+  useEffect(() => {
+     if (scannedMaterial) {
+        getLotInfoForMaterial(scannedMaterial.id).then(setAllLots);
+     }
+  }, [scannedMaterial]);
+
 
   useEffect(() => {
     import('../inventory/actions').then(m => m.getPackagingItems().then(setPackagingItems));
@@ -293,8 +277,10 @@ export default function ManualWithdrawalPage() {
   const isKgMode = scannedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
   const selectedPackaging = packagingItems.find(p => p.id === packagingIdValue);
   const tareWeight = selectedPackaging?.weightKg || 0;
-  const lotAvailableNet = lotAvailability?.available || 0;
-  const expectedGross = lotAvailableNet + tareWeight;
+  // Use calculated net from hook
+  const effectiveNet = calculatedNet > 0 ? calculatedNet : (lotAvailability?.available || 0);
+  const expectedGross = effectiveNet + tareWeight;
+
 
 
   if (authLoading || !operator) {
@@ -371,18 +357,22 @@ export default function ManualWithdrawalPage() {
                                 </div>
                                 <div className="grid grid-cols-3 gap-3 text-center">
                                     <div className="space-y-1">
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase leading-none">Netto Residuo</p>
-                                        <p className="text-md font-black">{lotAvailableNet.toFixed(3)}</p>
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase leading-none">Netto Ricalcolato</p>
+                                        <p className="text-md font-black">{effectiveNet.toFixed(3)}</p>
                                     </div>
                                     <div className="space-y-1">
                                         <p className="text-[9px] font-bold text-muted-foreground uppercase leading-none">Tara ({packagingIdValue === 'none' ? '0' : 'Attiva'})</p>
-                                        <p className="text-md font-black text-orange-600">+{tareWeight.toFixed(3)}</p>
+                                        <p className={cn("text-md font-black", isFixedTare ? "text-primary" : "text-orange-600")}>
+                                            {isFixedTare && <Lock className="inline-block h-3 w-3 mr-1 mb-1" />}
+                                            +{tareWeight.toFixed(3)}
+                                        </p>
                                     </div>
                                     <div className="bg-orange-500/10 rounded-xl py-2 space-y-1 border border-orange-500/20">
-                                        <p className="text-[9px] font-bold text-orange-800 uppercase leading-none">Lordo Atteso</p>
-                                        <p className="text-md font-black text-orange-800">{expectedGross.toFixed(3)}</p>
+                                        <p className="text-[9px] font-bold text-orange-800 uppercase leading-none">Lordo (Input)</p>
+                                        <p className="text-md font-black text-orange-800">{(Number(form.watch('quantity')) || 0).toFixed(3)}</p>
                                     </div>
                                 </div>
+
                             </div>
                         )}
                       </div>
@@ -408,8 +398,8 @@ export default function ManualWithdrawalPage() {
                                         )}
                                         onClick={() => {
                                           form.setValue('lotto', lot.lotto);
-                                          updateLotInfo(scannedMaterial.id, lot.lotto);
                                         }}
+
                                       >
                                           <div className="flex items-center gap-2">
                                               <Barcode className="h-4 w-4 opacity-50" />
@@ -447,22 +437,32 @@ export default function ManualWithdrawalPage() {
                               )}
                             />
 
-                            <FormItem className="space-y-1">
-                                <FormLabel className="font-black text-[10px] uppercase text-muted-foreground ml-1">Tara Imballo / Bobina</FormLabel>
-                                <Select onValueChange={(val) => setPackagingIdValue(val || 'none')} value={packagingIdValue}>
-                                    <FormControl>
-                                        <SelectTrigger className="h-11 rounded-xl bg-muted/10 border-2 font-bold text-xs">
-                                            <SelectValue placeholder="Seleziona..." />
-                                        </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        <SelectItem value="none" className="text-xs font-bold">Nessuna Tara (0.00 kg)</SelectItem>
-                                        {packagingItems.filter(p => p.associatedTypes && p.associatedTypes.includes(scannedMaterial.type)).map(item => (
-                                            <SelectItem key={item.id} value={item.id} className="text-xs font-bold">{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </FormItem>
+                            <FormField
+                                control={form.control}
+                                name="packagingId"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-1">
+                                        <FormLabel className="font-black text-[10px] uppercase text-muted-foreground ml-1 flex items-center justify-between">
+                                            <span>Tara Imballo / Bobina</span>
+                                            {isFixedTare && <Badge variant="outline" className="text-[7px] h-3 px-1 border-primary text-primary font-black"><Lock className="h-2 w-2 mr-0.5" /> CERTIFICATA</Badge>}
+                                        </FormLabel>
+                                        <Select onValueChange={(val) => field.onChange(val || 'none')} value={field.value || 'none'} disabled={isFixedTare}>
+                                            <FormControl>
+                                                <SelectTrigger className={cn("h-11 rounded-xl bg-muted/10 border-2 font-bold text-xs", isFixedTare && "bg-primary/5 border-primary/20")}>
+                                                    <SelectValue placeholder="Seleziona..." />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="none" className="text-xs font-bold">Nessuna Tara (0.00 kg)</SelectItem>
+                                                {packagingItems.filter(p => !scannedMaterial || (p.associatedTypes && p.associatedTypes.includes(scannedMaterial.type))).map(item => (
+                                                    <SelectItem key={item.id} value={item.id} className="text-xs font-bold">{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </FormItem>
+                                )}
+                            />
+
                         </div>
 
                         <div className="space-y-4 pt-2">

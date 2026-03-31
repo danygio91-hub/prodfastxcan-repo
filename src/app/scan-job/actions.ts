@@ -557,7 +557,9 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
             return { 
                 material: { ...mSnap.data(), id: mSnap.id }, 
                 netWeight: rec.netWeight, 
-                packagingId: rec.packagingId || 'none'
+                packagingId: rec.packagingId || 'none',
+                tareWeight: rec.tareWeight || 0,
+                tareName: rec.tareName || ''
             };
         }
     }
@@ -567,11 +569,13 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         const mData = mDoc.data() as RawMaterial;
         const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto && !b.isExhausted);
         if (matchingBatch) {
-            const netWeight = matchingBatch.netQuantity || (matchingBatch.grossWeight - matchingBatch.tareWeight);
+            const netWeight = matchingBatch.netQuantity || (matchingBatch.grossWeight - (matchingBatch.tareWeight || 0));
             return {
                 material: { ...mData, id: mDoc.id },
                 netWeight: netWeight,
-                packagingId: matchingBatch.packagingId || 'none'
+                packagingId: matchingBatch.packagingId || 'none',
+                tareWeight: matchingBatch.tareWeight || 0,
+                tareName: matchingBatch.tareName || ''
             };
         }
     }
