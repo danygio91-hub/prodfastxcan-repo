@@ -162,6 +162,7 @@ export interface Operator {
   syncPulse?: number;
   activeMaterialSessions?: ActiveMaterialSessionData[];
   skills?: OperatorSkill[];
+  canManageMaterialSessions?: boolean;
 }
 
 export interface OperatorAssignment {
@@ -329,6 +330,7 @@ export interface PurchaseOrder {
 export interface MaterialWithdrawal {
   id: string;
   jobIds: string[];
+  associatedJobIds?: string[];
   jobOrderPFs: string[];
   materialId: string;
   materialCode: string;
@@ -367,6 +369,22 @@ export interface ActiveMaterialSessionData {
   packagingId?: string;
   tareWeight?: number;
   lotto?: string | null;
+}
+export interface IndependentMaterialSession {
+  id: string;
+  materialId: string;
+  materialCode: string;
+  lotto: string | null;
+  operatorId: string;
+  operatorName: string;
+  startedAt: Date | any;
+  status: 'open' | 'closed';
+  linkedJobOrderIds: string[];
+  linkedJobOrderPFs?: string[];
+  grossOpeningWeight: number;
+  netOpeningWeight: number;
+  tareWeight?: number;
+  packagingId?: string;
 }
 
 export interface NonConformityReport {

@@ -124,8 +124,9 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
 
             // Se è un gruppo, propaghiamo alle commesse figlie
             if (isGroup) {
-                (data.jobOrderIds || []).forEach(id => {
-                    transaction.update(adminDb.collection('jobOrders').doc(id), updates);
+                (data.jobOrderIds || []).forEach(childId => {
+                    const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                    transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updates);
                 });
             }
         });
@@ -353,7 +354,8 @@ export async function handlePhaseScanResult(
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
                     data.jobOrderIds.forEach((childId: string) => {
-                        transaction.update(adminDb.collection('jobOrders').doc(childId), updates);
+                        const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                        transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updates);
                     });
                 }
                 // ----------------------------------
@@ -382,7 +384,8 @@ export async function handlePhaseScanResult(
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
                     data.jobOrderIds.forEach((childId: string) => {
-                        transaction.update(adminDb.collection('jobOrders').doc(childId), startUpdates);
+                        const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                        transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), startUpdates);
                     });
                 }
                 // ----------------------------------
@@ -446,7 +449,8 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
                     data.jobOrderIds.forEach((childId: string) => {
-                        transaction.update(adminDb.collection('jobOrders').doc(childId), updateData);
+                        const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                        transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updateData);
                     });
                 }
                 // ----------------------------------
@@ -461,7 +465,7 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
 }
 
 
-export async function startMaterialSessionInJob(jobId: string, phaseId: string, consumption: MaterialConsumption) {
+export async function markPhaseMaterialReady(jobId: string, phaseId: string, materialInfo: { materialCode: string, lotto?: string }) {
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
     
@@ -473,7 +477,16 @@ export async function startMaterialSessionInJob(jobId: string, phaseId: string, 
             
             const phs = (data.phases || []).map((p: any) => 
                 p.id === phaseId 
-                    ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } 
+                    ? { 
+                        ...p, 
+                        materialReady: true,
+                        // We still store a lightweight record for UI display in the PhaseCard
+                        materialConsumptions: [...(p.materialConsumptions || []), {
+                            materialCode: materialInfo.materialCode,
+                            lottoBobina: materialInfo.lotto || '',
+                            timestamp: new Date()
+                        }]
+                    } 
                     : p
             );
             
@@ -488,10 +501,10 @@ export async function startMaterialSessionInJob(jobId: string, phaseId: string, 
         
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
-        return { success: true, message: 'Sessione avviata e dati sincronizzati.' };
+        return { success: true };
     } catch (error) {
-        console.error("Error in startMaterialSessionInJob:", error);
-        return { success: false, message: 'Errore durante il salvataggio.' };
+        console.error("Error in markPhaseMaterialReady:", error);
+        return { success: false, message: 'Errore durante l\'aggiornamento dello stato materiale.' };
     }
 }
 

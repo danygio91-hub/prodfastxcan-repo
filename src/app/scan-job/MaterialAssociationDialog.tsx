@@ -9,8 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 
-import type { JobOrder, JobPhase, RawMaterial, ActiveMaterialSessionData, RawMaterialType, Packaging, MaterialConsumption } from '@/types';
-import { findLastWeightForLotto, logTubiGuainaWithdrawal, getRawMaterialByCode, startMaterialSessionInJob } from './actions';
+import type { JobOrder, JobPhase, RawMaterial, ActiveMaterialSessionData, RawMaterialType, Packaging, MaterialConsumption, IndependentMaterialSession } from '@/types';
+import { findLastWeightForLotto, logTubiGuainaWithdrawal, getRawMaterialByCode, markPhaseMaterialReady } from './actions';
 import { getPackagingItems } from '../inventory/actions';
 import { getLotInfoForMaterial, type LotInfo } from '../admin/raw-material-management/actions';
 
@@ -48,7 +48,7 @@ interface MaterialAssociationDialogProps {
   onOpenChange: (open: boolean) => void;
   phase: JobPhase;
   job: JobOrder | null;
-  onSessionStart: (sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => void;
+  onSessionStart: (sessionData: Omit<IndependentMaterialSession, 'id' | 'startedAt' | 'status' | 'operatorId' | 'operatorName'>, type: RawMaterialType) => Promise<any>;
   onWithdrawalComplete: () => void;
 }
 
@@ -170,14 +170,11 @@ export default function MaterialAssociationDialog({
     setIsProcessing(true);
     const selectedPackaging = packagingItems.find(p => p.id === values.packagingId);
 
-    let associatedJobsForSession: { jobId: string; jobOrderPF: string }[] = [];
-    if (job.id.startsWith('group-') && job.jobOrderIds && job.jobOrderPFs) {
-        associatedJobsForSession = job.jobOrderIds.map((id, index) => ({
-            jobId: id,
-            jobOrderPF: job.jobOrderPFs![index]
-        }));
+    let linkedJobOrderIds: string[] = [];
+    if (job.id.startsWith('group-') && job.jobOrderIds) {
+        linkedJobOrderIds = job.jobOrderIds;
     } else {
-        associatedJobsForSession = [{ jobId: job.id, jobOrderPF: job.ordinePF }];
+        linkedJobOrderIds = [job.id];
     }
 
     const consumption: MaterialConsumption = {
@@ -190,20 +187,29 @@ export default function MaterialAssociationDialog({
         tareWeight: selectedPackaging?.weightKg || 0,
     };
 
-    const registerResult = await startMaterialSessionInJob(job.id, phase.id, consumption);
-
+    const registerResult = await markPhaseMaterialReady(job.id, phase.id, { 
+        materialCode: selectedMaterial.code, 
+        lotto: values.lotto 
+    });
+    
     if (registerResult.success) {
-        onSessionStart({
+        const sessionResult = await onSessionStart({
             materialId: selectedMaterial.id,
             materialCode: selectedMaterial.code,
-            grossOpeningWeight: consumption.grossOpeningWeight!,
-            netOpeningWeight: consumption.netOpeningWeight!,
-            originatorJobId: job.id,
-            associatedJobs: associatedJobsForSession,
-            packagingId: consumption.packagingId,
-            tareWeight: consumption.tareWeight,
-            lotto: consumption.lottoBobina,
+            lotto: values.lotto || null,
+            linkedJobOrderIds: linkedJobOrderIds,
+            grossOpeningWeight: openingWeight + (selectedPackaging?.weightKg || 0),
+            netOpeningWeight: openingWeight,
+            packagingId: values.packagingId,
+            tareWeight: selectedPackaging?.weightKg || 0,
         }, selectedMaterial.type);
+        
+        if (sessionResult.success) {
+            toast({ title: "Sessione Indipendente Avviata", description: "La bobina è ora attiva e condivisa." });
+            onOpenChange(false);
+        } else {
+            toast({ variant: 'destructive', title: 'Errore Sessione', description: sessionResult.message });
+        }
     } else {
         toast({ variant: 'destructive', title: 'Errore', description: registerResult.message });
     }

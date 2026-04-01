@@ -188,20 +188,24 @@ export default function ManualWithdrawalPage() {
       const initialTare = packagingItems.find(p => p.id === packagingIdValue)?.weightKg || 0;
       const initialGross = initialNet + initialTare;
 
-      startSession({
+      // START INDEPENDENT SESSION
+      const sessionResult = await startSession({
         materialId: scannedMaterial.id,
         materialCode: scannedMaterial.code,
-        grossOpeningWeight: initialGross,
-        netOpeningWeight: initialNet, 
-        originatorJobId: null, 
-        associatedJobs: values.jobOrderPF ? [{ jobId: values.jobOrderPF, jobOrderPF: values.jobOrderPF }] : [],
         lotto: values.lotto || null,
+        linkedJobOrderIds: values.jobOrderPF ? [values.jobOrderPF] : [],
+        grossOpeningWeight: initialGross,
+        netOpeningWeight: initialNet,
         packagingId: packagingIdValue,
         tareWeight: initialTare
       }, scannedMaterial.type);
 
-      toast({ title: "Sessione Avviata", description: "Monitora il prelievo dalla barra laterale." });
-      resetFlow();
+      if (sessionResult.success) {
+        toast({ title: "Sessione Indipendente Avviata", description: "La bobina è ora attiva. Monitorala dalla barra superiore (3 Cubi)." });
+        resetFlow();
+      } else {
+        toast({ variant: 'destructive', title: 'Errore', description: sessionResult.message });
+      }
       setIsSubmitting(false);
       return;
     }
@@ -617,13 +621,13 @@ export default function ManualWithdrawalPage() {
             </form>
           </Form>
 
-          {activeSessions.filter(s => s.originatorJobId === null).length > 0 && (
+          {activeSessions.length > 0 && (
               <div className="space-y-6 pt-10">
                   <h3 className="font-black text-xl uppercase tracking-tighter flex items-center gap-3">
-                    <Info className="h-6 w-6 text-primary" /> Sessioni Manuali Attive
+                    <Info className="h-6 w-6 text-primary" /> Sessioni Attive (Officina & Magazzino)
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {activeSessions.filter(s => s.originatorJobId === null).map((s, idx) => (
+                      {activeSessions.map((s, idx) => (
                           <Card key={idx} className="border-2 border-primary/20 bg-primary/5 rounded-3xl overflow-hidden group shadow-md hover:shadow-lg transition-all">
                               <CardHeader className="py-4 bg-muted/20 border-b">
                                   <div className="flex justify-between items-start">
@@ -631,14 +635,24 @@ export default function ManualWithdrawalPage() {
                                           <CardTitle className="text-xl font-black tracking-tighter leading-none">{s.materialCode}</CardTitle>
                                           <CardDescription className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mt-1">Lotto: {s.lotto || 'N/D'}</CardDescription>
                                       </div>
-                                      <Badge variant="outline" className="bg-primary/10 border-primary/30 text-primary font-black text-[10px]">{s.category}</Badge>
+                                      <Badge variant="outline" className="bg-primary/10 border-primary/30 text-primary font-black text-[10px]">ATTIVA</Badge>
                                   </div>
                               </CardHeader>
-                              <CardContent className="py-4">
-                                  <div className="flex justify-between text-xs font-bold uppercase">
-                                      <span className="text-muted-foreground">Iniziata con</span>
+                              <CardContent className="py-4 space-y-2">
+                                  <div className="flex justify-between text-xs font-bold uppercase border-b pb-2">
+                                      <span className="text-muted-foreground">Peso Apertura</span>
                                       <span className="text-primary">{formatDisplayStock(s.netOpeningWeight, 'kg')} KG</span>
                                   </div>
+                                  {s.linkedJobOrderPFs && s.linkedJobOrderPFs.length > 0 && (
+                                    <div className="space-y-1">
+                                        <p className="text-[9px] font-black uppercase text-muted-foreground">Commesse Collegate:</p>
+                                        <div className="flex flex-wrap gap-1">
+                                            {s.linkedJobOrderPFs.map(pf => (
+                                                <Badge key={pf} variant="secondary" className="text-[8px] px-1.5 h-4">{pf}</Badge>
+                                            ))}
+                                        </div>
+                                    </div>
+                                  )}
                               </CardContent>
                               <CardFooter className="py-4 border-t bg-background">
                                   <Button 
@@ -646,11 +660,9 @@ export default function ManualWithdrawalPage() {
                                     size="lg" 
                                     className="w-full font-black uppercase tracking-tight rounded-xl h-12"
                                     onClick={() => {
-                                        // Lasciamo che la SessionBar gestisca la chiusura via UI premium
-                                        // ma apriamo il trigger
                                         const event = new CustomEvent('close-material-session', { detail: s });
                                         window.dispatchEvent(event);
-                                        toast({ title: "Chiusura in corso", description: "Completa i dati nella barra delle sessioni attive." });
+                                        toast({ title: "Chiusura in corso", description: "Completa i dati nella barra superiore." });
                                     }}
                                   >
                                       <Package className="mr-2 h-4 w-4" /> Chiudi Sessione

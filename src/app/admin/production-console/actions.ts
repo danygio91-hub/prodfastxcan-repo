@@ -87,7 +87,10 @@ async function propagateGroupUpdatesToJobs(transaction: admin.firestore.Transact
         problemReportedBy: (groupData as any).problemReportedBy || null
     };
 
-    const jobRefs = groupData.jobOrderIds.map(id => adminDb.collection('jobOrders').doc(id));
+    const jobRefs = groupData.jobOrderIds.map(id => {
+        const sanitizedId = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        return adminDb.collection('jobOrders').doc(sanitizedId);
+    });
     jobRefs.forEach(jobRef => { 
         transaction.update(jobRef, updatePayload); 
     });

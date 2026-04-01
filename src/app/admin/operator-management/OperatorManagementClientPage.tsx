@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2, Warehouse, MinusSquare, UserCheck, UserX } from 'lucide-react';
+import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2, Warehouse, MinusSquare, UserCheck, UserX, LayoutDashboard } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRouter } from 'next/navigation';
 import { Switch } from '@/components/ui/switch';
@@ -39,6 +39,7 @@ const operatorFormSchema = z.object({
   role: z.enum(['admin', 'supervisor', 'operator']),
   canAccessInventory: z.boolean().optional(),
   canAccessMaterialWithdrawal: z.boolean().optional(),
+  canManageMaterialSessions: z.boolean().optional(),
   isReal: z.boolean().optional(),
   skills: z.array(z.object({
     phaseId: z.string().min(1, "Seleziona fase di lavorazione"),
@@ -96,6 +97,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
       role: 'operator',
       canAccessInventory: false,
       canAccessMaterialWithdrawal: false,
+      canManageMaterialSessions: false,
       isReal: true,
       skills: [],
     },
@@ -135,11 +137,12 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         role: operator.role,
         canAccessInventory: operator.canAccessInventory || false,
         canAccessMaterialWithdrawal: operator.canAccessMaterialWithdrawal || false,
+        canManageMaterialSessions: operator.canManageMaterialSessions || false,
         isReal: operator.isReal !== undefined ? operator.isReal : true,
         skills: operator.skills || [],
       });
     } else {
-      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false, canAccessMaterialWithdrawal: false, isReal: true, skills: [] });
+      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false, canAccessMaterialWithdrawal: false, canManageMaterialSessions: false, isReal: true, skills: [] });
     }
     setIsDialogOpen(true);
   };
@@ -327,6 +330,22 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                                 </TooltipTrigger>
                                 <TooltipContent>
                                   <p>{op.canAccessMaterialWithdrawal ? 'Accesso Scarico Materiale Abilitato' : 'Accesso Scarico Materiale Disabilitato'}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div>
+                                    {op.canManageMaterialSessions ? (
+                                      <LayoutDashboard className="h-5 w-5 text-primary" />
+                                    ) : (
+                                      <LayoutDashboard className="h-5 w-5 text-muted-foreground opacity-30" />
+                                    )}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{op.canManageMaterialSessions ? 'Gestione Sessioni Globali Abilitata' : 'Gestione Sessioni Globali Disabilitata'}</p>
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
@@ -520,6 +539,30 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                     </div>
                     <FormControl>
                       <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="canManageMaterialSessions"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 bg-primary/5 border-primary/20">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base flex items-center gap-2 font-bold">
+                        <LayoutDashboard className="h-5 w-5 text-primary" />
+                        Gestione Sessioni Globali
+                      </FormLabel>
+                      <FormDescription className="text-xs">
+                        Consente di vedere e gestire tutte le bobine aperte in officina (Dashboard Supervisore).
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
                         checked={field.value}
                         onCheckedChange={field.onChange}
                       />

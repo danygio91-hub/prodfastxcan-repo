@@ -1,95 +1,112 @@
 
 "use client";
 
-import React, { createContext, useContext, useCallback, ReactNode } from 'react';
-import type { ActiveMaterialSessionData, RawMaterialType } from '@/types';
+import React, { createContext, useContext, useCallback, ReactNode, useState, useEffect } from 'react';
+import type { ActiveMaterialSessionData, RawMaterialType, IndependentMaterialSession } from '@/types';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { updateOperatorMaterialSessions } from '@/app/scan-job/actions';
+import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { startIndependentSession, addJobsToSession, closeIndependentSession } from '@/app/actions/material-sessions';
 
 type MaterialSessionCategory = 'TRECCIA' | 'TUBI' | 'GUAINA';
 
 interface ActiveMaterialSessionContextType {
-  activeSessions: ActiveMaterialSessionData[];
-  startSession: (sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => void;
-  addJobToSession: (materialId: string, lotto: string | null | undefined, job: { jobId: string; jobOrderPF: string }) => void;
-  closeSession: (materialId: string, lotto?: string | null) => void;
-  getSessionByMaterialId: (materialId: string) => ActiveMaterialSessionData | undefined;
+  activeSessions: IndependentMaterialSession[];
+  startSession: (sessionData: Omit<IndependentMaterialSession, 'id' | 'startedAt' | 'status' | 'operatorId' | 'operatorName'>, type: RawMaterialType) => Promise<any>;
+  addJobToSession: (sessionId: string, jobIds: string[]) => Promise<any>;
+  closeSession: (sessionId: string, closingGrossWeight: number, isFinished: boolean) => Promise<any>;
+  getSessionByMaterialId: (materialId: string) => IndependentMaterialSession | undefined;
   isLoading: boolean;
 }
 
 const ActiveMaterialSessionContext = createContext<ActiveMaterialSessionContextType | undefined>(undefined);
 
-function getMaterialCategory(type: RawMaterialType): MaterialSessionCategory {
-  if (type === 'BOB' || type === 'PF3V0') return 'TRECCIA';
-  if (type === 'TUBI') return 'TUBI';
-  if (type === 'GUAINA') return 'GUAINA';
-  console.warn(`Unknown material type received for session category: ${type}`);
-  return 'TRECCIA';
-}
-
 export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNode }) => {
-  const { operator, loading: authLoading } = useAuth();
+  const { user, operator, loading: authLoading } = useAuth();
+  const [activeSessions, setActiveSessions] = useState<IndependentMaterialSession[]>([]);
+  const [isListenerLoading, setIsListenerLoading] = useState(true);
 
-  // The source of truth for active sessions is now the operator object from AuthProvider
-  const activeSessions = operator?.activeMaterialSessions || [];
-  const isLoading = authLoading;
+  const isLoading = authLoading || isListenerLoading;
 
-  const getSessionByMaterialId = useCallback((materialId: string): ActiveMaterialSessionData | undefined => {
-    return activeSessions.find(s => s.materialId === materialId);
-  }, [activeSessions]);
-  
-  const updateSessionsOnServer = useCallback(async (newSessions: ActiveMaterialSessionData[]) => {
-      if (!operator) return;
-      await updateOperatorMaterialSessions(operator.id, newSessions);
-  }, [operator]);
+  useEffect(() => {
+    if (!user || authLoading) return;
 
-  const startSession = useCallback((sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => {
-    const category = getMaterialCategory(type);
-    const newSession: ActiveMaterialSessionData = { ...sessionData, category };
-
-    // Blocca solo se esiste già una sessione con STESSO materiale E STESSO lotto per questo operatore.
-    if (activeSessions.some(s => s.materialId === newSession.materialId && (s.lotto === newSession.lotto || (!s.lotto && !newSession.lotto)))) {
-      console.warn(`Tentativo di avviare una sessione duplicata per materiale ${newSession.materialId} lotto ${newSession.lotto}.`);
+    if (!user) {
+      setActiveSessions([]);
+      setIsListenerLoading(false);
       return;
     }
 
-    const updatedSessions = [...activeSessions, newSession];
-    updateSessionsOnServer(updatedSessions);
-  }, [activeSessions, updateSessionsOnServer]);
+    const sessionsRef = collection(db, "materialSessions");
+    let q;
 
-  const addJobToSession = useCallback((materialId: string, lotto: string | null | undefined, job: { jobId: string; jobOrderPF: string }) => {
-    let hasChanged = false;
-    const updatedSessions = activeSessions.map(session => {
-        // Identifica la sessione corretta tramite Materiale + Lotto
-        if (session.materialId === materialId && (session.lotto === lotto || (!session.lotto && !lotto))) {
-            if (session.associatedJobs.some(j => j.jobId === job.jobId)) {
-                return session; 
-            }
-            hasChanged = true;
-            return {
-                ...session,
-                associatedJobs: [...session.associatedJobs, job],
-            };
-        }
-        return session;
+    if (operator?.canManageMaterialSessions) {
+      // Global View: All open sessions
+      q = query(
+        sessionsRef,
+        where("status", "==", "open")
+      );
+    } else {
+      // Personal View: Only own open sessions
+      q = query(
+        sessionsRef,
+        where("operatorId", "==", user.uid),
+        where("status", "==", "open")
+      );
+    }
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const sessions = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id,
+        startedAt: doc.data().startedAt?.toDate() || doc.data().startedAt
+      } as IndependentMaterialSession));
+      setActiveSessions(sessions);
+      setIsListenerLoading(false);
+    }, (error) => {
+      console.error("Firestore Material Sessions Listener Error:", error);
+      setIsListenerLoading(false);
     });
 
-    if (hasChanged) {
-      updateSessionsOnServer(updatedSessions);
+    return () => unsubscribe();
+  }, [user, operator, authLoading]);
+
+  const getSessionByMaterialId = useCallback((materialId: string): IndependentMaterialSession | undefined => {
+    return activeSessions.find(s => s.materialId === materialId);
+  }, [activeSessions]);
+
+  const startSession = useCallback(async (sessionData: Omit<IndependentMaterialSession, 'id' | 'startedAt' | 'status' | 'operatorId' | 'operatorName'>, type: RawMaterialType) => {
+    if (!user || !operator) return { success: false, message: "Utente non autorizzato." };
+    
+    // Check for existing session for same material/lotto (optional but good)
+    if (activeSessions.some(s => s.materialId === sessionData.materialId && (s.lotto === sessionData.lotto || (!s.lotto && !sessionData.lotto)))) {
+      return { success: false, message: "Esiste già una sessione aperta per questo materiale." };
     }
-  }, [activeSessions, updateSessionsOnServer]);
 
-  const closeSession = useCallback((materialId: string, lotto?: string | null) => {
-    // BUG FIX: Rimuovi solo la sessione che corrisponde a ID E LOTTO
-    const updatedSessions = activeSessions.filter(s => 
-        !(s.materialId === materialId && (s.lotto === lotto || (!s.lotto && !lotto)))
-    );
-    updateSessionsOnServer(updatedSessions);
-  }, [activeSessions, updateSessionsOnServer]);
+    return await startIndependentSession({
+      ...sessionData,
+      operatorId: user.uid,
+      operatorName: operator.nome
+    });
+  }, [user, operator, activeSessions]);
 
+  const addJobToSession = useCallback(async (sessionId: string, jobIds: string[]) => {
+    return await addJobsToSession(sessionId, jobIds);
+  }, []);
+
+  const closeSession = useCallback(async (sessionId: string, closingGrossWeight: number, isFinished: boolean) => {
+    return await closeIndependentSession(sessionId, closingGrossWeight, isFinished);
+  }, []);
 
   return (
-    <ActiveMaterialSessionContext.Provider value={{ activeSessions, startSession, addJobToSession, closeSession, getSessionByMaterialId, isLoading }}>
+    <ActiveMaterialSessionContext.Provider value={{ 
+      activeSessions, 
+      startSession, 
+      addJobToSession, 
+      closeSession, 
+      getSessionByMaterialId, 
+      isLoading 
+    }}>
       {children}
     </ActiveMaterialSessionContext.Provider>
   );
