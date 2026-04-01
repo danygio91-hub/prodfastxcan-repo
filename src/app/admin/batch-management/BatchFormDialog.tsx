@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
+import { calculateInventoryMovement } from '@/lib/inventory-utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Save, Weight, PackagePlus, Scale } from 'lucide-react';
 import { type EnrichedBatch, type GroupedBatches } from './actions';
@@ -55,24 +56,21 @@ export default function BatchFormDialog({ isOpen, onClose, material, batch }: Ba
 
   // Reattività: Calcola il netto quando cambia lordo o tara
   useEffect(() => {
-    if (watchedGross !== undefined) {
+    if (watchedGross !== undefined && material) {
         const tareWeight = packagingItems.find(p => p.id === watchedPackagingId)?.weightKg || 0;
         const netWeightKg = Math.max(0, watchedGross - tareWeight);
         
-        let calculatedNet = netWeightKg;
-        const uom = material.unitOfMeasure.toLowerCase();
+        // Use the centralized logic to determine Net Quantity in Base UOM from Net Weight in KG
+        // We pass the netWeightKg as the quantity and 'kg' as the inputUom
+        const { unitsToChange: calculatedNet } = calculateInventoryMovement(
+            { ...material, unitOfMeasure: material.unitOfMeasure } as any,
+            { defaultUnit: material.unitOfMeasure, hasConversion: true },
+            netWeightKg,
+            'kg',
+            true // isAddition
+        );
 
-        if (uom === 'n') {
-          const factor = material.conversionFactor || 1;
-          calculatedNet = Math.round(netWeightKg / factor);
-        } else if (uom === 'mt') {
-          const factor = material.rapportoKgMt || 1;
-          calculatedNet = Number((netWeightKg / factor).toFixed(3));
-        } else {
-          calculatedNet = Number(netWeightKg.toFixed(3));
-        }
-
-        form.setValue('netQuantity', calculatedNet);
+        form.setValue('netQuantity', Number(calculatedNet.toFixed(3)));
     }
   }, [watchedGross, watchedPackagingId, packagingItems, form, material]);
 

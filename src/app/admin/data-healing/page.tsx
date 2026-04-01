@@ -10,13 +10,16 @@ import {
     ZombieAnomaly,
     auditBrokenBatches,
     healBrokenBatches,
-    AuditBrokenLot 
+    AuditBrokenLot,
+    auditGroupBlockers,
+    forceUnlockAndDissolveGroup,
+    GroupBlocker
 } from './actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, CheckCircle2, ShieldCheck, Database, History, TrendingDown, Hammer, Info, Ghost, Skull, UserX, Zap, RotateCcw, Clock, Search } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, ShieldCheck, Database, History, TrendingDown, Hammer, Info, Ghost, Skull, UserX, Zap, RotateCcw, Clock, Search, Layers, Unlink, TriangleAlert } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
@@ -63,6 +66,14 @@ export default function AdministrationDataHealingPage() {
     const [brokenExecuting, setBrokenExecuting] = useState(false);
     const [isBrokenModalOpen, setIsBrokenModalOpen] = useState(false);
     const [brokenConfirmText, setBrokenConfirmText] = useState("");
+
+    // Workgroup Unblock State
+    const [groupBlockers, setGroupBlockers] = useState<GroupBlocker[]>([]);
+    const [groupLoading, setGroupLoading] = useState(false);
+    const [groupExecuting, setGroupExecuting] = useState(false);
+    const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+    const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+    const [groupConfirmText, setGroupConfirmText] = useState("");
 
     // --- INVENTORY LOGIC ---
     async function handleAudit() {
@@ -179,6 +190,45 @@ export default function AdministrationDataHealingPage() {
         }
     }
 
+    // --- GROUP UNBLOCK LOGIC ---
+    async function handleGroupAudit() {
+        setGroupLoading(true);
+        setError(null);
+        try {
+            const res = await auditGroupBlockers();
+            if (res.success) {
+                setGroupBlockers(res.blockers);
+            } else {
+                setError("Errore durante l'audit dei gruppi.");
+            }
+        } catch (e) {
+            setError("Errore di connessione durante l'audit gruppi.");
+        } finally {
+            setGroupLoading(false);
+        }
+    }
+
+    async function handleExecuteGroupUnlock() {
+        if (!operator?.id || !selectedGroupId) return;
+        setGroupExecuting(true);
+        setIsGroupModalOpen(false);
+        try {
+            const res = await forceUnlockAndDissolveGroup(selectedGroupId, operator.id);
+            if (res.success) {
+                toast({ title: "Sblocco Completato", description: res.message });
+                await handleGroupAudit();
+            } else {
+                toast({ title: "Errore Sblocco", description: res.message, variant: "destructive" });
+            }
+        } catch (e) {
+            toast({ title: "Errore di Sistema", description: "Impossibile completare lo sblocco.", variant: "destructive" });
+        } finally {
+            setGroupExecuting(false);
+            setGroupConfirmText("");
+            setSelectedGroupId(null);
+        }
+    }
+
     return (
         <AdminAuthGuard>
             <AppShell>
@@ -192,7 +242,7 @@ export default function AdministrationDataHealingPage() {
                     </div>
 
                     <Tabs defaultValue="inventory" className="w-full">
-                        <TabsList className="grid w-full grid-cols-3 max-w-2xl mb-8">
+                        <TabsList className="grid w-full grid-cols-4 max-w-4xl mb-8">
                             <TabsTrigger value="inventory" className="flex items-center gap-2">
                                 <Database className="h-4 w-4" /> Integrità Magazzino
                             </TabsTrigger>
@@ -201,6 +251,9 @@ export default function AdministrationDataHealingPage() {
                             </TabsTrigger>
                             <TabsTrigger value="recovery" className="flex items-center gap-2">
                                 <RotateCcw className="h-4 w-4 text-orange-500" /> Ripristino Lotti
+                            </TabsTrigger>
+                            <TabsTrigger value="groups" className="flex items-center gap-2">
+                                <Layers className="h-4 w-4 text-blue-500" /> Sblocco Gruppi
                             </TabsTrigger>
                         </TabsList>
 
@@ -470,6 +523,115 @@ export default function AdministrationDataHealingPage() {
                                     <DialogFooter>
                                         <Button variant="ghost" onClick={() => setIsBrokenModalOpen(false)}>Annulla</Button>
                                         <Button className="bg-orange-600 hover:bg-orange-700 text-white" disabled={brokenConfirmText !== "RIPRISTINA"} onClick={handleExecuteBrokenHealing}>ESEGUI RIPRISTINO</Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+                        </TabsContent>
+
+                        {/* --- TAB 4: GROUP UNBLOCK --- */}
+                        <TabsContent value="groups" className="space-y-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold flex items-center gap-2 text-blue-600">
+                                        <Layers className="h-6 w-6" /> Gestione Gruppi Appesi (Force Unlock)
+                                    </h2>
+                                    <p className="text-sm text-muted-foreground">Identifica e forza lo scioglimento di gruppi bloccati da sessioni "fantasma".</p>
+                                </div>
+                                <Button variant="outline" onClick={handleGroupAudit} disabled={groupLoading || groupExecuting}>
+                                    {groupLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                                    Analizza Blocchi Gruppo
+                                </Button>
+                            </div>
+
+                            {groupBlockers.length > 0 ? (
+                                <div className="grid grid-cols-1 gap-6">
+                                    {groupBlockers.map((gb) => (
+                                        <Card key={gb.groupId} className="overflow-hidden border-blue-200">
+                                            <CardHeader className="bg-blue-50/50 pb-4">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                                                            <Layers className="h-5 w-5" />
+                                                        </div>
+                                                        <div>
+                                                            <CardTitle className="text-lg">Gruppo {gb.groupRef}</CardTitle>
+                                                            <CardDescription className="font-mono text-xs">ID: {gb.groupId}</CardDescription>
+                                                        </div>
+                                                    </div>
+                                                    <Button 
+                                                        variant="destructive" 
+                                                        size="sm" 
+                                                        onClick={() => {
+                                                            setSelectedGroupId(gb.groupId);
+                                                            setGroupConfirmText("");
+                                                            setIsGroupModalOpen(true);
+                                                        }}
+                                                        disabled={groupExecuting}
+                                                    >
+                                                        <Unlink className="h-4 w-4 mr-2" /> Forza Sblocco e Sciogli
+                                                    </Button>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="pt-4">
+                                                <div className="space-y-3">
+                                                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Elementi Bloccanti Rilevati:</p>
+                                                    {gb.blockers.map((b, idx) => (
+                                                        <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-slate-50">
+                                                            <TriangleAlert className={`h-5 w-5 mt-0.5 ${b.type === 'PHASE_OPEN' ? 'text-amber-500' : 'text-red-500'}`} />
+                                                            <div>
+                                                                <p className="text-sm font-semibold">
+                                                                    {b.type === 'OPERATOR_JOB' && "Operatore Occupato (Lavoro)"}
+                                                                    {b.type === 'OPERATOR_MATERIAL' && "Operatore Occupato (Materiale)"}
+                                                                    {b.type === 'PHASE_OPEN' && "Fase Aperta (Documento)"}
+                                                                </p>
+                                                                <p className="text-sm text-balance">
+                                                                    {b.operatorName && <span className="font-bold underline mr-1">{b.operatorName}:</span>}
+                                                                    {b.details}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </div>
+                            ) : !groupLoading && (
+                                <div className="py-20 text-center border-2 border-dashed rounded-xl opacity-60">
+                                    <ShieldCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                                    <p className="text-muted-foreground">Nessun gruppo bloccato rilevato.</p>
+                                </div>
+                            )}
+
+                            <Dialog open={isGroupModalOpen} onOpenChange={setIsGroupModalOpen}>
+                                <DialogContent>
+                                    <DialogHeader>
+                                        <DialogTitle className="text-red-600 flex items-center gap-2">
+                                            <Skull className="h-5 w-5" /> Azione Nucleare: Sblocco Gruppo
+                                        </DialogTitle>
+                                        <DialogDescription className="py-4">
+                                            Questa azione espellerà forzatamente gli operatori dal gruppo, chiuderà le fasi nel documento e tenterà lo scioglimento. 
+                                            <br /><strong>Usare solo se il gruppo è realmente "zombie".</strong>
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-2">
+                                        <p className="text-sm font-medium">Scrivere <span className="font-bold text-red-600 uppercase">SBLOCCA</span> per confermare:</p>
+                                        <Input 
+                                            value={groupConfirmText} 
+                                            onChange={e => setGroupConfirmText(e.target.value)} 
+                                            placeholder="SBLOCCA" 
+                                            className="uppercase font-bold border-red-300 focus-visible:ring-red-500" 
+                                        />
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="ghost" onClick={() => { setIsGroupModalOpen(false); setSelectedGroupId(null); }}>Annulla</Button>
+                                        <Button 
+                                            variant="destructive"
+                                            disabled={groupConfirmText !== "SBLOCCA"} 
+                                            onClick={handleExecuteGroupUnlock}
+                                        >
+                                            ESEGUI SBLOCCO FORZATO
+                                        </Button>
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>

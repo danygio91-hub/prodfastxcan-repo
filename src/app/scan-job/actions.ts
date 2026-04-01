@@ -349,6 +349,15 @@ export async function handlePhaseScanResult(
                 }
 
                 transaction.update(itemRef, updates);
+
+                // --- CASCADE UPDATE TO CHILDREN ---
+                if (isGroup && data.jobOrderIds) {
+                    data.jobOrderIds.forEach((childId: string) => {
+                        transaction.update(adminDb.collection('jobOrders').doc(childId), updates);
+                    });
+                }
+                // ----------------------------------
+
                 transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
 
             } else {
@@ -362,11 +371,21 @@ export async function handlePhaseScanResult(
 
                 const updatedPhases = updatePhasesMaterialReadiness(phs);
                 
-                transaction.update(itemRef, { 
+                const startUpdates = { 
                     phases: updatedPhases, 
                     status: 'production', 
                     overallStartTime: data.overallStartTime || new Date() 
-                });
+                };
+
+                transaction.update(itemRef, startUpdates);
+                
+                // --- CASCADE UPDATE TO CHILDREN ---
+                if (isGroup && data.jobOrderIds) {
+                    data.jobOrderIds.forEach((childId: string) => {
+                        transaction.update(adminDb.collection('jobOrders').doc(childId), startUpdates);
+                    });
+                }
+                // ----------------------------------
                 
                 transaction.update(adminDb.collection('operators').doc(opId), { 
                     activeJobId: jobId, 
@@ -423,6 +442,15 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
                 }
                 
                 transaction.update(itemRef, updateData);
+
+                // --- CASCADE UPDATE TO CHILDREN ---
+                if (isGroup && data.jobOrderIds) {
+                    data.jobOrderIds.forEach((childId: string) => {
+                        transaction.update(adminDb.collection('jobOrders').doc(childId), updateData);
+                    });
+                }
+                // ----------------------------------
+
                 transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
             }
         }

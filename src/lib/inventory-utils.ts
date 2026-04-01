@@ -22,14 +22,14 @@ export interface InventoryMovementResult {
  */
 export function calculateInventoryMovement(
   material: RawMaterial,
-  config: RawMaterialTypeConfig,
+  config: Partial<RawMaterialTypeConfig> & { defaultUnit: string },
   quantity: number,
   inputUom: UnitOfMeasure,
   isAddition: boolean,
   specificLotto?: string | null,
-  withdrawals: any[] = [] // Optional for backward compatibility but recommended
+  withdrawals: any[] = []
 ): InventoryMovementResult {
-  const baseUom = config.defaultUnit as UnitOfMeasure;
+  const baseUom = (config?.defaultUnit || material.unitOfMeasure) as UnitOfMeasure;
   const factor = getConversionFactor(material, config);
   
   let unitsToChange = 0;
@@ -41,13 +41,16 @@ export function calculateInventoryMovement(
     if (baseUom === 'kg') {
       unitsToChange = quantity;
     } else {
+      // KG to Base (e.g. MT, N): Division by factor
       unitsToChange = factor > 0 ? quantity / factor : quantity;
     }
   } else {
+    // Primary UOM (MT, N, or KG) to KG
     unitsToChange = quantity;
     if (baseUom === 'kg') {
       weightToChange = quantity;
     } else {
+      // Base (MT, N) to KG: Multiplication by factor
       weightToChange = quantity * factor;
     }
   }
@@ -121,7 +124,7 @@ export function calculateInventoryMovement(
 /**
  * Robust conversion factor selector with fallback.
  */
-export function getConversionFactor(material: RawMaterial, config: RawMaterialTypeConfig): number {
+export function getConversionFactor(material: RawMaterial, config: Partial<RawMaterialTypeConfig>): number {
   if (!config.hasConversion) return 1;
   
   const factorField = config.conversionType === 'kg/mt' ? 'rapportoKgMt' : 'conversionFactor';

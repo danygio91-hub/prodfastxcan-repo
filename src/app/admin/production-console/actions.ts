@@ -74,9 +74,23 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
 
 async function propagateGroupUpdatesToJobs(transaction: admin.firestore.Transaction, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
-    const updatePayload: { [key: string]: any } = { phases: groupData.phases, status: groupData.status };
+    
+    // CAMPOS DA SINCRONIZARE (CASCADE)
+    const updatePayload: { [key: string]: any } = { 
+        phases: groupData.phases, 
+        status: groupData.status,
+        overallStartTime: groupData.overallStartTime || null,
+        overallEndTime: groupData.overallEndTime || null,
+        isProblemReported: groupData.isProblemReported || false,
+        problemType: (groupData as any).problemType || null,
+        problemNotes: (groupData as any).problemNotes || null,
+        problemReportedBy: (groupData as any).problemReportedBy || null
+    };
+
     const jobRefs = groupData.jobOrderIds.map(id => adminDb.collection('jobOrders').doc(id));
-    jobRefs.forEach(jobRef => { transaction.update(jobRef, updatePayload); });
+    jobRefs.forEach(jobRef => { 
+        transaction.update(jobRef, updatePayload); 
+    });
 }
 
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
@@ -315,11 +329,11 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
 
       transaction.update(itemRef, updatePayload);
       
+      // --- CASCADE UPDATE TO CHILDREN ---
       if (isGroup) {
-          (itemData.jobOrderIds || []).forEach((id: string) => { 
-              transaction.update(adminDb.collection('jobOrders').doc(id), updatePayload); 
-          });
+          await propagateGroupUpdatesToJobs(transaction, { ...itemData, ...updatePayload } as WorkGroup);
       }
+      // ----------------------------------
       
       operatorIdsToPause.forEach(opId => { 
           transaction.update(adminDb.collection("operators").doc(opId), { stato: 'inattivo', activePhaseName: null, activeJobId: null }); 

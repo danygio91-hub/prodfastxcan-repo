@@ -25,6 +25,18 @@ export interface ZombieAnomaly {
     operatorName: string;
     startDate: Date | string | null;
     details?: string;
+    operatorId?: string;
+}
+
+export interface GroupBlocker {
+    groupId: string;
+    groupRef: string; // ODL/Code
+    blockers: {
+        type: 'OPERATOR_JOB' | 'OPERATOR_MATERIAL' | 'PHASE_OPEN';
+        operatorId?: string;
+        operatorName?: string;
+        details: string;
+    }[];
 }
 
 export interface AuditBrokenLot {
@@ -545,5 +557,157 @@ export async function healBrokenBatches(operatorId: string): Promise<{ success: 
     } catch (e) {
         console.error("Heal Broken Batches error:", e);
         return { success: false, message: "Errore durante il ripristino dei lotti." };
+    }
+}
+
+/**
+ * GROUP HEALING: Phase 1 - Audit Blockers
+ */
+export async function auditGroupBlockers(): Promise<{ success: boolean; blockers: GroupBlocker[] }> {
+    const groupBlockers: GroupBlocker[] = [];
+    try {
+        const groupsSnap = await adminDb.collection("workGroups").get();
+        const operatorsSnap = await adminDb.collection("operators").get();
+        const operators = operatorsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Operator));
+
+        for (const gDoc of groupsSnap.docs) {
+            const group = gDoc.data() as JobOrder; // WorkGroup structure
+            const groupId = gDoc.id;
+            const currentBlockers: GroupBlocker['blockers'] = [];
+
+            // 1. Check Operators directly active on Group or Children
+            const memberJobIds = group.jobOrderIds || [];
+            operators.forEach(op => {
+                const isActiveOnGroup = op.activeJobId === groupId;
+                const isActiveOnChild = memberJobIds.includes(op.activeJobId || '');
+                
+                if (isActiveOnGroup || isActiveOnChild) {
+                    currentBlockers.push({
+                        type: 'OPERATOR_JOB',
+                        operatorId: op.id,
+                        operatorName: op.nome,
+                        details: `Operatore attivo su ${isActiveOnGroup ? 'Gruppo' : 'Commessa Figlia ' + op.activeJobId}`
+                    });
+                }
+
+                // 2. Check Material Sessions
+                const hasLinkedMaterial = (op.activeMaterialSessions || []).some(s => 
+                    s.originatorJobId === groupId || 
+                    memberJobIds.includes(s.originatorJobId || '') ||
+                    s.associatedJobs.some(aj => aj.jobId === groupId || memberJobIds.includes(aj.jobId))
+                );
+
+                if (hasLinkedMaterial) {
+                    currentBlockers.push({
+                        type: 'OPERATOR_MATERIAL',
+                        operatorId: op.id,
+                        operatorName: op.nome,
+                        details: `Sessione materiale aperta collegata al gruppo/figli`
+                    });
+                }
+            });
+
+            // 3. Check Phases for open work periods
+            (group.phases || []).forEach(p => {
+                const openWP = (p.workPeriods || []).some(wp => !wp.end);
+                if (openWP) {
+                    currentBlockers.push({
+                        type: 'PHASE_OPEN',
+                        details: `Fase "${p.name}" ha un clock-in aperto nel documento del gruppo`
+                    });
+                }
+            });
+
+            if (currentBlockers.length > 0) {
+                groupBlockers.push({
+                    groupId,
+                    groupRef: group.numeroODL || groupId,
+                    blockers: currentBlockers
+                });
+            }
+        }
+        return { success: true, blockers: groupBlockers };
+    } catch (e) {
+        console.error("Audit Group Blockers error:", e);
+        return { success: false, blockers: [] };
+    }
+}
+
+/**
+ * GROUP HEALING: Phase 2 - Force Unlock and Dissolve
+ * The "Nuclear" option for stuck groups.
+ */
+import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
+
+export async function forceUnlockAndDissolveGroup(groupId: string, operatorId: string): Promise<{ success: boolean; message: string }> {
+    try {
+        const groupRef = adminDb.collection("workGroups").doc(groupId);
+        const groupSnap = await groupRef.get();
+        if (!groupSnap.exists) throw new Error("Gruppo non trovato.");
+        const group = groupSnap.data() as JobOrder;
+        const memberJobIds = group.jobOrderIds || [];
+
+        await adminDb.runTransaction(async (t) => {
+            // 1. Clear Operator states
+            const opsSnap = await t.get(adminDb.collection("operators"));
+            opsSnap.forEach(opDoc => {
+                const op = opDoc.data() as Operator;
+                let modified = false;
+                const update: any = {};
+
+                if (op.activeJobId === groupId || memberJobIds.includes(op.activeJobId || '')) {
+                    update.activeJobId = null;
+                    update.activePhaseName = null;
+                    update.stato = 'inattivo';
+                    modified = true;
+                }
+
+                const filteredSessions = (op.activeMaterialSessions || []).filter(s => {
+                    const isLinked = s.originatorJobId === groupId || 
+                                     memberJobIds.includes(s.originatorJobId || '') ||
+                                     s.associatedJobs.some(aj => aj.jobId === groupId || memberJobIds.includes(aj.jobId));
+                    return !isLinked;
+                });
+
+                if (filteredSessions.length !== (op.activeMaterialSessions || []).length) {
+                    update.activeMaterialSessions = filteredSessions;
+                    modified = true;
+                }
+
+                if (modified) {
+                    t.update(opDoc.ref, update);
+                }
+            });
+
+            // 2. Heal Group Phases (Close open work periods)
+            const updatedPhases = (group.phases || []).map(p => {
+                const hasOpen = (p.workPeriods || []).some(wp => !wp.end);
+                if (hasOpen) {
+                    const correctedWPs = p.workPeriods.map(wp => 
+                        !wp.end ? { ...wp, end: wp.start, reason: 'Chiusura Forzata Healing' } : wp
+                    );
+                    return { ...p, status: 'paused', workPeriods: correctedWPs };
+                }
+                return p;
+            });
+
+            t.update(groupRef, { phases: updatedPhases });
+        });
+
+        // 3. LOGGING
+        await adminDb.collection("system_maintenance_logs").add({
+            type: 'FORCE_GROUP_UNLOCK',
+            executedAt: admin.firestore.Timestamp.now(),
+            executedBy: operatorId,
+            details: `Sblocco forzato eseguito sul gruppo ${groupId}. Sessioni operatore e fasi rimosse.`,
+        });
+
+        // 4. Proceed to standard dissolution
+        // We use the already existing logic but now it should pass the safety checks
+        return await dissolveWorkGroup(groupId, false);
+
+    } catch (e) {
+        console.error("Force Unlock Error:", e);
+        return { success: false, message: e instanceof Error ? e.message : "Errore durante lo sblocco forzato." };
     }
 }

@@ -44,9 +44,10 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     });
 
     if (activeOperators.length > 0) {
+        const names = activeOperators.map(d => (d.data() as Operator).nome).join(", ");
         return { 
             success: false, 
-            message: "Impossibile sciogliere il gruppo: ci sono sessioni di lavoro o prelievo ancora aperte. Chiuderle prima di procedere." 
+            message: `Impossibile sciogliere: sessioni attive rilevate per [${names}]. Chiudere i prelievi o i lavori su tablet prima di procedere.` 
         };
     }
 

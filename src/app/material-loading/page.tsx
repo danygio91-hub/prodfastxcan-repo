@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { addBatchToRawMaterial, reportNonConformity, getPackagingItems, getOpenPurchaseOrdersForMaterial } from './actions';
 import { getRawMaterialByCode } from '@/app/scan-job/actions';
+import { calculateInventoryMovement } from '@/lib/inventory-utils';
 import type { RawMaterial, Packaging, PurchaseOrder } from '@/types';
 import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive, TestTube, Truck, ClipboardList, Calendar } from 'lucide-react';
 import { useCameraStream } from '@/hooks/use-camera-stream';
@@ -172,23 +173,22 @@ export default function MaterialLoadingPage() {
     const selectedPackagingId = form.watch('packagingId');
     const enteredQuantity = form.watch('quantity');
     
-     const calculatedGrossWeight = React.useMemo(() => {
+    const calculatedGrossWeight = React.useMemo(() => {
         if (!scannedMaterial || !enteredQuantity) return 0;
         
         const numEnteredQuantity = parseFloat(String(enteredQuantity));
-        if (isNaN(numEnteredQuantity)) return 0;
+        if (isNaN(numEnteredQuantity) || numEnteredQuantity <= 0) return 0;
 
         const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
-        const uom = scannedMaterial.unitOfMeasure.toLowerCase();
         
-        let netWeightKg = 0;
-        if (inputUnit === 'kg') {
-            netWeightKg = numEnteredQuantity;
-        } else {
-            // Seleziona il fattore corretto in base alla UOM
-            const factor = (uom === 'mt' ? scannedMaterial.rapportoKgMt : scannedMaterial.conversionFactor) || 1;
-            netWeightKg = numEnteredQuantity * factor;
-        }
+        // Use the centralized logic to determine Net Weight in KG
+        const { weightToChange: netWeightKg } = calculateInventoryMovement(
+            scannedMaterial,
+            { defaultUnit: scannedMaterial.unitOfMeasure, hasConversion: true },
+            numEnteredQuantity,
+            (inputUnit === 'kg' ? 'kg' : scannedMaterial.unitOfMeasure) as any,
+            true // isAddition
+        );
 
         // Lordo (KG) = Netto (KG) + Tara (KG)
         return Number((netWeightKg + selectedTara).toFixed(3));

@@ -82,30 +82,24 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             }
           }
           
-          let netWeightKg: number;
-          let unitsToAdd: number;
+          const { getGlobalSettings } = await import('@/lib/settings-actions');
+          const { calculateInventoryMovement } = await import('@/lib/inventory-utils');
+          
+          const globalSettings = await getGlobalSettings();
+          const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
+              id: material.type,
+              label: material.type,
+              defaultUnit: material.unitOfMeasure,
+              hasConversion: false
+          } as any;
 
-          if (unit === 'kg') {
-              netWeightKg = quantity;
-              if (material.unitOfMeasure === 'kg') {
-                  unitsToAdd = netWeightKg;
-              } else {
-                  const factor = (material.unitOfMeasure === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 0;
-                  if (factor <= 0) {
-                      throw new Error(`Impossibile convertire KG in ${material.unitOfMeasure.toUpperCase()} senza un fattore di conversione valido.`);
-                  }
-                  unitsToAdd = netWeightKg / factor;
-                  if (material.unitOfMeasure === 'n') unitsToAdd = Math.round(unitsToAdd);
-              }
-          } else { 
-              unitsToAdd = quantity;
-              if (material.unitOfMeasure === 'kg') {
-                  netWeightKg = unitsToAdd;
-              } else {
-                  const factor = (material.unitOfMeasure === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 1;
-                  netWeightKg = unitsToAdd * factor;
-              }
-          }
+          const { unitsToChange: unitsToAdd, weightToChange: netWeightKg } = calculateInventoryMovement(
+              material,
+              config,
+              quantity,
+              unit as any,
+              true // isAddition
+          );
 
           if (purchaseOrderId) {
               const poRef = adminDb.collection("purchaseOrders").doc(purchaseOrderId);

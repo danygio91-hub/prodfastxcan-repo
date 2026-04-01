@@ -19,7 +19,7 @@ import type {
 } from '@/types';
 import { ensureAdmin } from '@/lib/server-auth';
 import { getGlobalSettings } from '@/lib/settings-actions';
-import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { calculateBOMRequirement, calculateInventoryMovement } from '@/lib/inventory-utils';
 
 export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -197,9 +197,10 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
     const materialId = rawData.materialId as string;
     const batchId = rawData.batchId as string;
     const materialRef = adminDb.collection("rawMaterials").doc(materialId);
+    const globalSettings = await getGlobalSettings();
     try {
-        await adminDb.runTransaction(async (t) => {
-            const docSnap = await t.get(materialRef);
+        await adminDb.runTransaction(async (transaction) => {
+            const docSnap = await transaction.get(materialRef);
             if (!docSnap.exists) throw new Error('Materia prima non trovata.');
             const material = docSnap.data() as RawMaterial;
             const batches = [...(material.batches || [])];
@@ -211,26 +212,45 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             const newTare = Number(rawData.tareWeight || 0);
             const tareName = (rawData.tareName as string) || 'N/D';
             
-            // Lavoriamo sempre sul Netto reale in KG per lo stock di peso
-            let newNetWeight = (newGross > 0) ? (newGross - newTare) : (material.unitOfMeasure === 'kg' ? newQty : (material.conversionFactor ? newQty * material.conversionFactor : 0));
+            const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
+                id: material.type,
+                label: material.type,
+                defaultUnit: material.unitOfMeasure,
+                hasConversion: false
+            } as any;
+
+            // Use centralized logic to determine impact
+            // Note: In admin modification, we assume input is in KG if it matches the UOM or if it's the weight field.
+            // But for absolute consistency, we derive everything from the central utility.
+            const { unitsToChange: finalUnits, weightToChange: finalNetWeightKg } = calculateInventoryMovement(
+                material,
+                config,
+                newQty,
+                material.unitOfMeasure as any, // In Admin Form, Qty is always in Base UOM
+                true // isAddition (to calculate equivalent weight)
+            );
             
+            // However, the user directive for "KG = KG" and "Lordo = Netto + Tara" is paramount.
+            // If the user manually edited Gross/Tare, the Netto (KG) is Gross - Tare.
+            const weightFromGross = (newGross > 0) ? (newGross - newTare) : finalNetWeightKg;
+
             batches[idx] = { 
                 ...old, 
                 date: new Date(rawData.date as string).toISOString(), 
                 ddt: (rawData.ddt as string) || old.ddt, 
                 lotto: (rawData.lotto as string) || old.lotto, 
-                netQuantity: newQty, 
-                grossWeight: newGross > 0 ? newGross : (newNetWeight + (old.tareWeight || 0)),
-                tareWeight: newGross > 0 ? newTare : (old.tareWeight || 0),
+                netQuantity: finalUnits, 
+                grossWeight: newGross > 0 ? newGross : (weightFromGross + newTare),
+                tareWeight: newTare,
                 tareName: tareName,
                 packagingId: (rawData.packagingId as string) || old.packagingId
             };
 
-            const diffU = newQty - old.netQuantity;
+            const diffU = finalUnits - old.netQuantity;
             const oldNetWeight = (old.grossWeight || 0) - (old.tareWeight || 0);
-            const diffW = newNetWeight - oldNetWeight;
+            const diffW = weightFromGross - oldNetWeight;
 
-            t.update(materialRef, { 
+            transaction.update(materialRef, { 
                 batches, 
                 currentStockUnits: (material.currentStockUnits || 0) + diffU, 
                 currentWeightKg: (material.currentWeightKg || 0) + diffW 
@@ -245,9 +265,10 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     const rawData = Object.fromEntries(formData.entries());
     const materialId = rawData.materialId as string;
     const materialRef = adminDb.collection("rawMaterials").doc(materialId);
+    const globalSettings = await getGlobalSettings();
     try {
-        await adminDb.runTransaction(async (t) => {
-            const docSnap = await t.get(materialRef);
+        await adminDb.runTransaction(async (transaction) => {
+            const docSnap = await transaction.get(materialRef);
             if (!docSnap.exists) throw new Error('Non trovata.');
             const material = docSnap.data() as RawMaterial;
             const netQty = Number(rawData.netQuantity);
@@ -255,23 +276,39 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             const tareWeight = Number(rawData.tareWeight || 0);
             const tareName = (rawData.tareName as string) || 'N/D';
             
-            let netWeight = (grossWeight > 0) ? (grossWeight - tareWeight) : (material.unitOfMeasure === 'kg' ? netQty : (material.conversionFactor ? netQty * material.conversionFactor : 0));
+            const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
+                id: material.type,
+                label: material.type,
+                defaultUnit: material.unitOfMeasure,
+                hasConversion: false
+            } as any;
+
+            const { unitsToChange: finalUnits, weightToChange: finalNetWeightKg } = calculateInventoryMovement(
+                material,
+                config,
+                netQty,
+                material.unitOfMeasure as any,
+                true // isAddition
+            );
+
+            // Sacred rules: Lordo = Netto + Tara. Netto (KG) = Gross - Tare if provided.
+            const weightFromGross = (grossWeight > 0) ? (grossWeight - tareWeight) : finalNetWeightKg;
             
             const newBatch: RawMaterialBatch = { 
                 id: `batch-${Date.now()}`, 
                 date: new Date(rawData.date as string).toISOString(), 
                 ddt: (rawData.ddt as string) || 'CARICO', 
-                netQuantity: netQty, 
+                netQuantity: finalUnits, 
                 tareWeight: tareWeight, 
-                grossWeight: grossWeight > 0 ? grossWeight : netWeight,
+                grossWeight: grossWeight > 0 ? grossWeight : (weightFromGross + tareWeight),
                 tareName: tareName,
                 lotto: (rawData.lotto as string) || null,
                 packagingId: (rawData.packagingId as string) || undefined
             };
-            t.update(materialRef, { 
+            transaction.update(materialRef, { 
                 batches: [...(material.batches || []), newBatch], 
-                currentStockUnits: (material.currentStockUnits || 0) + netQty, 
-                currentWeightKg: (material.currentWeightKg || 0) + netWeight 
+                currentStockUnits: (material.currentStockUnits || 0) + finalUnits, 
+                currentWeightKg: (material.currentWeightKg || 0) + weightFromGross 
             });
         });
         revalidatePath('/admin/raw-material-management');
