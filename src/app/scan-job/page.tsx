@@ -802,8 +802,8 @@ export default function ScanJobPage() {
               onOpenChange={setIsMaterialAssociationDialogOpen} 
               phase={phaseForMaterialAssociation} 
               job={activeJob} 
-              onSessionStart={(data, type) => {
-                startSession(data, type);
+              onSessionStart={async (data, type) => {
+                await startSession(data, type);
                 setIsMaterialAssociationDialogOpen(false);
               }} 
               onWithdrawalComplete={() => { if (activeJob) getJobOrderById(activeJob.id).then(j => setActiveJob(j)); setIsMaterialAssociationDialogOpen(false); }} 
