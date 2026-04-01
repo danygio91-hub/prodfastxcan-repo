@@ -34,17 +34,24 @@ export async function logManualWithdrawal(
     
     await adminDb.runTransaction(async (transaction) => {
         const materialRef = adminDb.collection("rawMaterials").doc(materialId);
-        const materialDoc = await transaction.get(materialRef);
+        const [materialDoc, withdrawalsSnap] = await Promise.all([
+            transaction.get(materialRef),
+            adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get()
+        ]);
+        
         if (!materialDoc.exists) throw new Error("Materiale non trovato.");
         const material = materialDoc.data() as RawMaterial;
+        const withdrawals = withdrawalsSnap.docs.map(d => d.data());
         
         let qtyToUse = quantity;
         if (isFinished && lotto) {
             const batch = (material.batches || []).find(b => b.lotto === lotto);
             if (batch) {
-                // Se UOM è kg, il calcolo di calculateInventoryMovement si aspetta KG se unit='kg'
-                // Se UOM è altro, si aspetta unità base.
-                qtyToUse = batch.netQuantity;
+                // TRUE LIVE AGGREGATION
+                const withdrawn = withdrawals
+                    .filter(w => w.lotto === lotto && w.status !== 'cancelled')
+                    .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
+                qtyToUse = Math.max(0, batch.netQuantity - withdrawn);
             }
         }
 
@@ -61,15 +68,15 @@ export async function logManualWithdrawal(
             qtyToUse,
             unit as any,
             false, 
-            lotto
+            lotto,
+            withdrawals
         );
 
         if (isFinished && usedLotto) {
             const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
             if (bIdx !== -1) {
                 updatedBatches[bIdx].isExhausted = true;
-                updatedBatches[bIdx].netQuantity = 0;
-                updatedBatches[bIdx].grossWeight = 0;
+                // SACRED QUANTITY: no zeroing
             }
         }
         

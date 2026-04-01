@@ -342,6 +342,7 @@ export interface MaterialWithdrawal {
   commitmentId?: string;
   isDeclared?: boolean;
   declaredAt?: string;
+  status?: 'pending' | 'completed' | 'cancelled';
 }
 
 export type ProductionProblemType = string;

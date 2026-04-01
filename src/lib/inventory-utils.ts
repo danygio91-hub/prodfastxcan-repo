@@ -18,6 +18,7 @@ export interface InventoryMovementResult {
  * @param inputUom The unit of the input quantity ('kg', 'mt', 'n')
  * @param isAddition True for Carico, False for Scarico
  * @param specificLotto Optional lot for targeted movement
+ * @param withdrawals ALL current withdrawals for this material (for Live Aggregation check)
  */
 export function calculateInventoryMovement(
   material: RawMaterial,
@@ -25,7 +26,8 @@ export function calculateInventoryMovement(
   quantity: number,
   inputUom: UnitOfMeasure,
   isAddition: boolean,
-  specificLotto?: string | null
+  specificLotto?: string | null,
+  withdrawals: any[] = [] // Optional for backward compatibility but recommended
 ): InventoryMovementResult {
   const baseUom = config.defaultUnit as UnitOfMeasure;
   const factor = getConversionFactor(material, config);
@@ -39,22 +41,27 @@ export function calculateInventoryMovement(
     if (baseUom === 'kg') {
       unitsToChange = quantity;
     } else {
-      // Convert weight to units: Units = Weight / Factor
       unitsToChange = factor > 0 ? quantity / factor : quantity;
     }
   } else {
-    // inputUom is 'mt' or 'n'
     unitsToChange = quantity;
     if (baseUom === 'kg') {
       weightToChange = quantity;
     } else {
-      // Convert units to weight: Weight = Units * Factor
       weightToChange = quantity * factor;
     }
   }
 
   const batches = [...(material.batches || [])];
   let usedLotto: string | null = specificLotto || null;
+
+  // Helper for Live Aggregation availability per lot
+  const getLotAvailable = (lotto: string, initialQty: number) => {
+    const withdrawn = withdrawals
+      .filter(w => w.lotto === lotto && w.status !== 'cancelled')
+      .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
+    return Math.max(0, initialQty - withdrawn);
+  };
 
   if (isAddition) {
     if (specificLotto) {
@@ -66,37 +73,39 @@ export function calculateInventoryMovement(
       }
     }
   } else {
-    // SUBTRACTION (Withdrawal/Scarico) - HARDENED LOGIC
-    // 2. Validate availability
+    // SUBTRACTION (Withdrawal/Scarico) - LIVE AGGREGATION LOGIC
     if (specificLotto) {
       const idx = batches.findIndex(b => b.lotto === specificLotto);
       if (idx === -1) throw new Error(`Lotto "${specificLotto}" non trovato.`);
-      const avail = batches[idx].netQuantity || 0;
+      
+      const initial = batches[idx].netQuantity || 0;
+      const avail = getLotAvailable(specificLotto, initial);
+      
       if (avail < unitsToChange - 0.0001) {
-          throw new Error(`Giacenza insufficiente: il lotto selezionato ha solo ${avail} ${baseUom.toUpperCase()} (richiesti ${unitsToChange}).`);
+          throw new Error(`Giacenza insufficiente: il lotto "${specificLotto}" ha solo ${avail.toFixed(3)} ${baseUom.toUpperCase()} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
-      batches[idx].netQuantity = avail - unitsToChange;
-      batches[idx].grossWeight = Math.max(0, (batches[idx].grossWeight || 0) - weightToChange);
+      // SACRED QUANTITY RULE: DO NOT MUTATE batches[idx].netQuantity
     } else {
       // FIFO Withdrawal
-      const totalAvail = batches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+      const lotAvailabilities = batches.map(b => ({
+        batch: b,
+        avail: getLotAvailable(b.lotto || 'SENZA_LOTTO', b.netQuantity || 0)
+      })).filter(item => !item.batch.isExhausted && item.avail > 0);
+
+      const totalAvail = lotAvailabilities.reduce((sum, item) => sum + item.avail, 0);
       if (totalAvail < unitsToChange - 0.0001) {
-          throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail} ${baseUom.toUpperCase()} (richiesti ${unitsToChange}).`);
+          throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail.toFixed(3)} ${baseUom.toUpperCase()} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
 
       let remainingToDeduct = unitsToChange;
-      const sortedBatches = batches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const sortedItems = lotAvailabilities.sort((a, b) => new Date(a.batch.date).getTime() - new Date(b.batch.date).getTime());
       
-      for (const b of sortedBatches) {
+      for (const item of sortedItems) {
         if (remainingToDeduct <= 0) break;
-        const avail = b.netQuantity || 0;
-        if (avail > 0) {
-          if (!usedLotto) usedLotto = (b.lotto as string | null);
-          const toTake = Math.min(avail, remainingToDeduct);
-          b.netQuantity = avail - toTake;
-          b.grossWeight = Math.max(0, (b.grossWeight || 0) - (toTake * factor));
-          remainingToDeduct -= toTake;
-        }
+        if (!usedLotto) usedLotto = (item.batch.lotto as string | null);
+        const toTake = Math.min(item.avail, remainingToDeduct);
+        remainingToDeduct -= toTake;
+        // SACRED QUANTITY RULE: DO NOT MUTATE item.batch.netQuantity
       }
     }
   }
@@ -104,7 +113,7 @@ export function calculateInventoryMovement(
   return {
     unitsToChange,
     weightToChange,
-    updatedBatches: batches,
+    updatedBatches: batches, // netQuantity/grossWeight preserved
     usedLotto
   };
 }

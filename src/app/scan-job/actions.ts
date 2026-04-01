@@ -477,14 +477,27 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
     try {
         await adminDb.runTransaction(async (transaction) => {
             const materialRef = adminDb.collection('rawMaterials').doc(session.materialId);
-            const matSnap = await transaction.get(materialRef);
+            const [matSnap, withdrawalsSnap] = await Promise.all([
+                transaction.get(materialRef),
+                adminDb.collection('materialWithdrawals').where('materialId', '==', session.materialId).get()
+            ]);
+            
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
             const material = matSnap.data() as RawMaterial;
+            const withdrawals = withdrawalsSnap.docs.map(d => d.data());
 
             let consumedWeight = 0;
-            if (isFinished) {
-                // Forziamo lo scarico di tutto il netto residuo
-                consumedWeight = session.netOpeningWeight;
+            if (isFinished && session.lotto) {
+                // TRUE LIVE AGGREGATION: Remaining = Initial - SUM(Withdrawals)
+                const batch = (material.batches || []).find(b => b.lotto === session.lotto);
+                if (!batch) throw new Error("Lotto non trovato durante il saldo finale.");
+                
+                const withdrawn = withdrawals
+                    .filter(w => w.lotto === session.lotto && w.status !== 'cancelled')
+                    .reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
+                
+                const initialWeight = batch.grossWeight - batch.tareWeight;
+                consumedWeight = Math.max(0, initialWeight - withdrawn);
             } else {
                 consumedWeight = session.grossOpeningWeight - closingGrossWeight;
                 if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
@@ -504,7 +517,8 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 consumedWeight, 
                 'kg',
                 false,
-                session.lotto as string | undefined
+                session.lotto as string | undefined,
+                withdrawals
             );
 
             // Se l'operatore ha premuto "Materiale Finito", marchiamo il lotto come esaurito
@@ -512,8 +526,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
                 if (bIdx !== -1) {
                     updatedBatches[bIdx].isExhausted = true;
-                    updatedBatches[bIdx].netQuantity = 0;
-                    updatedBatches[bIdx].grossWeight = 0; // Opzionale, ma pulito
+                    // SACRED QUANTITY: we NO LONGER zero out netQuantity/grossWeight
                 }
             }
 
@@ -551,9 +564,14 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
     try {
         await adminDb.runTransaction(async (t) => {
             const mRef = adminDb.collection("rawMaterials").doc(materialId as string);
-            const mSnap = await t.get(mRef);
+            const [mSnap, wSnap] = await Promise.all([
+                t.get(mRef),
+                adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get()
+            ]);
+            
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = mSnap.data() as RawMaterial;
+            const withdrawals = wSnap.docs.map(d => d.data());
             
             const globalSettings = await getGlobalSettings();
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
@@ -565,10 +583,13 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
 
             let qtyToUse = Number(quantity);
             if (isFinished && lotto) {
-                // Se è "Materiale Finito", cerchiamo la quantità esatta residua del lotto
+                // TRUE LIVE AGGREGATION
                 const batch = (material.batches || []).find(b => b.lotto === lotto);
                 if (batch) {
-                    qtyToUse = batch.netQuantity;
+                    const withdrawn = withdrawals
+                        .filter(w => w.lotto === lotto && w.status !== 'cancelled')
+                        .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
+                    qtyToUse = Math.max(0, batch.netQuantity - withdrawn);
                 }
             }
 
@@ -578,7 +599,8 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 qtyToUse,
                 unit as any,
                 false,
-                lotto as string
+                lotto as string,
+                withdrawals
             );
 
             // Marcatura esaurito se richiesto
@@ -586,8 +608,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
                 if (bIdx !== -1) {
                     updatedBatches[bIdx].isExhausted = true;
-                    updatedBatches[bIdx].netQuantity = 0;
-                    updatedBatches[bIdx].grossWeight = 0;
+                    // SACRED QUANTITY: no zeroing
                 }
             }
 

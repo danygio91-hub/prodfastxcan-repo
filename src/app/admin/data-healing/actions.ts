@@ -1,7 +1,8 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { RawMaterial, InventoryRecord, MaterialWithdrawal } from '@/types';
+import * as admin from 'firebase-admin';
+import { RawMaterial, InventoryRecord, MaterialWithdrawal, JobOrder, Operator, JobPhase } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
 
 export interface AuditAnomaly {
@@ -14,6 +15,27 @@ export interface AuditAnomaly {
     difference: number;
     quantity: number;
     uom: string;
+}
+
+export interface ZombieAnomaly {
+    id: string;
+    type: 'PHASE' | 'WITHDRAWAL' | 'OPERATOR';
+    entityId: string;
+    reference: string;
+    operatorName: string;
+    startDate: Date | string | null;
+    details?: string;
+}
+
+export interface AuditBrokenLot {
+    id: string;
+    materialId: string;
+    materialCode: string;
+    lotto: string;
+    currentNetQuantity: number;
+    expectedNetQuantity: number; // Sum of withdrawals
+    withdrawalCount: number;
+    description: string;
 }
 
 /**
@@ -246,4 +268,282 @@ async function auditCoroutineForHeal(globalSettings: any) {
     }
 
     return { anomalies };
+}
+
+/**
+ * ZOMBIE HUNTER: Phase 1 - Audit
+ */
+export async function auditZombieSessions(): Promise<{ success: boolean; anomalies: ZombieAnomaly[] }> {
+    const anomalies: ZombieAnomaly[] = [];
+    const now = new Date();
+    const TWENTY_FOUR_HOURS_AGO = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    try {
+        // 1. Audit Stuck Phases in JobOrders
+        const jobsSnap = await adminDb.collection("jobOrders").get();
+        for (const doc of jobsSnap.docs) {
+            const job = doc.data() as JobOrder;
+            (job.phases || []).forEach((p: JobPhase) => {
+                if (p.status === 'in-progress') {
+                    const openWP = (p.workPeriods || []).find(wp => wp.end === null);
+                    if (openWP) {
+                        const start = openWP.start?.toDate ? openWP.start.toDate() : new Date(openWP.start);
+                        if (start < TWENTY_FOUR_HOURS_AGO) {
+                            anomalies.push({
+                                id: `phase_${doc.id}_${p.id}`,
+                                type: 'PHASE',
+                                entityId: doc.id,
+                                reference: `${job.ordinePF} - ${p.name}`,
+                                operatorName: openWP.operatorId, // Will resolve name if possible or just show ID
+                                startDate: start,
+                                details: `In corso da oltre 24h`
+                            });
+                        }
+                    }
+                }
+            });
+        }
+
+        // 2. Audit Stuck Phases in WorkGroups
+        const groupsSnap = await adminDb.collection("workGroups").get();
+        for (const doc of groupsSnap.docs) {
+            const group = doc.data() as JobOrder; // WorkGroup shares similar structure for phases
+            (group.phases || []).forEach((p: JobPhase) => {
+                if (p.status === 'in-progress') {
+                    const openWP = (p.workPeriods || []).find(wp => wp.end === null);
+                    if (openWP) {
+                        const start = openWP.start?.toDate ? openWP.start.toDate() : new Date(openWP.start);
+                        if (start < TWENTY_FOUR_HOURS_AGO) {
+                            anomalies.push({
+                                id: `phase_${doc.id}_${p.id}`,
+                                type: 'PHASE',
+                                entityId: doc.id,
+                                reference: `GRUPPO: ${doc.id} - ${p.name}`,
+                                operatorName: openWP.operatorId,
+                                startDate: start,
+                                details: `In corso da oltre 24h`
+                            });
+                        }
+                    }
+                }
+            });
+        }
+
+        // 3. Audit Stuck Withdrawals
+        // Withdrawals without a status or with declaredAt missing might be considered "zombie"
+        const withdrawalsSnap = await adminDb.collection("materialWithdrawals").get();
+        for (const doc of withdrawalsSnap.docs) {
+            const w = doc.data() as MaterialWithdrawal;
+            // A withdrawal is "zombie" if it has no status and was created > 24h ago, or is explicitly "pending"
+            const date = w.withdrawalDate?.toDate ? w.withdrawalDate.toDate() : new Date(w.withdrawalDate);
+            if ((!w.status || w.status === 'pending') && date < TWENTY_FOUR_HOURS_AGO) {
+                anomalies.push({
+                    id: `withdrawal_${doc.id}`,
+                    type: 'WITHDRAWAL',
+                    entityId: doc.id,
+                    reference: `${w.materialCode} - ${w.lotto || 'N/D'}`,
+                    operatorName: w.operatorId,
+                    startDate: date,
+                    details: `Prelievo mai dichiarato/chiuso`
+                });
+            }
+        }
+
+        // 4. Audit Ghost Operator Participations
+        const operatorsSnap = await adminDb.collection("operators").get();
+        for (const doc of operatorsSnap.docs) {
+            const op = doc.data() as Operator;
+            const hasActiveJob = !!op.activeJobId;
+            const hasMaterialSessions = (op.activeMaterialSessions || []).length > 0;
+            
+            if (hasActiveJob || hasMaterialSessions) {
+                // Check if the job actually exists and is active (Optional but good for audit)
+                anomalies.push({
+                    id: `operator_${doc.id}`,
+                    type: 'OPERATOR',
+                    entityId: doc.id,
+                    reference: op.nome,
+                    operatorName: op.nome,
+                    startDate: null,
+                    details: `${hasActiveJob ? 'Job Attivo: ' + op.activeJobId : ''} ${hasMaterialSessions ? 'Sessioni Mat: ' + op.activeMaterialSessions?.length : ''}`
+                });
+            }
+        }
+
+        return { success: true, anomalies };
+    } catch (error) {
+        console.error("Audit Zombie error:", error);
+        return { success: false, anomalies: [] };
+    }
+}
+
+/**
+ * ZOMBIE HUNTER: Phase 2 - Healing
+ */
+export async function healZombieSessions(uid: string): Promise<{ success: boolean; message: string }> {
+    const startTime = Date.now();
+    let count = 0;
+    
+    try {
+        const audit = await auditZombieSessions();
+        if (audit.anomalies.length === 0) return { success: true, message: "Nessuna sessione zombie da chiudere." };
+
+        const batch = adminDb.batch();
+
+        for (const a of audit.anomalies) {
+            if (a.type === 'PHASE') {
+                const col = a.reference.startsWith('GRUPPO') ? 'workGroups' : 'jobOrders';
+                const ref = adminDb.collection(col).doc(a.entityId);
+                const snap = await ref.get();
+                if (snap.exists) {
+                    const data = snap.data();
+                    const updatedPhases = (data?.phases || []).map((p: JobPhase) => {
+                        const openWP = (p.workPeriods || []).find(wp => wp.end === null);
+                        if (openWP) {
+                             // Set end = start to zero out time
+                             const updatedWPs = p.workPeriods.map(wp => 
+                                wp.end === null ? { ...wp, end: wp.start, reason: 'Chiusura Zombie Hunter' } : wp
+                             );
+                             return { ...p, status: 'paused', workPeriods: updatedWPs };
+                        }
+                        return p;
+                    });
+                    batch.update(ref, { phases: updatedPhases });
+                }
+            } 
+            else if (a.type === 'WITHDRAWAL') {
+                const ref = adminDb.collection("materialWithdrawals").doc(a.entityId);
+                batch.update(ref, { status: 'cancelled' });
+            } 
+            else if (a.type === 'OPERATOR') {
+                const ref = adminDb.collection("operators").doc(a.entityId);
+                batch.update(ref, { 
+                    activeJobId: null, 
+                    activePhaseName: null, 
+                    activeMaterialSessions: [],
+                    stato: 'inattivo' 
+                });
+            }
+            count++;
+        }
+
+        await batch.commit();
+
+        // Log operation
+        await adminDb.collection("system_maintenance_logs").add({
+            action: 'ZOMBIE_HEALING',
+            executedBy: uid,
+            timestamp: new Date(),
+            totalHealed: count,
+            durationMs: Date.now() - startTime,
+            summary: `Cacciatore di Zombie: Chiuse ${count} sessioni/partecipazioni appese.`
+        });
+
+        return { success: true, message: `Operazione completata: ${count} entità sbloccate.` };
+    } catch (error) {
+        console.error("Heal Zombie error:", error);
+        return { success: false, message: "Errore durante la chiusura forzata." };
+    }
+}
+
+/**
+ * Data Healing Step 2: Corrupted Lot Recovery
+ * Finds lots where netQuantity was zeroed out but withdrawals exist.
+ */
+export async function auditBrokenBatches(): Promise<{ success: boolean; anomalies: AuditBrokenLot[] }> {
+    const anomalies: AuditBrokenLot[] = [];
+    try {
+        const materialsSnap = await adminDb.collection("rawMaterials").get();
+        
+        for (const mDoc of materialsSnap.docs) {
+            const m = mDoc.data() as RawMaterial;
+            if (!m.batches || m.batches.length === 0) continue;
+
+            const withdrawalsSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", m.id).get();
+            const withdrawals = withdrawalsSnap.docs.map(d => d.data() as MaterialWithdrawal);
+
+            for (const batch of m.batches) {
+                // RULE: If netQuantity is 0 (Initial Load wiped) but we have withdrawals, it's corrupted.
+                if (batch.netQuantity === 0 || batch.netQuantity < 0.001) {
+                    const lotWithdrawals = withdrawals.filter(w => w.lotto === batch.lotto && w.status !== 'cancelled');
+                    const sumWithdrawn = lotWithdrawals.reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
+
+                    if (sumWithdrawn > 0.001) {
+                        anomalies.push({
+                            id: `${m.id}-${batch.lotto || 'no-lotto'}`,
+                            materialId: m.id,
+                            materialCode: m.code,
+                            lotto: batch.lotto || 'SENZA LOTTO',
+                            currentNetQuantity: batch.netQuantity,
+                            expectedNetQuantity: sumWithdrawn,
+                            withdrawalCount: lotWithdrawals.length,
+                            description: `Carico iniziale azzerato ma rintracciati ${lotWithdrawals.length} scarichi storici.`
+                        });
+                    }
+                }
+            }
+        }
+
+        return { success: true, anomalies };
+    } catch (e) {
+        console.error("Audit Broken Batches error:", e);
+        return { success: false, anomalies: [] };
+    }
+}
+
+export async function healBrokenBatches(operatorId: string): Promise<{ success: boolean; message: string }> {
+    try {
+        const { anomalies } = await auditBrokenBatches();
+        if (anomalies.length === 0) return { success: true, message: "Nessun lotto corrotto trovato." };
+
+        const batchWrite = adminDb.batch();
+        let healedCount = 0;
+
+        // Group by material to minimize batch operations
+        const byMaterial = anomalies.reduce((acc, a) => {
+            if (!acc[a.materialId]) acc[a.materialId] = [];
+            acc[a.materialId].push(a);
+            return acc;
+        }, {} as Record<string, AuditBrokenLot[]>);
+
+        for (const [materialId, lotAnomalies] of Object.entries(byMaterial)) {
+            const mRef = adminDb.collection("rawMaterials").doc(materialId);
+            const mSnap = await mRef.get();
+            if (!mSnap.exists) continue;
+
+            const material = mSnap.data() as RawMaterial;
+            const updatedBatches = [...(material.batches || [])];
+
+            lotAnomalies.forEach(anomaly => {
+                const bIdx = updatedBatches.findIndex(b => (b.lotto || 'SENZA LOTTO') === anomaly.lotto);
+                if (bIdx !== -1) {
+                    // RESTORE SACRED QUANTITY
+                    updatedBatches[bIdx].netQuantity = anomaly.expectedNetQuantity;
+                    // Also restore weight if possible (approximation based on UOM)
+                    const factor = (material.unitOfMeasure === 'mt' ? (material.rapportoKgMt || 1) : (material.conversionFactor || 1));
+                    updatedBatches[bIdx].grossWeight = (anomaly.expectedNetQuantity * factor) + (updatedBatches[bIdx].tareWeight || 0);
+                    updatedBatches[bIdx].isExhausted = true; // Ensure it stays finished
+                    healedCount++;
+                }
+            });
+
+            batchWrite.update(mRef, { batches: updatedBatches });
+        }
+
+        // LOGGING
+        const logRef = adminDb.collection("system_maintenance_logs").doc();
+        batchWrite.set(logRef, {
+            type: 'LOT_RECOVERY',
+            executedAt: admin.firestore.Timestamp.now(),
+            executedBy: operatorId,
+            details: `Ripristinato carico iniziale per ${healedCount} lotti corrotti (Bug Materiale Finito).`,
+            affectedAnomalies: anomalies.map(a => `${a.materialCode} [${a.lotto}] -> ${a.expectedNetQuantity}`)
+        });
+
+        await batchWrite.commit();
+        return { success: true, message: `Ripristino completato per ${healedCount} lotti.` };
+    } catch (e) {
+        console.error("Heal Broken Batches error:", e);
+        return { success: false, message: "Errore durante il ripristino dei lotti." };
+    }
 }

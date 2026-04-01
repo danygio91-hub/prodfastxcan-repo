@@ -186,10 +186,14 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
     try {
       await adminDb.runTransaction(async (transaction) => {
         const materialRef = adminDb.collection("rawMaterials").doc(materialLookup.id);
-        const materialDoc = await transaction.get(materialRef);
+        const [materialDoc, withdrawalsSnap] = await Promise.all([
+          transaction.get(materialRef),
+          adminDb.collection("materialWithdrawals").where("materialId", "==", materialLookup.id).get()
+        ]);
 
         if (!materialDoc.exists) throw new Error(`Documento ID ${materialLookup.id} non trovato.`);
         const currentMaterial = materialDoc.data() as RawMaterial;
+        const currentWithdrawals = withdrawalsSnap.docs.map(d => d.data());
 
         const config = globalSettings.rawMaterialTypes.find(t => t.id === currentMaterial.type) || {
             id: currentMaterial.type,
@@ -204,7 +208,8 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
             quantity,
             unit as any,
             false,
-            lotto
+            lotto,
+            currentWithdrawals
         );
 
         transaction.update(materialRef, {
