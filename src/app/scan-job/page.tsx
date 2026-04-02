@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw, FastForward, Clock } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw, FastForward, Clock, Skull, Zap, AlertCircle } from 'lucide-react';
 
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
@@ -210,6 +210,8 @@ export default function ScanJobPage() {
   const [isMaterialAssociationDialogOpen, setIsMaterialAssociationDialogOpen] = useState(false);
   const [phaseForMaterialAssociation, setPhaseForMaterialAssociation] = useState<JobPhase | null>(null);
 
+  const [isAdminForceDialogOpen, setIsAdminForceDialogOpen] = useState(false);
+  const [blockerNames, setBlockerNames] = useState("");
   const [isGroupingDialogOpen, setIsGroupingDialogOpen] = useState(false);
   const [isGroupingScanActive, setIsGroupingScanActive] = useState(false);
   const [jobsToGroup, setJobsToGroup] = useState<JobOrder[]>([]);
@@ -359,11 +361,12 @@ export default function ScanJobPage() {
     setIsCreatingGroup(false);
   };
 
-  const handleDissolveGroupLocal = async () => {
+  const handleDissolveGroupLocal = async (force: boolean = false) => {
     if (!activeJob?.workGroupId) return;
     
+    // Normal Check: If any phase is in progress, block dissolution (local check)
     const isAnyActive = activeJob.phases.some(p => p.status === 'in-progress');
-    if (isAnyActive) {
+    if (isAnyActive && !force) {
         toast({ 
             variant: "destructive", 
             title: "Operazione Bloccata", 
@@ -373,12 +376,19 @@ export default function ScanJobPage() {
     }
 
     setIsDissolving(true);
-    const result = await dissolveWorkGroup(activeJob.workGroupId);
+    const result = await dissolveWorkGroup(activeJob.workGroupId, false, force);
     if (result.success) {
-        toast({ title: "Gruppo Scollegato", description: "Le commesse sono tornate individuali." });
+        toast({ title: force ? "Sblocco Forzato Completato" : "Gruppo Scollegato", description: "Le commesse sono tornate individuali." });
         setActiveJobId(null);
+        setIsAdminForceDialogOpen(false);
     } else {
-        toast({ variant: "destructive", title: "Errore", description: result.message });
+        // If it's an operator block and user is admin, show the force option
+        if (result.message.includes("l'operatore") && (operator?.role === 'admin' || operator?.role === 'supervisor')) {
+            setBlockerNames(result.message.split("[")[1]?.split("]")[0] || "altro operatore");
+            setIsAdminForceDialogOpen(true);
+        } else {
+            toast({ variant: "destructive", title: "Errore", description: result.message });
+        }
     }
     setIsDissolving(false);
   };
@@ -681,7 +691,7 @@ export default function ScanJobPage() {
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                     <AlertDialogCancel>No</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleDissolveGroupLocal}>Sì, Scollega</AlertDialogAction>
+                                    <AlertDialogAction onClick={() => handleDissolveGroupLocal()}>Sì, Scollega</AlertDialogAction>
                                 </AlertDialogFooter>
                             </AlertDialogContent>
                         </AlertDialog>
@@ -838,6 +848,32 @@ export default function ScanJobPage() {
             isLoading={isDeclaring}
             job={activeJob}
           />
+
+          {/* ADMIN FORCE OVERRIDE DIALOG */}
+          <Dialog open={isAdminForceDialogOpen} onOpenChange={setIsAdminForceDialogOpen}>
+              <DialogContent className="border-red-900/50 bg-slate-950 border-2 max-w-sm">
+                  <DialogHeader>
+                      <DialogTitle className="text-red-500 flex items-center gap-2">
+                          <Skull className="h-5 w-5" /> Super-Poteri Admin
+                      </DialogTitle>
+                      <DialogDescription className="py-2 text-slate-300">
+                          L'operatore <strong>[{blockerNames}]</strong> risulta attivo. 
+                          Vuoi forzare lo sblocco?
+                      </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex bg-red-900/10 border border-red-900/30 p-3 rounded-lg text-[10px] text-red-200 gap-2 items-start">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
+                      <p>Resetterà lo stato di clock-in dell'operatore. Usala solo se sai che è una sessione fantasma.</p>
+                  </div>
+                  <DialogFooter className="mt-4 gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setIsAdminForceDialogOpen(false)}>Annulla</Button>
+                      <Button variant="destructive" size="sm" onClick={() => handleDissolveGroupLocal(true)} disabled={isDissolving}>
+                          {isDissolving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Zap className="h-4 w-4 mr-2" />}
+                          FORZA SBLOCCO
+                      </Button>
+                  </DialogFooter>
+              </DialogContent>
+          </Dialog>
         </>
       </AppShell>
     </AuthGuard>

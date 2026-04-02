@@ -28,7 +28,7 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
 }
 
 
-export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false): Promise<{ success: boolean; message: string }> {
+export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false, forceUnlock: boolean = false): Promise<{ success: boolean; message: string }> {
   try {
     const groupRef = adminDb.collection('workGroups').doc(groupId);
     
@@ -36,18 +36,18 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     const opsSnap = await adminDb.collection("operators").get();
     const activeOperators = opsSnap.docs.filter(docSnap => {
         const op = docSnap.data() as Operator;
-        // Solo il clock-in attivo sulla commessa specifica blocca lo scioglimento.
-        // Le sessioni materiali (activeMaterialSessions) non bloccano più l'operazione.
         return op.activeJobId === groupId;
     });
 
-    if (activeOperators.length > 0) {
+    if (activeOperators.length > 0 && !forceUnlock) {
         const names = activeOperators.map(d => (d.data() as Operator).nome).join(", ");
         return { 
             success: false, 
             message: `Impossibile scollegare: l'operatore [${names}] ha una fase di lavoro attiva su questa commessa. Termina prima la fase (Clock-out) per poter modificare il gruppo.` 
         };
     }
+
+    const blockerIds = activeOperators.map(d => d.id);
 
     const groupSnap = await groupRef.get();
     if (!groupSnap.exists) {
@@ -62,17 +62,6 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     
     const groupData = groupDataRaw as WorkGroup;
     const jobOrderIds = groupData.jobOrderIds || [];
-
-    // Check for open work periods in any phase (clock-in attivo)
-    const hasOpenWorkPeriods = (groupData.phases || []).some(p => 
-        (p.workPeriods || []).some(wp => !wp.end)
-    );
-    if (hasOpenWorkPeriods) {
-        return { 
-            success: false, 
-            message: "Impossibile sciogliere il gruppo: ci sono sessioni di lavoro ancora aperte (clock-in attivo). Chiuderle prima di procedere." 
-        };
-    }
 
     if (jobOrderIds.length === 0) {
         await groupRef.delete();
@@ -105,6 +94,17 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
             ref: doc.ref 
         } as any));
 
+        // FORCE UNLOCK: Clear state of any blocking operators found during safety check
+        for (const opId of blockerIds) {
+            const opRef = adminDb.collection("operators").doc(opId);
+            transaction.update(opRef, {
+                activeJobId: null,
+                activePhaseName: null,
+                stato: 'inattivo',
+                activeMaterialSessions: [] // Defensive clearing
+            });
+        }
+
         const totalQty = gData.totalQuantity;
         const totalJobsCount = jobs.length;
 
@@ -126,7 +126,16 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
                 // 1. Ripartizione Tempi (Work Periods)
                 const scaledWorkPeriods = (matchedGroupPhase.workPeriods || []).map((wp, wpIdx) => {
                     const startTs = wp.start?.toDate ? wp.start.toDate().getTime() : new Date(wp.start).getTime();
-                    const endTs = wp.end?.toDate ? wp.end.toDate().getTime() : (wp.end ? new Date(wp.end).getTime() : startTs);
+                    
+                    // SELF-HEALING: Se il periodo è rimasto "aperto" (zombie), lo chiudiamo forzatamente impostando end = start.
+                    // Questo garantisce che il gruppo possa sempre essere sciolto e azzera eventuali tempi fittizi.
+                    let endTs: number;
+                    if (wp.end) {
+                        endTs = wp.end.toDate ? wp.end.toDate().getTime() : new Date(wp.end).getTime();
+                    } else {
+                        endTs = startTs; // AUTO-CLOSE ZOMBIE PERIOD
+                    }
+
                     const totalDuration = endTs - startTs;
                     const key = `${matchedGroupPhase.id}-${wpIdx}`;
 
@@ -141,7 +150,8 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
                     return {
                         ...wp,
                         start: admin.firestore.Timestamp.fromMillis(startTs),
-                        end: admin.firestore.Timestamp.fromMillis(startTs + Math.max(0, allocatedDuration))
+                        end: admin.firestore.Timestamp.fromMillis(startTs + Math.max(0, allocatedDuration)),
+                        reason: wp.end ? wp.reason : (wp.reason || 'Chiusura Automatica Scioglimento (Orphaned)')
                     };
                 });
 

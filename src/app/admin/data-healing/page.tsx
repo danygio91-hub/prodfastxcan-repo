@@ -70,6 +70,7 @@ export default function AdministrationDataHealingPage() {
 
     // Zombie Hunter Tab State
     const [zombieAnomalies, setZombieAnomalies] = useState<ZombieAnomaly[]>([]);
+    const [selectedZombieIds, setSelectedZombieIds] = useState<string[]>([]);
     const [zombieLoading, setZombieLoading] = useState(false);
     const [zombieExecuting, setZombieExecuting] = useState(false);
     const [isZombieModalOpen, setIsZombieModalOpen] = useState(false);
@@ -205,6 +206,7 @@ export default function AdministrationDataHealingPage() {
             const res = await auditZombieSessions();
             if (res.success) {
                 setZombieAnomalies(res.anomalies);
+                setSelectedZombieIds(res.anomalies.map(a => a.id));
             } else {
                 setError("Errore durante l'analisi delle sessioni zombie.");
             }
@@ -216,11 +218,11 @@ export default function AdministrationDataHealingPage() {
     }
 
     async function handleExecuteZombieHealing() {
-        if (!operator?.id) return;
+        if (!operator?.id || selectedZombieIds.length === 0) return;
         setZombieExecuting(true);
         setIsZombieModalOpen(false);
         try {
-            const res = await healZombieSessions(operator.id);
+            const res = await healZombieSessions(selectedZombieIds, operator.id);
             if (res.success) {
                 toast({ title: "Caccia Completata", description: res.message });
                 await handleZombieAudit();
@@ -234,6 +236,20 @@ export default function AdministrationDataHealingPage() {
             setZombieConfirmText("");
         }
     }
+
+    const toggleZombieSelection = (id: string) => {
+        setSelectedZombieIds(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const toggleAllZombies = () => {
+        if (selectedZombieIds.length === zombieAnomalies.length) {
+            setSelectedZombieIds([]);
+        } else {
+            setSelectedZombieIds(zombieAnomalies.map(a => a.id));
+        }
+    };
 
     // --- BROKEN LOT RECOVERY LOGIC ---
     async function handleBrokenAudit() {
@@ -607,9 +623,9 @@ export default function AdministrationDataHealingPage() {
                                         Analizza Zombie
                                     </Button>
                                     {zombieAnomalies.length > 0 && (
-                                        <Button variant="destructive" onClick={() => setIsZombieModalOpen(true)} disabled={zombieLoading || zombieExecuting}>
+                                        <Button variant="destructive" onClick={() => setIsZombieModalOpen(true)} disabled={zombieLoading || zombieExecuting || selectedZombieIds.length === 0}>
                                             {zombieExecuting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Skull className="mr-2 h-4 w-4" />}
-                                            Forza Chiusura Zombie
+                                            Forza Chiusura Zombie ({selectedZombieIds.length})
                                         </Button>
                                     )}
                                 </div>
@@ -626,6 +642,13 @@ export default function AdministrationDataHealingPage() {
                                     <Table>
                                         <TableHeader className="bg-muted/50">
                                             <TableRow>
+                                                <TableHead className="w-12">
+                                                    <Checkbox 
+                                                        checked={zombieAnomalies.length > 0 && selectedZombieIds.length === zombieAnomalies.length}
+                                                        onCheckedChange={toggleAllZombies}
+                                                        className="border-slate-400"
+                                                    />
+                                                </TableHead>
                                                 <TableHead>Tipo</TableHead>
                                                 <TableHead>Riferimento</TableHead>
                                                 <TableHead>Operatore</TableHead>
@@ -634,8 +657,15 @@ export default function AdministrationDataHealingPage() {
                                         </TableHeader>
                                         <TableBody>
                                             {zombieAnomalies.map((a) => (
-                                                <TableRow key={a.id}>
-                                                    <TableCell><Badge variant={a.type === 'PHASE' ? 'destructive' : 'secondary'}>{a.type}</Badge></TableCell>
+                                                <TableRow key={a.id} className={selectedZombieIds.includes(a.id) ? "" : "opacity-50"}>
+                                                    <TableCell>
+                                                        <Checkbox 
+                                                            checked={selectedZombieIds.includes(a.id)}
+                                                            onCheckedChange={() => toggleZombieSelection(a.id)}
+                                                            className="border-slate-400"
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell><Badge variant={a.type === 'PHASE' ? 'destructive' : a.type === 'WITHDRAWAL' ? 'secondary' : 'default'}>{a.type}</Badge></TableCell>
                                                     <TableCell className="font-medium">{a.reference}</TableCell>
                                                     <TableCell>{a.operatorName}</TableCell>
                                                     <TableCell className="text-xs text-muted-foreground">{a.details}</TableCell>
@@ -654,8 +684,8 @@ export default function AdministrationDataHealingPage() {
                             <Dialog open={isZombieModalOpen} onOpenChange={setIsZombieModalOpen}>
                                 <DialogContent>
                                     <DialogHeader>
-                                        <DialogTitle className="text-red-600 flex items-center"><Skull className="mr-2" /> Conferma Chiusura Massiva</DialogTitle>
-                                        <DialogDescription className="py-4">Procedere con la chiusura forzata di {zombieAnomalies.length} sessioni zombie?</DialogDescription>
+                                        <DialogTitle className="text-red-600 flex items-center"><Skull className="mr-2" /> Conferma Chiusura Selettiva</DialogTitle>
+                                        <DialogDescription className="py-4">Procedere con la chiusura forzata di {selectedZombieIds.length} sessioni zombie selezionate?</DialogDescription>
                                     </DialogHeader>
                                     <Input value={zombieConfirmText} onChange={e => setZombieConfirmText(e.target.value)} placeholder="CONFERMO" className="uppercase font-bold" />
                                     <DialogFooter>

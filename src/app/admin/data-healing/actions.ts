@@ -404,17 +404,18 @@ export async function auditZombieSessions(): Promise<{ success: boolean; anomali
 /**
  * ZOMBIE HUNTER: Phase 2 - Healing
  */
-export async function healZombieSessions(uid: string): Promise<{ success: boolean; message: string }> {
+export async function healZombieSessions(ids: string[], uid: string): Promise<{ success: boolean; message: string }> {
     const startTime = Date.now();
     let count = 0;
     
     try {
         const audit = await auditZombieSessions();
-        if (audit.anomalies.length === 0) return { success: true, message: "Nessuna sessione zombie da chiudere." };
+        const selectedAnomalies = audit.anomalies.filter(a => ids.includes(a.id));
+        if (selectedAnomalies.length === 0) return { success: true, message: "Nessuna sessione zombie selezionata da chiudere." };
 
         const batch = adminDb.batch();
 
-        for (const a of audit.anomalies) {
+        for (const a of selectedAnomalies) {
             if (a.type === 'PHASE') {
                 const col = a.reference.startsWith('GRUPPO') ? 'workGroups' : 'jobOrders';
                 const ref = adminDb.collection(col).doc(a.entityId);
@@ -703,7 +704,9 @@ export async function forceUnlockAndDissolveGroup(groupId: string, operatorId: s
                 return p;
             });
 
-            t.update(groupRef, { phases: updatedPhases });
+            // CRITICAL: Filter out any 'undefined' values that crash Firestore update()
+            const cleanedPhases = JSON.parse(JSON.stringify(updatedPhases));
+            t.update(groupRef, { phases: cleanedPhases });
         });
 
         // 3. LOGGING
@@ -716,7 +719,7 @@ export async function forceUnlockAndDissolveGroup(groupId: string, operatorId: s
 
         // 4. Proceed to standard dissolution
         // We use the already existing logic but now it should pass the safety checks
-        return await dissolveWorkGroup(groupId, false);
+        return await dissolveWorkGroup(groupId, false, true);
 
     } catch (e) {
         console.error("Force Unlock Error:", e);
