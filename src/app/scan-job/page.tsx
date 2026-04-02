@@ -130,18 +130,18 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
             <p className="pt-1 flex items-center gap-1 font-mono text-[10px]"><Clock className="h-3 w-3" /> Tempo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-col sm:flex-row flex-wrap gap-2">
             {hasPerm && phase.type === 'preparation' && phase.status !== 'completed' && phase.status !== 'skipped' && (
-              <Button size="sm" variant="secondary" className="h-8 text-xs font-bold" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
+              <Button size="sm" variant="secondary" className="h-8 w-full sm:w-auto text-xs font-bold" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
             )}
             
-            {canStart && <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="h-8 text-xs font-bold ring-2 ring-primary/10"><QrCode className="mr-2 h-4 w-4" /> Avvia</Button>}
+            {canStart && <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold ring-2 ring-primary/10"><QrCode className="mr-2 h-4 w-4" /> Avvia</Button>}
             
-            {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 text-xs font-bold text-blue-600 border-blue-200 bg-blue-50/50"><Combine className="mr-2 h-4 w-4" /> Partecipa</Button>}
+            {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-blue-600 border-blue-200 bg-blue-50/50"><Combine className="mr-2 h-4 w-4" /> Partecipa</Button>}
             
-            {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="h-8 text-xs font-bold text-orange-600 border-orange-200">Pausa</Button>}
+            {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-orange-600 border-orange-200">Pausa</Button>}
             
-            {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 text-xs font-bold text-yellow-600 border-yellow-200 bg-yellow-50/50">Riprendi</Button>}
+            {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-yellow-600 border-yellow-200 bg-yellow-50/50">Riprendi</Button>}
             
             {canComplete && (
               <Button 
@@ -154,7 +154,7 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
                   }
                 }} 
                 className={cn(
-                  "h-8 text-xs font-bold shadow-md",
+                  "h-8 w-full sm:w-auto text-xs font-bold shadow-md",
                   (phase.type === 'quality' || phase.type === 'packaging') ? "bg-amber-500 hover:bg-amber-600" : "bg-green-600 hover:bg-green-700"
                 )}
               >
@@ -166,8 +166,8 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
                <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="cursor-not-allowed">
-                      <Button size="sm" disabled className="h-8 text-xs font-bold opacity-50">Completa</Button>
+                    <div className="cursor-not-allowed w-full sm:w-auto">
+                      <Button size="sm" disabled className="h-8 w-full sm:w-auto text-xs font-bold opacity-50">Completa</Button>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="bg-slate-900 text-white border-none text-[10px]">
@@ -519,11 +519,13 @@ export default function ScanJobPage() {
                   <CardTitle>Inizia Nuova Commessa</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <Button onClick={() => setStep('scanning')} className="w-full h-16 text-lg" size="lg">Avvia Scansione</Button>
-                  <Button onClick={() => setIsGroupingDialogOpen(true)} className="w-full h-16 text-lg bg-teal-500 hover:bg-teal-600 text-white" size="lg">
+                  <Button onClick={() => setStep('scanning')} className="w-full h-16 text-lg sm:h-20" size="lg">
+                    <QrCode className="mr-2 h-6 w-6" /> Avvia Scansione
+                  </Button>
+                  <Button onClick={() => setIsGroupingDialogOpen(true)} className="w-full h-16 text-lg bg-teal-500 hover:bg-teal-600 text-white sm:h-20" size="lg">
                     <Combine className="mr-2 h-6 w-6" /> Concatena Commesse
                   </Button>
-                  <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full h-12">Inserimento Manuale</Button>
+                  <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full h-12 sm:h-14">Inserimento Manuale</Button>
                 </CardContent>
               </Card>
             )}

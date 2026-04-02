@@ -46,7 +46,7 @@ function OperatorNavMenu() {
   return (
     <div className="w-full bg-card rounded-lg shadow-sm mb-6">
         <TooltipProvider delayDuration={0}>
-            <div className="flex items-center justify-center p-1 flex-wrap">
+            <div className="flex items-center sm:justify-center p-1 overflow-x-auto no-scrollbar sm:flex-wrap">
               {navItems.map((item) => (
                 <Tooltip key={item.href}>
                     <TooltipTrigger asChild>
@@ -54,7 +54,7 @@ function OperatorNavMenu() {
                         <Button
                         variant={pathname.startsWith(item.href) ? 'default' : 'ghost'}
                         size="lg"
-                        className="h-14 w-14 m-1"
+                        className="h-14 w-14 m-1 flex-shrink-0"
                         aria-label={item.label}
                         >
                         <item.icon className="h-6 w-6" />
@@ -71,7 +71,7 @@ function OperatorNavMenu() {
                     <Button
                       variant="ghost"
                       size="lg"
-                      className="h-14 w-14 m-1 text-muted-foreground"
+                      className="h-14 w-14 m-1 text-muted-foreground flex-shrink-0"
                       aria-label="Timbratrice"
                       disabled
                     >

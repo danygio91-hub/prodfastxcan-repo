@@ -12,8 +12,9 @@ import {
   Palette, Layout, Type, Save, RotateCcw, Printer, FileText, 
   AlignLeft, AlignCenter, AlignRight, TableProperties, Upload, 
   Plus, Trash2, ArrowUp, ArrowDown, AlignVerticalJustifyCenter, 
-  AlignVerticalJustifyStart, AlignVerticalJustifyEnd 
+  AlignVerticalJustifyStart, AlignVerticalJustifyEnd, ArrowLeft
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { ODLConfig, DEFAULT_ODL_CONFIG, ColumnConfig, HeaderColumnConfig } from '@/lib/odl-config';
 import { getODLConfig, saveODLConfig } from '../odl-actions';
@@ -33,10 +34,11 @@ const MOCK_JOB = {
   dataConsegnaFinale: new Date().toISOString(),
   billOfMaterials: [
     { component: 'TRECCIA-CO-10', quantity: 2.5, lunghezzaTaglioMm: 450, note: 'ATTENZIONE: TAGLIO A 45°' },
-    { component: 'TRECCIA-CU-20', quantity: 1.2, lunghezzaTaglioMm: 300 },
+    { component: 'TRECCIA-CU-20', quantity: 1.2, lunghezzaTaglioMm: 300, note: '' },
     { component: 'TUBO-SIL-DN10', quantity: 1, lunghezzaTaglioMm: 0, note: 'INSERIRE BOCCOLA' },
     { component: 'GUAINA-TERM-12', quantity: 0.5, lunghezzaTaglioMm: 120 },
-  ]
+  ],
+  dataConsegnaCliente: new Date(Date.now() + 86400000 * 7).toISOString(), // +7 days
 };
 
 const MOCK_ARTICLE = {
@@ -77,6 +79,7 @@ const HEADER_FIELD_OPTIONS = [
 ];
 
 export default function ODLDesignerPage() {
+  const router = useRouter();
   const { toast } = useToast();
   const [config, setConfig] = useState<ODLConfig>(DEFAULT_ODL_CONFIG);
   const [loading, setLoading] = useState(true);
@@ -91,7 +94,24 @@ export default function ODLDesignerPage() {
           getODLConfig(),
           getGlobalSettings()
       ]);
-      setConfig(savedConfig || DEFAULT_ODL_CONFIG);
+      
+      let finalConfig = savedConfig || DEFAULT_ODL_CONFIG;
+
+      // Migration: Ensure new fields are added to existing configs if missing
+      if (finalConfig && finalConfig.info && finalConfig.info.columns) {
+        const hasClienteDeliv = finalConfig.info.columns.some(c => c.field === 'dataConsegnaCliente');
+        if (!hasClienteDeliv) {
+          const prepDateIdx = finalConfig.info.columns.findIndex(c => c.field === 'dataConsegnaFinale');
+          const newCol = { id: `i${Date.now()}`, label: 'DATA CONSEGNA FINALE', field: 'dataConsegnaCliente', visible: true, colorKey: 'bgValueYellow' };
+          if (prepDateIdx !== -1) {
+            finalConfig.info.columns.splice(prepDateIdx + 1, 0, newCol);
+          } else {
+            finalConfig.info.columns.push(newCol);
+          }
+        }
+      }
+
+      setConfig(JSON.parse(JSON.stringify(finalConfig)));
       if (globalSettings?.jobOrderQrCodeRule) setQrRule(globalSettings.jobOrderQrCodeRule);
       setLoading(false);
     }
@@ -145,6 +165,15 @@ export default function ODLDesignerPage() {
       <div className="w-[450px] bg-white border-r shadow-xl flex flex-col h-full overflow-hidden z-10">
         <div className="p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-700 flex items-center justify-between shrink-0 text-white">
           <div className="flex items-center gap-3">
+            <Button 
+                variant="ghost" 
+                size="icon" 
+                className="hover:bg-white/20 text-white mr-1" 
+                onClick={() => router.back()}
+                title="Torna indietro"
+            >
+                <ArrowLeft className="w-5 h-5" />
+            </Button>
             <div className="bg-white/20 p-2 rounded-lg backdrop-blur-sm">
                 <Layout className="w-5 h-5" />
             </div>
@@ -448,6 +477,16 @@ export default function ODLDesignerPage() {
                           onChange={(e) => updateConfig('layout.drawingAreaText', e.target.value)} 
                           disabled={!config.layout.showDrawingArea} 
                       />
+                      <div className="space-y-2">
+                        <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Altezza Area (mm)</Label>
+                        <Input 
+                          className="h-9 text-xs font-mono rounded-lg shadow-sm border border-gray-200" 
+                          value={config.layout.drawingAreaHeight || '40mm'} 
+                          onChange={(e) => updateConfig('layout.drawingAreaHeight', e.target.value)} 
+                          placeholder="es. 40mm"
+                          disabled={!config.layout.showDrawingArea}
+                        />
+                      </div>
                     </div>
                 </div>
 

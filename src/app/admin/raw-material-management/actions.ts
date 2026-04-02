@@ -21,6 +21,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateBOMRequirement, calculateInventoryMovement } from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
+import { fetchInChunks } from '@/lib/firestore-utils';
 
 export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -380,16 +381,14 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
 
     const mIds = materialsSnap.docs.map(doc => doc.id);
     const withdrawalsByMaterial: Record<string, number> = {};
-    if (mIds.length > 0) {
-        for (let i = 0; i < mIds.length; i += 30) {
-            const chunk = mIds.slice(i, i + 30);
-            const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "in", chunk).get();
-            wSnap.forEach(d => {
-                const w = d.data();
-                withdrawalsByMaterial[w.materialId] = (withdrawalsByMaterial[w.materialId] || 0) + (w.consumedUnits || 0);
-            });
-        }
-    }
+    const withdrawals = await fetchInChunks<MaterialWithdrawal>(
+        adminDb.collection("materialWithdrawals"),
+        "materialId",
+        mIds
+    );
+    withdrawals.forEach(w => {
+        withdrawalsByMaterial[w.materialId] = (withdrawalsByMaterial[w.materialId] || 0) + (w.consumedUnits || 0);
+    });
 
     const codeToMat = new Map<string, RawMaterial>();
     materialsSnap.forEach(docSnap => {
@@ -400,11 +399,12 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
     const commitmentArticles = [...new Set(commitmentsSnap.docs.map(d => d.data().articleCode.toUpperCase()))];
     const articlesMap = new Map();
     if (commitmentArticles.length > 0) {
-        for (let i = 0; i < commitmentArticles.length; i += 30) {
-            const chunk = commitmentArticles.slice(i, i + 30);
-            const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
-            aSnap.forEach(d => articlesMap.set(d.data().code.toLowerCase().trim(), d.data()));
-        }
+        const artResults = await fetchInChunks<Article>(
+            adminDb.collection("articles"),
+            "code",
+            commitmentArticles
+        );
+        artResults.forEach(a => articlesMap.set(a.code.toLowerCase().trim(), a));
     }
     const impMap = new Map<string, number>();
     jobsSnap.forEach(d => {
@@ -664,9 +664,7 @@ export async function importManualCommitments(data: any[], uid: string) {
 
 export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
     const validCodes = codes.filter(c => c && typeof c === 'string').map(c => c.trim());
-    if (validCodes.length === 0) return [];
-    const snap = await adminDb.collection("rawMaterials").where("code", "in", validCodes).get();
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
+    return fetchInChunks<RawMaterial>(adminDb.collection("rawMaterials"), "code", validCodes);
 }
 
 export type LotInfo = { lotto: string; available: number; batches: RawMaterialBatch[] };

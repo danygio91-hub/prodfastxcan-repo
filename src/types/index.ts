@@ -131,6 +131,7 @@ export interface JobOrder {
   hasAnomaly?: boolean;
   anomalyType?: string;
   anomalyNote?: string;
+  dataConsegnaCliente?: string;
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';

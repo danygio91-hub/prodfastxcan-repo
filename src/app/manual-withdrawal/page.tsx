@@ -460,7 +460,7 @@ export default function ManualWithdrawalPage() {
                           <p className="text-[10px] text-muted-foreground uppercase font-black tracking-[0.2em]">{scannedMaterial.description}</p>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                           <div className="p-3 rounded-2xl bg-background border-2 border-primary/5 flex flex-col items-center justify-center text-center shadow-sm">
                             <Label className="text-[8px] uppercase font-black text-muted-foreground mb-1">Totale Magazzino</Label>
                             <p className="text-lg font-black text-primary leading-tight">
@@ -496,7 +496,7 @@ export default function ManualWithdrawalPage() {
                                     <span className="flex items-center gap-2"><Info className="h-3 w-3" /> Trasparenza Bilancia</span>
                                     <span>3 Decimali</span>
                                 </div>
-                                <div className="grid grid-cols-3 gap-3 text-center">
+                                <div className="grid grid-cols-1 xs:grid-cols-3 gap-3 text-center">
                                     <div className="space-y-1">
                                         <p className="text-[9px] font-bold text-muted-foreground uppercase leading-none">Netto Ricalcolato</p>
                                         <p className="text-md font-black">{effectiveNet.toFixed(3)}</p>
@@ -748,12 +748,12 @@ export default function ManualWithdrawalPage() {
                             Scansiona il materiale o inserisci il lotto per sbloccare la registrazione.
                           </p>
                       </div>
-                      <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto">
-                        <Button type="button" onClick={() => setScanType('material')} className="h-14 rounded-2xl shadow-lg hover:shadow-primary/20 transition-all font-black uppercase text-[10px] tracking-widest">
-                          <QrCode className="mr-2 h-5 w-5" /> Materiale
+                      <div className="flex flex-col gap-3 max-w-sm mx-auto w-full">
+                        <Button type="button" onClick={() => setScanType('material')} className="h-16 rounded-2xl shadow-lg hover:shadow-primary/20 transition-all font-black uppercase text-xs tracking-widest w-full">
+                          <QrCode className="mr-2 h-6 w-6" /> Scansiona Materiale
                         </Button>
-                        <Button type="button" onClick={() => setScanType('lotto')} className="h-14 rounded-2xl shadow-lg border-2 font-black uppercase text-[10px] tracking-widest" variant="secondary">
-                          <Barcode className="mr-2 h-5 w-5" /> Lotto
+                        <Button type="button" onClick={() => setScanType('lotto')} className="h-16 rounded-2xl shadow-lg border-2 font-black uppercase text-xs tracking-widest w-full" variant="secondary">
+                          <Barcode className="mr-2 h-6 w-6" /> Inserisci Lotto
                         </Button>
                       </div>
                     </div>

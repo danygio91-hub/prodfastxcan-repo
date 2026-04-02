@@ -159,19 +159,19 @@ export default function ActiveJobStatusBar() {
             isStatusBarHighlighted && "border-primary ring-4 ring-primary/50",
             isMyWorkActive ? "bg-teal-500 text-teal-50" : "bg-amber-400 text-amber-900"
         )}>
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-4">
                 <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">Commessa: {activeJob.ordinePF}</p>
-                    <p className={cn("text-xs truncate flex items-center gap-1.5", isMyWorkActive ? "text-teal-100" : "text-amber-800")}>
+                    <p className="text-sm font-bold truncate">Commessa: {activeJob.ordinePF}</p>
+                    <p className={cn("text-[10px] sm:text-xs truncate flex items-center gap-1.5", isMyWorkActive ? "text-teal-100" : "text-amber-800")}>
                        {isMyWorkActive 
-                          ? <span className="h-2 w-2 rounded-full bg-white animate-pulse"></span>
-                          : <span className="h-2 w-2 rounded-full bg-orange-600"></span>
+                          ? <span className="h-2 w-2 rounded-full bg-white animate-pulse flex-shrink-0"></span>
+                          : <span className="h-2 w-2 rounded-full bg-orange-600 flex-shrink-0"></span>
                        }
-                       {isMyWorkActive ? 'Fase Attiva:' : 'Fase in Pausa:'} {myRelevantPhase.name}
+                       <span className="truncate">{isMyWorkActive ? 'Fase Attiva:' : 'Fase in Pausa:'} {myRelevantPhase.name}</span>
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <>
+                <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center gap-2">
                         <Button 
                           variant="outline" 
                           size="icon" 
@@ -196,9 +196,9 @@ export default function ActiveJobStatusBar() {
                             <Check className="h-4 w-4" />
                             <span className="sr-only">Completa</span>
                         </Button>
-                        <Separator orientation="vertical" className="h-6 bg-black/20" />
-                    </>
-                     <Button asChild variant="default" size="sm" className="h-9 bg-black/10 text-inherit hover:bg-black/20">
+                    </div>
+                    <Separator orientation="vertical" className="h-6 bg-black/20 hidden sm:block" />
+                     <Button asChild variant="default" size="sm" className="h-9 bg-black/10 text-inherit hover:bg-black/20 flex-shrink-0">
                         <Link href="/scan-job">
                             <Activity className="mr-2 h-4 w-4" />
                             Dettagli

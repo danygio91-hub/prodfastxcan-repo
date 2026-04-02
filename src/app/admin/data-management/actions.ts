@@ -6,6 +6,7 @@ import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment } from '@/types';
 import * as z from 'zod';
 import { convertTimestampsToDates } from '@/lib/utils';
+import { fetchInChunks } from '@/lib/firestore-utils';
 
 
 function sanitizeDocumentId(id: string): string {
@@ -67,29 +68,25 @@ export async function getRequiredDataForJobs(jobs: JobOrder[], commitments: Manu
     });
 
     const uniqueArticles = [...arrArticleCodes];
-    const articlesRes: Article[] = [];
-
-    for (let i = 0; i < uniqueArticles.length; i += 30) {
-        const chunk = uniqueArticles.slice(i, i + 30);
-        const snap = await adminDb.collection("articles").where("code", "in", chunk).get();
-        snap.forEach(d => {
-            const a = { id: d.id, ...d.data() } as Article;
-            articlesRes.push(a);
-            // Add components from fetched articles
-            a.billOfMaterials?.forEach(b => {
-                if (b.component) directMaterialCodes.add(b.component.toUpperCase());
-            });
+    const articlesRes = await fetchInChunks<Article>(
+        adminDb.collection("articles"),
+        "code",
+        uniqueArticles
+    );
+    
+    articlesRes.forEach(a => {
+        // Add components from fetched articles
+        a.billOfMaterials?.forEach(b => {
+            if (b.component) directMaterialCodes.add(b.component.toUpperCase());
         });
-    }
+    });
 
     const uniqueMaterials = [...directMaterialCodes];
-    const materialsRes: RawMaterial[] = [];
-
-    for (let i = 0; i < uniqueMaterials.length; i += 30) {
-        const chunk = uniqueMaterials.slice(i, i + 30);
-        const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
-        snap.forEach(d => materialsRes.push({ id: d.id, ...d.data() } as RawMaterial));
-    }
+    const materialsRes = await fetchInChunks<RawMaterial>(
+        adminDb.collection("rawMaterials"),
+        "code",
+        uniqueMaterials
+    );
 
     return { articles: articlesRes, materials: materialsRes };
 }

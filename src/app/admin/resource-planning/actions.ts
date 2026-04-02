@@ -9,6 +9,7 @@ import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Art
 import { startOfWeek, endOfWeek, format, parseISO, eachDayOfInterval } from 'date-fns';
 import { getProductionTimeAnalysisMap } from '../production-console/actions';
 import { convertTimestampsToDates } from '@/lib/utils';
+import { fetchInChunks } from '@/lib/firestore-utils';
 
 
 
@@ -74,23 +75,17 @@ export async function bulkSaveOperatorAssignments(assignments: Omit<OperatorAssi
     const operatorIds = Array.from(new Set(assignments.map(a => a.operatorId)));
     
     if (operatorIds.length > 0) {
-      // Nota: 'in' supporta max 10 elementi per query in Firestore standard, 
-      // ma qui usiamo admin che ha limiti simili o leggermente superiori a seconda della versione.
-      // Eseguiamo a blocchi di 10 se necessario.
-      for (let i = 0; i < operatorIds.length; i += 10) {
-        const chunk = operatorIds.slice(i, i + 10);
-        const existingSnap = await adminDb.collection("operatorAssignments")
-          .where("operatorId", "in", chunk)
-          .where("endDate", ">=", startDate)
-          .get();
-        
-        existingSnap.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.startDate <= endDate) {
-            batch.delete(doc.ref);
-          }
-        });
-      }
+      const existingAssignments = await fetchInChunks<OperatorAssignment>(
+        adminDb.collection("operatorAssignments"),
+        "operatorId",
+        operatorIds
+      );
+
+      existingAssignments.forEach(data => {
+        if (data.endDate >= startDate && data.startDate <= endDate) {
+          batch.delete(adminDb.collection("operatorAssignments").doc(data.id));
+        }
+      });
     }
 
     // 2. Aggiungi le nuove assegnazioni
@@ -148,14 +143,13 @@ export async function getPlanningData(dateIso: string) {
 
     // Fetch only needed articles for the jobs
     const articleCodes = Array.from(new Set(jobOrders.map(j => j.details).filter(Boolean)));
-    const articles: Article[] = [];
+    let articles: Article[] = [];
     if (articleCodes.length > 0) {
-        for (let i = 0; i < articleCodes.length; i += 30) {
-            const chunk = articleCodes.slice(i, i + 30);
-            const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
-            aSnap.forEach(d => articles.push({ id: d.id, ...convertTimestampsToDates(d.data()) } as Article));
-        }
-
+        articles = await fetchInChunks<Article>(
+            adminDb.collection("articles"),
+            "code",
+            articleCodes
+        );
     }
 
     return {

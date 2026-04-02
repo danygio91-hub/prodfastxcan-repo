@@ -127,16 +127,16 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
                             <Badge variant="outline" className="font-mono text-[10px]">{session.lotto || 'SENZA LOTTO'}</Badge>
                         </div>
                         
-                        <div className="grid grid-cols-3 gap-2">
-                            <div className="text-center">
+                        <div className="grid grid-cols-1 xs:grid-cols-3 gap-2">
+                            <div className="text-center p-2 bg-background rounded-lg border border-primary/5">
                                 <p className="text-[8px] uppercase font-bold text-muted-foreground">Netto Residuo</p>
                                 <p className="text-sm font-black">{session.netOpeningWeight.toFixed(3)}</p>
                             </div>
-                            <div className="text-center">
+                            <div className="text-center p-2 bg-background rounded-lg border border-primary/5">
                                 <p className="text-[8px] uppercase font-bold text-muted-foreground">Tara ({session.packagingId === 'none' ? 'Inesistente' : 'Bobina'})</p>
                                 <p className="text-sm font-black text-orange-600">{session.tareWeight?.toFixed(3) || "0.000"}</p>
                             </div>
-                            <div className="text-center bg-primary/5 rounded-md py-1">
+                            <div className="text-center bg-primary/5 rounded-lg border border-primary/10 p-2">
                                 <p className="text-[8px] uppercase font-bold text-primary">Lordo Atteso</p>
                                 <p className="text-sm font-black text-primary">{session.grossOpeningWeight.toFixed(3)}</p>
                             </div>
@@ -357,14 +357,14 @@ function AddJobDialog({ sessionId, isOpen, onOpenChange }: { sessionId: string; 
                                 </ScrollArea>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2">
-                                <Button variant="outline" className="h-14 font-black uppercase tracking-tight rounded-xl border-slate-700 text-slate-300" onClick={() => setScannerOpen(true)}>
-                                    <Camera className="mr-2 h-5 w-5" /> Scansiona
+                            <div className="flex flex-col gap-2">
+                                <Button variant="outline" className="h-14 font-black uppercase tracking-tight rounded-xl border-slate-700 text-slate-300 w-full" onClick={() => setScannerOpen(true)}>
+                                    <Camera className="mr-2 h-5 w-5" /> Avvia Scanner QR
                                 </Button>
-                                <div className="relative">
+                                <div className="relative w-full">
                                     <Input 
-                                        placeholder="Manuale..." 
-                                        className="h-14 bg-slate-950 border-slate-800 text-white font-bold pr-10"
+                                        placeholder="Codice manuale..." 
+                                        className="h-14 bg-slate-950 border-slate-800 text-white font-bold pr-12 w-full"
                                         value={newJobPF}
                                         onChange={e => setNewJobPF(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleAddManual()}
@@ -372,10 +372,10 @@ function AddJobDialog({ sessionId, isOpen, onOpenChange }: { sessionId: string; 
                                     <Button 
                                         variant="ghost" 
                                         size="icon" 
-                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-primary"
+                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-primary h-10 w-10"
                                         onClick={handleAddManual}
                                     >
-                                        <PlusCircle className="h-5 w-5" />
+                                        <PlusCircle className="h-6 w-6" />
                                     </Button>
                                 </div>
                             </div>

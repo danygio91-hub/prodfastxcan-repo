@@ -21,11 +21,21 @@ export default function AppShell({ children }: AppShellProps) {
   const isAdminPage = pathname.startsWith('/admin') || pathname.startsWith('/supervisor');
   const isOperatorOrSupervisor = operator && (operator.role === 'operator' || operator.role === 'supervisor');
   const hasSignedPrivacy = isOperatorOrSupervisor && operator.privacySigned;
+  
+  const isFullScreenPage = pathname.includes('odl-designer');
+
+  if (isFullScreenPage) {
+    return (
+        <div className="h-screen w-full bg-background overflow-hidden">
+            {children}
+        </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
-      <main className="flex-grow w-full px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-grow w-full px-2 sm:px-6 lg:px-8 py-4 sm:py-8">
         {isOperatorOrSupervisor && hasSignedPrivacy && !isAdminPage && (
           <>
             <OperatorNavMenu />

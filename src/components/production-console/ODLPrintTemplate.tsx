@@ -58,8 +58,9 @@ export default function ODLPrintTemplate({
 
   const getEstimatedTimeForSection = (phaseId: string) => {
     const timeData = article?.phaseTimes?.[phaseId];
-    if (!timeData || !timeData.expectedMinutesPerPiece) return '00:00';
-    const totalMins = Math.round(timeData.expectedMinutesPerPiece * job.qta);
+    if (!timeData || (!timeData.expectedMinutesPerPiece && !timeData.detectedMinutesPerPiece)) return 'N/D';
+    const mins = timeData.expectedMinutesPerPiece || timeData.detectedMinutesPerPiece || 0;
+    const totalMins = Math.round(mins * job.qta);
     const h = Math.floor(totalMins / 60);
     const m = totalMins % 60;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -108,7 +109,7 @@ export default function ODLPrintTemplate({
       fontWeight: "bold" as const,
       fontSize: `${config.typography.titleFontSize}pt`,
       textAlign: "center" as const,
-      height: "12mm",
+      height: config.header.titleHeight || "12mm",
       position: "relative" as const,
     },
     qrWrapper: {
@@ -143,8 +144,8 @@ export default function ODLPrintTemplate({
     },
     spacingRow: {
         height: "3mm",
+        width: "100%",
         backgroundColor: "white",
-        border: "none",
     }
   };
 
@@ -299,9 +300,10 @@ export default function ODLPrintTemplate({
               if (col.field === 'details') val = job.details;
               if (col.field === 'qta') val = `${job.qta}`;
               if (col.field === 'dataConsegnaFinale') val = formatDateSafe(job.dataConsegnaFinale);
+              if (col.field === 'dataConsegnaCliente') val = formatDateSafe((job as any).dataConsegnaCliente);
 
               return (
-                <tr key={col.id} style={{ height: '8mm' }}>
+                <tr key={col.id} style={{ height: '8.5mm' }}>
                   {/* LABEL */}
                   <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
                       <div style={getCellFlexStyles()}>{col.label}</div>
@@ -313,7 +315,7 @@ export default function ODLPrintTemplate({
 
                   {/* DRAWING / NOTES AREA */}
                   {idx === 0 && (
-                    <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}` }} rowSpan={rowCount}>
+                    <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}`, height: config.layout.drawingAreaHeight || '40mm' }} rowSpan={rowCount}>
                       <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
                         <div>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
                         {job.attachments && job.attachments.length > 0 && (
@@ -351,8 +353,31 @@ export default function ODLPrintTemplate({
   );
 
   const renderTableRows = (items: any[], columnConfigs: any[], sectionType: 'treccia' | 'tubi' | 'guaina') => {
-    const visibleCols = columnConfigs.filter(c => c.visible);
     if (items.length === 0) return null;
+
+    // Check if any item in this section has notes
+    const hasAnyNote = items.some(item => item.note && item.note.trim() !== '');
+    
+    // Dynamic column balancing
+    let visibleCols = columnConfigs.filter(c => c.visible);
+    
+    // If NO notes in entire section, and 'note' column is selected, we hide it and expand others
+    const noteColIndex = visibleCols.findIndex(c => c.field === 'note');
+    if (!hasAnyNote && noteColIndex !== -1) {
+        const removedWidthStr = visibleCols[noteColIndex].width;
+        const removedWidth = parseFloat(removedWidthStr) || 0;
+        
+        visibleCols = visibleCols.filter(c => c.field !== 'note');
+        
+        // Redistribute width (pro-rata expansion)
+        if (visibleCols.length > 0 && removedWidth > 0 && removedWidthStr.includes('%')) {
+            const extra = removedWidth / visibleCols.length;
+            visibleCols = visibleCols.map(c => ({
+                ...c,
+                width: `${(parseFloat(c.width) || 0) + extra}%`
+            }));
+        }
+    }
 
     return (
       <table style={{ ...styles.masterTable, borderTop: '0' }}>
@@ -378,7 +403,7 @@ export default function ODLPrintTemplate({
             const data: any = {
               codice: item.component,
               lunghezzaTaglio: item.lunghezzaTaglioMm || 0,
-              quantita: req.totalInBaseUnits,
+              quantita: req.totalPieces, // Use total pieces as requested
               pesoTotale: req.weightKg.toFixed(1),
               metriTotali: req.totalMeters?.toFixed(2) || '0.00',
               placeholder: '',
@@ -466,35 +491,29 @@ export default function ODLPrintTemplate({
       <div id="odl-pdf-pages" style={{ width: '297mm' }}>
         {trecciaItems.length > 0 && (
           <div className="odl-page" style={styles.page}>
-            <table style={styles.masterTable}>
               {renderHeader()}
               {renderJobDetails()}
               {renderSectionHeader()}
               {renderTableRows(trecciaItems, config.columns.treccia, 'treccia')}
               {renderFooter()}
-            </table>
           </div>
         )}
         {tubiItems.length > 0 && (
           <div className="odl-page" style={styles.page}>
-            <table style={styles.masterTable}>
               {renderHeader()}
               {renderJobDetails()}
               {renderSectionHeader()}
               {renderTableRows(tubiItems, config.columns.tubi, 'tubi')}
               {renderFooter()}
-            </table>
           </div>
         )}
         {guainaItems.length > 0 && (
           <div className="odl-page" style={styles.page}>
-            <table style={styles.masterTable}>
               {renderHeader()}
               {renderJobDetails()}
               {renderSectionHeader()}
               {renderTableRows(guainaItems, config.columns.guaina, 'guaina')}
               {renderFooter()}
-            </table>
           </div>
         )}
       </div>
@@ -504,15 +523,15 @@ export default function ODLPrintTemplate({
   return (
     <div id="odl-pdf-pages" style={{ width: '297mm' }}>
       <div className="odl-page" style={styles.page}>
-        <table style={styles.masterTable}>
           {renderHeader()}
           {renderJobDetails()}
           {renderSectionHeader()}
           {renderTableRows(trecciaItems, config.columns.treccia, 'treccia')}
+          {trecciaItems.length > 0 && (tubiItems.length > 0 || guainaItems.length > 0) && <div style={styles.spacingRow}></div>}
           {renderTableRows(tubiItems, config.columns.tubi, 'tubi')}
+          {tubiItems.length > 0 && guainaItems.length > 0 && <div style={styles.spacingRow}></div>}
           {renderTableRows(guainaItems, config.columns.guaina, 'guaina')}
           {renderFooter()}
-        </table>
       </div>
     </div>
   );
