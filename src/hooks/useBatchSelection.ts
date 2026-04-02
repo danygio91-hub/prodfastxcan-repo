@@ -50,7 +50,8 @@ export function useBatchSelection({
 
         // Auto-fill Gross Weight (expected)
         const tare = lottoData.tareWeight || 0;
-        const net = lottoData.netWeight || matched?.available || 0;
+        // PRIORITY: use matched.available (current stock) instead of initial lot weight
+        const net = matched?.available ?? (lottoData.netWeight || 0);
         const expectedGross = net + tare;
         
         form.setValue(quantityFieldName, Number(expectedGross.toFixed(3)));

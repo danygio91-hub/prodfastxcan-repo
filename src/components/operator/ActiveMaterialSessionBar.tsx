@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -24,12 +24,14 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
-import { Boxes, Weight, Send, Loader2, X, AlertTriangle, PlusCircle, Link2, User, Clock, Search } from 'lucide-react';
+import { Boxes, Weight, Send, Loader2, X, AlertTriangle, PlusCircle, Link2, User, Clock, Search, Camera } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { addJobsToSession } from '@/app/actions/material-sessions';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
+import { useCameraStream } from '@/hooks/use-camera-stream';
+import { cn } from '@/lib/utils';
 
 const closingWeightSchema = z.object({
     closingWeight: z.coerce.number().min(0, "Il peso non può essere negativo."),
@@ -214,6 +216,46 @@ function AddJobDialog({ sessionId, isOpen, onOpenChange }: { sessionId: string; 
     const [isLinking, setIsLinking] = useState(false);
     const { toast } = useToast();
 
+    const videoRef = React.useRef<HTMLVideoElement>(null);
+    const [scannerOpen, setScannerOpen] = useState(false);
+    const [lastScanned, setLastScanned] = useState<string | null>(null);
+    const { hasPermission } = useCameraStream(scannerOpen && isOpen, videoRef);
+
+    const triggerScan = useCallback(async () => {
+        if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) return;
+        if (!('BarcodeDetector' in window)) return;
+
+        try {
+            const detector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128'] });
+            const barcodes = await detector.detect(videoRef.current);
+            if (barcodes.length > 0) {
+                const code = barcodes[0].rawValue.trim();
+                if (code && code !== lastScanned) {
+                    setLastScanned(code);
+                    await addJobsToSession(sessionId, [code]);
+                    toast({ title: "Commessa Collegata", description: code });
+                }
+            }
+        } catch (e) {
+            console.error("Scan error:", e);
+        }
+    }, [sessionId, lastScanned, toast]);
+
+    React.useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (scannerOpen && isOpen) {
+            interval = setInterval(triggerScan, 500);
+        }
+        return () => clearInterval(interval);
+    }, [scannerOpen, isOpen, triggerScan]);
+
+    React.useEffect(() => {
+        if (lastScanned) {
+            const t = setTimeout(() => setLastScanned(null), 2000);
+            return () => clearTimeout(t);
+        }
+    }, [lastScanned]);
+
     const handleAddJob = async () => {
         if (!newJobPF.trim()) return;
         setIsLinking(true);
@@ -221,7 +263,6 @@ function AddJobDialog({ sessionId, isOpen, onOpenChange }: { sessionId: string; 
             const res = await addJobsToSession(sessionId, [newJobPF.trim()]);
             if (res.success) {
                 toast({ title: "Commessa Aggiunta" });
-                onOpenChange(false);
                 setNewJobPF('');
             } else {
                 toast({ variant: 'destructive', title: "Errore", description: res.message });
@@ -235,31 +276,72 @@ function AddJobDialog({ sessionId, isOpen, onOpenChange }: { sessionId: string; 
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-sm">
+            <DialogContent className="max-w-md border-2 border-primary/20 shadow-2xl">
                 <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2"><Link2 className="h-5 w-5" /> Collega Commessa</DialogTitle>
-                    <DialogDescription>Inserisci il numero PF/ID della commessa da aggiungere.</DialogDescription>
+                    <DialogTitle className="flex items-center gap-2 font-black uppercase tracking-tight text-lg">
+                        <Link2 className="h-5 w-5 text-primary" /> Collega Commesse
+                    </DialogTitle>
+                    <DialogDescription className="text-xs font-bold uppercase opacity-60">Scansiona QR o inserisci manualmente</DialogDescription>
                 </DialogHeader>
-                <div className="py-4 space-y-2">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50" />
-                        <Input 
-                            placeholder="Es. 81-149-77/PF" 
-                            className="pl-9 h-12 text-lg font-bold"
-                            value={newJobPF}
-                            autoFocus
-                            onChange={e => setNewJobPF(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleAddJob()}
-                        />
-                    </div>
+                
+                <div className="space-y-4 py-2">
+                    {scannerOpen ? (
+                        <div className="space-y-4">
+                            <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border-4 border-muted shadow-inner">
+                                <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                                <div className={cn(
+                                    "absolute inset-0 bg-green-500/20 transition-opacity duration-300 pointer-events-none",
+                                    lastScanned ? "opacity-100" : "opacity-0"
+                                )} />
+                                {lastScanned && (
+                                    <div className="absolute top-4 left-1/2 -translate-x-1/2 animate-in zoom-in-50">
+                                        <Badge className="bg-green-600 text-white font-black px-3 py-1 shadow-lg">LETTO: {lastScanned}</Badge>
+                                    </div>
+                                )}
+                            </div>
+                            <Button variant="outline" className="w-full h-12 font-black uppercase text-xs tracking-widest" onClick={() => setScannerOpen(false)}>
+                                <X className="mr-2 h-4 w-4" /> Chiudi Scanner
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 gap-2">
+                                <Button className="h-16 text-lg font-black uppercase tracking-tight rounded-xl shadow-lg border-2 border-primary/20" onClick={() => setScannerOpen(true)}>
+                                    <Camera className="mr-3 h-6 w-6" /> Avvia Scanner QR
+                                </Button>
+                            </div>
+                            
+                            <div className="relative">
+                                <div className="absolute inset-0 flex items-center">
+                                    <span className="w-full border-t" />
+                                </div>
+                                <div className="relative flex justify-center text-[10px] uppercase font-black">
+                                    <span className="bg-background px-2 text-muted-foreground">Oppure Manuale</span>
+                                </div>
+                            </div>
+
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50" />
+                                <Input 
+                                    placeholder="Es. 81-149-77/PF" 
+                                    className="pl-9 h-12 text-lg font-bold rounded-xl border-2"
+                                    value={newJobPF}
+                                    onChange={e => setNewJobPF(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleAddJob()}
+                                />
+                            </div>
+                            <Button className="w-full h-12 font-black uppercase tracking-tight rounded-xl" onClick={handleAddJob} disabled={isLinking || !newJobPF.trim()}>
+                                {isLinking ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <PlusCircle className="h-5 w-5 mr-2" />}
+                                Collega Manualmente
+                            </Button>
+                        </div>
+                    )}
                 </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
-                    <Button onClick={handleAddJob} disabled={isLinking || !newJobPF.trim()}>
-                        {isLinking ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
-                        Collega
-                    </Button>
-                </DialogFooter>
+                {!scannerOpen && (
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="text-[10px] uppercase font-black text-muted-foreground">Chiudi</Button>
+                    </DialogFooter>
+                )}
             </DialogContent>
         </Dialog>
     );
@@ -304,15 +386,15 @@ export default function ActiveMaterialSessionBar() {
                         <div className="absolute inset-0 bg-gradient-to-br from-destructive to-destructive/80 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </Button>
                 </SheetTrigger>
-                <SheetContent className="sm:max-w-md bg-white/95 backdrop-blur-md">
-                    <SheetHeader className="border-b pb-4">
+                <SheetContent className="sm:max-w-md bg-slate-950/95 backdrop-blur-xl border-slate-800 text-white">
+                    <SheetHeader className="border-b border-slate-800 pb-4">
                         <SheetTitle className="flex items-center gap-2">
-                           <div className="p-2 bg-destructive/10 rounded-lg">
+                           <div className="p-2 bg-destructive/20 rounded-lg">
                                <Boxes className="h-5 w-5 text-destructive" />
                            </div>
-                           <span className="font-black uppercase tracking-tight">Sessioni Attive</span>
+                           <span className="font-black uppercase tracking-tight text-white">Sessioni Attive</span>
                         </SheetTitle>
-                        <SheetDescription className="text-[10px] font-bold uppercase opacity-60">
+                        <SheetDescription className="text-[10px] font-bold uppercase text-slate-400">
                             {isAuthorized ? "Pannello di controllo globale officina" : "Queste sono le tue sessioni aperte"}
                         </SheetDescription>
                     </SheetHeader>
@@ -320,25 +402,24 @@ export default function ActiveMaterialSessionBar() {
                         <div className="grid gap-4 py-6">
                             {activeSessions.map((session) => {
                                 const isMine = session.operatorId === user?.uid;
-                                return (
-                                    <div key={session.id} className="p-4 border-2 rounded-2xl space-y-4 bg-white shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
+                                return (                                    <div key={session.id} className="p-4 border-2 rounded-2xl space-y-4 bg-slate-900 border-slate-800 shadow-xl shadow-slate-950/40 transition-all relative overflow-hidden group">
                                         {!isMine && (
-                                            <div className="absolute top-0 right-0 px-3 py-1 bg-primary/10 text-primary text-[8px] font-black uppercase rounded-bl-xl border-l border-b border-primary/20">
+                                            <div className="absolute top-0 right-0 px-3 py-1 bg-primary/20 text-primary text-[8px] font-black uppercase rounded-bl-xl border-l border-b border-primary/30">
                                                 Officina
                                             </div>
                                         )}
                                         {isMine && !isAuthorized && (
-                                            <div className="absolute top-0 right-0 px-3 py-1 bg-destructive/10 text-destructive text-[8px] font-black uppercase rounded-bl-xl border-l border-b border-destructive/20">
+                                            <div className="absolute top-0 right-0 px-3 py-1 bg-destructive/20 text-destructive text-[8px] font-black uppercase rounded-bl-xl border-l border-b border-destructive/30">
                                                 Mia
                                             </div>
                                         )}
 
                                         <div className="space-y-1">
                                             <div className="flex items-center gap-2">
-                                                <h3 className="font-black text-lg tracking-tight leading-none">{session.materialCode}</h3>
-                                                <Badge variant="outline" className="font-mono text-[10px] h-5">{session.lotto || 'S/L'}</Badge>
+                                                <h3 className="font-black text-lg tracking-tight leading-none text-white">{session.materialCode}</h3>
+                                                <Badge variant="outline" className="font-mono text-[10px] h-5 border-slate-700 text-slate-300">{session.lotto || 'S/L'}</Badge>
                                             </div>
-                                            <div className="flex items-center gap-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                                            <div className="flex items-center gap-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                                 <div className="flex items-center gap-1">
                                                     <User className="h-3 w-3" /> {session.operatorName}
                                                 </div>
@@ -348,32 +429,33 @@ export default function ActiveMaterialSessionBar() {
                                             </div>
                                         </div>
 
-                                        <div className="bg-muted/30 rounded-xl p-3 space-y-2 border border-muted">
-                                            <div className="flex items-center justify-between text-[9px] font-black uppercase opacity-60">
-                                                <span className="flex items-center gap-1"><Link2 className="h-3 w-3" /> Job Collegati</span>
-                                                <span>{(session.linkedJobOrderIds || session.linkedJobOrderPFs || []).length} Tot</span>
+                                        <div className="bg-slate-800/50 rounded-xl p-3 space-y-2 border border-slate-700/50">
+                                            <div className="flex items-center justify-between text-[9px] font-black uppercase text-slate-300">
+                                                <span className="flex items-center gap-1"><Link2 className="h-3 w-3 opacity-60" /> Job Collegati</span>
+                                                <span className="opacity-60">{(session.linkedJobOrderPFs || session.linkedJobOrderIds || []).length} Tot</span>
                                             </div>
                                             <div className="flex flex-wrap gap-1.5">
                                                 {(session.linkedJobOrderPFs || session.linkedJobOrderIds || []).map(pf => (
-                                                    <Badge key={pf} variant="secondary" className="bg-white border text-primary font-mono text-[9px] h-6 px-2">
+                                                    <Badge key={pf} variant="secondary" className="bg-slate-700 border-slate-600 text-slate-100 font-mono text-[9px] h-6 px-2 hover:bg-slate-600">
                                                         {pf}
                                                     </Badge>
                                                 ))}
                                                 {(session.linkedJobOrderIds || []).length === 0 && (
-                                                    <span className="text-[10px] italic opacity-40 py-1">Nessuna commessa...</span>
+                                                    <span className="text-[10px] italic text-slate-500 py-1 font-bold">Nessuna commessa...</span>
                                                 )}
                                             </div>
                                             {(isAuthorized || isMine) && (
                                                 <Button 
                                                     variant="ghost" 
                                                     size="sm" 
-                                                    className="w-full text-[9px] font-black uppercase h-7 hover:bg-primary/10 hover:text-primary transition-colors"
+                                                    className="w-full text-[9px] font-black uppercase h-7 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
                                                     onClick={() => setAddingJobToSessionId(session.id)}
                                                 >
                                                     <PlusCircle className="mr-1 h-3 w-3" /> Aggiungi Commessa
                                                 </Button>
                                             )}
                                         </div>
+
 
                                         <div className="flex gap-2 pt-2">
                                             <Button
@@ -390,9 +472,9 @@ export default function ActiveMaterialSessionBar() {
                             })}
                         </div>
                     </ScrollArea>
-                    <SheetFooter className="border-t pt-4">
+                    <SheetFooter className="border-t border-slate-800 pt-4">
                         <SheetClose asChild>
-                            <Button variant="outline" className="w-full font-bold uppercase text-[10px] tracking-widest">Chiudi Pannello</Button>
+                            <Button variant="outline" className="w-full font-bold uppercase text-[10px] tracking-widest border-slate-700 text-slate-300 hover:bg-slate-800">Chiudi Pannello</Button>
                         </SheetClose>
                     </SheetFooter>
                 </SheetContent>

@@ -49,16 +49,11 @@ import { cn } from '@/lib/utils';
 const withdrawalFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   lotto: z.string().optional(),
-  quantity: z.coerce.number().optional().refine(val => {
-    // Se non siamo in modalità sessione, la quantità è obbligatoria e positiva
-    return true; // La validazione reale la facciamo condizionale nel refine o nel submit
-  }, "La quantità deve essere un numero positivo."),
+  quantity: z.coerce.number().optional(),
   notes: z.string().optional(),
-  jobOrderPF: z.string().optional(),
+  jobOrderPFs: z.array(z.string()).default([]),
   packagingId: z.string().optional(),
-}).refine((data) => {
-  return true;
-}, { path: ['quantity'] });
+});
 
 type WithdrawalFormValues = z.infer<typeof withdrawalFormSchema>;
 
@@ -73,6 +68,8 @@ export default function ManualWithdrawalPage() {
   const [allLots, setAllLots] = useState<LotInfo[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
+  const [jobScannerOpen, setJobScannerOpen] = useState(false);
+  const [lastScannedJob, setLastScannedJob] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [useSession, setUseSession] = useState(false);
@@ -89,7 +86,7 @@ export default function ManualWithdrawalPage() {
     defaultValues: {
       lotto: '',
       notes: '',
-      jobOrderPF: '',
+      jobOrderPFs: [],
       packagingId: 'none'
     }
   });
@@ -150,6 +147,27 @@ export default function ManualWithdrawalPage() {
     setIsCapturing(false);
   }, [scanType, form, toast]);
 
+  const handleJobScan = useCallback(async (code: string) => {
+    const cleanCode = code.trim();
+    if (!cleanCode) return;
+    
+    if (lastScannedJob === cleanCode) return;
+    
+    const currentJobs = form.getValues('jobOrderPFs') || [];
+    if (!currentJobs.includes(cleanCode)) {
+        form.setValue('jobOrderPFs', [...currentJobs, cleanCode]);
+        setLastScannedJob(cleanCode);
+        toast({ title: "Commessa Aggiunta", description: cleanCode });
+    }
+  }, [form, lastScannedJob, toast]);
+
+  useEffect(() => {
+    if (lastScannedJob) {
+        const timer = setTimeout(() => setLastScannedJob(null), 2000);
+        return () => clearTimeout(timer);
+    }
+  }, [lastScannedJob]);
+
 
   const triggerScan = async () => {
     if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -193,7 +211,7 @@ export default function ManualWithdrawalPage() {
         materialId: scannedMaterial.id,
         materialCode: scannedMaterial.code,
         lotto: values.lotto || null,
-        linkedJobOrderIds: values.jobOrderPF ? [values.jobOrderPF] : [],
+        linkedJobOrderIds: values.jobOrderPFs || [],
         grossOpeningWeight: initialGross,
         netOpeningWeight: initialNet,
         packagingId: packagingIdValue,
@@ -212,7 +230,7 @@ export default function ManualWithdrawalPage() {
 
     const result = await logManualWithdrawal({
       ...values,
-      quantity: values.quantity || 0,
+      quantity: isKgMode ? effectiveNet : (values.quantity || 0),
       operatorId: operator.id,
       operatorName: operator.nome,
       unit: isKgMode ? 'kg' : scannedMaterial.unitOfMeasure,
@@ -237,7 +255,7 @@ export default function ManualWithdrawalPage() {
     form.reset({
       lotto: '',
       notes: '',
-      jobOrderPF: '',
+      jobOrderPFs: [],
       quantity: undefined,
       packagingId: 'none'
     });
@@ -283,6 +301,79 @@ export default function ManualWithdrawalPage() {
                 {isCapturing ? 'Analisi...' : 'Scansiona Ora'}
             </Button>
              <Button variant="ghost" onClick={() => setScanType(null)} className="text-muted-foreground uppercase font-bold text-xs">Annulla</Button>
+        </div>
+      </div>
+    </DialogContent>
+  );
+  
+  const jobVideoRef = useRef<HTMLVideoElement>(null);
+  const { hasPermission: hasJobPermission } = useCameraStream(jobScannerOpen, jobVideoRef);
+
+  const triggerJobScan = useCallback(async () => {
+    if (!jobVideoRef.current || jobVideoRef.current.paused || jobVideoRef.current.readyState < 2) return;
+    if (!('BarcodeDetector' in window)) return;
+
+    try {
+      const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
+      const barcodes = await barcodeDetector.detect(jobVideoRef.current);
+      if (barcodes.length > 0) {
+        handleJobScan(barcodes[0].rawValue);
+      }
+    } catch (error) {
+      console.error("Job scan error:", error);
+    }
+  }, [handleJobScan]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (jobScannerOpen) {
+      interval = setInterval(triggerJobScan, 500);
+    }
+    return () => clearInterval(interval);
+  }, [jobScannerOpen, triggerJobScan]);
+
+  const renderJobScannerView = () => (
+    <DialogContent className="max-w-md p-0 overflow-hidden border-2 border-primary/20 shadow-2xl">
+      <DialogHeader className="p-6 pb-2 border-b bg-primary/5">
+        <DialogTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-2">
+            <Camera className="h-5 w-5 text-primary" /> Scanner Commesse Continuo
+        </DialogTitle>
+      </DialogHeader>
+      <div className="p-6 pt-0 space-y-4">
+        <div className="relative grid place-items-center aspect-video bg-black rounded-2xl overflow-hidden my-4 border-4 border-muted shadow-inner">
+            <video ref={jobVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+            <div className={cn(
+                "absolute inset-0 bg-green-500/20 transition-opacity duration-300 pointer-events-none",
+                lastScannedJob ? "opacity-100" : "opacity-0"
+            )} />
+            <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                <div className="w-5/6 h-3/4 border-2 border-white/30 rounded-3xl relative">
+                    <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-primary/50 shadow-[0_0_10px_#3b82f6]"></div>
+                </div>
+            </div>
+            {lastScannedJob && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 animate-in zoom-in-50 duration-300">
+                    <Badge className="bg-green-600 text-white font-black px-4 py-2 text-lg shadow-xl border-2 border-white/20">
+                        LETTO: {lastScannedJob}
+                    </Badge>
+                </div>
+            )}
+        </div>
+        <div className="space-y-4">
+            <div className="bg-muted/50 p-4 rounded-xl space-y-2 border">
+                <p className="text-[10px] font-black uppercase text-muted-foreground text-center">Commesse Scansionate</p>
+                <div className="flex flex-wrap gap-1.5 justify-center">
+                    {(form.watch('jobOrderPFs') || []).map((pf, i) => (
+                        <Badge key={pf+i} variant="secondary" className="bg-white border font-mono font-bold text-[9px] h-5">
+                            {pf}
+                        </Badge>
+                    ))}
+                    {(form.watch('jobOrderPFs') || []).length === 0 && <span className="text-[10px] italic opacity-30">Nessuna ancora scansionata...</span>}
+                </div>
+            </div>
+            <Button onClick={() => setJobScannerOpen(false)} className="w-full h-14 text-lg font-black uppercase tracking-tight rounded-2xl">
+                Fine Scansione
+            </Button>
         </div>
       </div>
     </DialogContent>
@@ -507,14 +598,59 @@ export default function ManualWithdrawalPage() {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField
                                   control={form.control}
-                                  name="jobOrderPF"
+                                  name="jobOrderPFs"
                                   render={({ field }) => (
                                     <FormItem className="space-y-1">
-                                      <FormLabel className="font-black text-[10px] uppercase text-muted-foreground ml-1">Commessa (Opzionale)</FormLabel>
+                                      <FormLabel className="font-black text-[10px] uppercase text-muted-foreground ml-1 flex justify-between items-center">
+                                          <span>Commesse Collegate ({field.value?.length || 0})</span>
+                                          <Button 
+                                            type="button" 
+                                            variant="outline" 
+                                            size="sm" 
+                                            className="h-7 text-[9px] font-black uppercase px-2 border-primary/30 text-primary"
+                                            onClick={() => setJobScannerOpen(true)}
+                                          >
+                                              <Camera className="mr-1 h-3 w-3" /> Scanner QR
+                                          </Button>
+                                      </FormLabel>
                                       <FormControl>
-                                          <div className="relative">
-                                              <Package className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                              <Input placeholder="Es. ODL-2024-..." {...field} value={field.value ?? ''} className="pl-10 h-11 rounded-xl bg-muted/10 border-2" />
+                                          <div className="space-y-2">
+                                              <div className="flex flex-wrap gap-1.5 p-3 rounded-xl bg-muted/10 border-2 border-dashed border-muted min-h-[44px]">
+                                                  {field.value?.map((pf, idx) => (
+                                                      <Badge key={idx} variant="secondary" className="pl-2 pr-1 h-7 font-mono font-bold text-[10px] flex items-center gap-1 group">
+                                                          {pf}
+                                                          <button 
+                                                            type="button"
+                                                            onClick={() => field.onChange(field.value.filter((_, i) => i !== idx))}
+                                                            className="hover:bg-destructive/20 p-0.5 rounded-full transition-colors"
+                                                          >
+                                                              <X className="h-3 w-3" />
+                                                          </button>
+                                                      </Badge>
+                                                  ))}
+                                                  {(!field.value || field.value.length === 0) && (
+                                                      <span className="text-[10px] text-muted-foreground font-bold italic opacity-50 flex items-center gap-2">
+                                                          <Package className="h-3 w-3" /> Nessuna commessa...
+                                                      </span>
+                                                  )}
+                                              </div>
+                                              <div className="relative">
+                                                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                                  <Input 
+                                                    placeholder="Aggiungi manualmente..." 
+                                                    className="pl-10 h-10 rounded-xl bg-muted/5 border-2 text-xs" 
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            const val = e.currentTarget.value.trim();
+                                                            if (val && !field.value.includes(val)) {
+                                                                field.onChange([...field.value, val]);
+                                                                e.currentTarget.value = '';
+                                                            }
+                                                        }
+                                                    }}
+                                                  />
+                                              </div>
                                           </div>
                                       </FormControl>
                                     </FormItem>
@@ -677,6 +813,10 @@ export default function ManualWithdrawalPage() {
 
         <Dialog open={!!scanType} onOpenChange={(open) => !open && setScanType(null)}>
           {renderScanView()}
+        </Dialog>
+
+        <Dialog open={jobScannerOpen} onOpenChange={setJobScannerOpen}>
+          {renderJobScannerView()}
         </Dialog>
 
       </AppShell>

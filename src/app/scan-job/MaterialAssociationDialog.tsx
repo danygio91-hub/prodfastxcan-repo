@@ -102,7 +102,9 @@ export default function MaterialAssociationDialog({
       packagingFieldName: 'packagingId'
   });
 
-  
+  const isKgMode = selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
+  const effectiveNet = (calculatedNet > 0) ? calculatedNet : (lotAvailability?.available || 0);
+
   const handleScanTrigger = (type: ScanType) => {
     setScanType(type);
   };
@@ -224,8 +226,8 @@ export default function MaterialAssociationDialog({
       formData.append('jobId', job.id);
       formData.append('jobOrderPF', job.ordinePF);
       formData.append('phaseId', phase.id);
-      formData.append('quantity', String(values.quantityToWithdraw || 0));
-      formData.append('unit', inputUnit === 'kg' ? 'kg' : selectedMaterial.unitOfMeasure);
+      formData.append('quantity', String(isKgMode ? effectiveNet : (values.quantityToWithdraw || 0)));
+      formData.append('unit', isKgMode ? 'kg' : selectedMaterial.unitOfMeasure);
       formData.append('lotto', values.lotto || '');
       
       const result = await logTubiGuainaWithdrawal(formData, isFinished);
@@ -267,11 +269,8 @@ export default function MaterialAssociationDialog({
   );
 
   const renderForm = () => {
-    const isKgMode = selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
     const selectedPackaging = packagingItems.find(p => p.id === form.watch('packagingId'));
     const tare = selectedPackaging?.weightKg || 0;
-    // Use calculated net from hook
-    const effectiveNet = calculatedNet > 0 ? calculatedNet : (lotAvailability?.available || 0);
     const expectedGross = effectiveNet + tare;
 
 

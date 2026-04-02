@@ -17,7 +17,7 @@ const manualWithdrawalSchema = z.object({
   quantity: z.coerce.number().min(0), // Can be 0 if isFinished is true
   unit: z.enum(['n', 'mt', 'kg']),
   notes: z.string().optional(),
-  jobOrderPF: z.string().optional(),
+  jobOrderPFs: z.array(z.string()).optional(),
   isFinished: z.boolean().optional(),
 });
 
@@ -27,7 +27,7 @@ export async function logManualWithdrawal(
   const validated = manualWithdrawalSchema.safeParse(data);
   if (!validated.success) return { success: false, message: 'Dati non validi.' };
   
-  const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPF, isFinished } = validated.data;
+  const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPFs, isFinished } = validated.data;
   
   try {
     const globalSettings = await getGlobalSettings();
@@ -89,7 +89,7 @@ export async function logManualWithdrawal(
         const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
         transaction.set(withdrawalRef, {
             jobIds: [],
-            jobOrderPFs: jobOrderPF ? [jobOrderPF] : ['SCARICO_MANUALE'],
+            jobOrderPFs: (jobOrderPFs && jobOrderPFs.length > 0) ? jobOrderPFs : ['SCARICO_MANUALE'],
             materialId,
             materialCode: material.code,
             consumedWeight: weightToChange,
