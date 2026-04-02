@@ -158,19 +158,24 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   };
 
   const handleExport = (date: string, dailyRecords: Record<string, InventoryRecord[]>) => {
-    const dataToExport = Object.values(dailyRecords).flat().map(r => ({
-      'Codice': r.materialCode,
-      'Lotto': r.lotto,
-      'Quantità (N)': r.inputUnit === 'n' ? r.inputQuantity : 0,
-      'Quantità (MT)': r.inputUnit === 'mt' ? r.inputQuantity : 0,
-      'Quantità (KG)': formatDisplayStock(r.netWeight, 'kg'),
-      'Peso Lordo (kg)': formatDisplayStock(r.grossWeight, 'kg'),
-      'Peso Tara (kg)': formatDisplayStock(r.tareWeight, 'kg'),
-      'Peso Netto (kg)': formatDisplayStock(r.netWeight, 'kg'),
-      'Operatore': r.operatorName,
-      'Data Registrazione': format(parseISO(r.recordedAt as unknown as string), 'dd/MM/yyyy HH:mm'),
-      'Stato': r.status,
-    }));
+    const dataToExport = Object.values(dailyRecords).flat().map(r => {
+      const qtaN = r.materialUnitOfMeasure === 'n' ? (r.inputUnit === 'n' ? r.inputQuantity : r.netWeight / (r.conversionFactor || 1)) : 0;
+      const qtaMT = (r.materialUnitOfMeasure === 'mt' || r.rapportoKgMt) ? (r.inputUnit === 'mt' ? r.inputQuantity : r.netWeight / (r.rapportoKgMt || 1)) : 0;
+      
+      return {
+        'Codice': r.materialCode,
+        'Lotto': r.lotto,
+        'Quantità (N)': qtaN > 0 ? Number(qtaN.toFixed(2)) : 0,
+        'Quantità (MT)': qtaMT > 0 ? Number(qtaMT.toFixed(2)) : 0,
+        'Quantità (KG)': r.netWeight,
+        'Peso Lordo (kg)': r.grossWeight,
+        'Peso Tara (kg)': r.tareWeight,
+        'Peso Netto (kg)': r.netWeight,
+        'Operatore': r.operatorName,
+        'Data Registrazione': format(parseISO(r.recordedAt as unknown as string), 'dd/MM/yyyy HH:mm'),
+        'Stato': r.status,
+      };
+    });
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, `Inventario ${date}`);
@@ -440,18 +445,21 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                   );
                                                 }
 
-                                                let displayQuantity;
-                                                // If input was in KG, convert net weight to units for display
-                                                if (record.inputUnit === 'kg') {
-                                                    const factor = (record.materialUnitOfMeasure === 'mt' ? record.rapportoKgMt : record.conversionFactor) || 0;
-                                                    if (factor > 0) {
-                                                        displayQuantity = record.netWeight / factor;
-                                                        if (record.materialUnitOfMeasure === 'n') displayQuantity = Math.round(displayQuantity);
-                                                    } else {
-                                                        displayQuantity = record.inputQuantity; // Fallback
-                                                    }
-                                                } else { // Input was in N or MT
-                                                    displayQuantity = record.inputQuantity;
+                                                let qtaN = '-';
+                                                let qtaMT = '-';
+                                                let qtaKG = formatDisplayStock(record.netWeight, 'kg');
+
+                                                if (record.materialUnitOfMeasure === 'n') {
+                                                    const val = record.inputUnit === 'n' ? record.inputQuantity : record.netWeight / (record.conversionFactor || 1);
+                                                    qtaN = formatDisplayStock(val, 'n');
+                                                } else if (record.materialUnitOfMeasure === 'mt') {
+                                                    const val = record.inputUnit === 'mt' ? record.inputQuantity : record.netWeight / (record.rapportoKgMt || 1);
+                                                    qtaMT = formatDisplayStock(val, 'mt');
+                                                }
+                                                
+                                                // High Contrast Fix: if it's a BOB (kg) but has rapportKgMt, show MT too
+                                                if (record.materialUnitOfMeasure === 'kg' && record.rapportoKgMt && record.rapportoKgMt > 0) {
+                                                    qtaMT = formatDisplayStock(record.netWeight / record.rapportoKgMt, 'mt');
                                                 }
 
                                                 return (
@@ -465,13 +473,13 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                     <TableCell>{record.lotto}</TableCell>
                                                     
                                                     <TableCell className="font-mono font-semibold">
-                                                      {record.materialUnitOfMeasure === 'n' ? formatDisplayStock(displayQuantity, 'n') : '-'}
+                                                      {qtaN}
                                                     </TableCell>
-                                                    <TableCell className="font-mono font-semibold">
-                                                      {record.materialUnitOfMeasure === 'mt' ? formatDisplayStock(displayQuantity, 'mt') : '-'}
+                                                    <TableCell className="font-mono font-semibold text-orange-600">
+                                                      {qtaMT}
                                                     </TableCell>
-                                                    <TableCell className="font-mono font-semibold">
-                                                      {record.materialUnitOfMeasure === 'kg' ? formatDisplayStock(displayQuantity, 'kg') : '-'}
+                                                    <TableCell className="font-mono font-semibold text-primary">
+                                                      {qtaKG}
                                                     </TableCell>
 
                                                     <TableCell className="font-mono">{formatDisplayStock(record.grossWeight, 'kg')} kg</TableCell>

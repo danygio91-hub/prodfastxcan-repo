@@ -67,9 +67,9 @@ export default function ManualWithdrawalPage() {
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
   const [allLots, setAllLots] = useState<LotInfo[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [flash, setFlash] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
   const [jobScannerOpen, setJobScannerOpen] = useState(false);
-  const [lastScannedJob, setLastScannedJob] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [useSession, setUseSession] = useState(false);
@@ -147,26 +147,36 @@ export default function ManualWithdrawalPage() {
     setIsCapturing(false);
   }, [scanType, form, toast]);
 
-  const handleJobScan = useCallback(async (code: string) => {
-    const cleanCode = code.trim();
-    if (!cleanCode) return;
-    
-    if (lastScannedJob === cleanCode) return;
-    
-    const currentJobs = form.getValues('jobOrderPFs') || [];
-    if (!currentJobs.includes(cleanCode)) {
-        form.setValue('jobOrderPFs', [...currentJobs, cleanCode]);
-        setLastScannedJob(cleanCode);
-        toast({ title: "Commessa Aggiunta", description: cleanCode });
-    }
-  }, [form, lastScannedJob, toast]);
+  const handleJobScanManual = useCallback(async () => {
+    if (!jobVideoRef.current || jobVideoRef.current.paused || jobVideoRef.current.readyState < 2) return;
+    if (!('BarcodeDetector' in window)) return;
 
-  useEffect(() => {
-    if (lastScannedJob) {
-        const timer = setTimeout(() => setLastScannedJob(null), 2000);
-        return () => clearTimeout(timer);
+    setIsCapturing(true);
+    try {
+      const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
+      const barcodes = await barcodeDetector.detect(jobVideoRef.current);
+      if (barcodes.length > 0) {
+        const code = barcodes[0].rawValue.trim();
+        if (code) {
+            const currentJobs = form.getValues('jobOrderPFs') || [];
+            if (!currentJobs.includes(code)) {
+                form.setValue('jobOrderPFs', [...currentJobs, code]);
+                setFlash(true);
+                setTimeout(() => setFlash(false), 500);
+                toast({ title: "Commessa Aggiunta", description: code });
+            } else {
+                toast({ variant: 'destructive', title: "Già in lista", description: code });
+            }
+        }
+      } else {
+        toast({ variant: 'destructive', title: "Nessun QR", description: "Inquadra meglio il codice." });
+      }
+    } catch (error) {
+      console.error("Job scan error:", error);
+    } finally {
+      setIsCapturing(false);
     }
-  }, [lastScannedJob]);
+  }, [form, toast]);
 
 
   const triggerScan = async () => {
@@ -184,6 +194,8 @@ export default function ManualWithdrawalPage() {
       const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
       const barcodes = await barcodeDetector.detect(videoRef.current);
       if (barcodes.length > 0) {
+        setFlash(true);
+        setTimeout(() => setFlash(false), 500);
         await handleScan(barcodes[0].rawValue);
       } else {
         toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
@@ -200,11 +212,9 @@ export default function ManualWithdrawalPage() {
     setIsSubmitting(true);
 
     if (useSession) {
-      const q = values.quantity || 0;
-      const initialNet = q; 
-      
+      const initialGross = values.quantity || 0;
       const initialTare = packagingItems.find(p => p.id === packagingIdValue)?.weightKg || 0;
-      const initialGross = initialNet + initialTare;
+      const initialNet = Math.max(0, initialGross - initialTare);
 
       // START INDEPENDENT SESSION
       const sessionResult = await startSession({
@@ -276,31 +286,46 @@ export default function ManualWithdrawalPage() {
   }, []);
 
   const renderScanView = () => (
-    <DialogContent className="max-w-md p-0 overflow-hidden">
-      <DialogHeader className="p-6 pb-2 border-b bg-muted/10">
-        <DialogTitle className="text-lg font-bold">Scansione {scanType === 'material' ? 'Materiale' : 'Lotto'}</DialogTitle>
+    <DialogContent className="max-w-md p-0 overflow-hidden border-2 border-primary/20 bg-slate-900 text-white">
+      <DialogHeader className="p-6 pb-2 border-b border-slate-800 bg-slate-950/50">
+        <DialogTitle className="text-lg font-black uppercase tracking-tight text-white flex items-center gap-2">
+            <Camera className="h-5 w-5 text-primary" /> Scansione {scanType === 'material' ? 'Materiale' : 'Lotto'}
+        </DialogTitle>
+        <DialogDescription className="text-[10px] font-bold uppercase text-slate-500">Inquadra e premi SPARA</DialogDescription>
       </DialogHeader>
       <div className="p-6 pt-0">
-        <div className="relative grid place-items-center aspect-video bg-black rounded-xl overflow-hidden my-4 border-2 border-muted shadow-inner">
+        <div className="relative aspect-video bg-black rounded-2xl overflow-hidden my-4 border-4 border-slate-700 shadow-inner group">
             <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+            
+            {/* Flash Effect */}
+            <div className={cn(
+                "absolute inset-0 bg-green-500/40 transition-opacity duration-300 pointer-events-none",
+                flash ? "opacity-100" : "opacity-0"
+            )} />
+
             {!hasPermission && (
                 <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
                     <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
                     <p className="text-white font-semibold">Accesso Fotocamera Negato</p>
                 </div>
             )}
-            <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                <div className="w-5/6 h-2/5 border-2 border-primary/50 rounded-lg relative">
-                    <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
-                </div>
+
+            {/* SPARA BUTTON Overlay */}
+            <div className="absolute inset-x-0 bottom-4 flex justify-center">
+                <Button 
+                    onClick={triggerScan}
+                    disabled={isCapturing || !hasPermission}
+                    className="h-16 w-16 rounded-full bg-white/20 hover:bg-white/40 border-4 border-white shadow-2xl transition-all active:scale-90"
+                >
+                    <div className="h-10 w-10 rounded-full bg-red-600 group-hover:bg-red-500 shadow-inner" />
+                </Button>
+            </div>
+            <div className="absolute bottom-2 w-full text-center">
+                <span className="text-[10px] font-black uppercase text-white shadow-black drop-shadow-md">Tasto SPARA</span>
             </div>
         </div>
         <div className="flex flex-col gap-2">
-            <Button onClick={triggerScan} disabled={isCapturing || !hasPermission} className="w-full h-12 text-lg font-black uppercase tracking-tight">
-                {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="mr-2 h-5 w-5" />}
-                {isCapturing ? 'Analisi...' : 'Scansiona Ora'}
-            </Button>
-             <Button variant="ghost" onClick={() => setScanType(null)} className="text-muted-foreground uppercase font-bold text-xs">Annulla</Button>
+             <Button variant="outline" onClick={() => setScanType(null)} className="w-full h-12 border-slate-700 text-slate-300 uppercase font-black text-xs tracking-widest">Annulla</Button>
         </div>
       </div>
     </DialogContent>
@@ -309,70 +334,81 @@ export default function ManualWithdrawalPage() {
   const jobVideoRef = useRef<HTMLVideoElement>(null);
   const { hasPermission: hasJobPermission } = useCameraStream(jobScannerOpen, jobVideoRef);
 
-  const triggerJobScan = useCallback(async () => {
-    if (!jobVideoRef.current || jobVideoRef.current.paused || jobVideoRef.current.readyState < 2) return;
-    if (!('BarcodeDetector' in window)) return;
-
-    try {
-      const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
-      const barcodes = await barcodeDetector.detect(jobVideoRef.current);
-      if (barcodes.length > 0) {
-        handleJobScan(barcodes[0].rawValue);
-      }
-    } catch (error) {
-      console.error("Job scan error:", error);
-    }
-  }, [handleJobScan]);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (jobScannerOpen) {
-      interval = setInterval(triggerJobScan, 500);
-    }
-    return () => clearInterval(interval);
-  }, [jobScannerOpen, triggerJobScan]);
 
   const renderJobScannerView = () => (
-    <DialogContent className="max-w-md p-0 overflow-hidden border-2 border-primary/20 shadow-2xl">
-      <DialogHeader className="p-6 pb-2 border-b bg-primary/5">
-        <DialogTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-2">
-            <Camera className="h-5 w-5 text-primary" /> Scanner Commesse Continuo
+    <DialogContent className="max-w-md p-0 overflow-hidden border-2 border-primary/20 shadow-2xl bg-slate-900 text-white">
+      <DialogHeader className="p-6 pb-2 border-b border-slate-800 bg-slate-950/50">
+        <DialogTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-2 text-white">
+            <Camera className="h-5 w-5 text-primary" /> Scanner Commesse
         </DialogTitle>
+        <DialogDescription className="text-[10px] font-bold uppercase text-slate-500 italic">Inquadra e premi SPARA (Scansione Multipla)</DialogDescription>
       </DialogHeader>
       <div className="p-6 pt-0 space-y-4">
-        <div className="relative grid place-items-center aspect-video bg-black rounded-2xl overflow-hidden my-4 border-4 border-muted shadow-inner">
+        <div className="relative aspect-video bg-black rounded-2xl overflow-hidden my-4 border-4 border-slate-700 shadow-inner group">
             <video ref={jobVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+            
+            {/* Flash Effect */}
             <div className={cn(
-                "absolute inset-0 bg-green-500/20 transition-opacity duration-300 pointer-events-none",
-                lastScannedJob ? "opacity-100" : "opacity-0"
+                "absolute inset-0 bg-green-500/40 transition-opacity duration-300 pointer-events-none",
+                flash ? "opacity-100" : "opacity-0"
             )} />
-            <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                <div className="w-5/6 h-3/4 border-2 border-white/30 rounded-3xl relative">
-                    <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-primary/50 shadow-[0_0_10px_#3b82f6]"></div>
-                </div>
-            </div>
-            {lastScannedJob && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 animate-in zoom-in-50 duration-300">
-                    <Badge className="bg-green-600 text-white font-black px-4 py-2 text-lg shadow-xl border-2 border-white/20">
-                        LETTO: {lastScannedJob}
-                    </Badge>
+
+            {!hasJobPermission && (
+                <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                    <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+                    <p className="text-white font-semibold">Accesso Fotocamera Negato</p>
                 </div>
             )}
-        </div>
-        <div className="space-y-4">
-            <div className="bg-muted/50 p-4 rounded-xl space-y-2 border">
-                <p className="text-[10px] font-black uppercase text-muted-foreground text-center">Commesse Scansionate</p>
-                <div className="flex flex-wrap gap-1.5 justify-center">
-                    {(form.watch('jobOrderPFs') || []).map((pf, i) => (
-                        <Badge key={pf+i} variant="secondary" className="bg-white border font-mono font-bold text-[9px] h-5">
-                            {pf}
-                        </Badge>
-                    ))}
-                    {(form.watch('jobOrderPFs') || []).length === 0 && <span className="text-[10px] italic opacity-30">Nessuna ancora scansionata...</span>}
-                </div>
+
+            {/* SPARA BUTTON Overlay */}
+            <div className="absolute inset-x-0 bottom-4 flex justify-center">
+                <Button 
+                    onClick={handleJobScanManual}
+                    disabled={isCapturing || !hasJobPermission}
+                    className="h-16 w-16 rounded-full bg-white/20 hover:bg-white/40 border-4 border-white shadow-2xl transition-all active:scale-90"
+                >
+                    <div className="h-10 w-10 rounded-full bg-red-600 group-hover:bg-red-500 shadow-inner" />
+                </Button>
             </div>
-            <Button onClick={() => setJobScannerOpen(false)} className="w-full h-14 text-lg font-black uppercase tracking-tight rounded-2xl">
-                Fine Scansione
+            <div className="absolute bottom-2 w-full text-center">
+                <span className="text-[10px] font-black uppercase text-white shadow-black drop-shadow-md">Tasto SPARA</span>
+            </div>
+        </div>
+
+        <div className="space-y-4">
+            <div className="bg-slate-950/50 p-4 rounded-xl space-y-2 border border-slate-800">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-500">
+                    <span>Sala d'attesa</span>
+                    <Badge variant="outline" className="h-4 px-1 text-[8px] bg-primary/10 border-primary/20 text-primary">{(form.watch('jobOrderPFs') || []).length}</Badge>
+                </div>
+                <ScrollArea className="h-24 pr-2">
+                    <div className="flex flex-wrap gap-1.5">
+                        {(form.watch('jobOrderPFs') || []).map((pf, i) => (
+                            <Badge key={pf+i} variant="secondary" className="bg-slate-800 border-slate-700 font-mono font-bold text-[9px] h-6 text-slate-100 flex items-center gap-1 group">
+                                {pf}
+                                <button
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        const current = form.getValues('jobOrderPFs');
+                                        form.setValue('jobOrderPFs', current.filter((_, idx) => idx !== i));
+                                    }}
+                                    className="hover:text-destructive transition-colors"
+                                >
+                                    <X className="h-3 w-3" />
+                                </button>
+                            </Badge>
+                        ))}
+                        {(form.watch('jobOrderPFs') || []).length === 0 && (
+                            <div className="w-full flex flex-col items-center justify-center py-4 opacity-20">
+                                <Boxes className="h-6 w-6 mb-1" />
+                                <span className="text-[9px] uppercase font-black mt-1 tracking-widest">Nessun Codice</span>
+                            </div>
+                        )}
+                    </div>
+                </ScrollArea>
+            </div>
+            <Button onClick={() => setJobScannerOpen(false)} className="w-full h-14 text-lg font-black uppercase tracking-tight rounded-2xl shadow-xl shadow-primary/20 transition-all active:scale-95">
+                Concludi ed Esci
             </Button>
         </div>
       </div>

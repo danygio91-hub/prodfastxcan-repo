@@ -64,11 +64,12 @@ export default function MaterialAssociationDialog({
   const { operator } = useAuth();
   
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [flash, setFlash] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
-
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -119,19 +120,21 @@ export default function MaterialAssociationDialog({
         return;
     }
 
-    setIsProcessing(true);
+    setIsCapturing(true);
     try {
         const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
         const barcodes = await barcodeDetector.detect(videoRef.current);
         if (barcodes.length > 0) {
+            setFlash(true);
+            setTimeout(() => setFlash(false), 500);
             await handleScan(barcodes[0].rawValue);
         } else {
-            toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
+            toast({ variant: 'destructive', title: 'Nessun codice trovato.', description: 'Inquadra meglio il QR.' });
         }
     } catch (error) {
         toast({ variant: 'destructive', title: 'Errore durante la scansione.' });
     } finally {
-        setIsProcessing(false);
+        setIsCapturing(false);
     }
   };
 
@@ -179,14 +182,18 @@ export default function MaterialAssociationDialog({
         linkedJobOrderIds = [job.id];
     }
 
+    const openingGross = openingWeight;
+    const tare = selectedPackaging?.weightKg || 0;
+    const openingNet = Math.max(0, openingGross - tare);
+
     const consumption: MaterialConsumption = {
         materialId: selectedMaterial.id,
         materialCode: selectedMaterial.code,
-        grossOpeningWeight: openingWeight + (selectedPackaging?.weightKg || 0),
-        netOpeningWeight: openingWeight,
+        grossOpeningWeight: openingGross,
+        netOpeningWeight: openingNet,
         lottoBobina: values.lotto || '',
         packagingId: values.packagingId || 'none',
-        tareWeight: selectedPackaging?.weightKg || 0,
+        tareWeight: tare,
     };
 
     const registerResult = await markPhaseMaterialReady(job.id, phase.id, { 
@@ -195,16 +202,20 @@ export default function MaterialAssociationDialog({
     });
     
     if (registerResult.success) {
-        const sessionResult = await onSessionStart({
-            materialId: selectedMaterial.id,
-            materialCode: selectedMaterial.code,
-            lotto: values.lotto || null,
-            linkedJobOrderIds: linkedJobOrderIds,
-            grossOpeningWeight: openingWeight + (selectedPackaging?.weightKg || 0),
-            netOpeningWeight: openingWeight,
-            packagingId: values.packagingId,
-            tareWeight: selectedPackaging?.weightKg || 0,
-        }, selectedMaterial.type);
+    const openingGross = openingWeight;
+    const tare = selectedPackaging?.weightKg || 0;
+    const openingNet = Math.max(0, openingGross - tare);
+
+    const sessionResult = await onSessionStart({
+        materialId: selectedMaterial.id,
+        materialCode: selectedMaterial.code,
+        lotto: values.lotto || null,
+        linkedJobOrderIds: linkedJobOrderIds,
+        grossOpeningWeight: openingGross,
+        netOpeningWeight: openingNet,
+        packagingId: values.packagingId,
+        tareWeight: tare,
+    }, selectedMaterial.type);
         
         if (sessionResult.success) {
             toast({ title: "Sessione Indipendente Avviata", description: "La bobina è ora attiva e condivisa." });
@@ -243,27 +254,41 @@ export default function MaterialAssociationDialog({
   };
   
   const renderScanView = () => (
-    <div>
-        <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden my-4">
+    <div className="animate-in fade-in zoom-in-95 duration-300">
+        <div className="relative aspect-video bg-black rounded-2xl overflow-hidden my-4 border-4 border-slate-700 shadow-inner group">
             <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+            
+            {/* Flash Effect */}
+            <div className={cn(
+                "absolute inset-0 bg-green-500/40 transition-opacity duration-300 pointer-events-none",
+                flash ? "opacity-100" : "opacity-0"
+            )} />
+
             {hasPermission === false && (
                 <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
                     <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
                     <p className="text-white font-semibold">Accesso Fotocamera Negato</p>
                 </div>
             )}
-            <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                <div className="w-5/6 h-2/5 border-2 border-primary/50 rounded-lg relative">
-                    <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
-                </div>
+
+            {/* SPARA BUTTON Overlay */}
+            <div className="absolute inset-x-0 bottom-4 flex justify-center">
+                <Button 
+                    onClick={triggerScan}
+                    disabled={isCapturing || !hasPermission}
+                    className="h-16 w-16 rounded-full bg-white/20 hover:bg-white/40 border-4 border-white shadow-2xl transition-all active:scale-90"
+                >
+                    <div className="h-10 w-10 rounded-full bg-red-600 group-hover:bg-red-500 shadow-inner" />
+                </Button>
+            </div>
+            <div className="absolute bottom-2 w-full text-center">
+                <span className="text-[10px] font-black uppercase text-white shadow-black drop-shadow-md">Tasto SPARA</span>
             </div>
         </div>
         <div className="flex flex-col gap-2">
-            <Button onClick={triggerScan} disabled={isProcessing || !hasPermission} className="w-full h-12">
-                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin"/> : <Camera className="mr-2 h-4 w-4" />}
-                Scansiona Ora
-            </Button>
-             <Button variant="outline" onClick={() => setScanType(null)}>Indietro</Button>
+             <Button variant="outline" onClick={() => setScanType(null)} className="w-full h-12 border-slate-700 text-slate-300 uppercase font-bold text-[10px] tracking-widest">
+                 Indietro
+             </Button>
         </div>
     </div>
   );
@@ -437,8 +462,8 @@ export default function MaterialAssociationDialog({
                         {isBobina ? (
                             <FormField control={form.control} name="openingWeightManual" render={({field}) => (
                                 <FormItem className="space-y-1">
-                                    <FormLabel className="text-primary font-black uppercase text-[10px]">
-                                        PESO NETTO ATTUALE ({selectedMaterial.unitOfMeasure.toUpperCase()})
+                                    <FormLabel className="text-orange-600 font-black uppercase text-[10px]">
+                                        PESO LORDO ATTUALE (Sulla Bilancia)
                                     </FormLabel>
                                     <FormControl>
                                         <div className="relative">
@@ -540,9 +565,22 @@ export default function MaterialAssociationDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md h-[90vh] flex flex-col p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-2 border-b bg-muted/10">
-          <DialogTitle className="text-lg font-bold">Associa Materiale: {phase.name}</DialogTitle>
+      <DialogContent className={cn(
+          "max-w-md h-[90vh] flex flex-col p-0 overflow-hidden border-2 transition-colors",
+          scanType ? "border-primary/40 bg-slate-900 text-white" : "bg-background"
+      )}>
+        <DialogHeader className={cn(
+            "p-6 pb-2 border-b",
+            scanType ? "bg-slate-950 border-slate-800" : "bg-muted/10 border-muted"
+        )}>
+          <DialogTitle className={cn(
+              "text-lg font-black uppercase tracking-tighter flex items-center gap-2",
+              scanType ? "text-white" : "text-foreground"
+          )}>
+              {scanType ? <Camera className="h-5 w-5 text-primary" /> : <Boxes className="h-5 w-5 text-primary" />}
+              {scanType ? `Scansione ${scanType === 'material' ? 'Materiale' : 'Lotto'}` : `Associa Materiale: ${phase.name}`}
+          </DialogTitle>
+          {scanType && <DialogDescription className="text-[10px] font-bold uppercase text-slate-500">Inquadra e premi SPARA</DialogDescription>}
         </DialogHeader>
         {scanType ? <div className="p-6 pt-0">{renderScanView()}</div> : renderForm()}
       </DialogContent>

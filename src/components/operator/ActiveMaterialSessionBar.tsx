@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useCallback } from 'react';
@@ -212,134 +211,189 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
 }
 
 function AddJobDialog({ sessionId, isOpen, onOpenChange }: { sessionId: string; isOpen: boolean; onOpenChange: (open: boolean) => void; }) {
+    const [stagingPFs, setStagingPFs] = useState<string[]>([]);
     const [newJobPF, setNewJobPF] = useState('');
     const [isLinking, setIsLinking] = useState(false);
     const { toast } = useToast();
 
     const videoRef = React.useRef<HTMLVideoElement>(null);
     const [scannerOpen, setScannerOpen] = useState(false);
-    const [lastScanned, setLastScanned] = useState<string | null>(null);
+    const [isCapturing, setIsCapturing] = useState(false);
+    const [flash, setFlash] = useState(false);
     const { hasPermission } = useCameraStream(scannerOpen && isOpen, videoRef);
 
     const triggerScan = useCallback(async () => {
         if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) return;
         if (!('BarcodeDetector' in window)) return;
 
+        setIsCapturing(true);
         try {
             const detector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128'] });
             const barcodes = await detector.detect(videoRef.current);
             if (barcodes.length > 0) {
                 const code = barcodes[0].rawValue.trim();
-                if (code && code !== lastScanned) {
-                    setLastScanned(code);
-                    await addJobsToSession(sessionId, [code]);
-                    toast({ title: "Commessa Collegata", description: code });
+                if (code) {
+                    if (stagingPFs.includes(code)) {
+                        toast({ variant: 'destructive', title: "Già in lista", description: code });
+                    } else {
+                        setStagingPFs(prev => [...prev, code]);
+                        setFlash(true);
+                        setTimeout(() => setFlash(false), 500);
+                        toast({ title: "Acquisito", description: code });
+                    }
                 }
+            } else {
+                toast({ variant: 'destructive', title: "Nessun codice", description: "Inquadra meglio il QR." });
             }
         } catch (e) {
             console.error("Scan error:", e);
+        } finally {
+            setIsCapturing(false);
         }
-    }, [sessionId, lastScanned, toast]);
+    }, [stagingPFs, toast]);
 
-    React.useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (scannerOpen && isOpen) {
-            interval = setInterval(triggerScan, 500);
-        }
-        return () => clearInterval(interval);
-    }, [scannerOpen, isOpen, triggerScan]);
-
-    React.useEffect(() => {
-        if (lastScanned) {
-            const t = setTimeout(() => setLastScanned(null), 2000);
-            return () => clearTimeout(t);
-        }
-    }, [lastScanned]);
-
-    const handleAddJob = async () => {
-        if (!newJobPF.trim()) return;
+    const handleConfirmLinking = async () => {
+        if (stagingPFs.length === 0) return;
         setIsLinking(true);
         try {
-            const res = await addJobsToSession(sessionId, [newJobPF.trim()]);
+            const res = await addJobsToSession(sessionId, stagingPFs);
             if (res.success) {
-                toast({ title: "Commessa Aggiunta" });
-                setNewJobPF('');
+                toast({ title: "Commesse Collegate", description: `${stagingPFs.length} job aggiunti.` });
+                setStagingPFs([]);
+                onOpenChange(false);
             } else {
                 toast({ variant: 'destructive', title: "Errore", description: res.message });
             }
         } catch (e) {
-            toast({ variant: 'destructive', title: "Errore", description: "Impossibile aggiungere la commessa." });
+            toast({ variant: 'destructive', title: "Errore", description: "Impossibile collegare le commesse." });
         } finally {
             setIsLinking(false);
         }
     };
 
+    const handleAddManual = () => {
+        if (!newJobPF.trim()) return;
+        if (stagingPFs.includes(newJobPF.trim())) {
+            toast({ variant: 'destructive', title: "Già in lista" });
+            return;
+        }
+        setStagingPFs(prev => [...prev, newJobPF.trim()]);
+        setNewJobPF('');
+    };
+
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-md border-2 border-primary/20 shadow-2xl">
+            <DialogContent className="max-w-md border-2 border-primary/20 shadow-2xl bg-slate-900 text-white">
                 <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 font-black uppercase tracking-tight text-lg">
+                    <DialogTitle className="flex items-center gap-2 font-black uppercase tracking-tight text-lg text-white">
                         <Link2 className="h-5 w-5 text-primary" /> Collega Commesse
                     </DialogTitle>
-                    <DialogDescription className="text-xs font-bold uppercase opacity-60">Scansiona QR o inserisci manualmente</DialogDescription>
+                    <DialogDescription className="text-xs font-bold uppercase opacity-60 text-slate-400">
+                        {scannerOpen ? "Inquadra e premi SPARA" : "Sala d'attesa (Staging Area)"}
+                    </DialogDescription>
                 </DialogHeader>
                 
                 <div className="space-y-4 py-2">
                     {scannerOpen ? (
                         <div className="space-y-4">
-                            <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border-4 border-muted shadow-inner">
+                            <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border-4 border-slate-700 shadow-inner">
                                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                                
+                                {/* Flash Effect */}
                                 <div className={cn(
-                                    "absolute inset-0 bg-green-500/20 transition-opacity duration-300 pointer-events-none",
-                                    lastScanned ? "opacity-100" : "opacity-0"
+                                    "absolute inset-0 bg-green-500/40 transition-opacity duration-300 pointer-events-none",
+                                    flash ? "opacity-100" : "opacity-0"
                                 )} />
-                                {lastScanned && (
-                                    <div className="absolute top-4 left-1/2 -translate-x-1/2 animate-in zoom-in-50">
-                                        <Badge className="bg-green-600 text-white font-black px-3 py-1 shadow-lg">LETTO: {lastScanned}</Badge>
-                                    </div>
-                                )}
+
+                                {/* SPARA BUTTON Overlay */}
+                                <div className="absolute inset-x-0 bottom-4 flex justify-center">
+                                    <Button 
+                                        onClick={triggerScan}
+                                        disabled={isCapturing}
+                                        className="h-16 w-16 rounded-full bg-white/20 hover:bg-white/40 border-4 border-white shadow-2xl transition-all active:scale-90 group"
+                                    >
+                                        <div className="h-10 w-10 rounded-full bg-red-600 group-hover:bg-red-500 shadow-inner" />
+                                    </Button>
+                                </div>
+                                <div className="absolute bottom-2 w-full text-center">
+                                    <span className="text-[10px] font-black uppercase text-white shadow-black drop-shadow-md">Tasto SPARA</span>
+                                </div>
                             </div>
-                            <Button variant="outline" className="w-full h-12 font-black uppercase text-xs tracking-widest" onClick={() => setScannerOpen(false)}>
+                            <Button variant="outline" className="w-full h-12 font-black uppercase text-xs tracking-widest border-slate-700 text-slate-300" onClick={() => setScannerOpen(false)}>
                                 <X className="mr-2 h-4 w-4" /> Chiudi Scanner
                             </Button>
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            <div className="grid grid-cols-1 gap-2">
-                                <Button className="h-16 text-lg font-black uppercase tracking-tight rounded-xl shadow-lg border-2 border-primary/20" onClick={() => setScannerOpen(true)}>
-                                    <Camera className="mr-3 h-6 w-6" /> Avvia Scanner QR
-                                </Button>
-                            </div>
-                            
-                            <div className="relative">
-                                <div className="absolute inset-0 flex items-center">
-                                    <span className="w-full border-t" />
+                            {/* STAGING AREA LIST */}
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black uppercase text-slate-400">Commesse da Collegare</span>
+                                    <Badge variant="secondary" className="bg-primary/20 text-primary border-none">{stagingPFs.length}</Badge>
                                 </div>
-                                <div className="relative flex justify-center text-[10px] uppercase font-black">
-                                    <span className="bg-background px-2 text-muted-foreground">Oppure Manuale</span>
+                                <ScrollArea className="h-40 border-2 border-slate-800 rounded-xl bg-slate-950/50 p-2">
+                                    {stagingPFs.length > 0 ? (
+                                        <div className="space-y-2">
+                                            {stagingPFs.map(pf => (
+                                                <div key={pf} className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700 group animate-in slide-in-from-right-2">
+                                                    <span className="font-mono font-bold text-sm">{pf}</span>
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        size="icon" 
+                                                        className="h-8 w-8 text-destructive hover:bg-destructive/10" 
+                                                        onClick={() => setStagingPFs(prev => prev.filter(x => x !== pf))}
+                                                    >
+                                                        <X className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center opacity-30 gap-2">
+                                            <Boxes className="h-8 w-8" />
+                                            <p className="text-[10px] font-bold uppercase">Nessuna commessa in lista</p>
+                                        </div>
+                                    )}
+                                </ScrollArea>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <Button variant="outline" className="h-14 font-black uppercase tracking-tight rounded-xl border-slate-700 text-slate-300" onClick={() => setScannerOpen(true)}>
+                                    <Camera className="mr-2 h-5 w-5" /> Scansiona
+                                </Button>
+                                <div className="relative">
+                                    <Input 
+                                        placeholder="Manuale..." 
+                                        className="h-14 bg-slate-950 border-slate-800 text-white font-bold pr-10"
+                                        value={newJobPF}
+                                        onChange={e => setNewJobPF(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleAddManual()}
+                                    />
+                                    <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-primary"
+                                        onClick={handleAddManual}
+                                    >
+                                        <PlusCircle className="h-5 w-5" />
+                                    </Button>
                                 </div>
                             </div>
 
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50" />
-                                <Input 
-                                    placeholder="Es. 81-149-77/PF" 
-                                    className="pl-9 h-12 text-lg font-bold rounded-xl border-2"
-                                    value={newJobPF}
-                                    onChange={e => setNewJobPF(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleAddJob()}
-                                />
-                            </div>
-                            <Button className="w-full h-12 font-black uppercase tracking-tight rounded-xl" onClick={handleAddJob} disabled={isLinking || !newJobPF.trim()}>
-                                {isLinking ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <PlusCircle className="h-5 w-5 mr-2" />}
-                                Collega Manualmente
+                            <Button 
+                                className="w-full h-16 text-lg font-black uppercase tracking-tighter shadow-xl shadow-primary/20 transition-all active:scale-95" 
+                                onClick={handleConfirmLinking} 
+                                disabled={isLinking || stagingPFs.length === 0}
+                            >
+                                {isLinking ? <Loader2 className="animate-spin h-6 w-6 mr-2" /> : <Send className="h-6 w-6 mr-2" />}
+                                Conferma e Collega
                             </Button>
                         </div>
                     )}
                 </div>
                 {!scannerOpen && (
                     <DialogFooter>
-                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="text-[10px] uppercase font-black text-muted-foreground">Chiudi</Button>
+                        <Button variant="ghost" onClick={() => onOpenChange(false)} className="text-[10px] uppercase font-black text-slate-500 hover:text-white">Annulla</Button>
                     </DialogFooter>
                 )}
             </DialogContent>
@@ -402,7 +456,8 @@ export default function ActiveMaterialSessionBar() {
                         <div className="grid gap-4 py-6">
                             {activeSessions.map((session) => {
                                 const isMine = session.operatorId === user?.uid;
-                                return (                                    <div key={session.id} className="p-4 border-2 rounded-2xl space-y-4 bg-slate-900 border-slate-800 shadow-xl shadow-slate-950/40 transition-all relative overflow-hidden group">
+                                return (
+                                    <div key={session.id} className="p-4 border-2 rounded-2xl space-y-4 bg-slate-900 border-slate-800 shadow-xl shadow-slate-950/40 transition-all relative overflow-hidden group">
                                         {!isMine && (
                                             <div className="absolute top-0 right-0 px-3 py-1 bg-primary/20 text-primary text-[8px] font-black uppercase rounded-bl-xl border-l border-b border-primary/30">
                                                 Officina
@@ -440,7 +495,7 @@ export default function ActiveMaterialSessionBar() {
                                                         {pf}
                                                     </Badge>
                                                 ))}
-                                                {(session.linkedJobOrderIds || []).length === 0 && (
+                                                {(session.linkedJobOrderPFs || session.linkedJobOrderIds || []).length === 0 && (
                                                     <span className="text-[10px] italic text-slate-500 py-1 font-bold">Nessuna commessa...</span>
                                                 )}
                                             </div>
