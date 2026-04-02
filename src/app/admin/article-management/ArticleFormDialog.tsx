@@ -66,6 +66,8 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
   const [isPending, setIsPending] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const suggestionRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const bomRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [lastRowAdded, setLastRowAdded] = useState<number | null>(null);
 
   const [materialCache, setMaterialCache] = useState<Record<string, RawMaterial>>({});
   const [suggestions, setSuggestions] = useState<RawMaterial[]>([]);
@@ -164,6 +166,44 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
       }
     }
   }, [article, form, isOpen]);
+
+  // UX REFINEMENT: AUTO-FOCUS NEW ROW
+  useEffect(() => {
+     if (lastRowAdded !== null) {
+        const timer = setTimeout(() => {
+           bomRefs.current[`${lastRowAdded}-component`]?.focus();
+           setLastRowAdded(null);
+        }, 50);
+        return () => clearTimeout(timer);
+     }
+  }, [lastRowAdded]);
+
+  const focusRowField = (index: number, field: string) => {
+     bomRefs.current[`${index}-${field}`]?.focus();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, index: number, field: 'component' | 'quantity' | 'lunghezzaTaglioMm' | 'note') => {
+     if (e.key === 'Enter') {
+        e.preventDefault(); // Evita submit form
+        
+        if (field === 'component') focusRowField(index, 'quantity');
+        else if (field === 'quantity') {
+           const isN = form.getValues(`billOfMaterials.${index}.unit`) === 'n';
+           if (isN) focusRowField(index, 'note');
+           else focusRowField(index, 'lunghezzaTaglioMm');
+        }
+        else if (field === 'lunghezzaTaglioMm') focusRowField(index, 'note');
+        else if (field === 'note') {
+           if (index < fields.length - 1) {
+              focusRowField(index + 1, 'component');
+           } else {
+              // Se siamo all'ultima riga, aggiungine una nuova
+              setLastRowAdded(fields.length);
+              append({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
+           }
+        }
+     }
+  };
 
   const onSubmit = async (data: ArticleFormValues) => {
     setIsPending(true);
@@ -295,7 +335,11 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                               </FormLabel>
                               <FormControl>
                                 <Input
-                                  {...field}
+                                  {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
+                                  ref={(el) => { 
+                                     field.ref(el);
+                                     if (el) bomRefs.current[`${index}-component`] = el; 
+                                  }}
                                   placeholder="Digita o incolla..."
                                   className="font-mono uppercase"
                                   autoComplete="off"
@@ -304,6 +348,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                                       field.onChange(e);
                                       handleSearch(e.target.value);
                                   }}
+                                  onKeyDown={(e) => handleKeyDown(e, index, 'component')}
                                 />
                               </FormControl>
                               {focusedIndex === index && (suggestions.length > 0 || isSearching) && (
@@ -321,6 +366,8 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                                         form.setValue(`billOfMaterials.${index}.component`, m.code);
                                         form.setValue(`billOfMaterials.${index}.unit`, m.unitOfMeasure);
                                         setFocusedIndex(null);
+                                        // AUTO-FOCUS QUANTITY AFTER SELECTION
+                                        setTimeout(() => focusRowField(index, 'quantity'), 10);
                                       }}
                                     >
                                       <span className="font-mono">{m.code}</span>
@@ -341,7 +388,15 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Q.tà per Pz</FormLabel>
-                              <FormControl><Input type="number" step="any" {...field} /></FormControl>
+                              <FormControl>
+                                <Input 
+                                  {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
+                                  ref={(el) => { field.ref(el); if (el) bomRefs.current[`${index}-quantity`] = el; }} 
+                                  type="number" 
+                                  step="any" 
+                                  onKeyDown={(e) => handleKeyDown(e, index, 'quantity')} 
+                                />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -355,7 +410,18 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>L. Taglio (mm)</FormLabel>
-                              <FormControl><Input type="number" step="any" placeholder="-" {...field} value={field.value ?? ''} disabled={componentMaterial?.unitOfMeasure === 'n'} /></FormControl>
+                              <FormControl>
+                                <Input 
+                                  {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
+                                  ref={(el) => { field.ref(el); if (el) bomRefs.current[`${index}-lunghezzaTaglioMm`] = el; }} 
+                                  type="number" 
+                                  step="any" 
+                                  placeholder="-" 
+                                  value={field.value ?? ''} 
+                                  disabled={componentMaterial?.unitOfMeasure === 'n'} 
+                                  onKeyDown={(e) => handleKeyDown(e, index, 'lunghezzaTaglioMm')} 
+                                />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -369,7 +435,15 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Note</FormLabel>
-                              <FormControl><Input placeholder="..." {...field} value={field.value ?? ''} /></FormControl>
+                              <FormControl>
+                                <Input 
+                                  {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
+                                  ref={(el) => { field.ref(el); if (el) bomRefs.current[`${index}-note`] = el; }} 
+                                  placeholder="..." 
+                                  value={field.value ?? ''} 
+                                  onKeyDown={(e) => handleKeyDown(e, index, 'note')} 
+                                />
+                              </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -388,7 +462,10 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                   type="button"
                   variant="outline"
                   className="w-full mt-4 border-dashed"
-                  onClick={() => append({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' })}
+                  onClick={() => {
+                     setLastRowAdded(fields.length);
+                     append({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
+                  }}
                 >
                   <PlusCircle className="mr-2 h-4 w-4" />
                   Aggiungi Riga Componente
