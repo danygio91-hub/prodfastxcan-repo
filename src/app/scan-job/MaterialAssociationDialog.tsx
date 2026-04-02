@@ -547,10 +547,10 @@ export default function MaterialAssociationDialog({
                     {selectedMaterial && lotAvailability && (
                         <Button 
                             type="button" 
-                            variant="destructive"
+                            variant="outline"
                             onClick={() => onPrelevaMateriale(form.getValues(), true)}
                             disabled={isProcessing}
-                            className="w-full h-12 text-sm font-black uppercase tracking-tight rounded-xl border-2 border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive hover:text-white"
+                            className="w-full h-12 text-sm font-black uppercase tracking-tight rounded-xl border-2 border-red-600 bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-white transition-all shadow-[0_0_10px_rgba(220,38,38,0.2)]"
                         >
                             <X className="mr-2 h-4 w-4" /> Materiale Finito
                         </Button>

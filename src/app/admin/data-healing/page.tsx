@@ -13,7 +13,10 @@ import {
     AuditBrokenLot,
     auditGroupBlockers,
     forceUnlockAndDissolveGroup,
-    GroupBlocker
+    GroupBlocker,
+    previewStockSync,
+    resyncAllMaterialStock,
+    StockSyncAnomaly
 } from './actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
@@ -26,6 +29,18 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { 
+  ArrowRight, 
+  Lock, 
+  Calendar, 
+  FileText, 
+  Check, 
+  X, 
+  Activity,
+  AlertTriangle,
+  Scale
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 import {
@@ -75,6 +90,14 @@ export default function AdministrationDataHealingPage() {
     const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
     const [groupConfirmText, setGroupConfirmText] = useState("");
 
+    // Global Stock Resync Wizard State
+    const [resyncLoading, setResyncLoading] = useState(false);
+    const [resyncExecuting, setResyncExecuting] = useState(false);
+    const [syncAnomalies, setSyncAnomalies] = useState<StockSyncAnomaly[]>([]);
+    const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
+    const [isResyncModalOpen, setIsResyncModalOpen] = useState(false);
+    const [resyncConfirmText, setResyncConfirmText] = useState("");
+
     // --- INVENTORY LOGIC ---
     async function handleAudit() {
         setLoading(true);
@@ -113,6 +136,66 @@ export default function AdministrationDataHealingPage() {
             setConfirmText("");
         }
     }
+
+    async function handleStockAudit() {
+        setResyncLoading(true);
+        setError(null);
+        try {
+            const res = await previewStockSync(operator?.id || "");
+            if (res.success) {
+                setSyncAnomalies(res.anomalies);
+                // Auto-select those that REALLY need sync (diff > 0.001)
+                const toSelect = res.anomalies
+                    .filter(a => a.needsSync)
+                    .map(a => a.materialId);
+                setSelectedMaterialIds(toSelect);
+                toast({ title: "Audit Completata", description: `Trovate ${res.anomalies.filter(a => a.needsSync).length} anomalie di stock.` });
+            } else {
+                setError("Errore durante l'audit del magazzino.");
+            }
+        } catch (e) {
+            setError("Impossibile contattare il server per l'audit.");
+        } finally {
+            setResyncLoading(false);
+        }
+    }
+
+    async function handleExecuteSelectiveResync() {
+        if (!operator?.id || selectedMaterialIds.length === 0) return;
+        setResyncExecuting(true);
+        setIsResyncModalOpen(false);
+        try {
+            const res = await resyncAllMaterialStock(selectedMaterialIds, operator.id);
+            if (res.success) {
+                toast({ title: "Ricalcolo Completato", description: res.message });
+                // Reset state after success
+                setSyncAnomalies([]);
+                setSelectedMaterialIds([]);
+            } else {
+                toast({ title: "Errore Ricalcolo", description: res.message, variant: "destructive" });
+            }
+        } catch (e) {
+            toast({ title: "Errore di Sistema", description: "Impossibile completare il ricalcolo selettivo.", variant: "destructive" });
+        } finally {
+            setResyncExecuting(false);
+            setResyncConfirmText("");
+        }
+    }
+
+    const toggleSelection = (id: string) => {
+        setSelectedMaterialIds(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const toggleAllDiscrepancies = () => {
+        const discrepancyIds = syncAnomalies.filter(a => a.needsSync).map(a => a.materialId);
+        if (discrepancyIds.every(id => selectedMaterialIds.includes(id))) {
+            setSelectedMaterialIds(prev => prev.filter(id => !discrepancyIds.includes(id)));
+        } else {
+            setSelectedMaterialIds(prev => Array.from(new Set([...prev, ...discrepancyIds])));
+        }
+    };
 
     // --- ZOMBIE LOGIC ---
     async function handleZombieAudit() {
@@ -264,12 +347,30 @@ export default function AdministrationDataHealingPage() {
                                     <Database className="text-primary h-6 w-6" /> Correzione Anomalie UOM
                                 </h2>
                                 <div className="flex gap-4">
-                                    <Button variant="outline" onClick={handleAudit} disabled={loading || executing}>
+                                    <Button variant="outline" onClick={handleAudit} disabled={loading || executing || resyncExecuting || resyncLoading}>
                                         {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                                         Analizza Pesi
                                     </Button>
+                                    
+                                    <Button variant="secondary" className="bg-blue-600 hover:bg-blue-700 text-white" onClick={handleStockAudit} disabled={loading || executing || resyncExecuting || resyncLoading}>
+                                        {resyncLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                                        Analizza Discrepanze Stock (Audit)
+                                    </Button>
+
+                                    {syncAnomalies.length > 0 && (
+                                        <Button 
+                                            variant="default" 
+                                            className="bg-green-600 hover:bg-green-700" 
+                                            onClick={() => setIsResyncModalOpen(true)} 
+                                            disabled={selectedMaterialIds.length === 0 || resyncExecuting}
+                                        >
+                                            <CheckCircle2 className="mr-2 h-4 w-4" />
+                                            Applica Correzioni ({selectedMaterialIds.length})
+                                        </Button>
+                                    )}
+
                                     {anomalies.length > 0 && (
-                                        <Button variant="destructive" onClick={() => setIsHealModalOpen(true)} disabled={loading || executing}>
+                                        <Button variant="destructive" onClick={() => setIsHealModalOpen(true)} disabled={loading || executing || resyncExecuting || resyncLoading}>
                                             {executing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Hammer className="mr-2 h-4 w-4" />}
                                             Esegui Correzione Pesi
                                         </Button>
@@ -298,6 +399,130 @@ export default function AdministrationDataHealingPage() {
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
+
+                            {/* Modal for Global Resync Wizard */}
+                            <Dialog open={isResyncModalOpen} onOpenChange={setIsResyncModalOpen}>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle className="flex items-center text-blue-600">
+                                            <Database className="mr-2 h-5 w-5" /> Conferma Ricalcolo Selettivo
+                                        </DialogTitle>
+                                        <DialogDescription className="py-4">
+                                            Stai per ricalcolare lo stock di <strong>{selectedMaterialIds.length}</strong> materiali selezionati. 
+                                            Verrà applicata la somma reale delle giacenze dei lotti.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <Alert variant="default" className="bg-blue-50 border-blue-200 text-blue-900">
+                                        <Info className="h-4 w-4" />
+                                        <AlertTitle>Dettaglio Operazione</AlertTitle>
+                                        <AlertDescription className="text-sm opacity-90">
+                                            Il database verrà aggiornato con i valori calcolati in anteprima. 
+                                            I log di sistema registreranno questa operazione come <strong>RICALCOLO SELETTIVO</strong>.
+                                        </AlertDescription>
+                                    </Alert>
+                                    <div className="space-y-4 py-4">
+                                        <p className="text-sm text-muted-foreground">Digitare <span className="font-mono font-bold">CONFERMO RICALCOLO</span>:</p>
+                                        <Input placeholder="CONFERMO RICALCOLO" value={resyncConfirmText} onChange={(e) => setResyncConfirmText(e.target.value)} className="uppercase font-bold border-blue-300" />
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="ghost" onClick={() => setIsResyncModalOpen(false)}>Annulla</Button>
+                                        <Button variant="default" className="bg-blue-600 hover:bg-blue-700" disabled={resyncConfirmText !== "CONFERMO RICALCOLO"} onClick={handleExecuteSelectiveResync}>ESEGUI RICALCOLO</Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+
+                            {/* --- PLAN PREVIEW TABLE --- */}
+                            {syncAnomalies.length > 0 && (
+                                <Card className="shadow-lg animate-in slide-in-from-top duration-500 overflow-hidden border-blue-100">
+                                    <div className="bg-blue-600 text-white p-4 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Activity className="h-5 w-5" />
+                                            <h3 className="font-bold">Piano di Ricalcolo Suggerito</h3>
+                                        </div>
+                                        <div className="flex items-center gap-4 text-xs">
+                                            <div className="flex items-center gap-1">
+                                                <Badge className="bg-white/20 text-white border-0">Audit: {syncAnomalies.length}</Badge>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <Badge className="bg-green-400 text-green-950 border-0">Da Correggere: {syncAnomalies.filter(a => a.needsSync).length}</Badge>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="overflow-x-auto max-h-[500px]">
+                                        <Table>
+                                            <TableHeader className="bg-slate-50 sticky top-0 z-10">
+                                                <TableRow>
+                                                    <TableHead className="w-12">
+                                                        <Checkbox 
+                                                            checked={syncAnomalies.filter(a => a.needsSync).every(a => selectedMaterialIds.includes(a.materialId))}
+                                                            onCheckedChange={toggleAllDiscrepancies}
+                                                            className="border-slate-400"
+                                                        />
+                                                    </TableHead>
+                                                    <TableHead className="font-bold">Codice Materia Prima</TableHead>
+                                                    <TableHead className="text-center font-bold">UOM</TableHead>
+                                                    <TableHead className="text-right font-bold">Stock Attuale (DB)</TableHead>
+                                                    <TableHead className="text-right font-bold text-blue-700">Stock Calcolato (Lotti)</TableHead>
+                                                    <TableHead className="text-right font-bold">Differenza (Δ)</TableHead>
+                                                    <TableHead className="text-center font-bold">Stato</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {syncAnomalies.map((a) => (
+                                                    <TableRow key={a.materialId} className={a.needsSync ? "bg-amber-50/30" : ""}>
+                                                        <TableCell>
+                                                            <Checkbox 
+                                                                checked={selectedMaterialIds.includes(a.materialId)}
+                                                                onCheckedChange={() => toggleSelection(a.materialId)}
+                                                                className="border-slate-400"
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell className="font-semibold">{a.code}</TableCell>
+                                                        <TableCell className="text-center"><Badge variant="outline" className="font-mono">{a.unitOfMeasure}</Badge></TableCell>
+                                                        <TableCell className="text-right font-mono">{a.currentStock.toFixed(3)}</TableCell>
+                                                        <TableCell className="text-right font-mono text-blue-700 font-bold">{a.calculatedStock.toFixed(3)}</TableCell>
+                                                        <TableCell className={`text-right font-mono font-bold ${a.difference > 0 ? 'text-green-600' : a.difference < 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                                                            {a.difference > 0 ? `+${a.difference.toFixed(3)}` : a.difference.toFixed(3)}
+                                                        </TableCell>
+                                                        <TableCell className="text-center">
+                                                            {a.needsSync ? (
+                                                                <Badge variant="destructive" className="bg-amber-500 hover:bg-amber-600 text-amber-950 flex items-center gap-1 w-fit mx-auto">
+                                                                    <AlertTriangle className="h-3 w-3" /> Disallineato
+                                                                </Badge>
+                                                            ) : (
+                                                                <Badge variant="outline" className="text-green-600 border-green-200 flex items-center gap-1 w-fit mx-auto">
+                                                                    <Check className="h-3 w-3" /> Allineato
+                                                                </Badge>
+                                                            )}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                    
+                                    <div className="bg-slate-50 p-4 border-t flex items-center justify-between">
+                                        <div className="flex gap-6">
+                                            <div className="flex items-center gap-2 text-sm">
+                                                <Scale className="h-4 w-4 text-slate-500" />
+                                                <span className="text-muted-foreground whitespace-nowrap">Peso Totale Correzione:</span>
+                                                <span className={`font-bold ${
+                                                    syncAnomalies.filter(a => selectedMaterialIds.includes(a.materialId))
+                                                        .reduce((sum, a) => sum + a.difference, 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                                }`}>
+                                                    {syncAnomalies.filter(a => selectedMaterialIds.includes(a.materialId))
+                                                        .reduce((sum, a) => sum + a.difference, 0)
+                                                        .toFixed(3)} Unità
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs text-muted-foreground italic">
+                                            * Mostrate solo le differenze rilevanti ({'>'} 0.001)
+                                        </div>
+                                    </div>
+                                </Card>
+                            )}
 
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                 <Card className="border-l-4 border-l-amber-500 shadow-sm">

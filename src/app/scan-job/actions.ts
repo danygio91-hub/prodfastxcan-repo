@@ -7,6 +7,7 @@ import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
+import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { ensureAdmin } from '@/lib/server-auth';
 
@@ -529,16 +530,11 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
 
             let consumedWeight = 0;
             if (isFinished && session.lotto) {
-                // TRUE LIVE AGGREGATION: Remaining = Initial - SUM(Withdrawals)
+                // MODIFIED: In Lot-Centric model, the balance is already on the batch
                 const batch = (material.batches || []).find(b => b.lotto === session.lotto);
                 if (!batch) throw new Error("Lotto non trovato durante il saldo finale.");
                 
-                const withdrawn = withdrawals
-                    .filter(w => w.lotto === session.lotto && w.status !== 'cancelled')
-                    .reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
-                
-                const initialWeight = batch.grossWeight - batch.tareWeight;
-                consumedWeight = Math.max(0, initialWeight - withdrawn);
+                consumedWeight = Math.max(0, batch.grossWeight - batch.tareWeight);
             } else {
                 consumedWeight = session.grossOpeningWeight - closingGrossWeight;
                 if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
@@ -572,10 +568,11 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             }
 
             transaction.update(materialRef, {
-                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange,
-                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
                 batches: updatedBatches
+                // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
             });
+
+            await recalculateMaterialStock(session.materialId, transaction);
 
             const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
             transaction.set(withdrawalRef, {
@@ -624,13 +621,10 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
 
             let qtyToUse = Number(quantity);
             if (isFinished && lotto) {
-                // TRUE LIVE AGGREGATION
+                // MODIFIED: In Lot-Centric model, the balance is already on the batch
                 const batch = (material.batches || []).find(b => b.lotto === lotto);
                 if (batch) {
-                    const withdrawn = withdrawals
-                        .filter(w => w.lotto === lotto && w.status !== 'cancelled')
-                        .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
-                    qtyToUse = Math.max(0, batch.netQuantity - withdrawn);
+                    qtyToUse = Math.max(0, batch.netQuantity || 0);
                 }
             }
 
@@ -654,10 +648,11 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
             }
 
             t.update(mRef, { 
-                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange, 
-                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
                 batches: updatedBatches
+                // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
             });
+
+            await recalculateMaterialStock(materialId as string, t);
 
             const wRef = adminDb.collection("materialWithdrawals").doc();
             t.set(wRef, {

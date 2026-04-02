@@ -72,43 +72,62 @@ export function calculateInventoryMovement(
       if (idx !== -1) {
         batches[idx].netQuantity = (batches[idx].netQuantity || 0) + unitsToChange;
         batches[idx].grossWeight = (batches[idx].grossWeight || 0) + weightToChange;
-        if (batches[idx].netQuantity > 0) batches[idx].isExhausted = false;
+        if (batches[idx].netQuantity > 0.001) batches[idx].isExhausted = false;
       }
     }
   } else {
-    // SUBTRACTION (Withdrawal/Scarico) - LIVE AGGREGATION LOGIC
+    // SUBTRACTION (Withdrawal/Scarico) - MODIFIED: DIRECT DEDUCTION FROM BATCHES
+    // The source of truth is now SUM(Batches), so we MUST update the batches themselves.
     if (specificLotto) {
       const idx = batches.findIndex(b => b.lotto === specificLotto);
       if (idx === -1) throw new Error(`Lotto "${specificLotto}" non trovato.`);
       
       const initial = batches[idx].netQuantity || 0;
-      const avail = getLotAvailable(specificLotto, initial);
-      
-      if (avail < unitsToChange - 0.0001) {
-          throw new Error(`Giacenza insufficiente: il lotto "${specificLotto}" ha solo ${avail.toFixed(3)} ${baseUom.toUpperCase()} (richiesti ${unitsToChange.toFixed(3)}).`);
-      }
-      // SACRED QUANTITY RULE: DO NOT MUTATE batches[idx].netQuantity
-    } else {
-      // FIFO Withdrawal
-      const lotAvailabilities = batches.map(b => ({
-        batch: b,
-        avail: getLotAvailable(b.lotto || 'SENZA_LOTTO', b.netQuantity || 0)
-      })).filter(item => !item.batch.isExhausted && item.avail > 0);
+      const initialWeight = (batches[idx].grossWeight || 0) - (batches[idx].tareWeight || 0);
 
-      const totalAvail = lotAvailabilities.reduce((sum, item) => sum + item.avail, 0);
-      if (totalAvail < unitsToChange - 0.0001) {
-          throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail.toFixed(3)} ${baseUom.toUpperCase()} (richiesti ${unitsToChange.toFixed(3)}).`);
+      // Check availability (Live Aggregation check not needed here if we rely on SUM(Batches), but we keep simple safety)
+      if (initial < unitsToChange - 0.001) {
+          throw new Error(`Giacenza insufficiente su lotto "${specificLotto}": disponibili ${initial.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
+      }
+
+      // DEDUCT FROM BATCH
+      batches[idx].netQuantity = Math.max(0, initial - unitsToChange);
+      // Deduct from Weight (keeping Tare consistent)
+      batches[idx].grossWeight = Math.max(batches[idx].tareWeight || 0, (batches[idx].grossWeight || 0) - weightToChange);
+      
+      usedLotto = specificLotto;
+    } else {
+      // FIFO Withdrawal with Batch Mutation
+      const validBatches = batches
+        .map((b, originalIndex) => ({ b, index: originalIndex }))
+        .filter(item => !item.b.isExhausted && (item.b.netQuantity || 0) > 0.001);
+
+      const totalAvail = validBatches.reduce((sum, item) => sum + (item.b.netQuantity || 0), 0);
+      if (totalAvail < unitsToChange - 0.001) {
+          throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
 
       let remainingToDeduct = unitsToChange;
-      const sortedItems = lotAvailabilities.sort((a, b) => new Date(a.batch.date).getTime() - new Date(b.batch.date).getTime());
+      let remainingWeightToDeduct = weightToChange;
+      
+      const sortedItems = validBatches.sort((a, b) => new Date(a.b.date).getTime() - new Date(b.b.date).getTime());
       
       for (const item of sortedItems) {
-        if (remainingToDeduct <= 0) break;
-        if (!usedLotto) usedLotto = (item.batch.lotto as string | null);
-        const toTake = Math.min(item.avail, remainingToDeduct);
+        if (remainingToDeduct <= 0.0001) break;
+        if (!usedLotto) usedLotto = item.b.lotto as string;
+        
+        const b = batches[item.index];
+        const canTake = b.netQuantity || 0;
+        const toTake = Math.min(canTake, remainingToDeduct);
+        
+        // Linear deduction for weight if taking partial batch
+        const weightToTake = (toTake / canTake) * ((b.grossWeight || 0) - (b.tareWeight || 0));
+        
+        b.netQuantity = Math.max(0, canTake - toTake);
+        b.grossWeight = Math.max(b.tareWeight || 0, (b.grossWeight || 0) - weightToTake);
+        
         remainingToDeduct -= toTake;
-        // SACRED QUANTITY RULE: DO NOT MUTATE item.batch.netQuantity
+        remainingWeightToDeduct -= weightToTake;
       }
     }
   }
@@ -116,7 +135,7 @@ export function calculateInventoryMovement(
   return {
     unitsToChange,
     weightToChange,
-    updatedBatches: batches, // netQuantity/grossWeight preserved
+    updatedBatches: batches, // batches now mutated with new balances
     usedLotto
   };
 }

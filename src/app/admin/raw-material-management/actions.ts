@@ -20,6 +20,7 @@ import type {
 import { ensureAdmin } from '@/lib/server-auth';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateBOMRequirement, calculateInventoryMovement } from '@/lib/inventory-utils';
+import { recalculateMaterialStock } from '@/lib/stock-sync';
 
 export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -103,6 +104,12 @@ export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise
         }
 
         await batch.commit();
+        
+        // --- RECALCULATION TRIGGER ---
+        const uniqueMaterialIds = [...new Set(existingMap.values())].map(m => m.id);
+        for (const mid of uniqueMaterialIds) { await recalculateMaterialStock(mid); }
+        // -----------------------------
+
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: `Importati/Aggiornati ${items.length} elementi.` };
     } catch (error) {
@@ -252,9 +259,10 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
 
             transaction.update(materialRef, { 
                 batches, 
-                currentStockUnits: (material.currentStockUnits || 0) + diffU, 
-                currentWeightKg: (material.currentWeightKg || 0) + diffW 
+                // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
             });
+
+            await recalculateMaterialStock(materialId, transaction);
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiornato.' };
@@ -307,9 +315,9 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             };
             transaction.update(materialRef, { 
                 batches: [...(material.batches || []), newBatch], 
-                currentStockUnits: (material.currentStockUnits || 0) + finalUnits, 
-                currentWeightKg: (material.currentWeightKg || 0) + weightFromGross 
             });
+
+            await recalculateMaterialStock(materialId, transaction);
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiunto.' };
@@ -325,7 +333,10 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             const material = docSnap.data() as RawMaterial;
             const batch = (material.batches || []).find(b => b.id === batchId);
             if (!batch) throw new Error("Lotto non trovato.");
-            t.update(materialRef, { batches: material.batches.filter(b => b.id !== batchId), currentStockUnits: (material.currentStockUnits || 0) - batch.netQuantity, currentWeightKg: (material.currentWeightKg || 0) - (batch.grossWeight - batch.tareWeight) });
+            t.update(materialRef, { 
+                batches: material.batches.filter(b => b.id !== batchId) 
+            });
+            await recalculateMaterialStock(materialId, t);
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto eliminato.' };
@@ -442,11 +453,8 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         const m = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
         const normCode = m.code.toLowerCase().trim();
         
-        // LIVE AGGREGATION: Sum of all batches - sum of all withdrawals
-        const totalCharged = (m.batches || []).reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-        const totalWithdrawn = withdrawalsByMaterial[m.id] || 0;
-        let liveStockUnits = totalCharged - totalWithdrawn;
-        if (m.unitOfMeasure === 'n') liveStockUnits = Math.round(liveStockUnits);
+        // --- DEFINTIVE SWITCH: READ THE DB FIELD, DON'T RE-CALCULATE ---
+        const liveStockUnits = m.currentStockUnits || 0;
 
         const imp = impMap.get(normCode) || 0;
         const ord = ordMap.get(normCode) || 0;
@@ -540,7 +548,16 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
             const mSnap = await t.get(mRef);
             if (mSnap.exists) {
                 const m = mSnap.data() as RawMaterial;
-                t.update(mRef, { currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) });
+                const batches = [...(m.batches || [])];
+                const bIdx = batches.findIndex(b => b.lotto === w.lotto);
+                if (bIdx !== -1) {
+                    batches[bIdx].netQuantity = (batches[bIdx].netQuantity || 0) + (w.consumedUnits || 0);
+                    batches[bIdx].grossWeight = (batches[bIdx].grossWeight || 0) + (w.consumedWeight || 0);
+                    // Keep it marked as for the logic but it might be partially available now
+                    if (batches[bIdx].netQuantity > 0.001) batches[bIdx].isExhausted = false;
+                }
+                t.update(mRef, { batches });
+                await recalculateMaterialStock(w.materialId, t);
             }
             t.delete(ref);
         });
@@ -565,7 +582,18 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
                 const m = mDataMap.get(s.materialId);
                 if (!m) throw new Error("Materia prima non trovata.");
                 let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
-                t.update(adminDb.collection("rawMaterials").doc(s.materialId), { currentStockUnits: (m.currentStockUnits || 0) - s.consumed, currentWeightKg: (m.currentWeightKg || 0) - w });
+                
+                // --- UPDATE BATCH QUANTITY (DIRECT DEDUCTION) ---
+                const batches = [...(m.batches || [])];
+                const bIdx = batches.findIndex(b => b.lotto === s.lotto);
+                if (bIdx !== -1) {
+                    batches[bIdx].netQuantity = Math.max(0, batches[bIdx].netQuantity - s.consumed);
+                    batches[bIdx].grossWeight = Math.max(batches[bIdx].tareWeight || 0, batches[bIdx].grossWeight - w);
+                }
+                t.update(adminDb.collection("rawMaterials").doc(s.materialId), { batches });
+                await recalculateMaterialStock(s.materialId, t);
+                // ------------------------------------------------
+
                 const wRef = adminDb.collection("materialWithdrawals").doc();
                 t.set(wRef, { jobOrderPFs: [c.jobOrderCode], jobIds: [], materialId: s.materialId, materialCode: s.componentCode, consumedWeight: w, consumedUnits: s.consumed, operatorId: uid, operatorName: opData?.nome || 'Admin', withdrawalDate: admin.firestore.Timestamp.now(), lotto: s.lotto, commitmentId: id });
             }
@@ -589,7 +617,17 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
             for (const wd of ws.docs) {
                 const w = wd.data() as MaterialWithdrawal;
                 const m = mMap.get(w.materialId);
-                if (m) t.update(adminDb.collection("rawMaterials").doc(w.materialId), { currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0), currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight });
+                if (m) {
+                    const batches = [...(m.batches || [])];
+                    const bIdx = batches.findIndex(b => b.lotto === w.lotto);
+                    if (bIdx !== -1) {
+                        batches[bIdx].netQuantity = (batches[bIdx].netQuantity || 0) + (w.consumedUnits || 0);
+                        batches[bIdx].grossWeight = (batches[bIdx].grossWeight || 0) + (w.consumedWeight || 0);
+                        if (batches[bIdx].netQuantity > 0.001) batches[bIdx].isExhausted = false;
+                    }
+                    t.update(adminDb.collection("rawMaterials").doc(w.materialId), { batches });
+                    await recalculateMaterialStock(w.materialId, t);
+                }
                 t.delete(wd.ref);
             }
             ss.forEach(d => t.delete(d.ref));

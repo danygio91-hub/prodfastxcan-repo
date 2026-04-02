@@ -4,6 +4,8 @@ import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { RawMaterial, InventoryRecord, MaterialWithdrawal, JobOrder, Operator, JobPhase } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
+import { ensureAdmin } from '@/lib/server-auth';
+import { recalculateMaterialStock } from '@/lib/stock-sync';
 
 export interface AuditAnomaly {
     id: string;
@@ -26,6 +28,16 @@ export interface ZombieAnomaly {
     startDate: Date | string | null;
     details?: string;
     operatorId?: string;
+}
+
+export interface StockSyncAnomaly {
+    materialId: string;
+    code: string;
+    currentStock: number;
+    calculatedStock: number;
+    difference: number;
+    unitOfMeasure: string;
+    needsSync: boolean;
 }
 
 export interface GroupBlocker {
@@ -709,5 +721,115 @@ export async function forceUnlockAndDissolveGroup(groupId: string, operatorId: s
     } catch (e) {
         console.error("Force Unlock Error:", e);
         return { success: false, message: e instanceof Error ? e.message : "Errore durante lo sblocco forzato." };
+    }
+}
+
+/**
+ * STEP 1: PREVIEW (DRY RUN)
+ * Iterates through all materials and identifies discrepancies.
+ * Rounds to 3 decimal places (0.001) to ignore floating point noise.
+ */
+export async function previewStockSync(uid: string): Promise<{ success: boolean; anomalies: StockSyncAnomaly[] }> {
+    await ensureAdmin(uid);
+    const anomalies: StockSyncAnomaly[] = [];
+    
+    try {
+        const [materialsSnap, allWithdrawalsSnap] = await Promise.all([
+            adminDb.collection("rawMaterials").get(),
+            adminDb.collection("materialWithdrawals").get()
+        ]);
+
+        // Group withdrawals by material and lot
+        const withdrawalsMap = new Map<string, Record<string, number>>();
+        allWithdrawalsSnap.docs.forEach(doc => {
+            const w = doc.data();
+            if (w.materialId && w.lotto) {
+                if (!withdrawalsMap.has(w.materialId)) {
+                    withdrawalsMap.set(w.materialId, {});
+                }
+                const materialMap = withdrawalsMap.get(w.materialId)!;
+                materialMap[w.lotto] = (materialMap[w.lotto] || 0) + (w.consumedUnits || 0);
+            }
+        });
+
+        for (const doc of materialsSnap.docs) {
+            const m = doc.data() as RawMaterial;
+            const current = m.currentStockUnits || 0;
+            const batches = m.batches || [];
+            const withdrawalsForMaterial = withdrawalsMap.get(doc.id) || {};
+            
+            // --- LOT-BY-LOT CALCULATION (Matching Anagrafica Lotti UI) ---
+            const batchesByLotto = batches.reduce((acc, b) => {
+                const l = b.lotto || 'SENZA_LOTTO';
+                if (!acc[l]) acc[l] = [];
+                acc[l].push(b);
+                return acc;
+            }, {} as Record<string, any[]>);
+
+            let calculatedTotal = 0;
+            Object.entries(batchesByLotto).forEach(([lotto, batchList]) => {
+                if (lotto === 'SENZA_LOTTO') return; // Ignore lottoless logic
+                const loaded = batchList.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+                const withdrawn = withdrawalsForMaterial[lotto] || 0;
+                const available = Math.max(0, loaded - withdrawn);
+                calculatedTotal += available;
+            });
+
+            // Apply Rounding (0.001 threshold)
+            const roundedCurrent = Math.round(current * 1000) / 1000;
+            const roundedCalculated = Math.round(calculatedTotal * 1000) / 1000;
+            const diff = roundedCalculated - roundedCurrent;
+
+            anomalies.push({
+                materialId: doc.id,
+                code: m.code,
+                currentStock: roundedCurrent,
+                calculatedStock: roundedCalculated,
+                difference: diff,
+                unitOfMeasure: m.unitOfMeasure || 'N/D',
+                needsSync: Math.abs(diff) > 0.001
+            });
+        }
+        
+        return { success: true, anomalies: anomalies.sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference)) };
+    } catch (e) {
+        console.error("Preview Stock Sync Error:", e);
+        return { success: false, anomalies: [] };
+    }
+}
+
+/**
+ * STEP 2: SELECTIVE EXECUTION (Write)
+ * Forces a ricalcolo of stock units ONLY for selected materials.
+ */
+export async function resyncAllMaterialStock(materialIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    const startTime = Date.now();
+    let count = 0;
+    
+    try {
+        if (!materialIds || materialIds.length === 0) {
+            return { success: false, message: "Nessun materiale selezionato per il ricalcolo." };
+        }
+
+        // We process sequentially for safety
+        for (const materialId of materialIds) {
+            await recalculateMaterialStock(materialId);
+            count++;
+        }
+        
+        await adminDb.collection("system_maintenance_logs").add({
+            action: 'SELECTIVE_STOCK_RESYNC',
+            executedBy: uid,
+            timestamp: admin.firestore.Timestamp.now(),
+            totalProcessed: count,
+            durationMs: Date.now() - startTime,
+            summary: `Ricalcolo selettivo completato per ${count} materiali basandosi sulla somma dei lotti.`
+        });
+        
+        return { success: true, message: `Ricalcolo completato con successo per ${count} materiali.` };
+    } catch (error) {
+        console.error("Selective resync error:", error);
+        return { success: false, message: "Errore durante il ricalcolo selettivo del magazzino." };
     }
 }

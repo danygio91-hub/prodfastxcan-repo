@@ -8,6 +8,7 @@ import { revalidatePath } from 'next/cache';
 
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
+import { recalculateMaterialStock } from '@/lib/stock-sync';
 
 const manualWithdrawalSchema = z.object({
   materialId: z.string(),
@@ -47,11 +48,8 @@ export async function logManualWithdrawal(
         if (isFinished && lotto) {
             const batch = (material.batches || []).find(b => b.lotto === lotto);
             if (batch) {
-                // TRUE LIVE AGGREGATION
-                const withdrawn = withdrawals
-                    .filter(w => w.lotto === lotto && w.status !== 'cancelled')
-                    .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
-                qtyToUse = Math.max(0, batch.netQuantity - withdrawn);
+                // MODIFIED: In Lot-Centric model, the balance is already on the batch
+                qtyToUse = Math.max(0, batch.netQuantity || 0);
             }
         }
 
@@ -81,10 +79,11 @@ export async function logManualWithdrawal(
         }
         
         transaction.update(materialRef, { 
-            currentStockUnits: (material.currentStockUnits || 0) - unitsToChange, 
-            currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
             batches: updatedBatches
+            // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
         });
+
+        await recalculateMaterialStock(materialId, transaction);
         
         const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
         transaction.set(withdrawalRef, {

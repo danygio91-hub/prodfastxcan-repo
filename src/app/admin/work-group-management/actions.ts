@@ -32,22 +32,20 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
   try {
     const groupRef = adminDb.collection('workGroups').doc(groupId);
     
-    // 1. SAFETY CHECK: BLOCCA SCIOGLIMENTO SE SESSIONI ATTIVE (LAVORO O MATERIALE)
+    // 1. SAFETY CHECK: BLOCCA SCIOGLIMENTO SOLO SE SESSIONI DI LAVORO ATTIVE (CLOCK-IN)
     const opsSnap = await adminDb.collection("operators").get();
     const activeOperators = opsSnap.docs.filter(docSnap => {
         const op = docSnap.data() as Operator;
-        const hasActiveJob = op.activeJobId === groupId;
-        const hasActiveMaterialSession = (op.activeMaterialSessions || []).some(s => 
-            s.originatorJobId === groupId || s.associatedJobs.some(aj => aj.jobId === groupId)
-        );
-        return hasActiveJob || hasActiveMaterialSession;
+        // Solo il clock-in attivo sulla commessa specifica blocca lo scioglimento.
+        // Le sessioni materiali (activeMaterialSessions) non bloccano più l'operazione.
+        return op.activeJobId === groupId;
     });
 
     if (activeOperators.length > 0) {
         const names = activeOperators.map(d => (d.data() as Operator).nome).join(", ");
         return { 
             success: false, 
-            message: `Impossibile sciogliere: sessioni attive rilevate per [${names}]. Chiudere i prelievi o i lavori su tablet prima di procedere.` 
+            message: `Impossibile scollegare: l'operatore [${names}] ha una fase di lavoro attiva su questa commessa. Termina prima la fase (Clock-out) per poter modificare il gruppo.` 
         };
     }
 

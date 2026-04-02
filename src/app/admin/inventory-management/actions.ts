@@ -9,6 +9,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
+import { recalculateMaterialStock } from '@/lib/stock-sync';
 
 function convertTimestamps(obj: any): any {
     if (obj instanceof Date) return obj.toISOString();
@@ -101,10 +102,9 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             };
             
             transaction.update(mRef, { 
-                currentStockUnits: (material.currentStockUnits || 0) + unitsToChange, 
-                currentWeightKg: (material.currentWeightKg || 0) + weightToChange, 
                 batches: [...(material.batches || []), newBatch] 
             });
+            await recalculateMaterialStock(record.materialId, transaction);
             transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() });
         });
         revalidatePath('/admin/inventory-management');
@@ -153,9 +153,8 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
                 if (batch) {
                     transaction.update(mRef, { 
                         batches: admin.firestore.FieldValue.arrayRemove(batch), 
-                        currentStockUnits: Math.max(0, (mat.currentStockUnits || 0) - batch.netQuantity), 
-                        currentWeightKg: Math.max(0, (mat.currentWeightKg || 0) - rec.netWeight) 
                     });
+                    await recalculateMaterialStock(rec.materialId, transaction);
                 }
             }
         }
