@@ -167,6 +167,19 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
     }
   }, [article, form, isOpen]);
 
+  // UX REFINEMENT: SYNC UNIT OF MEASURE ON MATCH (FOR COPY-PASTE)
+  const bomData = form.watch("billOfMaterials");
+  useEffect(() => {
+     bomData.forEach((item, index) => {
+        if (item.component) {
+           const match = materialCache[item.component.toUpperCase()];
+           if (match && match.unitOfMeasure !== item.unit) {
+              form.setValue(`billOfMaterials.${index}.unit`, match.unitOfMeasure as any);
+           }
+        }
+     });
+  }, [bomData, materialCache, form]);
+
   // UX REFINEMENT: AUTO-FOCUS NEW ROW
   useEffect(() => {
      if (lastRowAdded !== null) {
@@ -351,31 +364,6 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                                   onKeyDown={(e) => handleKeyDown(e, index, 'component')}
                                 />
                               </FormControl>
-                              {focusedIndex === index && (suggestions.length > 0 || isSearching) && (
-                                <div
-                                  ref={el => { suggestionRefs.current[index] = el; }}
-                                  className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto"
-                                >
-                                  {isSearching && <div className="p-3 text-xs text-center text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mx-auto"/></div>}
-                                  {!isSearching && suggestions.map(m => (
-                                    <button
-                                      key={m.id}
-                                      type="button"
-                                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between group"
-                                      onClick={() => {
-                                        form.setValue(`billOfMaterials.${index}.component`, m.code);
-                                        form.setValue(`billOfMaterials.${index}.unit`, m.unitOfMeasure);
-                                        setFocusedIndex(null);
-                                        // AUTO-FOCUS QUANTITY AFTER SELECTION
-                                        setTimeout(() => focusRowField(index, 'quantity'), 10);
-                                      }}
-                                    >
-                                      <span className="font-mono">{m.code}</span>
-                                      <span className="text-[10px] text-muted-foreground group-hover:text-accent-foreground">{m.description.slice(0, 20)}...</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
                               <FormMessage />
                             </FormItem>
                           )}
