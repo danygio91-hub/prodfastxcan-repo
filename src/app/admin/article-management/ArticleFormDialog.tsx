@@ -220,10 +220,12 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
 
   const onSubmit = async (data: ArticleFormValues) => {
     setIsPending(true);
-    // Filter out empty rows before sending to server
+    // Filter out empty rows and ensure codes are uppercase before sending to server
     const filteredData = {
       ...data,
-      billOfMaterials: (data.billOfMaterials || []).filter(item => item.component && item.component.trim() !== '')
+      billOfMaterials: (data.billOfMaterials || [])
+        .filter(item => item.component && item.component.trim() !== '')
+        .map(item => ({ ...item, component: item.component?.toUpperCase() }))
     };
     const result = await saveArticle(filteredData);
     toast({
@@ -358,8 +360,9 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                                   autoComplete="off"
                                   onFocus={() => { setFocusedIndex(index); handleSearch(currentValue); }}
                                   onChange={(e) => {
-                                      field.onChange(e);
-                                      handleSearch(e.target.value);
+                                      const val = e.target.value.toUpperCase();
+                                      field.onChange(val);
+                                      handleSearch(val);
                                   }}
                                   onKeyDown={(e) => handleKeyDown(e, index, 'component')}
                                 />
