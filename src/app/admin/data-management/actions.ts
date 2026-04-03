@@ -97,7 +97,12 @@ export async function getDepartments(): Promise<Department[]> {
 }
 
 export async function saveManualJobOrder(data: any) {
-    const { ordinePF, articleCode, qta, cliente, dataConsegnaFinale, department, workCycleId, numeroODLInterno } = data;
+    const { ordinePF, articleCode, qta, cliente, dataConsegnaFinale, dataFinePreparazione, department, workCycleId, numeroODLInterno } = data;
+    
+    // Validation
+    if (dataFinePreparazione && dataConsegnaFinale && dataFinePreparazione > dataConsegnaFinale) {
+        return { success: false, message: "La data fine preparazione non può essere successiva alla consegna finale." };
+    }
     
     const sanitizedId = sanitizeDocumentId(ordinePF);
     const docRef = adminDb.collection("jobOrders").doc(sanitizedId);
@@ -150,6 +155,7 @@ export async function saveManualJobOrder(data: any) {
         billOfMaterials: jobBOM,
         phases: phases,
         dataConsegnaFinale: dataConsegnaFinale || '',
+        dataFinePreparazione: dataFinePreparazione || '',
         department: department || "N/D",
         workCycleId: workCycleId || ''
     };
@@ -186,6 +192,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
         numeroODL: z.coerce.string().optional(), 
         numeroODLInternoImport: z.any().optional(), 
         dataConsegnaFinale: z.string().optional(), 
+        dataFinePreparazione: z.string().optional(),
         department: z.coerce.string().optional(), 
         workCycleName: z.coerce.string().optional() 
     });
@@ -203,6 +210,18 @@ export async function processAndValidateImport(data: any[]): Promise<{
             dateStr = rawDate;
         }
 
+        let rawPrepDate = row['Data Fine Prep'] || row['dataFinePreparazione'];
+        let prepDateStr = '';
+        if (rawPrepDate instanceof Date) {
+            prepDateStr = rawPrepDate.toISOString().split('T')[0];
+        } else if (typeof rawPrepDate === 'number') {
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+            const d = new Date(excelEpoch.getTime() + rawPrepDate * 86400 * 1000);
+            prepDateStr = d.toISOString().split('T')[0];
+        } else if (typeof rawPrepDate === 'string') {
+            prepDateStr = rawPrepDate;
+        }
+
         const mappedRow = {
             ordinePF: String(row['Ordine PF'] || row['ordinePF'] || '').trim(),
             details: String(row['Codice'] || row['details'] || '').trim(),
@@ -211,6 +230,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
             numeroODL: String(row['Ordine Nr Est'] || row['numeroODL'] || 'N/D').trim(),
             numeroODLInternoImport: String(row['N° ODL'] || row['numeroODLInternoImport'] || '').trim(),
             dataConsegnaFinale: dateStr,
+            dataFinePreparazione: prepDateStr,
             department: String(row['Reparto'] || row['department'] || 'N/D').trim(),
             workCycleName: String(row['Ciclo'] || row['workCycleName'] || '').trim()
         };
@@ -219,6 +239,11 @@ export async function processAndValidateImport(data: any[]): Promise<{
         if (!validated.success) { 
             blockedJobs.push({ row, reason: "Dati obbligatori mancanti (PF, Codice o Qta)." }); 
             continue; 
+        }
+
+        if (mappedRow.dataFinePreparazione && mappedRow.dataConsegnaFinale && mappedRow.dataFinePreparazione > mappedRow.dataConsegnaFinale) {
+            blockedJobs.push({ row, reason: "La data fine preparazione non può essere successiva alla consegna finale." });
+            continue;
         }
         
         const { data: validData } = validated;
@@ -268,7 +293,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
             }
         }
 
-        newJobs.push({ id: sanitizedId, status: 'planned', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', department: validData.department || "N/D", workCycleId: workCycleId });
+        newJobs.push({ id: sanitizedId, status: 'planned', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', dataFinePreparazione: validData.dataFinePreparazione || '', department: validData.department || "N/D", workCycleId: workCycleId });
     }
     return { success: true, message: "Analisi completata.", newJobs, jobsToUpdate, blockedJobs };
 }
@@ -287,6 +312,16 @@ export async function updateJobOrderDeliveryDate(jobId: string, newDate: string)
         await adminDb.collection("jobOrders").doc(jobId).update({ dataConsegnaFinale: newDate });
         revalidatePath('/admin/data-management');
         return { success: true, message: 'Data consegna aggiornata.' };
+    } catch (error) {
+        return { success: false, message: 'Errore durante l\'aggiornamento della data.' };
+    }
+}
+
+export async function updateJobOrderPrepDate(jobId: string, newDate: string) {
+    try {
+        await adminDb.collection("jobOrders").doc(jobId).update({ dataFinePreparazione: newDate });
+        revalidatePath('/admin/data-management');
+        return { success: true, message: 'Data preparazione aggiornata.' };
     } catch (error) {
         return { success: false, message: 'Errore durante l\'aggiornamento della data.' };
     }

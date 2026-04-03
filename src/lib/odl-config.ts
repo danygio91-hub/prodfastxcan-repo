@@ -115,8 +115,8 @@ export const DEFAULT_ODL_CONFIG: ODLConfig = {
         { id: 'i1', label: 'CLIENTE', field: 'cliente', visible: true },
         { id: 'i2', label: 'CODICE ARTICOLO', field: 'details', visible: true, colorKey: 'bgValueGreen' },
         { id: 'i3', label: 'QT', field: 'qta', visible: true, colorKey: 'bgValueGreen' },
-        { id: 'i4', label: 'DATA FINE PREPARAZIONE MATERIALE', field: 'dataConsegnaFinale', visible: true, colorKey: 'bgValueYellow' },
-        { id: 'i5', label: 'DATA CONSEGNA FINALE', field: 'dataConsegnaCliente', visible: true, colorKey: 'bgValueYellow' },
+        { id: 'i4', label: 'DATA FINE PREPARAZIONE MATERIALE', field: 'dataFinePreparazione', visible: true, colorKey: 'bgValueYellow' },
+        { id: 'i5', label: 'DATA CONSEGNA FINALE', field: 'dataConsegnaFinale', visible: true, colorKey: 'bgValueYellow' },
     ]
   },
   layout: {

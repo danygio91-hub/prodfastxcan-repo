@@ -4,7 +4,7 @@ import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, OverallStatu
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, ClipboardList, Calendar } from 'lucide-react';
+import { Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, ClipboardList, Calendar, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -49,9 +49,9 @@ function getPhaseIcon(status: JobPhase['status']) {
 }
 
 export default function WorkGroupCard({ 
-    group, jobsInGroup, allOperators, onProblemClick, onForceFinishClick, onForcePauseClick, onForceCompleteClick, onDissolveGroupClick, onOpenPhaseManager, onOpenMaterialManager, onToggleGuainaClick, onUpdateDeliveryDate, isSelected, onSelect, overallStatus, getOverallStatus, onNavigateToAnalysis, onCopyArticleCode,
+    group, jobsInGroup, allOperators, onProblemClick, onForceFinishClick, onForcePauseClick, onForceCompleteClick, onDissolveGroupClick, onOpenPhaseManager, onOpenMaterialManager, onToggleGuainaClick, onUpdateDeliveryDate, onUpdatePrepDate, isSelected, onSelect, overallStatus, getOverallStatus, onNavigateToAnalysis, onCopyArticleCode,
 }: { 
-    group: WorkGroup; jobsInGroup: JobOrder[]; allOperators: Operator[]; onProblemClick: () => void; onForceFinishClick: (groupId: string) => void | Promise<void>; onForcePauseClick: (groupId: string, operatorIds: string[]) => void | Promise<void>; onForceCompleteClick: (groupId: string) => void | Promise<void>; onDissolveGroupClick: (groupId: string) => void | Promise<void>; onOpenPhaseManager: (item: JobOrder | WorkGroup) => void; onOpenMaterialManager: (item: JobOrder | WorkGroup) => void; onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void | Promise<void>; onUpdateDeliveryDate: (itemId: string, newDate: string) => void | Promise<void>; isSelected: boolean; onSelect: (groupId: string) => void; overallStatus: OverallStatus; getOverallStatus: (job: JobOrder) => OverallStatus; onNavigateToAnalysis: (articleCode: string) => void; onCopyArticleCode: (articleCode: string) => void;
+    group: WorkGroup; jobsInGroup: JobOrder[]; allOperators: Operator[]; onProblemClick: () => void; onForceFinishClick: (groupId: string) => void | Promise<void>; onForcePauseClick: (groupId: string, operatorIds: string[]) => void | Promise<void>; onForceCompleteClick: (groupId: string) => void | Promise<void>; onDissolveGroupClick: (groupId: string) => void | Promise<void>; onOpenPhaseManager: (item: JobOrder | WorkGroup) => void; onOpenMaterialManager: (item: JobOrder | WorkGroup) => void; onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void | Promise<void>; onUpdateDeliveryDate: (itemId: string, newDate: string) => void | Promise<void>; onUpdatePrepDate: (itemId: string, newDate: string) => void | Promise<void>; isSelected: boolean; onSelect: (groupId: string) => void; overallStatus: OverallStatus; getOverallStatus: (job: JobOrder) => OverallStatus; onNavigateToAnalysis: (articleCode: string) => void; onCopyArticleCode: (articleCode: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
@@ -100,6 +100,9 @@ export default function WorkGroupCard({
     ? parseISO(deliveryDateString)
     : null;
   const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
+  const prepDateString = group.dataFinePreparazione;
+  const prepDate = prepDateString && /^\d{4}-\d{2}-\d{2}$/.test(prepDateString) ? parseISO(prepDateString) : null;
+  const isPrepOverdue = prepDate && isPast(new Date(prepDate.toDateString())) && overallStatus !== 'Completata';
 
   const validJobsInGroup = useMemo(() => {
       return jobsInGroup.filter(job => !job.id.startsWith('group-'));
@@ -184,32 +187,28 @@ export default function WorkGroupCard({
                     <div className="space-y-1">
                         <p className="flex items-center gap-2 text-muted-foreground"><Boxes className="h-4 w-4" />{group.details}</p>
                         
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <button 
-                                    className={cn(
-                                        "flex items-center gap-2 font-medium hover:text-primary transition-colors", 
-                                        isOverdue ? "text-destructive" : "text-muted-foreground"
-                                    )}
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <Calendar className="h-4 w-4" />
-                                    <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
-                                </button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                                <CalendarPicker
-                                    mode="single"
-                                    selected={deliveryDate || undefined}
-                                    onSelect={(date) => {
-                                        if (date) {
-                                            onUpdateDeliveryDate(group.id, format(date, 'yyyy-MM-dd'));
-                                        }
-                                    }}
-                                    initialFocus
-                                />
-                            </PopoverContent>
-                        </Popover>
+                        <div className="space-y-2">
+                           <Popover>
+                              <PopoverTrigger asChild>
+                                  <button className="flex items-center gap-2 w-full text-left group" onClick={e => e.stopPropagation()}>
+                                      <Calendar className={cn("h-3.5 w-3.5", isPrepOverdue ? "text-destructive" : "text-muted-foreground")} />
+                                      <Badge variant="outline" className={cn("bg-amber-500/10 text-amber-700 border-amber-500/20 hover:bg-amber-500/20 px-2 py-0.5 text-[10px] uppercase font-bold", isPrepOverdue && "bg-destructive/10 text-destructive border-destructive/20")}>
+                                          Fine Prep: {prepDate ? format(prepDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}
+                                      </Badge>
+                                  </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start"><CalendarPicker mode="single" selected={prepDate || undefined} onSelect={d => d && onUpdatePrepDate(group.id, format(d, 'yyyy-MM-dd'))} initialFocus /></PopoverContent>
+                           </Popover>
+                           <Popover>
+                              <PopoverTrigger asChild>
+                                  <button className={cn("flex items-center gap-2 text-xs font-medium hover:text-primary pl-0.5", isOverdue ? "text-destructive" : "text-muted-foreground")} onClick={e => e.stopPropagation()}>
+                                      <Clock className="h-3.5 w-3.5" />
+                                      <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
+                                  </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start"><CalendarPicker mode="single" selected={deliveryDate || undefined} onSelect={d => d && onUpdateDeliveryDate(group.id, format(d, 'yyyy-MM-dd'))} initialFocus /></PopoverContent>
+                           </Popover>
+                        </div>
                     </div>
                     <div className="text-right"><span className="font-bold">{group.totalQuantity}</span><span className="text-muted-foreground text-xs ml-1">pz totali</span></div>
                 </div>
@@ -254,7 +253,7 @@ export default function WorkGroupCard({
       <Dialog open={isExplodeViewOpen} onOpenChange={setIsExplodeViewOpen}>
           <DialogContent className="max-w-7xl h-[90vh]"><DialogHeader><DialogTitle>Dettaglio Commesse nel Gruppo</DialogTitle></DialogHeader>
               <ScrollArea className="h-full mt-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {validJobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} onUpdateDeliveryDate={onUpdateDeliveryDate} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}
+                  {validJobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} onUpdateDeliveryDate={onUpdateDeliveryDate} onUpdatePrepDate={onUpdatePrepDate} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}
               </div></ScrollArea>
           </DialogContent>
       </Dialog>

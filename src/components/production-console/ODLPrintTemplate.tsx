@@ -299,8 +299,8 @@ export default function ODLPrintTemplate({
               if (col.field === 'cliente') val = job.cliente;
               if (col.field === 'details') val = job.details;
               if (col.field === 'qta') val = `${job.qta}`;
+              if (col.field === 'dataFinePreparazione') val = formatDateSafe(job.dataFinePreparazione || job.dataConsegnaFinale);
               if (col.field === 'dataConsegnaFinale') val = formatDateSafe(job.dataConsegnaFinale);
-              if (col.field === 'dataConsegnaCliente') val = formatDateSafe((job as any).dataConsegnaCliente);
 
               return (
                 <tr key={col.id} style={{ height: '8.5mm' }}>

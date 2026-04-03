@@ -132,6 +132,7 @@ export interface JobOrder {
   anomalyType?: string;
   anomalyNote?: string;
   dataConsegnaCliente?: string;
+  dataFinePreparazione?: string;
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
@@ -263,6 +264,7 @@ export interface WorkGroup {
   numeroODLInterno?: string;
   numeroODL?: string;
   dataConsegnaFinale?: string;
+  dataFinePreparazione?: string;
   isProblemReported?: boolean;
   problemType?: string;
   problemNotes?: string;

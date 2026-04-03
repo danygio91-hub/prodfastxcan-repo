@@ -29,7 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL,
   createMultipleODLs, cancelODL, updateJobOrderCycle, saveManualJobOrder, markJobAsPrinted,
-  updateJobOrderDeliveryDate
+  updateJobOrderDeliveryDate, updateJobOrderPrepDate
 } from './actions';
 import { getArticles } from '../article-management/actions';
 import { useRouter } from 'next/navigation';
@@ -53,9 +53,18 @@ const manualCreateSchema = z.object({
   articleCode: z.string().min(1, "L'articolo è obbligatorio."),
   qta: z.coerce.number().positive("La quantità deve essere positiva."),
   dataConsegnaFinale: z.string().min(1, "La data di consegna è obbligatoria."),
+  dataFinePreparazione: z.string().optional(),
   department: z.string().min(1, "Il reparto è obbligatorio."),
   workCycleId: z.string().min(1, "Il ciclo di lavoro è obbligatorio."),
   numeroODLInterno: z.string().optional(),
+}).refine(data => {
+  if (data.dataFinePreparazione && data.dataConsegnaFinale) {
+    return data.dataFinePreparazione <= data.dataConsegnaFinale;
+  }
+  return true;
+}, {
+  message: "La data fine preparazione non può essere successiva alla consegna finale.",
+  path: ["dataFinePreparazione"]
 });
 type ManualCreateValues = z.infer<typeof manualCreateSchema>;
 
@@ -72,7 +81,7 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sor
 
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
-  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onDownloadPdf, onAction, isDownloadingPdf, globalSettings
+  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onDownloadPdf, onAction, isDownloadingPdf, globalSettings
 }: {
   data: JobOrder[];
   departments: Department[];
@@ -84,6 +93,7 @@ const JobTableRows = ({
   onToggleRow: (id: string, checked: boolean) => void;
   onUpdateCycle: (id: string, cycleId: string) => void;
   onUpdateDate: (id: string, date: Date | undefined) => void;
+  onUpdatePrepDate: (id: string, date: Date | undefined) => void;
   onDownloadPdf: (job: JobOrder) => void;
   onAction: (id: string, type: 'start' | 'cancel') => void;
   isDownloadingPdf: string | null;
@@ -95,6 +105,8 @@ const JobTableRows = ({
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
         const isPlanned = j.status === 'planned';
         const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
+        const effectivePrepDate = j.dataFinePreparazione || j.dataConsegnaFinale;
+        const displayPrepDateText = effectivePrepDate ? format(parseISO(effectivePrepDate), "dd/MM/yyyy") : "Scegli...";
         const isReadyBody = j.status === 'production' && isJobReadyForProduction(j);
 
 
@@ -205,6 +217,13 @@ const JobTableRows = ({
               ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
             </TableCell>
             <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
+            <TableCell>
+              <Popover><PopoverTrigger asChild><Button variant="outline" className={cn("w-[130px] h-8 justify-start text-xs", !j.dataFinePreparazione && "text-muted-foreground italic")}><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayPrepDateText}</span></Button></PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={effectivePrepDate ? parseISO(effectivePrepDate) : undefined} onSelect={d => onUpdatePrepDate(j.id, d)} initialFocus />
+                </PopoverContent>
+              </Popover>
+            </TableCell>
             <TableCell>
               <Popover><PopoverTrigger asChild><Button variant="outline" className="w-[130px] h-8 justify-start text-xs"><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayDateText}</span></Button></PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -449,6 +468,9 @@ export default function DataManagementClientPage({
         if (sortConfig.key === 'reparto_codice') {
           aVal = departments.find(d => d.name === a.department || d.code === a.department)?.code || a.department;
           bVal = departments.find(d => d.name === b.department || d.code === b.department)?.code || b.department;
+        } else if (sortConfig.key === 'dataFinePreparazione') {
+          aVal = a.dataFinePreparazione || a.dataConsegnaFinale || '9999-12-31';
+          bVal = b.dataFinePreparazione || b.dataConsegnaFinale || '9999-12-31';
         } else {
           aVal = a[sortConfig.key as keyof JobOrder];
           bVal = b[sortConfig.key as keyof JobOrder];
@@ -516,6 +538,21 @@ export default function DataManagementClientPage({
   const handleUpdateDateLocal = async (jobId: string, date: Date | undefined) => {
     if (date) {
       await updateJobOrderDeliveryDate(jobId, format(date, 'yyyy-MM-dd'));
+      toast({ title: "Data consegna aggiornata" });
+      router.refresh();
+    }
+  };
+
+  const handleUpdatePrepDateLocal = async (jobId: string, date: Date | undefined) => {
+    if (date) {
+      const job = [...plannedJobOrders, ...productionJobOrders, ...completedJobOrders].find(j => j.id === jobId);
+      const newPrepStr = format(date, 'yyyy-MM-dd');
+      if (job && job.dataConsegnaFinale && newPrepStr > job.dataConsegnaFinale) {
+         toast({ variant: "destructive", title: "Validazione fallita", description: "La data preparazione non può superare la consegna." });
+         return;
+      }
+      await updateJobOrderPrepDate(jobId, newPrepStr);
+      toast({ title: "Data preparazione aggiornata" });
       router.refresh();
     }
   };
@@ -524,6 +561,28 @@ export default function DataManagementClientPage({
     const res = type === 'start' ? await createODL(id) : await cancelODL(id);
     toast({ title: res.message });
     router.refresh();
+  };
+
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        'Ordine PF': '123/PF.1-1',
+        'Codice': 'CODICE_ARTICOLO',
+        'Qta': 100,
+        'Cliente': 'CLIENTE_ROSSI',
+        'Ordine Nr Est': 'EST-001',
+        'N° ODL': '0001-24',
+        'Data Fine Prep': '2024-12-24',
+        'Data Consegna': '2024-12-31',
+        'Reparto': 'CP',
+        'Ciclo': 'STANDARD'
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Commesse");
+    XLSX.writeFile(wb, "Template_Import_Commesse.xlsx");
+    toast({ title: "Template Scaricato", description: "Utilizza questo file come base per l'importazione." });
   };
 
   return (
@@ -544,6 +603,12 @@ export default function DataManagementClientPage({
             } catch (e) { toast({ variant: "destructive", title: "Errore Import" }); }
             finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
           }} accept=".xlsx, .xls" className="hidden" />
+          
+          <Button variant="outline" onClick={handleDownloadTemplate}>
+            <FileDown className="mr-2 h-4 w-4" />
+            Scarica Template
+          </Button>
+
           <Button variant="outline" onClick={handleRefreshMRP} disabled={isRefreshingMRP}>
             {isRefreshingMRP ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Aggiorna MRP
@@ -586,7 +651,8 @@ export default function DataManagementClientPage({
                     <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead>Ciclo</TableHead>
                     <TableHead>N° ODL</TableHead>
-                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
+                    <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
+                    <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
@@ -603,6 +669,7 @@ export default function DataManagementClientPage({
                     onToggleRow={handleToggleRow}
                     onUpdateCycle={handleUpdateCycleLocal}
                     onUpdateDate={handleUpdateDateLocal}
+                    onUpdatePrepDate={handleUpdatePrepDateLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
@@ -631,7 +698,8 @@ export default function DataManagementClientPage({
                     <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead>Ciclo</TableHead>
                     <TableHead>N° ODL</TableHead>
-                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
+                    <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
+                    <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
@@ -648,6 +716,7 @@ export default function DataManagementClientPage({
                     onToggleRow={handleToggleRow}
                     onUpdateCycle={handleUpdateCycleLocal}
                     onUpdateDate={handleUpdateDateLocal}
+                    onUpdatePrepDate={handleUpdatePrepDateLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
@@ -676,7 +745,8 @@ export default function DataManagementClientPage({
                     <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead>Ciclo</TableHead>
                     <TableHead>N° ODL</TableHead>
-                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
+                    <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
+                    <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
@@ -693,6 +763,7 @@ export default function DataManagementClientPage({
                     onToggleRow={handleToggleRow}
                     onUpdateCycle={handleUpdateCycleLocal}
                     onUpdateDate={handleUpdateDateLocal}
+                    onUpdatePrepDate={handleUpdatePrepDateLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
@@ -719,12 +790,13 @@ export default function DataManagementClientPage({
             )} />
             <div className="grid grid-cols-2 gap-4">
               <FormField control={manualForm.control} name="qta" render={({ field }) => (<FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-              <FormField control={manualForm.control} name="dataConsegnaFinale" render={({ field }) => (<FormItem><FormLabel>Data Consegna</FormLabel><FormControl><Input type="date" {...field} /></FormControl></FormItem>)} />
+              <FormField control={manualForm.control} name="dataFinePreparazione" render={({ field }) => (<FormItem><FormLabel>Fine Prep. (Magazzino)</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
+              <FormField control={manualForm.control} name="dataConsegnaFinale" render={({ field }) => (<FormItem><FormLabel>Consegna Finale (Cliente)</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>)} />
               <FormField control={manualForm.control} name="department" render={({ field }) => (<FormItem><FormLabel>Reparto</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{departments.map(d => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent></Select></FormItem>)} />
-              <FormField control={manualForm.control} name="workCycleId" render={({ field }) => (<FormItem><FormLabel>Ciclo</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></FormItem>)} />
             </div>
+            <FormField control={manualForm.control} name="workCycleId" render={({ field }) => (<FormItem><FormLabel>Ciclo</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></FormItem>)} />
             <DialogFooter><Button type="submit">Salva</Button></DialogFooter>
           </form></Form>
         </DialogContent>

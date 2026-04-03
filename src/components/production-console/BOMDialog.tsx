@@ -8,13 +8,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { JobOrder, JobBillOfMaterialsItem, RawMaterial, MaterialConsumption } from '@/types';
-import { ClipboardList, Check, Hourglass, Loader2 } from 'lucide-react';
+import { ClipboardList, Check, Hourglass, Loader2, RefreshCcw } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { formatDisplayStock, cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { getRawMaterialsByCodes } from '@/app/admin/production-console/actions';
+import { forceResetStuckMaterialSession } from '@/app/scan-job/actions';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { useMasterData } from '@/contexts/MasterDataProvider';
+import { useToast } from '@/hooks/use-toast';
 
 interface BOMDialogProps {
   isOpen: boolean;
@@ -25,7 +27,9 @@ interface BOMDialogProps {
 export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps) {
   const [materials, setMaterials] = useState<RawMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResetting, setIsResetting] = useState<string | null>(null);
   const { globalSettings } = useMasterData();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (isOpen && job) {
@@ -108,6 +112,17 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
 
   if (!job) return null;
 
+  const handleResetSession = async (materialCode: string) => {
+    setIsResetting(materialCode);
+    const result = await forceResetStuckMaterialSession(job.id, materialCode);
+    if (result.success) {
+      toast({ title: "Sessione Resettata", description: `Il prelievo per ${materialCode} è stato sbloccato.` });
+    } else {
+      toast({ variant: "destructive", title: "Errore", description: result.message });
+    }
+    setIsResetting(null);
+  };
+
   const isAggregatedView = job.id.startsWith('group-');
 
   return (
@@ -183,7 +198,27 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
                       <TableCell className="font-medium">
                         {item.component}
                         {!item.isFromTemplate && <Badge variant="outline" className="ml-2">Manuale</Badge>}
-                        {withdrawData.hasActiveSession && <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700">In prelievo...</Badge>}
+                        {withdrawData.hasActiveSession && (
+                          <div className="inline-flex items-center gap-1 ml-2">
+                             <Badge variant="secondary" className="bg-blue-100 text-blue-700">In prelievo...</Badge>
+                             <TooltipProvider>
+                               <Tooltip>
+                                 <TooltipTrigger asChild>
+                                   <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-6 w-6 text-blue-600 hover:text-blue-800 hover:bg-blue-100"
+                                    onClick={() => handleResetSession(item.component)}
+                                    disabled={isResetting === item.component}
+                                   >
+                                      {isResetting === item.component ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
+                                   </Button>
+                                 </TooltipTrigger>
+                                 <TooltipContent>Sblocca sessione appesa</TooltipContent>
+                               </Tooltip>
+                             </TooltipProvider>
+                          </div>
+                        )}
                       </TableCell>
                       {!isAggregatedView && <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>}
                       <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit)}</TableCell>

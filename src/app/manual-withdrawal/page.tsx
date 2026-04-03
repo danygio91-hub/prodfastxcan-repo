@@ -156,7 +156,9 @@ export default function ManualWithdrawalPage() {
       const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
       const barcodes = await barcodeDetector.detect(jobVideoRef.current);
       if (barcodes.length > 0) {
-        const code = barcodes[0].rawValue.trim();
+        const rawCode = barcodes[0].rawValue.trim();
+        const code = rawCode.includes('@') ? rawCode.split('@')[0].trim() : rawCode;
+        
         if (code) {
             const currentJobs = form.getValues('jobOrderPFs') || [];
             if (!currentJobs.includes(code)) {
@@ -702,7 +704,9 @@ export default function ManualWithdrawalPage() {
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter') {
                                                             e.preventDefault();
-                                                            const val = e.currentTarget.value.trim();
+                                                            const rawVal = e.currentTarget.value.trim();
+                                                            const val = rawVal.includes('@') ? rawVal.split('@')[0].trim() : rawVal;
+                                                            
                                                             if (val && !field.value.includes(val)) {
                                                                 field.onChange([...field.value, val]);
                                                                 e.currentTarget.value = '';

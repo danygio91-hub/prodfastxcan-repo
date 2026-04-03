@@ -3,7 +3,7 @@ import type { ProductionTimeData } from '@/app/admin/production-console/actions'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, ChevronDown, Loader2 } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, ChevronDown, Loader2, Clock } from 'lucide-react';
 import { format, parseISO, isPast, differenceInSeconds } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -133,11 +133,13 @@ interface JobOrderCardProps {
     onOpenMaterialManager: (item: JobOrder) => void;
     onRevertCompletionClick: (jobId: string) => void;
     onUpdateDeliveryDate: (itemId: string, newDate: string) => void | Promise<void>;
+    onUpdatePrepDate: (itemId: string, newDate: string) => void | Promise<void>;
     isSelected: boolean;
     onSelect: (jobId: string) => void;
     overallStatus: OverallStatus;
     onNavigateToAnalysis: (articleCode: string) => void;
     onCopyArticleCode: (articleCode: string) => void;
+    forceAllowActions?: boolean;
 }
 
 export default function JobOrderCard({
@@ -159,11 +161,13 @@ export default function JobOrderCard({
     onOpenMaterialManager,
     onRevertCompletionClick,
     onUpdateDeliveryDate,
+    onUpdatePrepDate,
     isSelected,
     onSelect,
     overallStatus,
     onNavigateToAnalysis,
     onCopyArticleCode,
+    forceAllowActions = false,
 }: JobOrderCardProps) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isPauseReasonDialogOpen, setIsPauseReasonDialogOpen] = useState(false);
@@ -272,6 +276,12 @@ export default function JobOrderCard({
     
   const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
   
+  const prepDateString = jobOrder.dataFinePreparazione;
+  const prepDate = prepDateString && /^\d{4}-\d{2}-\d{2}$/.test(prepDateString)
+    ? parseISO(prepDateString)
+    : null;
+  const isPrepOverdue = prepDate && isPast(new Date(prepDate.toDateString())) && overallStatus !== 'Completata';
+
   const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
   const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
@@ -312,7 +322,7 @@ export default function JobOrderCard({
             <CardHeader className="pb-4 space-y-2">
                 <div className="flex justify-between items-center gap-4">
                     <div className="flex items-center gap-3">
-                        {!isPartOfGroup && (
+                        {(!isPartOfGroup || forceAllowActions) && (
                           <Checkbox
                               checked={isSelected}
                               onCheckedChange={() => onSelect(jobOrder.id)}
@@ -381,7 +391,7 @@ export default function JobOrderCard({
                                 </>
                             )}
                         </TooltipProvider>
-                        {!isPartOfGroup && (
+                        {(!isPartOfGroup || forceAllowActions) && (
                           <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={e => e.stopPropagation()}>
@@ -529,32 +539,68 @@ export default function JobOrderCard({
                            </ContextMenuContent>
                          </ContextMenu>
                          
-                         <Popover>
-                             <PopoverTrigger asChild>
-                                 <button 
-                                     className={cn(
-                                         "flex items-center gap-2 font-medium hover:text-primary transition-colors", 
-                                         isOverdue ? "text-destructive" : "text-muted-foreground"
-                                     )}
-                                     onClick={(e) => e.stopPropagation()}
-                                 >
-                                     <Calendar className="h-4 w-4" />
-                                     <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
-                                 </button>
-                             </PopoverTrigger>
-                             <PopoverContent className="w-auto p-0" align="start">
-                                 <CalendarPicker
-                                     mode="single"
-                                     selected={deliveryDate || undefined}
-                                     onSelect={(date) => {
-                                         if (date) {
-                                             onUpdateDeliveryDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
-                                         }
-                                     }}
-                                     initialFocus
-                                 />
-                             </PopoverContent>
-                         </Popover>
+                         <div className="space-y-2 pt-1">
+                            {/* FINE PREP */}
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <button 
+                                        className="flex items-center gap-2 w-full group text-left"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <Calendar className={cn("h-3.5 w-3.5", isPrepOverdue ? "text-destructive" : "text-muted-foreground")} />
+                                        <Badge 
+                                          variant="outline" 
+                                          className={cn(
+                                            "bg-amber-500/10 text-amber-700 border-amber-500/20 hover:bg-amber-500/20 transition-colors px-2 py-0.5 text-[10px] uppercase font-bold",
+                                            isPrepOverdue && "bg-destructive/10 text-destructive border-destructive/20"
+                                          )}
+                                        >
+                                            Fine Prep: {prepDate ? format(prepDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}
+                                        </Badge>
+                                    </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <CalendarPicker
+                                        mode="single"
+                                        selected={prepDate || undefined}
+                                        onSelect={(date) => {
+                                            if (date) {
+                                                onUpdatePrepDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
+                                            }
+                                        }}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
+
+                            {/* CONSEGNA FINALE */}
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <button 
+                                        className={cn(
+                                            "flex items-center gap-2 text-xs font-medium hover:text-primary transition-colors pl-0.5", 
+                                            isOverdue ? "text-destructive" : "text-muted-foreground"
+                                        )}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <Clock className="h-3.5 w-3.5" />
+                                        <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
+                                    </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <CalendarPicker
+                                        mode="single"
+                                        selected={deliveryDate || undefined}
+                                        onSelect={(date) => {
+                                            if (date) {
+                                                onUpdateDeliveryDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
+                                            }
+                                        }}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                          </div>
                      </div>
                      <div className="text-right flex-shrink-0">
                          <div className="flex items-center gap-1 justify-end">

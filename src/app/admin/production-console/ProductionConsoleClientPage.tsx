@@ -88,6 +88,7 @@ import {
   reportMaterialMissing, 
   resolveMaterialMissing, 
   updateJobDeliveryDate,
+  updateJobPrepDate,
   getAnalysisForArticle,
   getArticlesByCodes,
   getRawMaterialsByCodes,
@@ -384,6 +385,7 @@ export default function ProductionConsoleClientPage() {
   const handleForcePause = async (jobId: string, ops: string[], reason?: string, notes?: string) => { if (!user) return; await forcePauseOperators(jobId, ops, user.uid, reason, notes); };
   const onResetJobOrderClick = async (jobId: string) => { if (!user) return; await resetSingleCompletedJobOrder(jobId, user.uid); };
   const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => { if (!user) return; await updateJobDeliveryDate(itemId, newDate, user.uid); };
+  const handleUpdatePrepDate = async (itemId: string, newDate: string) => { if (!user) return; await updateJobPrepDate(itemId, newDate, user.uid); };
   const handleDissolveGroup = async (groupId: string) => { await dissolveWorkGroup(groupId); };
 
   const handleOpenPhaseManager = (item: JobOrder | WorkGroup) => {
@@ -493,6 +495,7 @@ export default function ProductionConsoleClientPage() {
                 onOpenMaterialManager={() => setMaterialManagedItem(item as WorkGroup)} 
                 onToggleGuainaClick={handleToggleGuaina} 
                 onUpdateDeliveryDate={handleUpdateDeliveryDate} 
+                onUpdatePrepDate={handleUpdatePrepDate}
                 isSelected={selectedIds.includes(item.id)} 
                 onSelect={handleSelectItem} 
                 overallStatus={getOverallStatus(item as WorkGroup)} 
@@ -522,11 +525,13 @@ export default function ProductionConsoleClientPage() {
             onOpenPhaseManager={handleOpenPhaseManager} 
             onOpenMaterialManager={() => setMaterialManagedItem(item as JobOrder)} 
             onUpdateDeliveryDate={handleUpdateDeliveryDate} 
+            onUpdatePrepDate={handleUpdatePrepDate}
             isSelected={selectedIds.includes(item.id)} 
             onSelect={handleSelectItem} 
             overallStatus={getOverallStatus(item as JobOrder)} 
             onNavigateToAnalysis={handleNavigateToAnalysis} 
             onCopyArticleCode={handleCopy}
+            forceAllowActions={true}
         />
       );
   };

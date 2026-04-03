@@ -509,6 +509,51 @@ export async function markPhaseMaterialReady(jobId: string, phaseId: string, mat
     }
 }
 
+export async function forceResetStuckMaterialSession(jobId: string, materialCode: string) {
+    const isGroup = jobId.startsWith('group-');
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const snap = await transaction.get(itemRef);
+            if (!snap.exists) throw new Error('Elemento non trovato.');
+            const data = snap.data() as any;
+            
+            const phs = [...(data.phases || [])];
+            let modified = false;
+
+            phs.forEach((p, pIdx) => {
+                const consumptions = [...(p.materialConsumptions || [])];
+                const filtered = consumptions.filter(c => 
+                    !(c.materialCode === materialCode && c.grossOpeningWeight !== undefined && c.closingWeight === undefined)
+                );
+                
+                if (filtered.length !== consumptions.length) {
+                    phs[pIdx].materialConsumptions = filtered;
+                    modified = true;
+                }
+            });
+            
+            if (modified) {
+                transaction.update(itemRef, { phases: phs });
+                
+                if (isGroup && data.jobOrderIds) {
+                    data.jobOrderIds.forEach((childId: string) => {
+                        const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                        transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), { phases: phs });
+                    });
+                }
+            }
+        });
+        
+        revalidatePath('/admin/production-console');
+        return { success: true };
+    } catch (error) {
+        console.error("Error in forceResetStuckMaterialSession:", error);
+        return { success: false, message: 'Errore durante il reset del prelievo.' };
+    }
+}
+
 
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
     await adminDb.collection('operators').doc(opId).update({ activeMaterialSessions: sessions });

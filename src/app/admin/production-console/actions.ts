@@ -665,6 +665,29 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
 
   } catch (error) { return { success: false, message: "Errore." }; }
 }
+
+export async function updateJobPrepDate(itemId: string, newDate: string, uid: string): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+    const isGroup = itemId.startsWith('group-');
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
+    await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
+        const snap = await t.get(itemRef);
+        if (!snap.exists) throw new Error("Non trovato.");
+        t.update(itemRef, { dataFinePreparazione: newDate });
+        if (isGroup) {
+            const data = snap.data() as WorkGroup;
+            (data.jobOrderIds || []).forEach(id => { 
+                t.update(adminDb.collection('jobOrders').doc(id), { dataFinePreparazione: newDate }); 
+            });
+        }
+    });
+    revalidatePath('/admin/production-console');
+    await pulseOperatorsForJob(itemId);
+    return { success: true, message: "Data preparazione aggiornata." };
+
+  } catch (error) { return { success: false, message: "Errore." }; }
+}
 export async function bulkUpdateJobOrders(jobs: JobOrder[], uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
