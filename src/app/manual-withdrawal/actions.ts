@@ -74,18 +74,19 @@ export async function logManualWithdrawal(
             withdrawals
         );
 
+        const updates: any = {};
         if (isFinished && usedLotto) {
             const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
             if (bIdx !== -1) {
                 updatedBatches[bIdx].isExhausted = true;
-                // SACRED QUANTITY: no zeroing
+                // SACRED QUANTITY: the load remains unchanged in the array
+                updates.batches = updatedBatches; 
             }
         }
         
-        transaction.update(materialRef, { 
-            batches: updatedBatches
-            // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
-        });
+        if (Object.keys(updates).length > 0) {
+            transaction.update(materialRef, updates);
+        }
 
         await recalculateMaterialStock(materialId, transaction, { material, batches: updatedBatches, withdrawals });
         

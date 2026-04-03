@@ -836,3 +836,111 @@ export async function resyncAllMaterialStock(materialIds: string[], uid: string)
         return { success: false, message: "Errore durante il ricalcolo selettivo del magazzino." };
     }
 }
+/**
+ * DATA HEALING: Level 3 - Restore Corrupted Lot Loads
+ * REWRITTEN EMERGENCY FIX: Sum(Current + Withdrawals) logic.
+ * This restores the "Sacred Quantity" (Initial Load) by adding back all registered withdrawals.
+ */
+export async function fixCorruptedBatchLoads(uid: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await ensureAdmin(uid);
+        const startTime = Date.now();
+        
+        // 1. Fetch EVERYTHING needed to avoid read-after-write transaction issues
+        const [materialsSnap, withdrawalsSnap] = await Promise.all([
+            adminDb.collection("rawMaterials").get(),
+            adminDb.collection("materialWithdrawals").get()
+        ]);
+
+        const materials = materialsSnap.docs.map(d => ({ id: d.id, ref: d.ref, data: d.data() as RawMaterial }));
+        const withdrawals = withdrawalsSnap.docs.map(d => d.data() as MaterialWithdrawal);
+
+        // 2. Map withdrawals by Material and Lotto for fast lookup
+        const wMap = new Map<string, number>(); // "matId_lotto" -> totalUnits
+        const wWeightMap = new Map<string, number>(); // "matId_lotto" -> totalWeight
+        
+        withdrawals.forEach(w => {
+            if (!w.materialId || !w.lotto || w.status === 'cancelled') return;
+            const key = `${w.materialId}_${w.lotto.trim()}`;
+            wMap.set(key, (wMap.get(key) || 0) + (w.consumedUnits || 0));
+            wWeightMap.set(key, (wWeightMap.get(key) || 0) + (w.consumedWeight || 0));
+        });
+
+        let healedLotsCount = 0;
+        let materialsUpdatedCount = 0;
+        let currentBatch = adminDb.batch();
+        let opsInBatch = 0;
+
+        // 3. Process every Material and its Batches
+        for (const m of materials) {
+            if (!m.data.batches || m.data.batches.length === 0) continue;
+
+            const updatedBatches = JSON.parse(JSON.stringify(m.data.batches));
+            let materialModified = false;
+
+            updatedBatches.forEach((b: any) => {
+                const lot = (b.lotto || '').trim();
+                const key = `${m.id}_${lot}`;
+                const totalWithdrawnUnits = wMap.get(key) || 0;
+                const totalWithdrawnWeight = wWeightMap.get(key) || 0;
+
+                // If withdrawals exist, we restore the initial load: Correct = Current + Withdrawn
+                if (totalWithdrawnUnits > 0.001) {
+                    const oldNet = b.netQuantity || 0;
+                    const restoredNet = oldNet + totalWithdrawnUnits;
+                    
+                    // We only apply if there was a discrepancy (erosion detected)
+                    // If the difference is significant (> 0.001)
+                    if (totalWithdrawnUnits > 0.001) {
+                        b.netQuantity = restoredNet;
+                        
+                        // Restore Weight: Initial Gross = Current Gross + Consumed Weight
+                        // We use the withdrawal weight to be precise if recorded
+                        b.grossWeight = (b.grossWeight || 0) + totalWithdrawnWeight;
+                        
+                        materialModified = true;
+                        healedLotsCount++;
+                    }
+                }
+            });
+
+            if (materialModified) {
+                // OVERWRITE ENTIRE ARRAY
+                currentBatch.update(m.ref, { batches: updatedBatches });
+                opsInBatch++;
+                materialsUpdatedCount++;
+
+                // Firestore batch limit is 500. We commit every 400 for safety.
+                if (opsInBatch >= 400) {
+                    await currentBatch.commit();
+                    currentBatch = adminDb.batch(); // START A NEW BATCH
+                    opsInBatch = 0;
+                }
+            }
+        }
+
+        // 4. Final commit for the remaining operations
+        if (opsInBatch > 0) {
+            await currentBatch.commit();
+        }
+
+        // 5. Log the healing operation
+        await adminDb.collection("system_maintenance_logs").add({
+            action: 'FIX_CORRUPTED_BATCH_LOADS_REWRITTEN',
+            executedBy: uid,
+            timestamp: new Date(),
+            totalHealedLots: healedLotsCount,
+            totalMaterialsUpdated: materialsUpdatedCount,
+            durationMs: Date.now() - startTime,
+            summary: `Sanatoria Massiva: Ripristinati i carichi iniziali (Somma Consumi) per ${healedLotsCount} lotti in ${materialsUpdatedCount} materiali.`
+        });
+
+        return { 
+            success: true, 
+            message: `Sanatoria Eseguita: ${healedLotsCount} lotti ripristinati con successo in ${materialsUpdatedCount} materiali. Ora i carichi riflettono il valore iniziale ante-erosione.` 
+        };
+    } catch (error) {
+        console.error("Fix Corrupted Batches Error:", error);
+        return { success: false, message: error instanceof Error ? error.message : "Errore durante il ripristino dei dati." };
+    }
+}

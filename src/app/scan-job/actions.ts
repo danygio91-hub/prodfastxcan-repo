@@ -562,19 +562,18 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 withdrawals
             );
 
-            // Se l'operatore ha premuto "Materiale Finito", marchiamo il lotto come esaurito
+            const updates: any = {};
             if (isFinished && usedLotto) {
                 const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
                 if (bIdx !== -1) {
                     updatedBatches[bIdx].isExhausted = true;
-                    // SACRED QUANTITY: we NO LONGER zero out netQuantity/grossWeight
+                    updates.batches = updatedBatches; 
                 }
             }
-
-            transaction.update(materialRef, {
-                batches: updatedBatches
-                // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
-            });
+            
+            if (Object.keys(updates).length > 0) {
+                transaction.update(materialRef, updates);
+            }
 
             await recalculateMaterialStock(session.materialId, transaction, { material, batches: updatedBatches, withdrawals });
 
@@ -642,19 +641,18 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 withdrawals
             );
 
-            // Marcatura esaurito se richiesto
+            const updates: any = {};
             if (isFinished && usedLotto) {
                 const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
                 if (bIdx !== -1) {
                     updatedBatches[bIdx].isExhausted = true;
-                    // SACRED QUANTITY: no zeroing
+                    updates.batches = updatedBatches;
                 }
             }
 
-            t.update(mRef, { 
-                batches: updatedBatches
-                // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
-            });
+            if (Object.keys(updates).length > 0) {
+                t.update(mRef, updates);
+            }
 
             await recalculateMaterialStock(materialId as string, t, { material, batches: updatedBatches, withdrawals });
 

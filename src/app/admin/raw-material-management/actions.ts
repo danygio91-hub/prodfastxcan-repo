@@ -575,16 +575,9 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
                 const m = mSnap.data() as RawMaterial;
                 const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
                 
-                const batches = [...(m.batches || [])];
-                const bIdx = batches.findIndex(b => b.lotto === w.lotto);
-                if (bIdx !== -1) {
-                    batches[bIdx].netQuantity = (batches[bIdx].netQuantity || 0) + (w.consumedUnits || 0);
-                    batches[bIdx].grossWeight = (batches[bIdx].grossWeight || 0) + (w.consumedWeight || 0);
-                    // Keep it marked as for the logic but it might be partially available now
-                    if (batches[bIdx].netQuantity > 0.001) batches[bIdx].isExhausted = false;
-                }
-                t.update(mRef, { batches });
-                await recalculateMaterialStock(w.materialId, t, { material: m, batches, withdrawals });
+                // MODIFIED: No batch mutation needed. 
+                // Deleting the withdrawal record automatically "restores" availability in Live Aggregation.
+                await recalculateMaterialStock(w.materialId, t, { material: m, batches: m.batches || [], withdrawals });
             }
             t.delete(ref);
         });

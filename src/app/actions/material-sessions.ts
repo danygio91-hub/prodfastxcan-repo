@@ -151,16 +151,18 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 withdrawals
             );
 
+            const updates: any = {};
             if (isFinished && usedLotto) {
                 const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
                 if (bIdx !== -1) {
                     updatedBatches[bIdx].isExhausted = true;
+                    updates.batches = updatedBatches; 
                 }
             }
 
-            transaction.update(materialRef, {
-                batches: updatedBatches
-            });
+            if (Object.keys(updates).length > 0) {
+                transaction.update(materialRef, updates);
+            }
 
             await recalculateMaterialStock(session.materialId, transaction, { material, batches: updatedBatches, withdrawals });
 

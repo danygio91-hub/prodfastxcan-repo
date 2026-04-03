@@ -16,7 +16,8 @@ import {
     GroupBlocker,
     previewStockSync,
     resyncAllMaterialStock,
-    StockSyncAnomaly
+    StockSyncAnomaly,
+    fixCorruptedBatchLoads
 } from './actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
@@ -98,6 +99,11 @@ export default function AdministrationDataHealingPage() {
     const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
     const [isResyncModalOpen, setIsResyncModalOpen] = useState(false);
     const [resyncConfirmText, setResyncConfirmText] = useState("");
+    
+    // Read-Only Erosion Fix State
+    const [erosionExecuting, setErosionExecuting] = useState(false);
+    const [isErosionModalOpen, setIsErosionModalOpen] = useState(false);
+    const [erosionConfirmText, setErosionConfirmText] = useState("");
 
     // --- INVENTORY LOGIC ---
     async function handleAudit() {
@@ -286,6 +292,25 @@ export default function AdministrationDataHealingPage() {
         } finally {
             setBrokenExecuting(false);
             setBrokenConfirmText("");
+        }
+    }
+    async function handleExecuteErosionHealing() {
+        if (!operator?.id) return;
+        setErosionExecuting(true);
+        setIsErosionModalOpen(false);
+        try {
+            const res = await fixCorruptedBatchLoads(operator.id);
+            if (res.success) {
+                toast({ title: "Sanatoria Erosione Completata", description: res.message });
+                // We might want to refresh something here, maybe the broken lots audit if open
+            } else {
+                toast({ title: "Errore Sanatoria", description: res.message, variant: "destructive" });
+            }
+        } catch (e) {
+            toast({ title: "Errore di Sistema", description: "Impossibile completare la sanatoria erosione.", variant: "destructive" });
+        } finally {
+            setErosionExecuting(false);
+            setErosionConfirmText("");
         }
     }
 
@@ -778,6 +803,72 @@ export default function AdministrationDataHealingPage() {
                                     <DialogFooter>
                                         <Button variant="ghost" onClick={() => setIsBrokenModalOpen(false)}>Annulla</Button>
                                         <Button className="bg-orange-600 hover:bg-orange-700 text-white" disabled={brokenConfirmText !== "RIPRISTINA"} onClick={handleExecuteBrokenHealing}>ESEGUI RIPRISTINO</Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+
+                            {/* Section for Level 3 Healing: Erosion Fix */}
+                            <Card className="border-t-4 border-t-purple-600 shadow-md mt-12">
+                                <CardHeader>
+                                    <CardTitle className="text-purple-700 flex items-center gap-2">
+                                        <History className="h-5 w-5" /> Sanatoria Massiva Erosione Carichi (Violazione Read-Only)
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Questo strumento identifica AUTOMATICAMENTE tutti i lotti in cui il <span className="font-bold underline italic text-orange-700">netQuantity</span> è stato eroso dai prelievi (es. il caso 242 invece di 5000) 
+                                        e lo ripristina al valore originale presente nel record di carico magazzino.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <Alert variant="default" className="bg-purple-50 border-purple-200">
+                                        <ShieldCheck className="h-4 w-4 text-purple-600" />
+                                        <AlertTitle className="text-purple-800">Sicurezza Garantita</AlertTitle>
+                                        <AlertDescription className="text-purple-700 text-xs">
+                                            L'algoritmo non raddoppia i valori: se un lotto è già correttamente in Read-Only (es. 5000), verrà ignorato. 
+                                            Verranno curati solo i lotti dove <span className="font-mono">Carico Originale - netQuantity {">"} 0</span>.
+                                        </AlertDescription>
+                                    </Alert>
+                                    
+                                    <div className="pt-4">
+                                        <Button 
+                                            className="bg-purple-600 hover:bg-purple-700 text-white w-full py-6 text-lg font-bold shadow-lg"
+                                            onClick={() => setIsErosionModalOpen(true)}
+                                            disabled={erosionExecuting}
+                                        >
+                                            {erosionExecuting ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <Zap className="mr-2 h-6 w-6 text-yellow-300" />}
+                                            AVVIA SANATORIA MASSIVA EROSIONE
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Dialog open={isErosionModalOpen} onOpenChange={setIsErosionModalOpen}>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle className="text-purple-600 flex items-center">
+                                            <TriangleAlert className="mr-2 h-6 w-6" /> Sanatoria Massiva Erosione
+                                        </DialogTitle>
+                                        <DialogDescription className="py-4 font-medium text-slate-700">
+                                            Attenzione: Questo script scansionerà l'intera anagrafica materiali e ripristinerà TUTTI i carichi lotti.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-2 border-t pt-4">
+                                        <p className="text-sm">Scrivere <span className="font-bold text-purple-600">SANATORIA SACRA</span> per confermare l'esecuzione:</p>
+                                        <Input 
+                                            value={erosionConfirmText} 
+                                            onChange={e => setErosionConfirmText(e.target.value)} 
+                                            placeholder="SANATORIA SACRA" 
+                                            className="uppercase font-extrabold border-purple-300 h-12 text-center text-lg" 
+                                        />
+                                    </div>
+                                    <DialogFooter className="mt-4">
+                                        <Button variant="ghost" onClick={() => setIsErosionModalOpen(false)}>Annulla</Button>
+                                        <Button 
+                                            className="bg-purple-600 hover:bg-purple-700 text-white font-bold" 
+                                            disabled={erosionConfirmText !== "SANATORIA SACRA"} 
+                                            onClick={handleExecuteErosionHealing}
+                                        >
+                                            ESEGUI ORA
+                                        </Button>
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>

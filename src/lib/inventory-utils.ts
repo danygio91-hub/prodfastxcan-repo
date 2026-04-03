@@ -96,20 +96,16 @@ export function calculateInventoryMovement(
           throw new Error(`Giacenza insufficiente su lotto "${specificLotto}": disponibili ${availableUnits.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
 
-      // DEDUCT FROM BATCH
-      batches[idx].netQuantity = Math.max(0, initialBatchQty - unitsToChange);
-      // Deduct from Weight (keeping Tare consistent)
-      batches[idx].grossWeight = Math.max(batches[idx].tareWeight || 0, (batches[idx].grossWeight || 0) - weightToChange);
-      
+      // NO LONGER DEDUCT FROM BATCH FOR WITHDRAWALS
+      // We only track the used lot and let Live Aggregation calculate the balance
       usedLotto = specificLotto;
     } else {
-      // FIFO Withdrawal with Batch Mutation
+      // FIFO Withdrawal: Validation only (No mutation)
       const validBatches = batches
         .map((b, originalIndex) => ({ b, index: originalIndex }))
         .filter(item => !item.b.isExhausted && (item.b.netQuantity || 0) > 0.001);
 
       // REAL-TIME AVAILABILITY: Sum(Active Batches) - Sum(Withdrawals of those batches)
-      // Actually, for FIFO, we can just check the sum of availableUnits per batch
       let totalAvail = 0;
       validBatches.forEach(item => {
           const wUnits = withdrawals
@@ -122,27 +118,10 @@ export function calculateInventoryMovement(
           throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
 
-      let remainingToDeduct = unitsToChange;
-      let remainingWeightToDeduct = weightToChange;
-      
+      // We still find the first lot used for recording purposes in FIFO
       const sortedItems = validBatches.sort((a, b) => new Date(a.b.date).getTime() - new Date(b.b.date).getTime());
-      
-      for (const item of sortedItems) {
-        if (remainingToDeduct <= 0.0001) break;
-        if (!usedLotto) usedLotto = item.b.lotto as string;
-        
-        const b = batches[item.index];
-        const canTake = b.netQuantity || 0;
-        const toTake = Math.min(canTake, remainingToDeduct);
-        
-        // Linear deduction for weight if taking partial batch
-        const weightToTake = (toTake / canTake) * ((b.grossWeight || 0) - (b.tareWeight || 0));
-        
-        b.netQuantity = Math.max(0, canTake - toTake);
-        b.grossWeight = Math.max(b.tareWeight || 0, (b.grossWeight || 0) - weightToTake);
-        
-        remainingToDeduct -= toTake;
-        remainingWeightToDeduct -= weightToTake;
+      if (sortedItems.length > 0) {
+          usedLotto = sortedItems[0].b.lotto as string;
       }
     }
   }
