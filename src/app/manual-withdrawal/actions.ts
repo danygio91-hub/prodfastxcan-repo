@@ -48,8 +48,12 @@ export async function logManualWithdrawal(
         if (isFinished && lotto) {
             const batch = (material.batches || []).find(b => b.lotto === lotto);
             if (batch) {
-                // MODIFIED: In Lot-Centric model, the balance is already on the batch
-                qtyToUse = Math.max(0, batch.netQuantity || 0);
+                // In a Lot-Centric model with Live Aggregation, we must deduct already registered withdrawals
+                const withdrawn = withdrawals
+                    .filter(w => w.lotto === lotto && w.status !== 'cancelled')
+                    .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
+                
+                qtyToUse = Math.max(0, (batch.netQuantity || 0) - withdrawn);
             }
         }
 

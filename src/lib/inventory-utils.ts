@@ -77,21 +77,27 @@ export function calculateInventoryMovement(
     }
   } else {
     // SUBTRACTION (Withdrawal/Scarico) - MODIFIED: DIRECT DEDUCTION FROM BATCHES
-    // The source of truth is now SUM(Batches), so we MUST update the batches themselves.
+    // We use LIVE AGGREGATION for validation during the transaction
     if (specificLotto) {
       const idx = batches.findIndex(b => b.lotto === specificLotto);
       if (idx === -1) throw new Error(`Lotto "${specificLotto}" non trovato.`);
       
-      const initial = batches[idx].netQuantity || 0;
-      const initialWeight = (batches[idx].grossWeight || 0) - (batches[idx].tareWeight || 0);
+      const lotto = batches[idx].lotto as string;
+      const initialBatchQty = batches[idx].netQuantity || 0;
+      
+      // REAL-TIME AVAILABILITY: Batch Net - Historical Withdrawals
+      const withdrawnUnits = withdrawals
+        .filter(w => (w.lotto === lotto || w.lotto === specificLotto) && w.status !== 'cancelled')
+        .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
+      
+      const availableUnits = Math.max(0, initialBatchQty - withdrawnUnits);
 
-      // Check availability (Live Aggregation check not needed here if we rely on SUM(Batches), but we keep simple safety)
-      if (initial < unitsToChange - 0.001) {
-          throw new Error(`Giacenza insufficiente su lotto "${specificLotto}": disponibili ${initial.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
+      if (availableUnits < unitsToChange - 0.001) {
+          throw new Error(`Giacenza insufficiente su lotto "${specificLotto}": disponibili ${availableUnits.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
 
       // DEDUCT FROM BATCH
-      batches[idx].netQuantity = Math.max(0, initial - unitsToChange);
+      batches[idx].netQuantity = Math.max(0, initialBatchQty - unitsToChange);
       // Deduct from Weight (keeping Tare consistent)
       batches[idx].grossWeight = Math.max(batches[idx].tareWeight || 0, (batches[idx].grossWeight || 0) - weightToChange);
       
@@ -102,7 +108,16 @@ export function calculateInventoryMovement(
         .map((b, originalIndex) => ({ b, index: originalIndex }))
         .filter(item => !item.b.isExhausted && (item.b.netQuantity || 0) > 0.001);
 
-      const totalAvail = validBatches.reduce((sum, item) => sum + (item.b.netQuantity || 0), 0);
+      // REAL-TIME AVAILABILITY: Sum(Active Batches) - Sum(Withdrawals of those batches)
+      // Actually, for FIFO, we can just check the sum of availableUnits per batch
+      let totalAvail = 0;
+      validBatches.forEach(item => {
+          const wUnits = withdrawals
+            .filter(w => w.lotto === item.b.lotto && w.status !== 'cancelled')
+            .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
+          totalAvail += Math.max(0, (item.b.netQuantity || 0) - wUnits);
+      });
+
       if (totalAvail < unitsToChange - 0.001) {
           throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
       }

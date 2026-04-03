@@ -238,12 +238,36 @@ export default function ManualWithdrawalPage() {
       return;
     }
 
+    let finalQty = values.quantity || 0;
+    let finalUnit = scannedMaterial.unitOfMeasure;
+
+    if (isKgMode && lotAvailability) {
+      // In SCALE mode, effectiveNet is what is LEFT on the scale.
+      // The withdrawal is the DIFFERENCE.
+      const currentAvail = lotAvailability.available;
+      const remaining = effectiveNet;
+      const consumed = Math.max(0, currentAvail - remaining);
+      
+      finalQty = consumed;
+      finalUnit = scannedMaterial.unitOfMeasure; // USE BASE UOM (n, mt), NOT kg
+      
+      if (consumed <= 0.001 && !isFinished) {
+          toast({ 
+              variant: 'destructive', 
+              title: "Nessun prelievo rilevato", 
+              description: "Il peso sulla bilancia indica che non è stato prelevato materiale (o il peso è superiore alla giacenza)." 
+          });
+          setIsSubmitting(false);
+          return;
+      }
+    }
+
     const result = await logManualWithdrawal({
       ...values,
-      quantity: isKgMode ? effectiveNet : (values.quantity || 0),
+      quantity: finalQty,
       operatorId: operator.id,
       operatorName: operator.nome,
-      unit: isKgMode ? 'kg' : scannedMaterial.unitOfMeasure,
+      unit: finalUnit as any,
       isFinished: isFinished
     });
 

@@ -530,11 +530,15 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
 
             let consumedWeight = 0;
             if (isFinished && session.lotto) {
-                // MODIFIED: In Lot-Centric model, the balance is already on the batch
                 const batch = (material.batches || []).find(b => b.lotto === session.lotto);
                 if (!batch) throw new Error("Lotto non trovato durante il saldo finale.");
                 
-                consumedWeight = Math.max(0, batch.grossWeight - batch.tareWeight);
+                // Calculate remaining weight by deducting already registered withdrawals
+                const withdrawn = withdrawals
+                    .filter(w => w.lotto === session.lotto && w.status !== 'cancelled')
+                    .reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
+                
+                consumedWeight = Math.max(0, (batch.grossWeight - batch.tareWeight) - withdrawn);
             } else {
                 consumedWeight = session.grossOpeningWeight - closingGrossWeight;
                 if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");

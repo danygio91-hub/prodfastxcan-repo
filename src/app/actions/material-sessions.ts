@@ -6,6 +6,7 @@ import * as admin from 'firebase-admin';
 import { IndependentMaterialSession, RawMaterial } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
+import { recalculateMaterialStock } from '@/lib/stock-sync';
 
 export async function startIndependentSession(data: Omit<IndependentMaterialSession, 'id' | 'startedAt' | 'status'>) {
     try {
@@ -158,10 +159,10 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
             }
 
             transaction.update(materialRef, {
-                currentStockUnits: (material.currentStockUnits || 0) - unitsToChange,
-                currentWeightKg: (material.currentWeightKg || 0) - weightToChange,
                 batches: updatedBatches
             });
+
+            await recalculateMaterialStock(session.materialId, transaction, { material, batches: updatedBatches, withdrawals });
 
             // CREATE SINGLE WITHDRAWAL RECORD
             const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
