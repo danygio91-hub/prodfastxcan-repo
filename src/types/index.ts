@@ -90,6 +90,8 @@ export interface JobBillOfMaterialsItem {
   note?: string;
   status: 'pending' | 'committed' | 'withdrawn';
   isFromTemplate: boolean;
+  fabbisognoTotale?: number;
+  pesoStimato?: number;
 }
 
 export interface JobOrder {

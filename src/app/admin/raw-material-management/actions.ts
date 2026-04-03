@@ -434,9 +434,16 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
                 const code = item.component.toLowerCase().trim();
                 const mat = codeToMat.get(code);
                 if (mat) {
-                    const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-                    const req = calculateBOMRequirement(job.qta, item, mat, config as any);
-                    const qty = req.totalInBaseUnits;
+                    // SE presente il campo pre-calcolato (fabbisognoTotale), lo usiamo direttamente
+                    // Questo garantisce che il Magazzino Live rifletta esattamente la sync effettuata.
+                    let qty = item.fabbisognoTotale;
+                    
+                    if (qty === undefined || qty === null) {
+                        const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                        const req = calculateBOMRequirement(job.qta, item, mat, config as any);
+                        qty = req.totalInBaseUnits;
+                    }
+                    
                     impMap.set(code, (impMap.get(code) || 0) + qty);
                 }
             }
@@ -511,9 +518,13 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         const job = d.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
             if (item.component.toLowerCase().trim() === norm && item.status !== 'withdrawn') {
-                const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-                const req = calculateBOMRequirement(job.qta, item, mat, config as any);
-                details.push({ jobId: job.ordinePF, type: 'PRODUZIONE', quantity: req.totalInBaseUnits, deliveryDate: job.dataConsegnaFinale || 'N/D', client: job.cliente || 'N/D', articleCode: job.details });
+                let qty = item.fabbisognoTotale;
+                if (qty === undefined || qty === null) {
+                    const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                    const req = calculateBOMRequirement(job.qta, item, mat, config as any);
+                    qty = req.totalInBaseUnits;
+                }
+                details.push({ jobId: job.ordinePF, type: 'PRODUZIONE', quantity: qty, deliveryDate: job.dataConsegnaFinale || 'N/D', client: job.cliente || 'N/D', articleCode: job.details });
             }
         });
     });

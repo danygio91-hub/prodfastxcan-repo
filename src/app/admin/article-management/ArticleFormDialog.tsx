@@ -27,6 +27,8 @@ import { Separator } from '@/components/ui/separator';
 import type { Article, RawMaterial, WorkCycle } from '@/types';
 import { saveArticle, getWorkCycles } from './actions';
 import { getRawMaterials, getMaterialsByCodes } from '../raw-material-management/actions';
+import { getGlobalSettings } from '@/lib/settings-actions';
+import { GlobalSettings } from '@/lib/settings-types';
 
 const bomItemSchema = z.object({
   component: z.string().optional(),
@@ -74,10 +76,12 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
   const [isSearching, setIsSearching] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
   const [availableWorkCycles, setAvailableWorkCycles] = useState<WorkCycle[]>([]);
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
 
-  // Load initial materials and work cycles
+  // Load initial materials, work cycles and global settings
   useEffect(() => {
     getWorkCycles().then(setAvailableWorkCycles);
+    getGlobalSettings().then(setGlobalSettings);
     if (isOpen && article?.billOfMaterials) {
        const codes = article.billOfMaterials.map(i => i.component).filter(Boolean);
        if (codes.length > 0) {
@@ -225,7 +229,19 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
       ...data,
       billOfMaterials: (data.billOfMaterials || [])
         .filter(item => item.component && item.component.trim() !== '')
-        .map(item => ({ ...item, component: item.component?.toUpperCase() }))
+        .map(item => {
+           const material = materialCache[item.component?.toUpperCase() || ""];
+           const typeConfig = material && globalSettings 
+             ? globalSettings.rawMaterialTypes.find(t => t.id === material.type)
+             : null;
+           const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true;
+
+           return { 
+              ...item, 
+              component: item.component?.toUpperCase(),
+              lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? null) : null
+           };
+        })
     };
     const result = await saveArticle(filteredData);
     toast({
@@ -394,30 +410,41 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                         />
                       </div>
 
-                      <div className="col-span-6 sm:col-span-2">
-                        <FormField
-                          control={form.control}
-                          name={`billOfMaterials.${index}.lunghezzaTaglioMm`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>L. Taglio (mm)</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
-                                  ref={(el) => { field.ref(el); if (el) bomRefs.current[`${index}-lunghezzaTaglioMm`] = el; }} 
-                                  type="number" 
-                                  step="any" 
-                                  placeholder="-" 
-                                  value={field.value ?? ''} 
-                                  disabled={componentMaterial?.unitOfMeasure === 'n'} 
-                                  onKeyDown={(e) => handleKeyDown(e, index, 'lunghezzaTaglioMm')} 
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      {(() => {
+                        const typeConfig = componentMaterial && globalSettings 
+                          ? globalSettings.rawMaterialTypes.find(t => t.id === componentMaterial.type)
+                          : null;
+                        const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true; // Default true per retrocompatibilità se manca config
+
+                        if (!requiresCut) return null;
+
+                        return (
+                          <div className="col-span-6 sm:col-span-2 animate-in fade-in zoom-in duration-300">
+                            <FormField
+                              control={form.control}
+                              name={`billOfMaterials.${index}.lunghezzaTaglioMm`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>L. Taglio (mm)</FormLabel>
+                                  <FormControl>
+                                    <Input 
+                                      {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
+                                      ref={(el) => { field.ref(el); if (el) bomRefs.current[`${index}-lunghezzaTaglioMm`] = el; }} 
+                                      type="number" 
+                                      step="any" 
+                                      placeholder="-" 
+                                      value={field.value ?? ''} 
+                                      disabled={componentMaterial?.unitOfMeasure === 'n'} 
+                                      onKeyDown={(e) => handleKeyDown(e, index, 'lunghezzaTaglioMm')} 
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        );
+                      })()}
 
                       <div className="col-span-10 sm:col-span-3">
                         <FormField

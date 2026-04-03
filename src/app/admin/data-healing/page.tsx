@@ -17,7 +17,8 @@ import {
     previewStockSync,
     resyncAllMaterialStock,
     StockSyncAnomaly,
-    fixCorruptedBatchLoads
+    fixCorruptedBatchLoads,
+    syncAllJobOrderCommitments
 } from './actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
@@ -104,6 +105,12 @@ export default function AdministrationDataHealingPage() {
     const [erosionExecuting, setErosionExecuting] = useState(false);
     const [isErosionModalOpen, setIsErosionModalOpen] = useState(false);
     const [erosionConfirmText, setErosionConfirmText] = useState("");
+
+    // Job Sync State
+    const [syncExecuting, setSyncExecuting] = useState(false);
+    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+    const [syncConfirmText, setSyncConfirmText] = useState("");
+    const [syncResults, setSyncResults] = useState<{ processed: number, failed: number, errors: string[] } | null>(null);
 
     // --- INVENTORY LOGIC ---
     async function handleAudit() {
@@ -353,6 +360,36 @@ export default function AdministrationDataHealingPage() {
         }
     }
 
+    // --- JOB SYNC LOGIC ---
+    async function handleExecuteJobSync() {
+        if (!operator?.id) return;
+        setSyncExecuting(true);
+        setIsSyncModalOpen(false);
+        setSyncResults(null);
+        try {
+            const res = await syncAllJobOrderCommitments(operator.id);
+            setSyncResults({
+                processed: res.processed,
+                failed: res.failed,
+                errors: res.errors
+            });
+            if (res.success) {
+                toast({ title: "Sincronizzazione Completata", description: res.message });
+            } else {
+                toast({ 
+                    title: res.failed > 0 ? "Sincronizzazione Parziale" : "Errore Critico", 
+                    description: res.message, 
+                    variant: res.failed > 0 ? "default" : "destructive" 
+                });
+            }
+        } catch (e: any) {
+            toast({ title: "Errore di Sistema", description: "Impossibile completare la sincronizzazione.", variant: "destructive" });
+        } finally {
+            setSyncExecuting(false);
+            setSyncConfirmText("");
+        }
+    }
+
     return (
         <AdminAuthGuard>
             <AppShell>
@@ -378,6 +415,9 @@ export default function AdministrationDataHealingPage() {
                             </TabsTrigger>
                             <TabsTrigger value="groups" className="flex items-center gap-2">
                                 <Layers className="h-4 w-4 text-blue-500" /> Sblocco Gruppi
+                            </TabsTrigger>
+                            <TabsTrigger value="jobs" className="flex items-center gap-2">
+                                <Zap className="h-4 w-4 text-yellow-500" /> Sync Impegni
                             </TabsTrigger>
                         </TabsList>
 
@@ -977,6 +1017,134 @@ export default function AdministrationDataHealingPage() {
                                             onClick={handleExecuteGroupUnlock}
                                         >
                                             ESEGUI SBLOCCO FORZATO
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+                        </TabsContent>
+                        {/* --- TAB 5: JOB SYNC --- */}
+                        <TabsContent value="jobs" className="space-y-6">
+                            <Card className="border-l-4 border-l-yellow-500 shadow-lg">
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                                                <Zap className="text-yellow-500 h-6 w-6" /> Sincronizzazione Globale Impegni
+                                            </CardTitle>
+                                            <CardDescription className="text-md">
+                                                Allinea i materiali di tutte le commesse aperte alla Distinta Base attuale e ricalcola pesi/fabbisogni.
+                                            </CardDescription>
+                                        </div>
+                                        <Button 
+                                            variant="default" 
+                                            className="bg-yellow-600 hover:bg-yellow-700 h-12 px-8 text-lg font-bold" 
+                                            onClick={() => setIsSyncModalOpen(true)}
+                                            disabled={syncExecuting}
+                                        >
+                                            {syncExecuting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Zap className="mr-2 h-5 w-5" />}
+                                            Ricalcola e Sincronizza Tutto
+                                        </Button>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="space-y-6">
+                                    <Alert variant="default" className="bg-yellow-50 border-yellow-200">
+                                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                                        <AlertTitle className="font-bold text-yellow-800">Attenzione: Azione ad Alto Impatto</AlertTitle>
+                                        <AlertDescription className="text-yellow-700">
+                                            Questa operazione aggiornerà i record `billOfMaterials` di tutte le commesse in stato 'Pianificato' o 'In Produzione'. 
+                                            <ul className="list-disc list-inside mt-2 space-y-1">
+                                                <li>Ricalcola esplicitamente il <strong>Fabbisogno Totale</strong> (mm {'->'} mt).</li>
+                                                <li>Ricalcola il <strong>Peso Stimato (KG)</strong> usando il fattore di conversione attuale.</li>
+                                                <li>Aggiunge componenti mancanti dalla Distinta Base principale.</li>
+                                                <li>Rimuove componenti obsoleti (solo se non ancora prelevati).</li>
+                                            </ul>
+                                        </AlertDescription>
+                                    </Alert>
+
+                                    <div className="bg-slate-50 p-6 rounded-lg border border-slate-200">
+                                        <h4 className="font-bold mb-4 flex items-center gap-2"><Info className="h-4 w-4" /> Quando usare questo strumento?</h4>
+                                        <p className="text-sm text-muted-foreground leading-relaxed">
+                                            Usa questa funzione se noti che le commesse aperte mostrano pesi o quantità errate a causa di modifiche fatte in Anagrafica Articoli o Materiali dopo la creazione della commessa.
+                                            Questo script "guarisce" lo snapshot della commessa forzando i valori attuali.
+                                        </p>
+                                    </div>
+
+                                    {syncResults && (
+                                        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <Card className="bg-green-50 border-green-200">
+                                                    <CardHeader className="py-3">
+                                                        <CardTitle className="text-sm text-green-800 flex items-center gap-2">
+                                                            <CheckCircle2 className="h-4 w-4" /> Commesse Sincronizzate
+                                                        </CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent>
+                                                        <div className="text-2xl font-bold text-green-700">{syncResults.processed}</div>
+                                                    </CardContent>
+                                                </Card>
+                                                <Card className={syncResults.failed > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200 opacity-50"}>
+                                                    <CardHeader className="py-3">
+                                                        <CardTitle className={`text-sm flex items-center gap-2 ${syncResults.failed > 0 ? "text-red-800" : "text-slate-600"}`}>
+                                                            <AlertCircle className="h-4 w-4" /> Errori / Saltate
+                                                        </CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent>
+                                                        <div className={`text-2xl font-bold ${syncResults.failed > 0 ? "text-red-700" : "text-slate-600"}`}>{syncResults.failed}</div>
+                                                    </CardContent>
+                                                </Card>
+                                            </div>
+
+                                            {syncResults.errors.length > 0 && (
+                                                <Card className="border-red-200">
+                                                    <CardHeader className="bg-red-50 py-2">
+                                                        <CardTitle className="text-xs font-bold text-red-800 uppercase tracking-wider">Log Errori Dettagliato</CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent className="p-0">
+                                                        <div className="max-h-60 overflow-y-auto font-mono text-[10px] p-4 space-y-1 bg-slate-900 text-red-400">
+                                                            {syncResults.errors.map((err, idx) => (
+                                                                <div key={idx} className="flex gap-2">
+                                                                    <span className="opacity-50">[{idx + 1}]</span>
+                                                                    <span>{err}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )}
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+
+                            <Dialog open={isSyncModalOpen} onOpenChange={setIsSyncModalOpen}>
+                                <DialogContent className="sm:max-w-md">
+                                    <DialogHeader>
+                                        <DialogTitle className="flex items-center gap-2 text-yellow-600">
+                                            <AlertTriangle className="h-5 w-5" /> Conferma Sincronizzazione Globale
+                                        </DialogTitle>
+                                        <DialogDescription className="py-2">
+                                            Stai per sovrascrivere gli impegni di tutte le commesse attive nel sistema. 
+                                            Assicurati che nessuno stia effettuando prelievi in questo istante.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-4">
+                                        <p className="text-sm font-medium">Scrivi <span className="font-mono font-bold text-yellow-600">SINCRONIZZA</span> per approvare:</p>
+                                        <Input 
+                                            value={syncConfirmText} 
+                                            onChange={e => setSyncConfirmText(e.target.value)} 
+                                            placeholder="SINCRONIZZA" 
+                                            className="uppercase font-bold border-yellow-300 focus-visible:ring-yellow-500"
+                                        />
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="ghost" onClick={() => setIsSyncModalOpen(false)}>Annulla</Button>
+                                        <Button 
+                                            variant="default" 
+                                            className="bg-yellow-600 hover:bg-yellow-700" 
+                                            disabled={syncConfirmText !== "SINCRONIZZA" || syncExecuting}
+                                            onClick={handleExecuteJobSync}
+                                        >
+                                            AVVIA RICALCOLO
                                         </Button>
                                     </DialogFooter>
                                 </DialogContent>

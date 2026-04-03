@@ -2,10 +2,12 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { RawMaterial, InventoryRecord, MaterialWithdrawal, JobOrder, Operator, JobPhase } from '@/types';
+import { RawMaterial, InventoryRecord, MaterialWithdrawal, JobOrder, Operator, JobPhase, Article } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { ensureAdmin } from '@/lib/server-auth';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
+import { syncJobBOMItems } from '@/lib/inventory-utils';
+import { revalidatePath } from 'next/cache';
 
 export interface AuditAnomaly {
     id: string;
@@ -943,4 +945,152 @@ export async function fixCorruptedBatchLoads(uid: string): Promise<{ success: bo
         console.error("Fix Corrupted Batches Error:", error);
         return { success: false, message: error instanceof Error ? error.message : "Errore durante il ripristino dei dati." };
     }
+}
+
+/**
+ * HEALING: Sincronizzazione Globale Impegni Commesse ("CARRO ARMATO")
+ * Allinea le commesse aperte alla Distinta Base attuale in Anagrafica.
+ * Resistente agli errori su singole commesse, riporta successi e fallimenti.
+ */
+export async function syncAllJobOrderCommitments(uid: string): Promise<{ 
+    success: boolean; 
+    message: string; 
+    processed: number; 
+    failed: number; 
+    errors: string[] 
+}> {
+    await ensureAdmin(uid);
+    const startTime = Date.now();
+    let processed = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    try {
+        const globalSettings = await getGlobalSettings();
+        
+        // 1. Recupera tutte le commesse aperte
+        const jobsSnap = await adminDb.collection("jobOrders")
+            .where("status", "in", ["planned", "production", "suspended", "paused"])
+            .get();
+        
+        if (jobsSnap.empty) {
+            return { success: true, message: "Nessuna commessa aperta da sincronizzare.", processed: 0, failed: 0, errors: [] };
+        }
+
+        // 2. Recupera Articoli e Materie Prime necessari
+        const articleCodes = new Set<string>();
+        jobsSnap.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.details) articleCodes.add(data.details.toUpperCase());
+        });
+
+        // Recuperiamo i dati in parallelo per velocità
+        const [articles, rawMaterials] = await Promise.all([
+            fetchInChunks<Article>(adminDb.collection("articles"), "code", Array.from(articleCodes)),
+            adminDb.collection("rawMaterials").get().then(s => s.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial)))
+        ]);
+
+        const articlesMap = new Map(articles.map(a => [a.code.toUpperCase(), a]));
+
+        // 3. Iterazione Resiliente (Carro Armato)
+        // Usiamo un ciclo for...of per poter gestire i try-catch individuali
+        for (const doc of jobsSnap.docs) {
+            const job = doc.data() as JobOrder;
+            const jobId = job.ordinePF || doc.id;
+
+            try {
+                // CONTROLLI RIGOROSI (Strict Null Checks)
+                if (!job.details) {
+                    throw new Error(`Commessa senza codice articolo (details mancante).`);
+                }
+
+                const article = articlesMap.get(job.details.toUpperCase());
+                if (!article) {
+                    throw new Error(`Articolo '${job.details}' non trovato in Anagrafica.`);
+                }
+
+                if (!Array.isArray(article.billOfMaterials)) {
+                    throw new Error(`Articolo '${job.details}' ha una Distinta Base corrotta o mancante.`);
+                }
+
+                const originalBOM = job.billOfMaterials || [];
+                const syncedBOMRaw = syncJobBOMItems(
+                    job.qta,
+                    originalBOM,
+                    article.billOfMaterials,
+                    rawMaterials,
+                    globalSettings
+                );
+
+                // Sanitizzazione Payload per Firestore (No undefined)
+                const syncedBOM = syncedBOMRaw.map(item => ({
+                    ...item,
+                    lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
+                    fabbisognoTotale: item.fabbisognoTotale ?? 0,
+                    pesoStimato: item.pesoStimato ?? 0,
+                    note: item.note ?? ""
+                }));
+
+                // Update individuale per massimizzare il reporting e la stabilità
+                await doc.ref.update({ 
+                    billOfMaterials: syncedBOM,
+                    lastSyncAction: 'GLOBAL_HEALING',
+                    lastSyncTimestamp: admin.firestore.Timestamp.now()
+                });
+
+                processed++;
+            } catch (jobError: any) {
+                failed++;
+                const errorMsg = `Commessa ${jobId}: ${jobError.message || "Errore sconosciuto"}`;
+                errors.push(errorMsg);
+                console.error(`[SYNC_HEALING_FAIL] ${errorMsg}`);
+            }
+        }
+
+        // 4. Logging finale dell'operazione
+        await adminDb.collection("system_maintenance_logs").add({
+            action: 'SYNC_JOB_COMMITMENTS_GLOBAL_ROBUST',
+            executedBy: uid,
+            timestamp: new Date(),
+            processed,
+            failed,
+            errorCount: errors.length,
+            durationMs: Date.now() - startTime,
+            summary: `Sync Global: ${processed} OK, ${failed} Falliti.`
+        });
+
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/raw-material-management');
+
+        return { 
+            success: failed === 0, 
+            message: failed === 0 
+                ? `Sincronizzazione completata: tutte le ${processed} commesse aggiornate correttamente.`
+                : `Sincronizzazione parziale: ${processed} commesse aggiornate, ${failed} errori riscontrati.`,
+            processed,
+            failed,
+            errors
+        };
+    } catch (globalError: any) {
+        console.error("Critical Sync Error:", globalError);
+        return { 
+            success: false, 
+            message: "Errore critico durante l'inizializzazione dello script: " + (globalError.message || "Sconosciuto"),
+            processed,
+            failed,
+            errors: [...errors, "CRASH GLOBALE: " + globalError.message]
+        };
+    }
+}
+
+// Helper per fetch in chunks se non già presente nel file (ma lo è in firestore-utils)
+async function fetchInChunks<T>(collection: admin.firestore.CollectionReference, field: string, values: string[]): Promise<T[]> {
+    const results: T[] = [];
+    const CHUNK_SIZE = 30;
+    for (let i = 0; i < values.length; i += CHUNK_SIZE) {
+        const chunk = values.slice(i, i + CHUNK_SIZE);
+        const snap = await collection.where(field, "in", chunk).get();
+        snap.forEach(d => results.push({ id: d.id, ...d.data() } as T));
+    }
+    return results;
 }

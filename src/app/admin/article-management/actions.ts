@@ -4,8 +4,10 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { Article, ArticlePhaseTime, WorkCycle } from '@/types';
+import type { Article, ArticlePhaseTime, WorkCycle, RawMaterial, JobOrder } from '@/types';
 import * as z from 'zod';
+import { syncJobBOMItems } from '@/lib/inventory-utils';
+import { getGlobalSettings } from '@/lib/settings-actions';
 
 const bomItemSchema = z.object({
     component: z.string().min(1, "Componente obbligatorio."),
@@ -97,8 +99,55 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         if (attachments !== undefined) articleData.attachments = attachments;
 
         await adminDb.collection('articles').doc(docId).set(articleData, { merge: true });
+        
+        // --- AUTO-SYNC JOBS LISTENER ---
+        try {
+            const [jobsSnap, rawMaterialsSnap, globalSettings] = await Promise.all([
+                adminDb.collection("jobOrders").where("details", "==", docId).where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
+                adminDb.collection("rawMaterials").get(),
+                getGlobalSettings()
+            ]);
+
+            if (!jobsSnap.empty) {
+                const rawMaterials = rawMaterialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
+                const batch = adminDb.batch();
+                
+                jobsSnap.docs.forEach(doc => {
+                    const job = doc.data() as JobOrder;
+                    const syncedBOMRaw = syncJobBOMItems(
+                        job.qta,
+                        job.billOfMaterials || [],
+                        billOfMaterials,
+                        rawMaterials,
+                        globalSettings
+                    );
+
+                    // Sanitizzazione Payload per Firestore (No undefined)
+                    const syncedBOM = syncedBOMRaw.map(item => ({
+                        ...item,
+                        lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
+                        fabbisognoTotale: item.fabbisognoTotale ?? 0,
+                        pesoStimato: item.pesoStimato ?? 0,
+                        note: item.note ?? ""
+                    }));
+
+                    batch.update(doc.ref, { billOfMaterials: syncedBOM });
+                });
+
+                await batch.commit();
+            }
+        } catch (syncError) {
+            console.error("Auto-sync jobs error:", syncError);
+            // Non blocchiamo il salvataggio dell'articolo se fallisce la sync delle commesse, 
+            // ma logghiamo l'errore.
+        }
+        // -------------------------------
+
         revalidatePath('/admin/article-management');
-        return { success: true, message: `Articolo ${docId} salvato.` };
+        revalidatePath('/admin/raw-material-management');
+        revalidatePath('/admin/data-management');
+        
+        return { success: true, message: 'Articolo salvato e impegni commesse sincronizzati.' };
     } catch (error: any) {
         console.error('Error in saveArticle:', error);
         return { success: false, message: "Errore durante il salvataggio: " + (error.message || "Errore sconosciuto") };

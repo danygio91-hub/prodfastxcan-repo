@@ -170,22 +170,26 @@ export default function GlobalParametersPage() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="flex flex-col justify-end space-y-4 pb-1">
-                         <div className="flex items-center justify-between gap-2 px-1">
-                            <Label className="text-xs">Usa Conversione</Label>
-                            <Switch checked={type.hasConversion} onCheckedChange={(val) => updateRawMaterialType(index, { hasConversion: val })} />
-                         </div>
-                         {type.hasConversion && (
-                            <Select value={type.conversionType} onValueChange={(val: any) => updateRawMaterialType(index, { conversionType: val })}>
-                                <SelectTrigger className="h-8 text-xs">
-                                    <SelectValue placeholder="Tipo conv." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="kg/mt">Peso specifico (KG/MT)</SelectItem>
-                                    <SelectItem value="kg/unit">Peso unitario (KG/PZ)</SelectItem>
-                                </SelectContent>
-                            </Select>
-                         )}
+                      <div className="flex flex-col justify-end space-y-3 pb-1">
+                          <div className="flex items-center justify-between gap-2 px-1">
+                             <Label className="text-[10px] uppercase font-bold text-muted-foreground">Usa Conversione</Label>
+                             <Switch checked={type.hasConversion} onCheckedChange={(val) => updateRawMaterialType(index, { hasConversion: val })} />
+                          </div>
+                          <div className="flex items-center justify-between gap-2 px-1">
+                             <Label className="text-[10px] uppercase font-bold text-muted-foreground">Richiede Taglio (mm)</Label>
+                             <Switch checked={type.requiresCutLength ?? false} onCheckedChange={(val) => updateRawMaterialType(index, { requiresCutLength: val })} />
+                          </div>
+                          {type.hasConversion && (
+                             <Select value={type.conversionType} onValueChange={(val: any) => updateRawMaterialType(index, { conversionType: val })}>
+                                 <SelectTrigger className="h-8 text-xs">
+                                     <SelectValue placeholder="Tipo conv." />
+                                 </SelectTrigger>
+                                 <SelectContent>
+                                     <SelectItem value="kg/mt">Peso specifico (KG/MT)</SelectItem>
+                                     <SelectItem value="kg/unit">Peso unitario (KG/PZ)</SelectItem>
+                                 </SelectContent>
+                             </Select>
+                          )}
                       </div>
                       <Button 
                         variant="ghost" 

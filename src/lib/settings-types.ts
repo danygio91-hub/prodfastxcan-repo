@@ -5,6 +5,7 @@ export interface RawMaterialTypeConfig {
   defaultUnit: string; // Changed from union to string for flexibility
   hasConversion: boolean;
   conversionType?: 'kg/mt' | 'kg/unit';
+  requiresCutLength?: boolean;
 }
 
 export interface GlobalSettings {
@@ -18,11 +19,11 @@ export interface GlobalSettings {
 
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   rawMaterialTypes: [
-    { id: 'BOB', label: 'Bobina', defaultUnit: 'mt', hasConversion: true, conversionType: 'kg/mt' },
-    { id: 'TUBI', label: 'Tubi', defaultUnit: 'mt', hasConversion: true, conversionType: 'kg/mt' },
-    { id: 'PF3V0', label: 'PF3V0', defaultUnit: 'n', hasConversion: true, conversionType: 'kg/unit' },
-    { id: 'GUAINA', label: 'Guaina', defaultUnit: 'mt', hasConversion: false },
-    { id: 'BARRA', label: 'Barra', defaultUnit: 'mt', hasConversion: true, conversionType: 'kg/mt' },
+    { id: 'BOB', label: 'Bobina', defaultUnit: 'mt', hasConversion: true, conversionType: 'kg/mt', requiresCutLength: true },
+    { id: 'TUBI', label: 'Tubi', defaultUnit: 'n', hasConversion: true, conversionType: 'kg/unit', requiresCutLength: false },
+    { id: 'PF3V0', label: 'PF3V0', defaultUnit: 'n', hasConversion: true, conversionType: 'kg/unit', requiresCutLength: false },
+    { id: 'GUAINA', label: 'Guaina', defaultUnit: 'mt', hasConversion: false, requiresCutLength: true },
+    { id: 'BARRA', label: 'Barra', defaultUnit: 'mt', hasConversion: true, conversionType: 'kg/mt', requiresCutLength: true },
   ],
   unitsOfMeasure: ['n', 'mt', 'kg'],
   productionProblemTypes: [

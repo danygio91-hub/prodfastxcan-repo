@@ -175,22 +175,27 @@ export function calculateBOMRequirement(
   jobQta: number,
   bomItem: { quantity: number; lunghezzaTaglioMm?: number; unit: string },
   material: Pick<RawMaterial, 'unitOfMeasure' | 'conversionFactor' | 'rapportoKgMt'>,
-  config: { defaultUnit: string; hasConversion?: boolean; conversionType?: string }
+  config: { defaultUnit: string; hasConversion?: boolean; conversionType?: string; requiresCutLength?: boolean }
 ): BOMRequirementDetails {
   const qta = Number(jobQta) || 0;
   const bomQty = Number(bomItem.quantity) || 0;
-  const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
   const baseUnit = config.defaultUnit as UnitOfMeasure;
   const totalPieces = qta * bomQty;
   const factor = getConversionFactor(material as any, config as any);
+
+  // Determina se considerare la lunghezza taglio (mm)
+  // Se config.requiresCutLength è undefined, assumiamo il comportamento storico (se lengthMm > 0 usalo)
+  // Se è esplicitamente false, MAI usarlo.
+  const isLengthApplicable = config.requiresCutLength !== false;
+  const lengthMm = isLengthApplicable ? (Number(bomItem.lunghezzaTaglioMm) || 0) : 0;
 
   let totalInBaseUnits = 0;
   let totalMeters: number | undefined = undefined;
 
   // 1. Calculate Length if applicable (mm -> mt)
-  if (lengthMm > 0) {
+  if (isLengthApplicable && lengthMm > 0) {
       totalMeters = (totalPieces * lengthMm) / 1000;
-  } else if (bomItem.unit === 'mt') {
+  } else if (isLengthApplicable && bomItem.unit === 'mt') {
       totalMeters = totalPieces;
   }
 
@@ -200,13 +205,13 @@ export function calculateBOMRequirement(
           // Mt to Kg: Meters * Factor
           totalInBaseUnits = totalMeters * factor;
       } else {
-          // Generic Unit to Kg: Units * Factor
+          // Generic Unit to Kg: Units * Factor (e.g. pieces * unit weight)
           totalInBaseUnits = totalPieces * factor;
       }
-  } else if (baseUnit === 'mt') {
-      totalInBaseUnits = totalMeters ?? totalPieces;
+  } else if (baseUnit === 'mt' && totalMeters !== undefined) {
+      totalInBaseUnits = totalMeters;
   } else {
-      // Default for 'n' or others: direct multiplication
+      // In ogni altro caso (incluso 'n' o 'mt' senza taglio), moltiplicazione diretta pezzi * quantita per pezzo
       totalInBaseUnits = totalPieces;
   }
 
@@ -225,4 +230,86 @@ export function calculateBOMRequirement(
       totalMeters: totalMeters !== undefined ? Number(totalMeters.toFixed(4)) : undefined,
       totalPieces
   };
+}
+
+/**
+ * Helper to synchronize a JobOrder's BOM with the Article's BOM.
+ * recalculates explicit fields (fabbisognoTotale, pesoStimato).
+ */
+export function syncJobBOMItems(
+    jobQta: number,
+    currentBOM: any[], // JobBillOfMaterialsItem[]
+    articleBOM: any[] = [], // JobBillOfMaterialsItem[]
+    rawMaterials: RawMaterial[],
+    globalSettings: any
+): any[] {
+    const safeArticleBOM = Array.isArray(articleBOM) ? articleBOM : [];
+    const safeCurrentBOM = Array.isArray(currentBOM) ? currentBOM : [];
+    const updatedBOM: any[] = [];
+    const articleBOMMap = new Map(safeArticleBOM.map(item => [item.component?.toUpperCase() || "UNKNOWN", item]));
+    const currentBOMMap = new Map(safeCurrentBOM.map(item => [item.component?.toUpperCase() || "UNKNOWN", item]));
+
+    // 1. Update/Add items from Article BOM
+    safeArticleBOM.forEach(artItem => {
+        const compCode = artItem.component?.toUpperCase() || "UNKNOWN";
+        const existingItem = currentBOMMap.get(compCode);
+        
+        // Recalculate explicit fields
+        const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
+        const typeConfig = material ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+        const requiresCut = typeConfig?.requiresCutLength !== false;
+
+        const req = calculateBOMRequirement(
+            jobQta,
+            { 
+                quantity: artItem.quantity, 
+                lunghezzaTaglioMm: requiresCut ? artItem.lunghezzaTaglioMm : undefined, 
+                unit: artItem.unit 
+            },
+            material || { unitOfMeasure: artItem.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
+            typeConfig || { defaultUnit: artItem.unit }
+        );
+
+        let newItem: any = {
+            ...artItem,
+            isFromTemplate: true,
+            status: existingItem?.status || 'pending',
+            lunghezzaTaglioMm: requiresCut ? (artItem.lunghezzaTaglioMm ?? null) : null,
+            fabbisognoTotale: req.totalInBaseUnits,
+            pesoStimato: req.weightKg
+        };
+
+        updatedBOM.push(newItem);
+    });
+
+    // 2. Preserve manually added items that are NOT in the article BOM
+    safeCurrentBOM.forEach(item => {
+        if (!item.isFromTemplate && !articleBOMMap.has(item.component?.toUpperCase() || "")) {
+            const compCode = item.component?.toUpperCase() || "UNKNOWN";
+            const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
+            const typeConfig = material ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+            const requiresCut = typeConfig?.requiresCutLength !== false;
+
+            const req = calculateBOMRequirement(
+                jobQta,
+                { 
+                    quantity: item.quantity, 
+                    lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
+                    unit: item.unit 
+                },
+                material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
+                typeConfig || { defaultUnit: item.unit }
+            );
+            
+            let preservedItem = { 
+                ...item,
+                lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? null) : null,
+                fabbisognoTotale: req.totalInBaseUnits,
+                pesoStimato: req.weightKg
+            };
+            updatedBOM.push(preservedItem);
+        }
+    });
+
+    return updatedBOM;
 }
