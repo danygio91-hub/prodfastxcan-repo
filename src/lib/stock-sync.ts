@@ -1,5 +1,5 @@
 import { adminDb } from './firebase-admin';
-import { RawMaterial } from '@/types';
+import { RawMaterial, RawMaterialBatch } from '@/types';
 
 /**
  * FORMULA DEFINITIVA: Material.stock = SUM(Batch.netQuantity)
@@ -8,6 +8,7 @@ import { RawMaterial } from '@/types';
  * 
  * @param materialId ID del materiale da ricalcolare
  * @param transaction Transazione Firestore opzionale per atomicità
+ * @param prefetchedData Dati già letti all'inizio della transazione (Materiale, Lotti, Prelievi)
  */
 /**
  * FORMULA DEFINITIVA: Material.stock = SUM(Lot.Available)
@@ -16,23 +17,37 @@ import { RawMaterial } from '@/types';
  * Ricalcola la giacenza totale di un materiale basandosi sulla fonte di verità 
  * dei lotti (Anagrafica Lotti) senza mai alterare l'array storico batches[].
  */
-export async function recalculateMaterialStock(materialId: string, transaction?: FirebaseFirestore.Transaction) {
+export async function recalculateMaterialStock(
+    materialId: string, 
+    transaction?: FirebaseFirestore.Transaction,
+    prefetchedData?: { material: RawMaterial, batches: RawMaterialBatch[], withdrawals: any[] }
+) {
     const materialRef = adminDb.collection('rawMaterials').doc(materialId);
     
-    // We need both the material and its withdrawals to apply the Lot-UI formula
-    const [docSnap, withdrawalsSnap] = await Promise.all([
-        transaction ? transaction.get(materialRef) : materialRef.get(),
-        adminDb.collection('materialWithdrawals').where('materialId', '==', materialId).get()
-    ]);
+    let material: RawMaterial;
+    let withdrawals: any[];
+    let batches: RawMaterialBatch[];
 
-    if (!docSnap.exists) {
-        console.warn(`[StockSync] Materiale ${materialId} non trovato.`);
-        return null;
+    if (prefetchedData) {
+        material = prefetchedData.material;
+        withdrawals = prefetchedData.withdrawals;
+        batches = prefetchedData.batches || material.batches || [];
+    } else {
+        // We need both the material and its withdrawals to apply the Lot-UI formula
+        const [docSnap, withdrawalsSnap] = await Promise.all([
+            transaction ? transaction.get(materialRef) : materialRef.get(),
+            adminDb.collection('materialWithdrawals').where('materialId', '==', materialId).get()
+        ]);
+
+        if (!docSnap.exists) {
+            console.warn(`[StockSync] Materiale ${materialId} non trovato.`);
+            return null;
+        }
+        
+        material = docSnap.data() as RawMaterial;
+        withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
+        batches = material.batches || [];
     }
-    
-    const material = docSnap.data() as RawMaterial;
-    const batches = material.batches || [];
-    const withdrawals = withdrawalsSnap.docs.map(d => d.data());
 
     // 1. Group withdrawals by lot (only considering those with a lot code)
     const withdrawalsByLotto = withdrawals.reduce((acc, w) => {

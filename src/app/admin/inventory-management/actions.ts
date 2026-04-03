@@ -63,10 +63,16 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const rSnap = await transaction.get(recordRef);
             if (!rSnap.exists || rSnap.data()?.status !== 'pending') throw new Error("Gìa processata.");
             const record = rSnap.data() as InventoryRecord;
+
             const mRef = adminDb.collection('rawMaterials').doc(record.materialId);
-            const mSnap = await transaction.get(mRef);
+            const [mSnap, withdrawalsSnap] = await Promise.all([
+                transaction.get(mRef),
+                adminDb.collection('materialWithdrawals').where('materialId', '==', record.materialId).get()
+            ]);
+
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = mSnap.data() as RawMaterial;
+            const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
             
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
                 id: material.type,
@@ -101,10 +107,11 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 lotto: record.lotto 
             };
             
+            const updatedBatches = [...(material.batches || []), newBatch];
             transaction.update(mRef, { 
-                batches: [...(material.batches || []), newBatch] 
+                batches: updatedBatches 
             });
-            await recalculateMaterialStock(record.materialId, transaction);
+            await recalculateMaterialStock(record.materialId, transaction, { material, batches: updatedBatches, withdrawals });
             transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() });
         });
         revalidatePath('/admin/inventory-management');
@@ -146,15 +153,21 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
         const rec = rSnap.data() as InventoryRecord;
         if (rec.status === 'approved') {
             const mRef = adminDb.collection('rawMaterials').doc(rec.materialId);
-            const mSnap = await transaction.get(mRef);
+            const [mSnap, withdrawalsSnap] = await Promise.all([
+                transaction.get(mRef),
+                adminDb.collection('materialWithdrawals').where('materialId', '==', rec.materialId).get()
+            ]);
+
             if (mSnap.exists) {
                 const mat = mSnap.data() as RawMaterial;
+                const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
                 const batch = (mat.batches || []).find(b => b.inventoryRecordId === id);
                 if (batch) {
+                    const updatedBatches = (mat.batches || []).filter(b => b.inventoryRecordId !== id);
                     transaction.update(mRef, { 
-                        batches: admin.firestore.FieldValue.arrayRemove(batch), 
+                        batches: updatedBatches, 
                     });
-                    await recalculateMaterialStock(rec.materialId, transaction);
+                    await recalculateMaterialStock(rec.materialId, transaction, { material: mat, batches: updatedBatches, withdrawals });
                 }
             }
         }

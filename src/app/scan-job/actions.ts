@@ -526,7 +526,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
             const material = matSnap.data() as RawMaterial;
-            const withdrawals = withdrawalsSnap.docs.map(d => d.data());
+            const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
 
             let consumedWeight = 0;
             if (isFinished && session.lotto) {
@@ -572,7 +572,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
             });
 
-            await recalculateMaterialStock(session.materialId, transaction);
+            await recalculateMaterialStock(session.materialId, transaction, { material, batches: updatedBatches, withdrawals });
 
             const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
             transaction.set(withdrawalRef, {
@@ -609,7 +609,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
             
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = mSnap.data() as RawMaterial;
-            const withdrawals = wSnap.docs.map(d => d.data());
+            const withdrawals = wSnap.docs.map((d: any) => d.data());
             
             const globalSettings = await getGlobalSettings();
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
@@ -652,7 +652,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
             });
 
-            await recalculateMaterialStock(materialId as string, t);
+            await recalculateMaterialStock(materialId as string, t, { material, batches: updatedBatches, withdrawals });
 
             const wRef = adminDb.collection("materialWithdrawals").doc();
             t.set(wRef, {

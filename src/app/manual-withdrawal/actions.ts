@@ -83,7 +83,7 @@ export async function logManualWithdrawal(
             // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
         });
 
-        await recalculateMaterialStock(materialId, transaction);
+        await recalculateMaterialStock(materialId, transaction, { material, batches: updatedBatches, withdrawals });
         
         const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
         transaction.set(withdrawalRef, {
