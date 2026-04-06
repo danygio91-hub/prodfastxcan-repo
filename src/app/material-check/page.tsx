@@ -88,14 +88,6 @@ export default function MaterialCheckPage() {
         setIsCapturing(false);
     }, []);
 
-    if (authLoading || isMasterLoading) {
-        return (
-            <div className="flex h-screen items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        );
-    }
-    
     const fetchMaterialDetails = async (material: RawMaterial, specificLotto?: string) => {
         try {
             const lots = await getLotInfoForMaterial(material.id);
@@ -237,7 +229,7 @@ export default function MaterialCheckPage() {
         setMaterialMovements(combinedMovements);
     };
 
-    if (authLoading || !operator) {
+    if (authLoading || isMasterLoading || !operator) {
         return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
     }
     
