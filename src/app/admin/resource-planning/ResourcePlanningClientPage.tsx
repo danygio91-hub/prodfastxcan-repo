@@ -1,69 +1,72 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+import React, { useState, useEffect } from 'react';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Info, AlertTriangle, CheckCircle2, Loader2, Boxes, Factory, Archive, Briefcase, LayoutGrid, Clock, Users, Timer, RefreshCcw, Search, X } from 'lucide-react';
-import { format, addWeeks, subWeeks, startOfWeek, parseISO } from 'date-fns';
-import { it } from 'date-fns/locale';
-import { getPlanningData, getDepartmentPlanningSnapshot, getOperatorAssignments } from './actions';
-import { endOfWeek } from 'date-fns';
+import { 
+    Calendar as CalendarIcon, 
+    ChevronLeft, 
+    ChevronRight, 
+    Loader2, 
+    RefreshCcw, 
+    LayoutGrid, 
+    Settings2, 
+    Zap
+} from 'lucide-react';
+import { format, addWeeks, subWeeks, startOfWeek, getWeek } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from '@/components/ui/badge';
-import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import GanttBoard from '@/components/production-console/GanttBoard';
-import ResourceAssignmentDialog from './ResourceAssignmentDialog';
-import { useAuth } from '@/components/auth/AuthProvider';
-import WeekKanbanBoard from '@/components/production-console/WeekKanbanBoard';
-import { isJobReadyForProduction, cn } from '@/lib/utils';
-import { buildMRPTimelines } from '@/lib/mrp';
-import { assignJobToDate, bulkAssignJobsToDate } from './actions';
-import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
-import type { JobOrder, Operator, OperatorAssignment, Department, Article, RawMaterial, ProductionSettings } from '@/types';
 import { useMasterData } from '@/contexts/MasterDataProvider';
-import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { useAuth } from '@/components/auth/AuthProvider';
+
+import WeeklyCapacityBoard from './WeeklyCapacityBoard';
+import MasterConsole from './MasterConsole';
+import OperatorSkillLoanDialog from './OperatorSkillLoanDialog';
+import BacklogDrawer from './BacklogDrawer';
+import { getWeeklyBoardData, saveWeeklyAllocation, advanceJobStatus, migrateJobOrderStatuses } from './weekly-actions';
+import { assignJobToDate } from './actions';
+
+import { DragDropContext, DropResult } from '@hello-pangea/dnd';
 
 export default function ResourcePlanningClientPage() {
     const { toast } = useToast();
     const { user } = useAuth();
     const uid = user?.uid || '';
+    
     const [currentDate, setCurrentDate] = useState(new Date());
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [activeView, setActiveView] = useState<'board' | 'console'>('board');
+    const [isBacklogOpen, setIsBacklogOpen] = useState(false);
     
     const { 
         operators: cachedOperators, 
         articles: cachedArticles, 
         departments: cachedDepartments, 
-        settings: cachedSettings, 
-        rawMaterials: cachedRawMaterials,
-        globalSettings: cachedGlobalSettings,
         isLoading: isMasterLoading 
     } = useMasterData();
     
-    // Dynamic Week Data
-    const [data, setData] = useState<{
-        jobOrders: JobOrder[],
-        assignments: OperatorAssignment[],
-        purchaseOrders?: any[],
-        manualCommitments?: any[]
-    } | null>(null);
-    
-    // Analysis Snapshot
-    const [snapshot, setSnapshot] = useState<any>(null);
-    const [activeTab, setActiveTab] = useState<string>('PRODUZIONE');
-    const [activeSubTab, setActiveSubTab] = useState<string | null>(null);
-    const [viewMode, setViewMode] = useState<'kanban' | 'split' | 'gantt' | 'list'>('kanban');
-    const [isAssignmentDialogOpen, setIsAssignmentDialogOpen] = useState(false);
-    
-    // Selection & Search
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+    const [boardData, setBoardData] = useState<{
+        jobOrders: any[],
+        unassignedJobs: any[],
+        allocations: Record<string, string[]>
+    }>({ jobOrders: [], unassignedJobs: [], allocations: {} });
+
+    const [isLoanDialogOpen, setIsLoanDialogOpen] = useState(false);
+    const [selectedSlot, setSelectedSlot] = useState<{ deptId: string, week: number, year: number } | null>(null);
+
+    // Migrazione automatica all'avvio
+    useEffect(() => {
+        if (uid) {
+            migrateJobOrderStatuses(uid).then(res => {
+                if (res.success && res.count && res.count > 0) {
+                    toast({ title: "Dati Sincronizzati", description: `${res.count} commesse aggiornate alla nuova pipeline.` });
+                }
+            });
+        }
+    }, [uid]);
 
     useEffect(() => {
         loadData();
@@ -74,549 +77,213 @@ export default function ResourcePlanningClientPage() {
         else setLoading(true);
         
         try {
-            const dateStr = format(currentDate, 'yyyy-MM-dd');
+            const week = getWeek(currentDate, { weekStartsOn: 1 });
+            const year = currentDate.getFullYear();
             
-            const [planningData, snap] = await Promise.all([
-                getPlanningData(dateStr),
-                getDepartmentPlanningSnapshot(dateStr, force)
-            ]);
-            
-            setData(planningData);
-            setSnapshot(snap);
-            
-            // Set initial subtab for Produzione if not set
-            if (activeTab === 'PRODUZIONE' && !activeSubTab) {
-                const firstProdDept = cachedDepartments.find(d => d.macroAreas?.includes('PRODUZIONE'));
-                if (firstProdDept) setActiveSubTab(firstProdDept.code);
-            }
+            const data = await getWeeklyBoardData(year, week);
+            setBoardData(data);
         } catch (error) {
-            toast({ title: 'Errore', description: 'Impossibile caricare i dati di pianificazione.', variant: 'destructive' });
+            toast({ title: 'Errore', description: 'Impossibile caricare i dati settimanali.', variant: 'destructive' });
         } finally {
             setLoading(false);
             setIsRefreshing(false);
         }
     }
 
-    const isReallyLoading = loading || isMasterLoading;
-
-    async function refreshSnapshot(force: boolean = true) {
-        setIsRefreshing(true);
-        try {
-            const dateStr = format(currentDate, 'yyyy-MM-dd');
-            const sw = startOfWeek(currentDate, { weekStartsOn: 1 });
-            const ew = endOfWeek(currentDate, { weekStartsOn: 1 });
-            
-            const [newAssignments, snap] = await Promise.all([
-                getOperatorAssignments(format(sw, 'yyyy-MM-dd'), format(ew, 'yyyy-MM-dd')),
-                getDepartmentPlanningSnapshot(dateStr, force)
-            ]);
-            
-            if (data) {
-                setData({ ...data, assignments: newAssignments });
-            }
-            setSnapshot(snap);
-        } catch (error) {
-            toast({ title: 'Errore', description: 'Ricalcolo capacità fallito.', variant: 'destructive' });
-        } finally {
-            setIsRefreshing(false);
-        }
-    }
-
-    const startOfCurrentWeek = startOfWeek(currentDate, { weekStartsOn: 1 });
     const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
     const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
 
-    // Filter jobs by current tab and sub-tab AND SearchTerm
-    // Raw jobs for the current tab (without search/toggles) to be passed to Kanban
-    const rawTabJobs = useMemo(() => {
-        if (!data) return [];
-        return data.jobOrders.filter(job => {
-            if (activeTab === 'PREPARAZIONE') {
-                return job.status === 'planned' || job.phases?.some((p: any) => p.type === 'preparation');
-            } else if (activeTab === 'QLTY_PACK') {
-                return job.phases?.some((p: any) => p.type === 'quality' || p.type === 'packaging');
-            } else if (activeTab === 'PRODUZIONE') {
-                if (!activeSubTab) return job.phases?.some((p: any) => p.type === 'production');
-                return job.department === activeSubTab;
-            }
-            return false;
-        });
-    }, [data, activeTab, activeSubTab]);
+    const handleJobMove = async (jobId: string, targetDate: string, targetDeptId?: string) => {
+        // Ottimistico
+        const jobToMove = [...boardData.jobOrders, ...boardData.unassignedJobs].find(j => j.id === jobId);
+        if (!jobToMove) return;
 
-    // Filter jobs by current tab and search (for LIST/GANTT/SPLIT views)
-    const filteredJobs = useMemo(() => {
-        return rawTabJobs.filter(job => {
-            if (!searchTerm.trim()) return true;
-            const s = searchTerm.toLowerCase();
-            return (job.ordinePF?.toLowerCase().includes(s)) ||
-                   (job.details?.toLowerCase().includes(s)) ||
-                   (job.cliente?.toLowerCase().includes(s));
-        });
-    }, [rawTabJobs, searchTerm]);
-
-
-    // Filter departments for SUB-TABS (Produzione only)
-    const productionDepartments = useMemo(() => {
-        return cachedDepartments.filter(d => d.macroAreas?.includes('PRODUZIONE'));
-    }, [cachedDepartments]);
-
-    // Filter operators for the FOCUSED GANTT
-    const focusedOperators = useMemo(() => {
-        if (!data) return cachedOperators;
-        // Show all if not in a specific department, or filter by current sub-tab
-        if (activeTab === 'PRODUZIONE' && activeSubTab) {
-            return cachedOperators.filter(op => 
-                op.reparto.includes(activeSubTab) || 
-                (data?.assignments || []).some((a: any) => a.operatorId === op.id && a.departmentCode === activeSubTab)
-            );
-        }
-        // For Prep or QltyPack, we might show relevant depts
-        if (activeTab === 'PREPARAZIONE') return cachedOperators.filter(op => op.reparto.includes('MAG'));
-
-        if (activeTab === 'QLTY_PACK') return cachedOperators.filter(op => op.reparto.includes('CG') || op.reparto.includes('MAG') || op.reparto.includes('Collaudo'));
+        // Se targetDate è null/empty, stiamo tornando al backlog (non gestito qui per ora ma predisposto)
+        const updatedAssigned = [...boardData.jobOrders.filter(j => j.id !== jobId), { ...jobToMove, assignedDate: targetDate, department: targetDeptId || jobToMove.department }];
+        const updatedUnassigned = boardData.unassignedJobs.filter(j => j.id !== jobId);
         
-        return cachedOperators;
-    }, [data, cachedOperators, activeTab, activeSubTab]);
+        setBoardData({ ...boardData, jobOrders: updatedAssigned, unassignedJobs: updatedUnassigned });
 
-    // Stats for the current selection
-    const weekStats = useMemo(() => {
-        if (!snapshot || !activeTab) return null;
-        
-        // If it's PRODUZIONE and we have a subtab, look for that specific dept
-        if (activeTab === 'PRODUZIONE' && activeSubTab) {
-            const dept = snapshot.macroAreas['PRODUZIONE']?.find((d: any) => d.code === activeSubTab);
-            if (!dept) return null;
-            const demand = dept.data.reduce((acc: number, d: any) => acc + d.areaSpecificDemand, 0);
-            const supply = dept.data.reduce((acc: number, d: any) => acc + d.supplyHours, 0);
-            return { demand, supply, balance: supply - demand };
-        }
-
-        // Otherwise aggregate for the MacroArea
-        const areaDepts = snapshot.macroAreas[activeTab] || [];
-        let totalDemand = 0;
-        let totalSupply = 0;
-        areaDepts.forEach((dept: any) => {
-            totalDemand += dept.data.reduce((acc: number, d: any) => acc + (d.areaSpecificDemand || d.demandHours), 0);
-            totalSupply += dept.data.reduce((acc: number, d: any) => acc + d.supplyHours, 0);
-        });
-        return { demand: totalDemand, supply: totalSupply, balance: totalSupply - totalDemand };
-    }, [snapshot, activeTab, activeSubTab]);
-
-    // Get current department dependency
-
-    const dependsOnPrep = useMemo(() => {
-        if (activeTab !== 'PRODUZIONE' || !activeSubTab) return true;
-        const dept = cachedDepartments.find(d => d.code === activeSubTab);
-        return dept?.dependsOnPreparation ?? true;
-    }, [cachedDepartments, activeTab, activeSubTab]);
-
-    // MRP Timelines calculation
-    const mrpTimelines = useMemo(() => {
-        if (!data?.jobOrders || !cachedRawMaterials) return new Map();
-        return buildMRPTimelines(
-            data.jobOrders,
-            cachedRawMaterials,
-            cachedArticles,
-            data.purchaseOrders || [],
-            data.manualCommitments || [],
-            cachedGlobalSettings?.rawMaterialTypes || []
-        );
-    }, [data, cachedRawMaterials, cachedArticles, cachedGlobalSettings]);
-
-    const handleJobDrop = async (jobId: string, assignedDate: string | null) => {
-        // If the dropped job is part of the selection, we move the whole group
-        const jobsToMove = selectedJobIds.includes(jobId) ? selectedJobIds : [jobId];
-        
-        // Optimistic update
-        if (data) {
-            const updatedJobs = data.jobOrders.map(j => 
-                jobsToMove.includes(j.id) ? { ...j, assignedDate: assignedDate || undefined } : j
-            );
-            setData({ ...data, jobOrders: updatedJobs });
-        }
-
-        let res;
-        if (jobsToMove.length > 1) {
-            res = await bulkAssignJobsToDate(jobsToMove, assignedDate);
-            // Clear selection after successful move
-            if (res.success) setSelectedJobIds([]);
-        } else {
-            res = await assignJobToDate(jobId, assignedDate);
-        }
-
+        // Aggiorniamo sia la data che il reparto se necessario
+        const res = await assignJobToDate(jobId, targetDate, targetDeptId);
         if (!res.success) {
-            toast({ title: 'Errore', description: res.message, variant: 'destructive' });
-            // Revert on failure
-            loadData(false);
+            toast({ title: 'Errore Spostamento', description: res.message, variant: 'destructive' });
+            loadData();
         }
     };
 
-    const toggleJobSelection = (jobId: string) => {
-        setSelectedJobIds(prev => 
-            prev.includes(jobId) ? prev.filter(id => id !== jobId) : [...prev, jobId]
-        );
-    };
-
-    const setBatchSelection = (ids: string[], selected: boolean) => {
-        if (selected) {
-            setSelectedJobIds(prev => Array.from(new Set([...prev, ...ids])));
-        } else {
-            setSelectedJobIds(prev => prev.filter(id => !ids.includes(id)));
-        }
-    };
-
-    if (loading && !data) return (
-
-        <div className="flex flex-col items-center justify-center p-24 space-y-4 h-[60vh]">
-            <Loader2 className="h-10 w-10 animate-spin text-primary" />
-            <p className="text-muted-foreground animate-pulse">Inizializzazione Power-Planning Hub...</p>
-        </div>
-    );
-
-    return (
-        <div className="space-y-6 flex flex-col h-full min-h-[calc(100vh-12rem)]">
-            {/* --- HEADER SECTION --- */}
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-card p-4 rounded-xl shadow-sm border">
-                <div>
-                    <h1 className="text-3xl font-black tracking-tighter uppercase italic text-primary/80">Power-Planning Hub</h1>
-                    <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 font-bold uppercase text-[10px]">Active Production Control</Badge>
-                        {snapshot?.isIpothesis && (
-                             <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 font-bold uppercase text-[10px] animate-pulse">
-                                <AlertTriangle className="h-3 w-3 mr-1" /> Dati Ipotetici (Tempi mancanti)
-                             </Badge>
-                        )}
-                        {snapshot?.updatedAt && !isNaN(parseISO(snapshot.updatedAt).getTime()) && (
-                            <span className="text-[10px] text-muted-foreground ml-2">Sincronizzato: {format(parseISO(snapshot.updatedAt), 'HH:mm')}</span>
-                        )}
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg border">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handlePrevWeek}><ChevronLeft className="h-4 w-4" /></Button>
-                        <div className="px-3 font-bold text-xs flex items-center gap-2 min-w-[150px] justify-center">
-                            {format(startOfCurrentWeek, 'dd MMM', { locale: it })} - {format(addWeeks(startOfCurrentWeek, 1), 'dd MMM', { locale: it })}
-                        </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleNextWeek}><ChevronRight className="h-4 w-4" /></Button>
-                    </div>
-                    
-                    <Button variant="outline" size="sm" onClick={() => setIsAssignmentDialogOpen(true)}>
-                        <Users className="h-4 w-4 mr-2" />
-                        GESTIONE RISORSE
-                    </Button>
-
-
-
-                    <Button 
-                        variant="default" 
-                        size="sm"
-                        className="font-bold shadow-md bg-blue-600 hover:bg-blue-700 h-9" 
-                        onClick={() => loadData(true)} 
-                        disabled={isRefreshing}
-                    >
-                        {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
-                        RICALCOLA
-                    </Button>
-
-                    <div className="w-px h-8 bg-border mx-2" />
-
-                    <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-lg">
-                        <Button variant={viewMode === 'kanban' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('kanban')}><LayoutGrid className="mr-1 h-3 w-3" /> SETTIMANA</Button>
-                        <Button variant={viewMode === 'list' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('list')}><LayoutGrid className="mr-1 h-3 w-3" /> LISTA</Button>
-                        <Button variant={viewMode === 'split' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('split')}><Briefcase className="mr-1 h-3 w-3" /> SPLIT</Button>
-                        <Button variant={viewMode === 'gantt' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('gantt')}><Timer className="mr-1 h-3 w-3" /> GANTT</Button>
-                    </div>
-                </div>
-            </div>
-
-            {/* --- MACRO TABS --- */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col gap-4">
-                <TabsList className="grid grid-cols-3 w-full max-w-2xl bg-muted/50 p-1 rounded-xl h-12">
-                    <TabsTrigger value="PREPARAZIONE" className="data-[state=active]:bg-orange-500 data-[state=active]:text-white font-black text-xs transition-all uppercase tracking-widest gap-2">
-                        <Boxes className="h-4 w-4" /> PREPARAZIONE
-                    </TabsTrigger>
-                    <TabsTrigger value="PRODUZIONE" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white font-black text-xs transition-all uppercase tracking-widest gap-2">
-                        <Factory className="h-4 w-4" /> PRODUZIONE
-                    </TabsTrigger>
-                    <TabsTrigger value="QLTY_PACK" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white font-black text-xs transition-all uppercase tracking-widest gap-2">
-                        <Archive className="h-4 w-4" /> QLTY & PACK
-                    </TabsTrigger>
-                </TabsList>
-            
-            {data && (
-                <ResourceAssignmentDialog 
-                    isOpen={isAssignmentDialogOpen}
-                    onClose={() => setIsAssignmentDialogOpen(false)}
-                    operators={cachedOperators}
-                    departments={cachedDepartments}
-                    initialAssignments={data?.assignments || []}
-                    currentDate={currentDate}
-                    uid={uid}
-                />
-            )}
-
-
-                {/* --- SUB-TABS (Produzione Only) --- */}
-                {activeTab === 'PRODUZIONE' && (
-                    <div className="flex flex-wrap items-center gap-2 p-1 bg-muted/20 rounded-lg border border-dashed">
-                        {productionDepartments.map(dept => (
-                            <Button 
-                                key={dept.code} 
-                                variant={activeSubTab === dept.code ? 'default' : 'outline'} 
-                                size="sm" 
-                                className={cn("h-7 text-[10px] font-black uppercase tracking-tight transition-all", activeSubTab === dept.code ? "bg-blue-700 ring-2 ring-blue-200" : "bg-white")}
-                                onClick={() => setActiveSubTab(dept.code)}
-                            >
-                                {dept.name}
-                            </Button>
-                        ))}
-
-                        {weekStats && (
-                            <div className="ml-auto flex items-center gap-6">
-                                {/* ENLARGED SEARCH BAR - Hidden in Kanban as it has its own */}
-                                {viewMode !== 'kanban' && (
-                                    <div className="relative w-[350px] group shadow-sm">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-blue-600 transition-colors" />
-                                        <Input 
-                                            placeholder="Cerca per Commessa o Codice Articolo..." 
-                                            className="h-10 pl-10 pr-10 bg-white border-slate-200 border-2 focus-visible:ring-blue-500 font-bold text-sm rounded-lg"
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                        />
-                                        {searchTerm && (
-                                            <button 
-                                                onClick={() => setSearchTerm('')}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-full transition-colors"
-                                            >
-                                                <X className="h-4 w-4 text-slate-400" />
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
-
-                                <div className="flex items-center gap-4 px-4 py-2 bg-background rounded-xl border-2 border-slate-100 shadow-sm">
-                                    <div className="flex flex-col">
-                                        <span className="text-[9px] text-muted-foreground uppercase font-black">Carico Ore</span>
-                                        <span className="text-sm font-black text-red-600 leading-none">{weekStats?.demand.toFixed(1) || '0'}h</span>
-                                    </div>
-                                    <div className="w-px h-8 bg-slate-200" />
-                                    <div className="flex flex-col">
-                                        <span className="text-[9px] text-muted-foreground uppercase font-black">Capacità</span>
-                                        <span className="text-sm font-black text-emerald-600 leading-none">{weekStats?.supply.toFixed(1) || '0'}h</span>
-                                    </div>
-                                    <div className="w-px h-8 bg-slate-200" />
-                                    <div className="flex flex-col">
-                                        <span className="text-[9px] text-muted-foreground uppercase font-black">Bilancio</span>
-                                        <span className={cn("text-sm font-black leading-none", (weekStats?.balance || 0) < 0 ? "text-red-600" : "text-emerald-600")}>
-                                            {(weekStats?.balance || 0) > 0 ? '+' : ''}{(weekStats?.balance || 0).toFixed(1)}h
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-
-                {/* --- MAIN CONTENT AREA --- */}
-                <div className={cn(
-                    "grid gap-4 flex-1 transition-all duration-500",
-                    viewMode === 'split' ? "grid-cols-1 xl:grid-cols-12" : "grid-cols-1"
-                )}>
-                    
-                    {/* --- ODL LIST (LEFT PANE) --- */}
-                    {(viewMode === 'list' || viewMode === 'split') && (
-                        <Card className={cn("overflow-hidden flex flex-col shadow-xl", viewMode === 'split' ? "xl:col-span-4 h-[70vh]" : "h-full")}>
-                            <CardHeader className="py-3 px-4 bg-muted/10 border-b flex flex-row items-center justify-between">
-                                <div>
-                                    <CardTitle className="text-sm font-black flex items-center gap-2">
-                                        <ListCheckIcon /> LISTA ODL {activeTab}
-                                        <Badge variant="secondary" className="h-5 text-[10px] font-bold">{filteredJobs.length}</Badge>
-                                    </CardTitle>
-                                </div>
-                            </CardHeader>
-                            <CardContent className="p-0 flex-1 overflow-hidden">
-                                <ScrollArea className="h-full p-4">
-                                    <div className="space-y-3">
-                                        {filteredJobs.length === 0 ? (
-                                            <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground opacity-50">
-                                                <Boxes className="h-10 w-10 mb-2" />
-                                                <p className="text-xs italic">Nessuna commessa attiva in quest'area.</p>
-                                            </div>
-                                        ) : (
-                                            filteredJobs.map(job => (
-                                                <ODLPlanningCard 
-                                                    key={job.id} 
-                                                    job={job} 
-                                                    isReady={isJobReadyForProduction(job, dependsOnPrep)} 
-                                                    articles={cachedArticles}
-                                                    activeTab={activeTab}
-                                                    activeSubTab={activeSubTab}
-                                                    isSelected={selectedJobIds.includes(job.id)}
-                                                    onToggleSelect={() => toggleJobSelection(job.id)}
-                                                />
-                                            ))
-
-
-                                        )}
-                                    </div>
-                                </ScrollArea>
-                            </CardContent>
-                        </Card>
-                    )}
-
-                    {/* --- KANBAN BOARD (FULL WIDTH) --- */}
-                    {viewMode === 'kanban' && (
-                        <div className="h-[75vh]">
-                            <WeekKanbanBoard 
-                                jobOrders={rawTabJobs}
-                                articles={cachedArticles}
-                                snapshot={snapshot}
-                                activeTab={activeTab}
-                                activeSubTab={activeSubTab}
-                                currentWeekStart={startOfCurrentWeek}
-                                rawMaterials={cachedRawMaterials}
-                                mrpTimelines={mrpTimelines}
-                                onJobDrop={handleJobDrop}
-                                selectedJobIds={selectedJobIds}
-                                onToggleSelection={toggleJobSelection}
-                                onBatchSelection={setBatchSelection}
-                            />
-                        </div>
-                    )}
-
-                    {/* --- GANTT (RIGHT PANE) --- */}
-                    {(viewMode === 'gantt' || viewMode === 'split') && (
-                        <div className={cn("flex flex-col gap-4", viewMode === 'split' ? "xl:col-span-8" : "h-full")}>
-                           <GanttBoard 
-                             jobOrders={filteredJobs} 
-                             operators={focusedOperators} 
-                             assignments={data?.assignments || []} 
-                             settings={cachedSettings as any || {}} 
-                             articles={cachedArticles}
-                             timelineStartProp={currentDate}
-                           />
-                        </div>
-                    )}
-                </div>
-            </Tabs>
-        </div>
-    );
-}
-
-function ListCheckIcon() {
-    return <LayoutGrid className="h-4 w-4 text-primary" />;
-}
-
-function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab, isSelected, onToggleSelect }: { 
-    job: JobOrder, 
-    isReady: boolean, 
-    articles: Article[], 
-    activeTab: string, 
-    activeSubTab: string | null,
-    isSelected: boolean,
-    onToggleSelect: () => void
-}) {
-    const totalPhases = job.phases?.length || 1;
-    const completedPhases = job.phases?.filter((p: any) => p.status === 'completed').length || 0;
-    const progress = (completedPhases / totalPhases) * 100;
-
-    // Calculate hours for the relevant phases in this macroarea/dept
-    const { hours, isIpothesis } = useMemo(() => {
-        if (!job.details) return { hours: 0, isIpothesis: false };
-        const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase());
+    const handleDragEnd = (result: DropResult) => {
+        if (!result.destination) return;
+        const jobId = result.draggableId;
+        const destId = result.destination.droppableId;
         
-        let hasUsedFallback = false;
-        if (!article || !article.phaseTimes) hasUsedFallback = true;
+        if (destId === 'BACKLOG') return; // Ritorno al backlog non ancora implementato lato server
 
-        const relevantPhases = (job.phases || []).filter((p: any) => {
-            if (activeTab === 'PREPARAZIONE') return p.type === 'preparation';
-            if (activeTab === 'QLTY_PACK') return p.type === 'quality' || p.type === 'packaging';
-            if (activeTab === 'PRODUZIONE') {
-                if (!activeSubTab) return p.type === 'production';
-                return p.type === 'production' && job.department === activeSubTab;
-            }
+        // Dest format: "DEPT_ID|ISO_DATE"
+        const [deptId, dateStr] = destId.split('|');
+        if (dateStr) {
+            handleJobMove(jobId, dateStr, deptId);
+        }
+    };
 
-            return false;
-        });
+    const handleStatusAdvance = async (jobId: string) => {
+        const res = await advanceJobStatus(jobId);
+        if (res.success) {
+            toast({ title: 'Stato avanzato', description: `Commessa ora in ${res.newStatus}` });
+            const updatedJobs = boardData.jobOrders.map(j => 
+                j.id === jobId ? { ...j, status: res.newStatus } : j
+            );
+            const updatedUnassigned = boardData.unassignedJobs.map(j => 
+                j.id === jobId ? { ...j, status: res.newStatus } : j
+            );
+            setBoardData({ ...boardData, jobOrders: updatedJobs, unassignedJobs: updatedUnassigned });
+        }
+    };
 
-        const totalMinutes = relevantPhases.reduce((acc: number, phase: any) => {
-            const phaseTimeObj = article?.phaseTimes?.[phase.name];
-            if (!phaseTimeObj) hasUsedFallback = true;
-            const time = phaseTimeObj?.expectedMinutesPerPiece || 10;
-            return acc + (time * job.qta);
-        }, 0);
+    const handleLoanSelect = async (operatorId: string) => {
+        if (!selectedSlot) return;
+        const { deptId, week, year } = selectedSlot;
+        
+        const key = `${year}_${week}_${deptId}`;
+        const currentIds = boardData.allocations[key] || [];
+        const newIds = [...new Set([...currentIds, operatorId])];
+        
+        const res = await saveWeeklyAllocation(year, week, deptId, newIds, uid);
+        if (res.success) {
+            setBoardData(prev => ({
+                ...prev,
+                allocations: {
+                    ...prev.allocations,
+                    [key]: newIds
+                }
+            }));
+            setIsLoanDialogOpen(false);
+            toast({ title: "Incarico salvato", description: "Operatore aggiunto per questa settimana." });
+        }
+    };
 
-        return { hours: totalMinutes / 60, isIpothesis: hasUsedFallback };
-    }, [job, articles, activeTab, activeSubTab]);
+    if (loading && !boardData.jobOrders.length && !boardData.unassignedJobs.length) return (
+        <div className="flex flex-col items-center justify-center p-24 space-y-4 h-[60vh]">
+            <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+            <p className="text-sm font-black uppercase tracking-widest text-slate-400 animate-pulse">Accessing Weekly Capacity Grid...</p>
+        </div>
+    );
 
     return (
-        <Card className={cn(
-            "hover:shadow-lg transition-all cursor-pointer border-l-4 group bg-white",
-            isSelected ? "border-l-blue-600 ring-2 ring-blue-100" : "border-l-primary"
-        )}>
-            <CardContent className="p-3 space-y-3">
-                <div className="flex justify-between items-start">
-                    <div className="flex items-start gap-2">
-                        <input 
-                            type="checkbox" 
-                            checked={isSelected} 
-                            onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
-                            className="mt-1 h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        />
-                        <div className="space-y-0.5">
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm font-black text-slate-800">{job.ordinePF}</span>
-                                <Badge variant="outline" className="text-[9px] h-4 leading-none bg-slate-50 font-mono">{job.numeroODLInterno || '-'}</Badge>
+        <DragDropContext onDragEnd={handleDragEnd}>
+            <div className="space-y-6 flex flex-col h-full min-h-[calc(100vh-10rem)] p-4 md:p-8 bg-slate-50">
+                {/* Header Master */}
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white p-8 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border-2 border-slate-100">
+                    <div className="flex items-center gap-6">
+                        <div className="h-16 w-16 bg-blue-700 rounded-3xl flex items-center justify-center text-white shadow-2xl shadow-blue-200">
+                            <Zap className="h-8 w-8" />
+                        </div>
+                        <div>
+                            <h1 className="text-4xl font-black tracking-tighter uppercase italic text-slate-900">Power-Planning V2</h1>
+                            <div className="flex items-center gap-3 mt-1.5">
+                                <Badge variant="secondary" className="bg-emerald-600 text-white font-black uppercase text-[10px] tracking-[0.1em] px-3 py-0.5 rounded-full">Live Factory Core</Badge>
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Capacità Vasi Comunicanti</span>
                             </div>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase">{job.details} — {job.cliente}</p>
                         </div>
                     </div>
-                    {isReady ? (
-                        <div className="bg-emerald-500 text-white rounded-full p-1 shadow-sm"><CheckCircle2 className="h-4 w-4" /></div>
+
+                    <div className="flex items-center gap-4">
+                        <Button 
+                            variant="ghost" 
+                            className="h-14 px-6 rounded-2xl bg-slate-900 text-white hover:bg-blue-600 transition-all font-black text-xs uppercase tracking-widest gap-3 shadow-lg"
+                            onClick={() => setIsBacklogOpen(true)}
+                        >
+                            <LayoutGrid className="h-5 w-5" />
+                            Commesse da Pianificare
+                            <Badge className="bg-blue-500 text-white border-none ml-2">{boardData.unassignedJobs.length}</Badge>
+                        </Button>
+
+                        <div className="h-10 w-px bg-slate-200 mx-2" />
+
+                        <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border-2 border-slate-200 shadow-inner">
+                            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl hover:bg-white" onClick={handlePrevWeek}><ChevronLeft className="h-6 w-6" /></Button>
+                            <div className="px-6 font-black text-sm text-slate-900 min-w-[220px] text-center uppercase tracking-tighter">
+                                SETT. {getWeek(currentDate, { weekStartsOn: 1 })} — {currentDate.getFullYear()}
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl hover:bg-white" onClick={handleNextWeek}><ChevronRight className="h-6 w-6" /></Button>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-2xl border-2 border-slate-100">
+                            <Button 
+                                variant={activeView === 'board' ? 'default' : 'ghost'} 
+                                size="sm" 
+                                className={cn("h-10 font-black text-[10px] uppercase px-6 rounded-xl transition-all", activeView === 'board' ? "bg-blue-700 shadow-lg shadow-blue-200" : "text-slate-400")}
+                                onClick={() => setActiveView('board')}
+                            >
+                                TABELLONE
+                            </Button>
+                            <Button 
+                                variant={activeView === 'console' ? 'default' : 'ghost'} 
+                                size="sm" 
+                                className={cn("h-10 font-black text-[10px] uppercase px-6 rounded-xl transition-all", activeView === 'console' ? "bg-blue-700 shadow-lg shadow-blue-200" : "text-slate-400")}
+                                onClick={() => setActiveView('console')}
+                            >
+                                CONSOLE MASTER
+                            </Button>
+                        </div>
+
+                        <Button 
+                            variant="outline" 
+                            size="icon"
+                            className="h-12 w-12 border-2 rounded-2xl hover:bg-blue-50 hover:border-blue-300 text-slate-400 hover:text-blue-600 transition-all shadow-sm"
+                            onClick={() => loadData(true)} 
+                            disabled={isRefreshing}
+                        >
+                            <RefreshCcw className={cn("h-6 w-6", isRefreshing && "animate-spin")} />
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Contenuto dinamico */}
+                <div className="flex-1">
+                    {activeView === 'board' ? (
+                        <WeeklyCapacityBoard 
+                            jobOrders={boardData.jobOrders}
+                            operators={cachedOperators}
+                            departments={cachedDepartments}
+                            articles={cachedArticles}
+                            allocations={boardData.allocations}
+                            currentDate={currentDate}
+                            onStatusAdvance={handleStatusAdvance}
+                            onManageAllocations={(deptId, week, year) => {
+                                setSelectedSlot({ deptId, week, year });
+                                setIsLoanDialogOpen(true);
+                            }}
+                        />
                     ) : (
-                        <div className="bg-amber-500/20 text-amber-600 rounded-full p-1"><Clock className="h-4 w-4" /></div>
+                        <MasterConsole 
+                            jobOrders={[...boardData.jobOrders, ...boardData.unassignedJobs]}
+                            articles={cachedArticles}
+                            onRefresh={() => loadData(true)}
+                        />
                     )}
                 </div>
 
-                <div className="flex items-center gap-4 text-[10px] font-bold text-muted-foreground">
-                    <div className="flex items-center gap-1"><Boxes className="h-3 w-3" /> QTA: {job.qta}</div>
-                    <div className="flex items-center gap-2 text-primary">
-                        <div className="flex items-center gap-1">
-                            <Timer className="h-3 w-3" /> {hours.toFixed(1)}h
-                        </div>
-                        {isIpothesis && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Badge variant="outline" className="h-4 px-1 bg-amber-50 text-amber-600 border-amber-200 text-[8px] animate-pulse">
-                                            TEMPO IPOTETICO
-                                        </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right">
-                                        <p className="text-[10px]">Tempi mancanti in anagrafica articolo. Usato valore di default (10m/pezzo).</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        )}
-                    </div>
-                    {job.dataConsegnaFinale && (
-                        <div className={cn("flex items-center gap-1", isReady ? "text-emerald-600" : "text-amber-600")}>
-                            <CalendarIcon className="h-3 w-3" /> {format(parseISO(job.dataConsegnaFinale), 'dd/MM')}
-                        </div>
-                    )}
-                </div>
+                {/* Drawer Backlog */}
+                <BacklogDrawer 
+                    isOpen={isBacklogOpen}
+                    onClose={() => setIsBacklogOpen(false)}
+                    unassignedJobs={boardData.unassignedJobs}
+                />
 
-                <div className="space-y-1.5">
-                    <div className="flex justify-between items-center text-[10px] font-bold">
-                        <span className="text-muted-foreground uppercase">Avanzamento</span>
-                        <span>{completedPhases}/{totalPhases} FASI</span>
-                    </div>
-                    <Progress value={progress} className="h-1.5 bg-slate-100" />
-                </div>
-            </CardContent>
-        </Card>
+                {selectedSlot && (
+                    <OperatorSkillLoanDialog 
+                        isOpen={isLoanDialogOpen}
+                        onClose={() => setIsLoanDialogOpen(false)}
+                        targetDept={selectedSlot.deptId}
+                        week={selectedSlot.week}
+                        year={selectedSlot.year}
+                        operators={cachedOperators}
+                        currentAllocations={boardData.allocations[`${selectedSlot.year}_${selectedSlot.week}_${selectedSlot.deptId}`] || []}
+                        onSelect={handleLoanSelect}
+                    />
+                )}
+            </div>
+        </DragDropContext>
     );
 }
-

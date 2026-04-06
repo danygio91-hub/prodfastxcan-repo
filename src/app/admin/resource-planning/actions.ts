@@ -378,14 +378,15 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
  * Aggiorna in tempo reale la data di assegnazione Kanban di una o più commesse,
  * abilitando la "Optimistic UI" nel Drag&Drop
  */
-export async function assignJobToDate(jobId: string, assignedDate: string | null) {
+export async function assignJobToDate(jobId: string, assignedDate: string | null, departmentId?: string) {
     try {
-        await adminDb.collection("jobOrders").doc(jobId).update({
+        const updateData: any = {
             assignedDate: assignedDate, // e.g. '2024-03-29' or null for 'unassigned'
-        });
-        // We do not revalidatePath here if the client relies on optimistic UI 
-        // to avoid heavy refetching during rapid drag&drops.
-        // It's up to the client to decide when to call refresh.
+        };
+        if (departmentId) {
+            updateData.department = departmentId;
+        }
+        await adminDb.collection("jobOrders").doc(jobId).update(updateData);
         return { success: true };
     } catch (e) {
         return { success: false, message: "Errore durante il salvataggio della data." };
