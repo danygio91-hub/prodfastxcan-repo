@@ -111,7 +111,7 @@ export interface JobOrder {
   problemType?: string;
   problemNotes?: string;
   problemReportedBy?: string;
-  status: 'planned' | 'production' | 'completed' | 'suspended' | 'paused' | 'shipped';
+  status: 'DA_INIZIARE' | 'IN_PREPARAZIONE' | 'PRONTO_PROD' | 'IN_PRODUZIONE' | 'FINE_PRODUZIONE' | 'QLTY_PACK' | 'CHIUSO' | 'suspended' | 'paused' | 'planned' | 'production' | 'completed' | 'in-progress' | 'shipped';
   workCycleId?: string;
   billOfMaterials?: JobBillOfMaterialsItem[];
   numeroODLInterno?: string | null;

@@ -20,7 +20,7 @@ async function deleteAllFromCollection(collectionName: string) {
 export async function resetAllJobOrders(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobsSnapshot = await adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended"]).get();
+    const jobsSnapshot = await adminDb.collection("jobOrders").where("status", "in", ["DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", "CHIUSO", "paused", "suspended", "planned", "production"] as any[]).get();
     const jobsBatch = adminDb.batch();
     jobsSnapshot.forEach(doc => jobsBatch.delete(doc.ref));
     await jobsBatch.commit();
@@ -159,7 +159,7 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
   try {
     await ensureAdmin(uid);
     const batch = adminDb.batch();
-    const jobsSnapshot = await adminDb.collection("jobOrders").where("status", "in", ["production", "suspended"]).get();
+    const jobsSnapshot = await adminDb.collection("jobOrders").where("status", "in", ["IN_PRODUZIONE", "PRONTO_PROD", "IN_PREPARAZIONE", "production", "suspended"] as any[]).get();
     jobsSnapshot.forEach(docSnap => {
       const job = docSnap.data() as JobOrder;
       const updatedPhases = (job.phases || []).map(phase => ({
@@ -170,7 +170,7 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
         materialReady: phase.type === 'preparation',
       }));
       batch.update(docSnap.ref, {
-        status: 'planned',
+        status: 'DA_INIZIARE',
         overallStartTime: null,
         overallEndTime: null,
         phases: updatedPhases,

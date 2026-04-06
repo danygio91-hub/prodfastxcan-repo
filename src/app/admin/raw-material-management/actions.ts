@@ -392,7 +392,7 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         mq = mq.limit(50);
     }
     const [jobsSnap, materialsSnap, commitmentsSnap, posSnap, settings] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
+        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"] as any[]).get(),
         mq.get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get(),
@@ -503,7 +503,7 @@ export type CommitmentDetail = { jobId: string; type: 'PRODUZIONE' | 'MANUALE'; 
 export async function getMaterialCommitmentDetails(materialCode: string): Promise<CommitmentDetail[]> {
     const norm = materialCode.toLowerCase().trim();
     const [jobsSnap, commitmentsSnap, articlesSnap, materialsSnap, settings] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
+        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"] as any[]).get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('articles').get(),
         adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get(),
@@ -821,7 +821,7 @@ export type ReorderAlert = {
 export async function getReorderAlerts(): Promise<ReorderAlert[]> {
     const [materialsSnap, jobsSnap, commitmentsSnap, articlesSnap, settings] = await Promise.all([
         adminDb.collection("rawMaterials").get(),
-        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
+        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"] as any[]).get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('articles').get(),
         getGlobalSettings(),

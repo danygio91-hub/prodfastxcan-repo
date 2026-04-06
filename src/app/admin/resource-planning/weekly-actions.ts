@@ -92,13 +92,13 @@ export async function migrateJobOrderStatuses(uid: string) {
     try {
         await ensureAdmin(uid);
         const jobOrdersSnap = await adminDb.collection("jobOrders")
-            .where("status", "in", ["planned", "production", "in-progress", "completed", "suspended", "paused"])
+            .where("status", "in", ["planned", "production", "in-progress", "completed", "suspended", "paused"] as any[])
             .get();
         
         if (jobOrdersSnap.empty) return { success: true, count: 0 };
 
         const batch = adminDb.batch();
-        const mapping: Record<string, string> = {
+        const mapping: Record<string, any> = {
             "planned": "DA_INIZIARE",
             "production": "IN_PRODUZIONE",
             "in-progress": "IN_PRODUZIONE",
@@ -155,14 +155,14 @@ export async function getWeeklyBoardData(year: number, week: number) {
     const activeStatuses = [
         'DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK',
         'planned', 'production', 'in-progress', 'completed', 'suspended', 'paused'
-    ];
+    ] as any[];
     
     const jobOrdersSnap = await adminDb.collection("jobOrders")
         .where("status", "in", activeStatuses)
         .get();
     
     const allJobs = jobOrdersSnap.docs.map(doc => ({ 
-        ...convertTimestampsToDates(doc.data()), 
+        ...convertTimestampsToDates(doc.data() as any), 
         id: doc.id 
     } as JobOrder));
 

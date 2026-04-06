@@ -970,7 +970,7 @@ export async function syncAllJobOrderCommitments(uid: string): Promise<{
         
         // 1. Recupera tutte le commesse aperte
         const jobsSnap = await adminDb.collection("jobOrders")
-            .where("status", "in", ["planned", "production", "suspended", "paused"])
+            .where("status", "in", ["planned", "production", "suspended", "paused"] as any[])
             .get();
         
         if (jobsSnap.empty) {

@@ -103,11 +103,11 @@ const JobTableRows = ({
     <>
       {data.map(j => {
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
-        const isPlanned = j.status === 'planned';
+        const isPlanned = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'planned'].includes(j.status as any);
         const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
         const effectivePrepDate = j.dataFinePreparazione || j.dataConsegnaFinale;
         const displayPrepDateText = effectivePrepDate ? format(parseISO(effectivePrepDate), "dd/MM/yyyy") : "Scegli...";
-        const isReadyBody = j.status === 'production' && isJobReadyForProduction(j);
+        const isReadyBody = (j.status === 'IN_PRODUZIONE' || (j.status as any) === 'production') && isJobReadyForProduction(j);
 
 
         const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
@@ -164,7 +164,7 @@ const JobTableRows = ({
             <TableCell>
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge>
-                {j.status === 'production' && (
+                {(j.status === 'IN_PRODUZIONE' || (j.status as any) === 'production') && (
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger>

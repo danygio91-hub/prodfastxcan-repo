@@ -103,7 +103,7 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         // --- AUTO-SYNC JOBS LISTENER ---
         try {
             const [jobsSnap, rawMaterialsSnap, globalSettings] = await Promise.all([
-                adminDb.collection("jobOrders").where("details", "==", docId).where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
+                adminDb.collection("jobOrders").where("details", "==", docId).where("status", "in", ["planned", "production", "suspended", "paused"] as any[]).get(),
                 adminDb.collection("rawMaterials").get(),
                 getGlobalSettings()
             ]);
