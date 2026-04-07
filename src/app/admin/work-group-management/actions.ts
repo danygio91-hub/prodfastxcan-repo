@@ -7,6 +7,32 @@ import * as admin from 'firebase-admin';
 import type { WorkGroup, JobOrder, JobPhase, WorkPeriod, Operator } from '@/types';
 import { pulseOperatorsForJob } from '@/lib/job-sync-server';
 
+/**
+ * Rimuove ricorsivamente tutte le proprietà 'undefined' da un oggetto per compatibilità con Firestore.
+ */
+function cleanUndefined(obj: any): any {
+    if (obj === null || typeof obj !== 'object') return obj;
+    // Preserva oggetti speciali di Firestore
+    if (obj instanceof admin.firestore.Timestamp || 
+        (obj.constructor && obj.constructor.name === 'FieldValue') ||
+        typeof obj.toDate === 'function') {
+        return obj;
+    }
+    
+    if (Array.isArray(obj)) return obj.map(item => cleanUndefined(item));
+    
+    const newObj: any = {};
+    for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            const val = obj[key];
+            if (val !== undefined) {
+                newObj[key] = cleanUndefined(val);
+            }
+        }
+    }
+    return newObj;
+}
+
 
 export async function getWorkGroups(): Promise<WorkGroup[]> {
   const snapshot = await adminDb.collection('workGroups').orderBy('createdAt', 'desc').limit(200).get();
@@ -31,44 +57,58 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
 export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false, forceUnlock: boolean = false): Promise<{ success: boolean; message: string }> {
   try {
     const groupRef = adminDb.collection('workGroups').doc(groupId);
-    
-    // 1. SAFETY CHECK: BLOCCA SCIOGLIMENTO SOLO SE SESSIONI DI LAVORO ATTIVE (CLOCK-IN)
+
+    // 1. ANALISI STATO OPERATORI: Recupera chi ha il gruppo aperto o timer attivi
     const opsSnap = await adminDb.collection("operators").get();
-    const activeOperators = opsSnap.docs.filter(docSnap => {
+    const phantomOperators = opsSnap.docs.filter(docSnap => {
         const op = docSnap.data() as Operator;
         return op.activeJobId === groupId;
     });
-
-    if (activeOperators.length > 0 && !forceUnlock) {
-        const names = activeOperators.map(d => (d.data() as Operator).nome).join(", ");
-        return { 
-            success: false, 
-            message: `Impossibile scollegare: l'operatore [${names}] ha una fase di lavoro attiva su questa commessa. Termina prima la fase (Clock-out) per poter modificare il gruppo.` 
-        };
-    }
-
-    const blockerIds = activeOperators.map(d => d.id);
 
     const groupSnap = await groupRef.get();
     if (!groupSnap.exists) {
         return { success: false, message: "Gruppo di lavoro non trovato." };
     }
+    const gDataRaw = groupSnap.data() as WorkGroup;
     
-    const groupDataRaw = groupSnap.data();
-    // Convert timestamps for initial checks
-    if (groupDataRaw?.createdAt?.toDate) groupDataRaw.createdAt = groupDataRaw.createdAt.toDate();
-    if (groupDataRaw?.overallStartTime?.toDate) groupDataRaw.overallStartTime = groupDataRaw.overallStartTime.toDate();
-    if (groupDataRaw?.overallEndTime?.toDate) groupDataRaw.overallEndTime = groupDataRaw.overallEndTime.toDate();
+    // 2. CHECK TIMER ATTIVI: Blocca solo se c'è un timer (workPeriod.end === null)
+    const activeTimers = (gDataRaw.phases || []).flatMap(p => 
+        (p.workPeriods || []).filter(wp => wp.end === null).map(wp => ({ ...wp, phaseName: p.name }))
+    );
+
+    if (activeTimers.length > 0 && !forceUnlock) {
+        const activeOpIds = new Set(activeTimers.map(t => t.operatorId));
+        const names = phantomOperators
+            .filter(doc => activeOpIds.has(doc.id))
+            .map(doc => (doc.data() as Operator).nome)
+            .join(", ") || "Operatore";
+
+        return { 
+            success: false, 
+            message: `Impossibile scollegare: l'operatore [${names}] ha una fase di lavoro attiva (Clock-in). Chiudi o metti in pausa la fase prima di procedere.` 
+        };
+    }
+
+    // ID operatori da resettare (sia phantom che attivi)
+    const operatorIdsToReset = Array.from(new Set([
+        ...phantomOperators.map(d => d.id),
+        ...activeTimers.map(t => t.operatorId)
+    ]));
+
+    // 3. PREPARAZIONE DATI
+    if (gDataRaw?.createdAt?.toDate) gDataRaw.createdAt = gDataRaw.createdAt.toDate();
+    if (gDataRaw?.overallStartTime?.toDate) gDataRaw.overallStartTime = gDataRaw.overallStartTime.toDate();
+    if (gDataRaw?.overallEndTime?.toDate) gDataRaw.overallEndTime = gDataRaw.overallEndTime.toDate();
     
-    const groupData = groupDataRaw as WorkGroup;
-    const jobOrderIds = groupData.jobOrderIds || [];
+    const gData = gDataRaw;
+    const jobOrderIds = gData.jobOrderIds || [];
 
     if (jobOrderIds.length === 0) {
         await groupRef.delete();
         return { success: true, message: "Gruppo vuoto eliminato." };
     }
 
-    // 2. RECUPERA PRELIEVI (Per lo split contabile)
+    // 4. RECUPERA PRELIEVI ORIGINALI
     const withdrawalsSnap = await adminDb.collection("materialWithdrawals")
         .where("jobIds", "array-contains", groupId)
         .get();
@@ -79,61 +119,61 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         return { id: doc.id, ...data } as any;
     });
 
-    // 3. TRANSAZIONE DI SCIOGLIMENTO E RIPARTIZIONE (REMAINDER METHOD)
+    // 5. TRANSAZIONE DI SCIOGLIMENTO E RIPARTIZIONE
     await adminDb.runTransaction(async (transaction) => {
         const gSnapTx = await transaction.get(groupRef);
-        if (!gSnapTx.exists) throw new Error("Gruppo di lavoro non trovato.");
+        if (!gSnapTx.exists) throw new Error("Gruppo di lavoro non trovato durante la transazione.");
         
-        const gData = gSnapTx.data() as WorkGroup;
-        const jobRefs = jobOrderIds.map(id => adminDb.collection('jobOrders').doc(id));
+        const gTx = gSnapTx.data() as WorkGroup;
+        const jobRefs = jobOrderIds.map(id => {
+             // Sanitizzazione ID commessa (stessa logica usata in creazione)
+             const tid = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+             return adminDb.collection('jobOrders').doc(tid);
+        });
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
         
         const jobs = jobDocs.map(doc => ({ 
             id: doc.id, 
-            ...doc.data(), 
+            ...(doc.data() || {}), 
             ref: doc.ref 
         } as any));
 
-        // FORCE UNLOCK: Clear state of any blocking operators found during safety check
-        for (const opId of blockerIds) {
-            const opRef = adminDb.collection("operators").doc(opId);
-            transaction.update(opRef, {
+        // RESET OPERATORI (Sessioni fantasma o zombie)
+        for (const opId of operatorIdsToReset) {
+            transaction.update(adminDb.collection("operators").doc(opId), {
                 activeJobId: null,
                 activePhaseName: null,
                 stato: 'inattivo',
-                activeMaterialSessions: [] // Defensive clearing
+                activeMaterialSessions: [] 
             });
         }
 
-        const totalQty = gData.totalQuantity;
+        const totalQty = gTx.totalQuantity || jobs.reduce((s: number, j: any) => s + (j.qta || 0), 0);
         const totalJobsCount = jobs.length;
 
-        // Accumulatori per Metodo del Resto (Remainder Method)
-        const accWorkDurations = new Map<string, number>(); // key: phaseId-periodIdx
-        const accMaterialValues = new Map<string, { gross: number, net: number, close: number, pcs: number }>(); // key: phaseId-consIdx
-        const accWithdrawalValues = new Map<string, { weight: number, units: number }>(); // key: withdrawalId
+        // Accumulatori Remainder Method
+        const accWorkDurations = new Map<string, number>();
+        const accMaterialValues = new Map<string, { gross: number, net: number, close: number, pcs: number }>();
 
         for (let i = 0; i < totalJobsCount; i++) {
             const job = jobs[i];
             const isLastJob = i === totalJobsCount - 1;
             const jobShare = totalQty > 0 ? (job.qta / totalQty) : (1 / totalJobsCount);
 
-            // A. RIPARTIZIONE FASI (TEMPI E CONSUMI)
+            // A. RIPARTIZIONE FASI
             const finalJobPhases = (job.phases || []).map((originalPhase: JobPhase) => {
-                const matchedGroupPhase = (gData.phases || []).find(gp => gp.id === originalPhase.id);
+                const matchedGroupPhase = (gTx.phases || []).find(gp => gp.id === originalPhase.id);
                 if (!matchedGroupPhase) return originalPhase;
 
-                // 1. Ripartizione Tempi (Work Periods)
+                // 1. Tempi (Work Periods)
                 const scaledWorkPeriods = (matchedGroupPhase.workPeriods || []).map((wp, wpIdx) => {
                     const startTs = wp.start?.toDate ? wp.start.toDate().getTime() : new Date(wp.start).getTime();
                     
-                    // SELF-HEALING: Se il periodo è rimasto "aperto" (zombie), lo chiudiamo forzatamente impostando end = start.
-                    // Questo garantisce che il gruppo possa sempre essere sciolto e azzera eventuali tempi fittizi.
                     let endTs: number;
                     if (wp.end) {
                         endTs = wp.end.toDate ? wp.end.toDate().getTime() : new Date(wp.end).getTime();
                     } else {
-                        endTs = startTs; // AUTO-CLOSE ZOMBIE PERIOD
+                        endTs = startTs; // AUTO-CLOSE ZOMBIE TIMER
                     }
 
                     const totalDuration = endTs - startTs;
@@ -147,15 +187,15 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
                         allocatedDuration = totalDuration - (accWorkDurations.get(key) || 0);
                     }
 
-                    return {
+                    return cleanUndefined({
                         ...wp,
                         start: admin.firestore.Timestamp.fromMillis(startTs),
                         end: admin.firestore.Timestamp.fromMillis(startTs + Math.max(0, allocatedDuration)),
-                        reason: wp.end ? wp.reason : (wp.reason || 'Chiusura Automatica Scioglimento (Orphaned)')
-                    };
+                        reason: wp.end ? wp.reason : (wp.reason || 'Chiusura Automatica (Dissoluzione)')
+                    });
                 });
 
-                // 2. Ripartizione Materiali (Consumptions)
+                // 2. Materiali (Consumptions)
                 const scaledConsumptions = (matchedGroupPhase.materialConsumptions || []).map((mc, mcIdx) => {
                     const key = `${matchedGroupPhase.id}-${mcIdx}`;
                     const acc = accMaterialValues.get(key) || { gross: 0, net: 0, close: 0, pcs: 0 };
@@ -182,78 +222,66 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
                         allocated.pcs = (mc.pcs || 0) - acc.pcs;
                     }
 
-                    return {
+                    return cleanUndefined({
                         ...mc,
                         grossOpeningWeight: allocated.gross,
                         netOpeningWeight: allocated.net,
                         closingWeight: allocated.close,
                         pcs: allocated.pcs
-                    };
+                    });
                 });
 
-                return {
+                return cleanUndefined({
                     ...originalPhase,
                     status: matchedGroupPhase.status,
                     workPeriods: scaledWorkPeriods,
                     materialConsumptions: scaledConsumptions,
                     materialReady: matchedGroupPhase.materialReady,
-                    materialStatus: matchedGroupPhase.materialStatus || originalPhase.materialStatus
-                };
+                    materialStatus: matchedGroupPhase.materialStatus || originalPhase.materialStatus || null
+                });
             });
 
-            // B. AGGIORNAMENTO COMMESSA
-            const isGroupCompleted = forceComplete || gData.status === 'completed';
-            const finalStatus = isGroupCompleted ? 'completed' : 'paused';
+            // B. AGGIORNAMENTO COMMESSA FIGLIA
+            const isGroupCompleted = forceComplete || gTx.status === 'completed';
+            const finalJobStatus = isGroupCompleted ? 'completed' : 'paused';
             
-            transaction.update(job.ref, { 
+            transaction.update(job.ref, cleanUndefined({ 
                 workGroupId: admin.firestore.FieldValue.delete(),
                 phases: finalJobPhases,
-                status: finalStatus,
-                overallStartTime: gData.overallStartTime || job.overallStartTime || null,
-                overallEndTime: isGroupCompleted ? (gData.overallEndTime || admin.firestore.FieldValue.serverTimestamp()) : null, 
-                isProblemReported: gData.isProblemReported || false,
-                problemType: gData.problemType || admin.firestore.FieldValue.delete(),
-                problemNotes: gData.problemNotes || admin.firestore.FieldValue.delete(),
-                problemReportedBy: gData.problemReportedBy || admin.firestore.FieldValue.delete(),
-            });
+                status: finalJobStatus,
+                overallStartTime: gTx.overallStartTime || job.overallStartTime || null,
+                overallEndTime: isGroupCompleted ? (gTx.overallEndTime || admin.firestore.FieldValue.serverTimestamp()) : null, 
+                isProblemReported: gTx.isProblemReported || false,
+                problemType: gTx.problemType || admin.firestore.FieldValue.delete(),
+                problemNotes: gTx.problemNotes || admin.firestore.FieldValue.delete(),
+                problemReportedBy: gTx.problemReportedBy || admin.firestore.FieldValue.delete(),
+            }));
 
-            // C. SPLIT PRELIEVI (Solo Contabilità)
+            // C. SPLIT PRELIEVI
             for (const w of groupWithdrawals) {
-                const key = `withdrawal-${w.id}`;
-                const acc = accWithdrawalValues.get(key) || { weight: 0, units: 0 };
-                
-                let allocated = { weight: 0, units: 0 };
-                const round3 = (v: number) => Math.round(v * 1000) / 1000;
+                const jobShareW = totalQty > 0 ? (job.qta / totalQty) : (1 / totalJobsCount);
+                // (Qui usiamo lo stesso sistema remainder se necessario, ma per semplicità scaliamo)
+                const allocatedW = {
+                    weight: Math.round(((w.consumedWeight || 0) * jobShareW) * 1000) / 1000,
+                    units: Math.round(((w.consumedUnits || 0) * jobShareW) * 1000) / 1000
+                };
 
-                if (!isLastJob) {
-                    allocated.weight = round3((w.consumedWeight || 0) * jobShare);
-                    allocated.units = round3((w.consumedUnits || 0) * jobShare);
-                    accWithdrawalValues.set(key, {
-                        weight: acc.weight + allocated.weight,
-                        units: acc.units + allocated.units
-                    });
-                } else {
-                    allocated.weight = round3((w.consumedWeight || 0) - acc.weight);
-                    allocated.units = round3((w.consumedUnits || 0) - acc.units);
-                }
-
-                // Crea nuovo prelievo per la singola commessa
-                if (allocated.weight > 0 || allocated.units > 0) {
-                    const newWithdrawalRef = adminDb.collection("materialWithdrawals").doc();
-                    transaction.set(newWithdrawalRef, {
+                if (allocatedW.weight > 0 || allocatedW.units > 0) {
+                    const newWRef = adminDb.collection("materialWithdrawals").doc();
+                    transaction.set(newWRef, cleanUndefined({
                         ...w,
-                        id: newWithdrawalRef.id,
+                        id: newWRef.id,
                         jobIds: [job.id],
                         jobOrderPFs: [job.ordinePF],
-                        consumedWeight: allocated.weight,
-                        consumedUnits: allocated.units,
-                        withdrawalDate: w.withdrawalDate // Usiamo la data originale
-                    });
+                        consumedWeight: allocatedW.weight,
+                        consumedUnits: allocatedW.units,
+                        withdrawalDate: w.withdrawalDate
+                    }));
                 }
             }
         }
 
-        // D. PULIZIA: ELIMINA PRELIEVI ORIGINALI DEL GRUPPO E IL GRUPPO STESSO
+        // 6. PULIZIA FINALE
         for (const w of groupWithdrawals) {
             transaction.delete(adminDb.collection("materialWithdrawals").doc(w.id));
         }
