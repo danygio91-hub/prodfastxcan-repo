@@ -380,9 +380,8 @@ export default function ScanJobPage() {
     if (result.success) {
         toast({ title: force ? "Sblocco Forzato Completato" : "Gruppo Scollegato", description: "Le commesse sono tornate individuali." });
         
-        // RE-SET THE SESSION to the first child job (or stay on the current one if it was already a child)
-        const nextId = result.childJobIds && result.childJobIds.length > 0 ? result.childJobIds[0] : null;
-        setActiveJobId(nextId);
+        // Return to scan screen as requested by user to avoid operator confusion
+        setActiveJobId(null);
         
         setIsAdminForceDialogOpen(false);
     } else {
