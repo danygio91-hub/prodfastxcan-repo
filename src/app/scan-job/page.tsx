@@ -379,7 +379,11 @@ export default function ScanJobPage() {
     const result = await dissolveWorkGroup(activeJob.workGroupId, false, force);
     if (result.success) {
         toast({ title: force ? "Sblocco Forzato Completato" : "Gruppo Scollegato", description: "Le commesse sono tornate individuali." });
-        setActiveJobId(null);
+        
+        // RE-SET THE SESSION to the first child job (or stay on the current one if it was already a child)
+        const nextId = result.childJobIds && result.childJobIds.length > 0 ? result.childJobIds[0] : null;
+        setActiveJobId(nextId);
+        
         setIsAdminForceDialogOpen(false);
     } else {
         // If it's an operator block and user is admin, show the force option

@@ -83,6 +83,8 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
                   status: jobWithDates.status,
                   workCycleId: jobWithDates.workCycleId,
                   workGroupId: docSnap.id,
+                  jobOrderIds: jobWithDates.jobOrderIds || [],
+                  jobOrderPFs: jobWithDates.jobOrderPFs || [],
                   overallStartTime: jobWithDates.overallStartTime,
                   overallEndTime: jobWithDates.overallEndTime,
                   isProblemReported: jobWithDates.isProblemReported,

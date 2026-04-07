@@ -54,8 +54,11 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
 }
 
 
-export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false, forceUnlock: boolean = false): Promise<{ success: boolean; message: string }> {
+export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false, forceUnlock: boolean = false): Promise<{ success: boolean; message: string; childJobIds?: string[] }> {
   try {
+    if (!groupId) {
+        return { success: false, message: "ID Gruppo mancante o non valido." };
+    }
     const groupRef = adminDb.collection('workGroups').doc(groupId);
 
     // 1. ANALISI STATO OPERATORI: Recupera chi ha il gruppo aperto o timer attivi
@@ -294,7 +297,7 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     
     await pulseOperatorsForJob([groupId, ...jobOrderIds]);
 
-    return { success: true, message: `Gruppo sciolto e dati ripartiti correttamente.` };
+    return { success: true, message: `Gruppo sciolto e dati ripartiti correttamente.`, childJobIds: jobOrderIds };
 
   } catch (error) {
     console.error("Error dissolving work group:", error);
