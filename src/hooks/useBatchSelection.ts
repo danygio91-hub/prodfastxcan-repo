@@ -9,6 +9,7 @@ interface UseBatchSelectionProps {
   onLotMetadataFound?: (metadata: any) => void;
   quantityFieldName?: string;
   packagingFieldName?: string;
+  autoFillQuantity?: boolean;
 }
 
 export function useBatchSelection({
@@ -16,7 +17,8 @@ export function useBatchSelection({
   materialId,
   onLotMetadataFound,
   quantityFieldName = 'quantity',
-  packagingFieldName = 'packagingId'
+  packagingFieldName = 'packagingId',
+  autoFillQuantity = true
 }: UseBatchSelectionProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [lotAvailability, setLotAvailability] = useState<LotInfo | null>(null);
@@ -54,7 +56,9 @@ export function useBatchSelection({
         const net = matched?.available ?? (lottoData.netWeight || 0);
         const expectedGross = net + tare;
         
-        form.setValue(quantityFieldName, Number(expectedGross.toFixed(3)));
+        if (autoFillQuantity) {
+          form.setValue(quantityFieldName, Number(expectedGross.toFixed(3)));
+        }
         setCalculatedNet(net);
 
         if (onLotMetadataFound) onLotMetadataFound(lottoData);
@@ -69,7 +73,7 @@ export function useBatchSelection({
       // Wait a bit to avoid flickering if needed, or just set to false
       setIsLoading(false);
     }
-  }, [materialId, form, packagingFieldName, quantityFieldName, onLotMetadataFound]);
+  }, [materialId, form, packagingFieldName, quantityFieldName, onLotMetadataFound, autoFillQuantity]);
 
   // Handle lotto changes (debounced)
   useEffect(() => {

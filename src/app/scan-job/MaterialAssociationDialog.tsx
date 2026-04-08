@@ -100,7 +100,8 @@ export default function MaterialAssociationDialog({
       form,
       materialId: selectedMaterial?.id,
       quantityFieldName: isBobina ? 'openingWeightManual' : 'quantityToWithdraw',
-      packagingFieldName: 'packagingId'
+      packagingFieldName: 'packagingId',
+      autoFillQuantity: selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg'
   });
 
   const isKgMode = selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';

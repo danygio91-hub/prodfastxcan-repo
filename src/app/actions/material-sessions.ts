@@ -188,7 +188,8 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: usedLotto,
                 isFinal: isFinished,
-                sessionId: sessionId
+                sessionId: sessionId,
+                source: 'session'
             });
 
             transaction.update(sessionRef, { status: 'closed' });

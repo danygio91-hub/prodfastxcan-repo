@@ -103,7 +103,8 @@ export async function logManualWithdrawal(
             withdrawalDate: admin.firestore.Timestamp.now(),
             notes: notes || null,
             lotto: usedLotto,
-            isFinal: isFinished
+            isFinal: isFinished,
+            source: 'manual'
         });
     });
 

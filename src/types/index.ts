@@ -111,7 +111,7 @@ export interface JobOrder {
   problemType?: string;
   problemNotes?: string;
   problemReportedBy?: string;
-  status: 'DA_INIZIARE' | 'IN_PREPARAZIONE' | 'PRONTO_PROD' | 'IN_PRODUZIONE' | 'FINE_PRODUZIONE' | 'QLTY_PACK' | 'CHIUSO' | 'suspended' | 'paused' | 'planned' | 'production' | 'completed' | 'in-progress' | 'shipped';
+  status: 'DA_INIZIARE' | 'IN_PREPARAZIONE' | 'PRONTO_PROD' | 'IN_PRODUZIONE' | 'FINE_PRODUZIONE' | 'QLTY_PACK' | 'CHIUSO' | 'suspended' | 'paused' | 'planned' | 'production' | 'completed' | 'in-progress' | 'shipped' | 'IN_ATTESA';
   workCycleId?: string;
   billOfMaterials?: JobBillOfMaterialsItem[];
   numeroODLInterno?: string | null;
@@ -350,6 +350,8 @@ export interface MaterialWithdrawal {
   isDeclared?: boolean;
   declaredAt?: string;
   status?: 'pending' | 'completed' | 'cancelled';
+  sessionId?: string;
+  source?: 'manual' | 'session' | 'production' | string;
 }
 
 export type ProductionProblemType = string;

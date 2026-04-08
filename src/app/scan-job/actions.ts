@@ -633,7 +633,8 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 operatorId: opId,
                 withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: usedLotto,
-                isFinal: isFinished // Flag informativo
+                isFinal: isFinished, // Flag informativo
+                source: 'production'
             });
         });
         return { success: true, message: isFinished ? "Materiale segnato come esaurito e magazzino azzerato." : "Sessione chiusa e magazzino aggiornato." };
@@ -712,7 +713,8 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 operatorId,
                 withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: usedLotto,
-                isFinal: isFinished
+                isFinal: isFinished,
+                source: 'production'
             });
         });
         return { success: true, message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato." };

@@ -314,6 +314,15 @@ export default function ReportsClientPage({
 
   const withdrawalGroups = Object.keys(filteredAndGroupedWithdrawals);
   const reportMetadata = operatorsReport[0] || {};
+  
+  const getWithdrawalProvenance = (w: EnrichedMaterialWithdrawal) => {
+    if (w.source === 'session' || w.sessionId) return { label: 'Sessione Materiale', color: 'text-blue-400' };
+    if (w.source === 'manual' || w.jobOrderPFs.includes('SCARICO_MANUALE') || (w.jobIds && w.jobIds.length === 0)) return { label: 'Scarico Manuale', color: 'text-orange-400' };
+    if (w.source === 'production') return { label: 'Scarico Produzione', color: 'text-emerald-400' };
+    return { label: 'Produzione', color: 'text-muted-foreground' };
+  };
+
+  const getFilteredJobs = (pfs: string[]) => (pfs || []).filter(pf => pf !== 'SCARICO_MANUALE');
 
   return (
       <div className="space-y-6">
@@ -663,7 +672,28 @@ export default function ReportsClientPage({
                                                                     aria-label={`Seleziona prelievo ${w.id}`}
                                                                     />
                                                                 </TableCell>
-                                                                <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
+                                                                 <TableCell className="py-4">
+                                                                    <div className="flex flex-col gap-1.5">
+                                                                        <span className={cn("text-[10px] uppercase font-bold tracking-wider", getWithdrawalProvenance(w).color)}>
+                                                                            {getWithdrawalProvenance(w).label}
+                                                                        </span>
+                                                                        <div className="flex flex-wrap gap-1">
+                                                                            {getFilteredJobs(w.jobOrderPFs).length > 0 ? (
+                                                                                getFilteredJobs(w.jobOrderPFs).map(pf => (
+                                                                                    <Badge 
+                                                                                        key={pf} 
+                                                                                        variant="secondary" 
+                                                                                        className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] px-2 py-0 h-5 border-none rounded-full font-mono"
+                                                                                    >
+                                                                                        {pf}
+                                                                                    </Badge>
+                                                                                ))
+                                                                            ) : (
+                                                                                <span className="text-[10px] text-muted-foreground italic">Libero</span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                 </TableCell>
                                                                 <TableCell>{w.materialCode}</TableCell>
                                                                 <TableCell className="font-mono text-[10px]">{w.lotto || '-'}</TableCell>
                                                                 <TableCell>

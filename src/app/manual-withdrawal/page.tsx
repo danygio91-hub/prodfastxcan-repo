@@ -104,7 +104,8 @@ export default function ManualWithdrawalPage() {
       form,
       materialId: scannedMaterial?.id,
       quantityFieldName: 'quantity',
-      packagingFieldName: 'packagingId'
+      packagingFieldName: 'packagingId',
+      autoFillQuantity: scannedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg'
   });
 
 

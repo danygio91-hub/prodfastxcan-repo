@@ -31,6 +31,7 @@ import {
   createMultipleODLs, cancelODL, updateJobOrderCycle, saveManualJobOrder, markJobAsPrinted,
   updateJobOrderDeliveryDate, updateJobOrderPrepDate
 } from './actions';
+import { emergencyRestoreStagingArea } from '../data-healing/actions';
 import { getArticles } from '../article-management/actions';
 import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -103,11 +104,12 @@ const JobTableRows = ({
     <>
       {data.map(j => {
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
-        const isPlanned = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'planned'].includes(j.status as any);
+        const isPlanned = ['planned', 'IN_ATTESA'].includes(j.status as any);
         const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
         const effectivePrepDate = j.dataFinePreparazione || j.dataConsegnaFinale;
         const displayPrepDateText = effectivePrepDate ? format(parseISO(effectivePrepDate), "dd/MM/yyyy") : "Scegli...";
-        const isReadyBody = (j.status === 'IN_PRODUZIONE' || (j.status as any) === 'production') && isJobReadyForProduction(j);
+        const isInProductionGrouping = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK'].includes(j.status as any);
+        const isReadyBody = isInProductionGrouping && isJobReadyForProduction(j);
 
 
         const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
@@ -164,7 +166,7 @@ const JobTableRows = ({
             <TableCell>
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge>
-                {(j.status === 'IN_PRODUZIONE' || (j.status as any) === 'production') && (
+                {isInProductionGrouping && (
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger>
@@ -593,6 +595,24 @@ export default function DataManagementClientPage({
           <p className="text-muted-foreground">Analisi MRP e pianificazione produzione.</p>
         </div>
         <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={async () => {
+              if (!confirm("Sei sicuro di voler ripristinare le commesse non avviate in Sala d'Attesa?")) return;
+              const res = await emergencyRestoreStagingArea();
+              if (res.success) {
+                toast({ title: "Successo", description: res.message });
+                router.refresh();
+              } else {
+                toast({ title: "Errore", description: res.message, variant: "destructive" });
+              }
+            }}
+            className="text-red-500 hover:text-red-700 border-red-200 hover:border-red-500"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Ripristina Filtri
+          </Button>
           <input type="file" ref={fileInputRef} onChange={async (e) => {
             const file = e.target.files?.[0]; if (!file) return; setIsImporting(true);
             try {

@@ -9,6 +9,61 @@ import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { syncJobBOMItems } from '@/lib/inventory-utils';
 import { revalidatePath } from 'next/cache';
 
+export async function emergencyRestoreStagingArea(): Promise<{ success: boolean; message: string; count: number; completedCount: number }> {
+    try {
+        const jobsSnap = await adminDb.collection("jobOrders").get();
+        let planCount = 0;
+        let completedCount = 0;
+        let batch = adminDb.batch();
+        let operationsInBatch = 0;
+        
+        const factoryStates = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'production', 'suspended', 'paused', 'shipped', 'closed', 'completed'];
+        const activeStates = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'production', 'suspended', 'paused'];
+        
+        for (const doc of jobsSnap.docs) {
+            const job = doc.data() as JobOrder;
+            
+            // 1. AUTO-COMPLETION logic
+            // If ALL phases are completed or skipped AND status is still active, move to CHIUSO
+            const allPhasesDone = job.phases && job.phases.length > 0 && job.phases.every(p => p.status === 'completed' || p.status === 'skipped');
+            if (activeStates.includes(job.status as string) && (allPhasesDone || job.overallEndTime)) {
+                batch.update(doc.ref, { status: 'CHIUSO' });
+                completedCount++;
+                operationsInBatch++;
+            }
+            // 2. STAGING RESTORATION logic
+            // If in an active state but NO ODL date, move back to planned
+            else if (activeStates.includes(job.status as string) && !job.odlCreationDate) {
+                batch.update(doc.ref, { status: 'planned' });
+                planCount++;
+                operationsInBatch++;
+            }
+            
+            // Firestore batch limit is 500
+            if (operationsInBatch >= 450) {
+                await batch.commit();
+                batch = adminDb.batch();
+                operationsInBatch = 0;
+            }
+        }
+        
+        if (operationsInBatch > 0) {
+            await batch.commit();
+        }
+        
+        revalidatePath('/admin/data-management');
+        return { 
+            success: true, 
+            message: `Ripristino completato: ${planCount} in Sala d'Attesa, ${completedCount} spostate in Conclusi.`, 
+            count: planCount,
+            completedCount
+        };
+    } catch (error) {
+        console.error("Emergency restoration error:", error);
+        return { success: false, message: "Errore durante il ripristino.", count: 0, completedCount: 0 };
+    }
+}
+
 export interface AuditAnomaly {
     id: string;
     type: 'BATCH' | 'RECORD' | 'WITHDRAWAL';
