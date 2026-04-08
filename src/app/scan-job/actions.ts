@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 
-import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/types';
+import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord, JobBillOfMaterialsItem } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
@@ -261,6 +261,69 @@ export async function updateWorkGroup(group: WorkGroup, opId: string) {
     } catch (e) { return { success: false, message: "Errore." }; }
 }
 
+export async function resolveJobBOMCommitmentsByType(
+    jobIds: string[],
+    materialTypesToExtinguish: string[],
+    transaction?: admin.firestore.Transaction
+) {
+    if (!jobIds || !jobIds.length || !materialTypesToExtinguish || !materialTypesToExtinguish.length) return;
+
+    const rawMaterialsSnap = await adminDb.collection('rawMaterials').get();
+    const materialTypeMap = new Map<string, string>();
+    rawMaterialsSnap.docs.forEach(doc => {
+        const mat = doc.data() as RawMaterial;
+        if (mat.code) {
+            materialTypeMap.set(mat.code.toUpperCase(), mat.type);
+        }
+    });
+
+    const jobsToUpdate = new Map<string, JobBillOfMaterialsItem[]>();
+    const jobRefs = jobIds.map(id => {
+        const sanitizedId = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        return adminDb.collection('jobOrders').doc(sanitizedId);
+    });
+
+    const jobSnaps = transaction 
+        ? await Promise.all(jobRefs.map(ref => transaction.get(ref))) 
+        : await Promise.all(jobRefs.map(ref => ref.get()));
+
+    for (let i = 0; i < jobSnaps.length; i++) {
+        const snap = jobSnaps[i];
+        if (!snap.exists) continue;
+        
+        const jobData = snap.data() as JobOrder;
+        if (!jobData.billOfMaterials || jobData.billOfMaterials.length === 0) continue;
+
+        let modified = false;
+        const newBom = jobData.billOfMaterials.map(item => {
+            const compCode = item.component?.toUpperCase() || '';
+            const compType = materialTypeMap.get(compCode);
+            
+            if (compType && materialTypesToExtinguish.includes(compType) && item.status !== 'withdrawn') {
+                modified = true;
+                return { ...item, status: 'withdrawn' as const };
+            }
+            return item;
+        });
+
+        if (modified) {
+            if (transaction) {
+                transaction.update(jobRefs[i], { billOfMaterials: newBom });
+            } else {
+                jobsToUpdate.set(jobRefs[i].id, newBom);
+            }
+        }
+    }
+
+    if (!transaction && jobsToUpdate.size > 0) {
+        const batch = adminDb.batch();
+        for (const [id, newBom] of jobsToUpdate) {
+            batch.update(adminDb.collection('jobOrders').doc(id), { billOfMaterials: newBom });
+        }
+        await batch.commit();
+    }
+}
+
 export async function isOperatorActiveOnAnyJob(opId: string, currentJobId: string): Promise<{ available: boolean; activeJobId?: string | null; activePhaseName?: string | null }> {
     const docSnap = await adminDb.collection("operators").doc(opId).get();
     if (docSnap.exists) {
@@ -313,6 +376,16 @@ export async function handlePhaseScanResult(
                 // If no one else is active, mark phase as completed
                 if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
                     phs[idx].status = 'completed';
+
+                    // ADDED: DUAL-DYNAMIC B (PHASE EXTINGUISHMENT)
+                    if (phs[idx].type === 'preparation' && phs[idx].allowedMaterialTypes && phs[idx].allowedMaterialTypes.length > 0) {
+                        // Filter out session-based types (BOB, PF3V0) which are handled when the session closes
+                        const typesToExtinguish = phs[idx].allowedMaterialTypes.filter((t: string) => !['BOB', 'PF3V0'].includes(t.toUpperCase()));
+                        if (typesToExtinguish.length > 0) {
+                            const jobIds = isGroup ? (data.jobOrderIds || []) : [jobId];
+                            await resolveJobBOMCommitmentsByType(jobIds, typesToExtinguish, transaction);
+                        }
+                    }
                 }
 
                 const updatedPhases = updatePhasesMaterialReadiness(phs);
@@ -636,6 +709,12 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 isFinal: isFinished, // Flag informativo
                 source: 'production'
             });
+
+            // ADDED: DUAL-DYNAMIC A (SESSION EXTINGUISHMENT)
+            if (session.associatedJobs.length > 0) {
+                const jobIds = session.associatedJobs.map(j => j.jobId);
+                await resolveJobBOMCommitmentsByType(jobIds, [material.type], transaction);
+            }
         });
         return { success: true, message: isFinished ? "Materiale segnato come esaurito e magazzino azzerato." : "Sessione chiusa e magazzino aggiornato." };
     } catch (e) {

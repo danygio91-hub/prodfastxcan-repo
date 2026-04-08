@@ -188,12 +188,14 @@ export default function ProductionConsoleClientPage() {
     try {
         const currentGroupId = searchParams.get('groupId');
         const currentSearch = searchParams.get('search');
-        let jobsQuery = query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "paused"]));
-        let groupsQuery = query(collection(db, "workGroups"), where("status", "in", ["production", "suspended", "paused"]));
+        const prodStatuses = ["production", "suspended", "paused", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK"];
+        let jobsQuery = query(collection(db, "jobOrders"), where("status", "in", prodStatuses));
+        let groupsQuery = query(collection(db, "workGroups"), where("status", "in", prodStatuses));
 
         if (showCompleted) {
-            jobsQuery = query(collection(db, "jobOrders"), where("status", "==", "completed"), limit(100));
-            groupsQuery = query(collection(db, "workGroups"), where("status", "==", "completed"), limit(50));
+            const compStatuses = ["completed", "CHIUSO", "shipped", "closed"];
+            jobsQuery = query(collection(db, "jobOrders"), where("status", "in", compStatuses), limit(100));
+            groupsQuery = query(collection(db, "workGroups"), where("status", "in", compStatuses), limit(50));
         }
 
         const [jobsSnap, groupsSnap] = await Promise.all([

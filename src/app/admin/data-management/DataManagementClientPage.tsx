@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
@@ -82,7 +83,7 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sor
 
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
-  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onDownloadPdf, onAction, isDownloadingPdf, globalSettings
+  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onDownloadPdf, onAction, isDownloadingPdf, globalSettings, allowLink
 }: {
   data: JobOrder[];
   departments: Department[];
@@ -99,6 +100,7 @@ const JobTableRows = ({
   onAction: (id: string, type: 'start' | 'cancel') => void;
   isDownloadingPdf: string | null;
   globalSettings: GlobalSettings | null;
+  allowLink: boolean;
 }) => {
   return (
     <>
@@ -160,7 +162,15 @@ const JobTableRows = ({
         return (
           <TableRow key={j.id}>
             <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => onToggleRow(j.id, !!c)} /></TableCell>
-            <TableCell className="font-bold">{j.ordinePF}</TableCell>
+            <TableCell className="font-bold">
+              {allowLink ? (
+                <Link href={`/admin/production-console?search=${encodeURIComponent(j.ordinePF)}`} className="text-primary hover:underline" prefetch={false}>
+                  {j.ordinePF}
+                </Link>
+              ) : (
+                j.ordinePF
+              )}
+            </TableCell>
             <TableCell>{j.details}</TableCell>
             <TableCell>{j.qta}</TableCell>
             <TableCell>
@@ -694,6 +704,7 @@ export default function DataManagementClientPage({
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
+                    allowLink={false}
                   />
                 </TableBody>
               </Table>
@@ -741,6 +752,7 @@ export default function DataManagementClientPage({
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
+                    allowLink={true}
                   />
                 </TableBody>
               </Table>
@@ -788,6 +800,7 @@ export default function DataManagementClientPage({
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
+                    allowLink={true}
                   />
                 </TableBody>
               </Table>

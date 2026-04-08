@@ -106,6 +106,12 @@ export async function logManualWithdrawal(
             isFinal: isFinished,
             source: 'manual'
         });
+
+        if (jobOrderPFs && jobOrderPFs.length > 0) {
+            const sanitizedIds = jobOrderPFs.map(pf => pf.replace(/\//g, '-').replace(/[\.#$\[\]]/g, ''));
+            const { resolveJobBOMCommitmentsByType } = await import('@/app/scan-job/actions');
+            await resolveJobBOMCommitmentsByType(sanitizedIds, [material.type], transaction);
+        }
     });
 
     revalidatePath('/admin/raw-material-management');
