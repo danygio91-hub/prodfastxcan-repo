@@ -38,22 +38,22 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
   const snap = await adminDb.collection("jobOrders")
-    .where("status", "in", ["planned", "IN_ATTESA"] as any[])
+    .where("status", "in", ["planned", "IN_ATTESA", "In Pianificazione", "IN_PIANIFICAZIONE"] as any[])
     .get();
   return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
     const snap = await adminDb.collection("jobOrders")
-        .where("status", "in", ["DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK"])
+        .where("status", "in", ["Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Manca Materiale", "Sospesa", "Pronto per Finitura", "Problema", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK"])
         .get();
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
 export async function getCompletedJobOrders(): Promise<JobOrder[]> {
     const snap = await adminDb.collection("jobOrders")
-        .where("status", "in", ["CHIUSO", "completed", "shipped", "closed"])
-        .limit(100).get(); 
+        .where("status", "in", ["Completata", "CHIUSO", "completed", "shipped", "closed"])
+        .limit(500).get(); 
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
@@ -150,7 +150,7 @@ export async function saveManualJobOrder(data: any) {
 
     const newJob: JobOrder = {
         id: sanitizedId,
-        status: 'planned',
+        status: 'In Pianificazione',
         postazioneLavoro: 'Da Assegnare',
         cliente: cliente || "N/D",
         ordinePF: ordinePF,
@@ -299,7 +299,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
             }
         }
 
-        newJobs.push({ id: sanitizedId, status: 'planned', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', dataFinePreparazione: validData.dataFinePreparazione || '', department: validData.department || "N/D", workCycleId: workCycleId });
+        newJobs.push({ id: sanitizedId, status: 'In Pianificazione', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', dataFinePreparazione: validData.dataFinePreparazione || '', department: validData.department || "N/D", workCycleId: workCycleId });
     }
     return { success: true, message: "Analisi completata.", newJobs, jobsToUpdate, blockedJobs };
 }
@@ -343,7 +343,9 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
       const snap = await t.get(jobRef);
       if (!snap.exists) throw new Error("Non trovata.");
       const job = snap.data() as JobOrder;
-      if (job.status !== 'planned' && job.status !== 'IN_ATTESA') throw new Error("Stato non valido per l'avvio (richiesto PIANIFICATO o IN ATTESA).");
+      if (job.status !== 'planned' && job.status !== 'IN_ATTESA' && job.status !== 'In Pianificazione' && job.status !== 'IN_PIANIFICAZIONE') {
+          throw new Error("Stato non valido per l'avvio (richiesto In Pianificazione).");
+      }
       if (!job.billOfMaterials || job.billOfMaterials.length === 0) throw new Error("Distinta Base vuota.");
       if (!job.phases || job.phases.length === 0) throw new Error("Nessun ciclo.");
       const counterRef = adminDb.collection("counters").doc(`odl_${year}`);
@@ -362,7 +364,7 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
           newCounterValue = currentCounter + 1;
           newOdlId = `${String(newCounterValue).padStart(4, '0')}-${shortYear}`;
       }
-      t.update(jobRef, { status: 'DA_INIZIARE', odlCreationDate: admin.firestore.Timestamp.fromDate(now), numeroODLInterno: newOdlId, odlCounter: newCounterValue });
+      t.update(jobRef, { status: 'Da Iniziare', odlCreationDate: admin.firestore.Timestamp.fromDate(now), numeroODLInterno: newOdlId, odlCounter: newCounterValue });
       if (newCounterValue > currentCounter) t.set(counterRef, { value: newCounterValue });
       return newOdlId;
     });
@@ -378,7 +380,7 @@ export async function createMultipleODLs(jobIds: string[]) {
 }
 
 export async function cancelODL(jobId: string) {
-  await adminDb.collection("jobOrders").doc(jobId).update({ status: 'planned', odlCreationDate: null });
+  await adminDb.collection("jobOrders").doc(jobId).update({ status: 'In Pianificazione', odlCreationDate: null });
   revalidatePath('/admin/data-management');
   return { success: true, message: 'Annullato.' };
 }

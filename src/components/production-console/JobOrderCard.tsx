@@ -287,6 +287,7 @@ export default function JobOrderCard({
   const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
 
   const isForcedToFinish = jobOrder.phases.some(p => p.forced);
+  const isPianificazione = overallStatus === 'In Pianificazione';
 
 
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
@@ -391,7 +392,7 @@ export default function JobOrderCard({
                                 </>
                             )}
                         </TooltipProvider>
-                        {(!isPartOfGroup || forceAllowActions) && (
+                        {(!isPartOfGroup || forceAllowActions) && !isPianificazione && (
                           <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={e => e.stopPropagation()}>

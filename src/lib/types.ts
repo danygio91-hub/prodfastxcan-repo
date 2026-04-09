@@ -2,6 +2,10 @@ import type { JobOrder, WorkGroup, OverallStatus } from "@/types";
 
 
 export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
+    if (item.status === 'planned' || item.status === 'In Pianificazione' || item.status === 'IN_PIANIFICAZIONE' || item.status === 'IN_ATTESA') {
+        return 'In Pianificazione';
+    }
+
     const allPhases = item.phases || [];
 
     // Highest priority: check for specific blocking states
@@ -18,7 +22,7 @@ export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
     }
     
     // Legacy check for items that might have been marked completed by old logic, now less likely to be hit
-    if (item.status === 'completed') {
+    if (item.status === 'completed' || item.status === 'Completata') {
         return 'Completata';
     }
 
@@ -48,7 +52,7 @@ export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
     }
     
     // Fallback to 'Sospesa' if no specific state is met and it's not active
-    if (item.status === 'suspended' || item.status === 'paused') {
+    if (item.status === 'suspended' || item.status === 'paused' || item.status === 'Sospesa') {
         return 'Sospesa';
     }
 

@@ -109,9 +109,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { getWorkingHoursConfig } from '@/app/admin/working-hours/actions';
+import { convertTimestampsToDates } from "@/lib/utils";
 
 
-type FilterStatus = OverallStatus | 'all' | 'LIVE';
+type FilterStatus = OverallStatus | 'all' | 'LIVE' | 'IN_LAVORAZIONE_FX';
 
 interface WeeklyGroup {
     weekNumber: number;
@@ -188,7 +189,7 @@ export default function ProductionConsoleClientPage() {
     try {
         const currentGroupId = searchParams.get('groupId');
         const currentSearch = searchParams.get('search');
-        const prodStatuses = ["production", "suspended", "paused", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK"];
+        const prodStatuses = ["production", "suspended", "paused", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", "planned", "IN_ATTESA", "In Pianificazione", "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Sospesa", "Manca Materiale", "Pronto per Finitura", "Problema"];
         let jobsQuery = query(collection(db, "jobOrders"), where("status", "in", prodStatuses));
         let groupsQuery = query(collection(db, "workGroups"), where("status", "in", prodStatuses));
 
@@ -208,14 +209,9 @@ export default function ProductionConsoleClientPage() {
 
         setIsTargetedLoad(false);
 
-        // Apply timestamp conversion
-        const processItem = (item: any) => JSON.parse(JSON.stringify(item, (key, value) => {
-            if ((['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate', 'createdAt']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
-            return value;
-        }));
-
-        const finalJobs = jobs.map(processItem);
-        const finalGroups = groups.map(processItem);
+        // Apply timestamp conversion using standard utility
+        const finalJobs = jobs.map(item => convertTimestampsToDates(item));
+        const finalGroups = groups.map(item => convertTimestampsToDates(item));
 
         setJobOrders(finalJobs);
         setWorkGroups(finalGroups);
@@ -269,7 +265,14 @@ export default function ProductionConsoleClientPage() {
           if (isDateFilterActive && completedDateFilter) f = f.filter(i => i.overallEndTime && isSameDay(new Date(i.overallEndTime), completedDateFilter));
       } else {
           f = f.filter(i => getOverallStatus(i) !== 'Completata');
-          if (activeFilter !== 'all') f = activeFilter === 'LIVE' ? f.filter(isJobLive) : f.filter(i => getOverallStatus(i) === activeFilter);
+          if (activeFilter !== 'all') {
+             if (activeFilter === 'LIVE') f = f.filter(isJobLive);
+             else if (activeFilter === 'IN_LAVORAZIONE_FX') {
+                 const lavStatuses = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Pronto per Finitura'];
+                 f = f.filter(i => lavStatuses.includes(getOverallStatus(i)));
+             }
+             else f = f.filter(i => getOverallStatus(i) === activeFilter);
+          }
       }
       if (showOnlyOverdue) f = f.filter(isOverdueItem);
       if (debouncedSearchTerm) {
@@ -592,11 +595,13 @@ export default function ProductionConsoleClientPage() {
           <div className="flex flex-wrap items-center justify-center gap-1">
               {[
                 { label: 'Tutte', value: 'all', icon: Briefcase },
+                { label: 'In Pianificazione', value: 'In Pianificazione', icon: CalendarDays },
+                { label: 'Da Iniziare', value: 'Da Iniziare', icon: Package2 },
+                { label: 'In Lavorazione', value: 'IN_LAVORAZIONE_FX', icon: Combine },
                 { label: 'In Corso (Live)', value: 'LIVE', icon: Activity },
-                { label: 'In Lavorazione', value: 'In Lavorazione', icon: Hourglass },
                 { label: 'Sospesa', value: 'Sospesa', icon: PauseCircle },
-                { label: 'Problema', value: 'Problema', icon: ShieldAlert },
                 { label: 'Manca Materiale', value: 'Manca Materiale', icon: PackageX },
+                { label: 'Problema', value: 'Problema', icon: ShieldAlert },
               ].map(f => (
                 <Button key={f.value} variant={activeFilter === f.value && !showCompleted ? 'secondary' : 'ghost'} onClick={() => handleFilterClick(f.value as any)} className="text-xs sm:text-sm">
                   <f.icon className={cn("mr-2 h-4 w-4", f.value === 'LIVE' && "text-red-400 animate-pulse")} /> {f.label}

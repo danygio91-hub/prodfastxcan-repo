@@ -10,6 +10,7 @@ import { calculateInventoryMovement } from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { ensureAdmin } from '@/lib/server-auth';
+import { getOverallStatus } from '@/lib/types';
 
 export { dissolveWorkGroup };
 
@@ -217,6 +218,10 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
   
   let job = convertTimestampsToDates(snap.data()) as JobOrder;
   
+  if (['planned', 'IN_ATTESA', 'In Pianificazione', 'IN_PIANIFICAZIONE'].includes(job.status)) {
+      return { error: `La commessa ${job.ordinePF || sanitizedId} è in pianificazione e non può essere lavorata. Rivolgiti al responsabile.`, title: 'Commessa non Avviata' };
+  }
+
   // Enchancement: Fetch attachments from Article if not present on JobOrder
   if (!job.attachments || job.attachments.length === 0) {
       if (job.details) {
@@ -389,11 +394,13 @@ export async function handlePhaseScanResult(
                 }
 
                 const updatedPhases = updatePhasesMaterialReadiness(phs);
-                const allFinished = updatedPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-                
+                const dummyJob = { ...data, phases: updatedPhases };
+                const newStatus = getOverallStatus(dummyJob);
+
                 const updates: any = { 
                     phases: updatedPhases,
-                    ...(allFinished ? { status: 'completed', overallEndTime: new Date() } : {})
+                    status: newStatus,
+                    ...(newStatus === 'Completata' ? { overallEndTime: new Date() } : {})
                 };
 
                 // HANDLE ANOMALIES (Quality)
@@ -446,10 +453,12 @@ export async function handlePhaseScanResult(
                 }
 
                 const updatedPhases = updatePhasesMaterialReadiness(phs);
+                const dummyJob = { ...data, phases: updatedPhases };
+                const newStatus = getOverallStatus(dummyJob);
                 
                 const startUpdates = { 
                     phases: updatedPhases, 
-                    status: 'production', 
+                    status: newStatus, 
                     overallStartTime: data.overallStartTime || new Date() 
                 };
 
@@ -500,7 +509,8 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
                     phs[idx].pauseReason = reason; // Save current pause reason in phase
                 }
                 
-                const updateData: any = { phases: phs };
+                const dummyJob = { ...data, phases: phs };
+                const updateData: any = { phases: phs, status: getOverallStatus(dummyJob) };
 
                 // Handle 'Manca Materiale' automation
                 if (reason === 'Manca Materiale') {

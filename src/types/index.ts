@@ -111,7 +111,7 @@ export interface JobOrder {
   problemType?: string;
   problemNotes?: string;
   problemReportedBy?: string;
-  status: 'DA_INIZIARE' | 'IN_PREPARAZIONE' | 'PRONTO_PROD' | 'IN_PRODUZIONE' | 'FINE_PRODUZIONE' | 'QLTY_PACK' | 'CHIUSO' | 'suspended' | 'paused' | 'planned' | 'production' | 'completed' | 'in-progress' | 'shipped' | 'IN_ATTESA';
+  status: OverallStatus | 'DA_INIZIARE' | 'IN_PREPARAZIONE' | 'PRONTO_PROD' | 'IN_PRODUZIONE' | 'FINE_PRODUZIONE' | 'QLTY_PACK' | 'CHIUSO' | 'suspended' | 'paused' | 'planned' | 'production' | 'completed' | 'in-progress' | 'shipped' | 'IN_ATTESA' | string;
   workCycleId?: string;
   billOfMaterials?: JobBillOfMaterialsItem[];
   numeroODLInterno?: string | null;
@@ -302,7 +302,7 @@ export interface ProductionSettings {
   prioritizeActualTime: boolean;
 }
 
-export type OverallStatus = 'Da Iniziare' | 'In Preparazione' | 'Pronto per Produzione' | 'In Lavorazione' | 'Completata' | 'Problema' | 'Sospesa' | 'Pronto per Finitura' | 'Manca Materiale';
+export type OverallStatus = 'In Pianificazione' | 'Da Iniziare' | 'In Preparazione' | 'Pronto per Produzione' | 'In Lavorazione' | 'Completata' | 'Problema' | 'Sospesa' | 'Pronto per Finitura' | 'Manca Materiale';
 
 export interface ManualCommitment {
   id: string;

@@ -11,6 +11,7 @@ import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMa
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 import { pulseOperatorsForJob } from '@/lib/job-sync-server';
 import { convertTimestampsToDates } from '@/lib/utils';
+import { getOverallStatus } from '@/lib/types';
 
 
 export type ProductionTimeData = {
@@ -158,12 +159,18 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
         const updates: any = { phases: finalPhases };
         
+        
+        const dummyJobForStatus = { ...item, phases: finalPhases };
+        let finalStatus = getOverallStatus(dummyJobForStatus);
+
         // If everything is now finished, close the whole job order
         if (allPhasesDone) {
-            updates.status = 'completed';
+            finalStatus = 'Completata';
             updates.overallEndTime = admin.firestore.Timestamp.now();
             updates.forcedCompletion = true;
         }
+
+        updates.status = finalStatus;
 
         transaction.update(itemRef, updates);
 
@@ -202,8 +209,11 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
       const item = snap.data() as JobOrder;
       let updatedPhases = item.phases.map(phase => { if (phase.forced) { const { forced, ...rest } = phase; return { ...rest, status: 'pending' as const }; } return phase; });
       updatedPhases = updatePhasesMaterialReadiness(updatedPhases);
-      transaction.update(itemRef, { phases: updatedPhases });
-      if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...item, phases: updatedPhases } as any);
+      const dummyJobForStatus = { ...item, phases: updatedPhases };
+      const newStatus = getOverallStatus(dummyJobForStatus);
+      const upds = { phases: updatedPhases, status: newStatus };
+      transaction.update(itemRef, upds);
+      if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...item, ...upds } as any);
     });
     revalidatePath('/admin/production-console');
     await pulseOperatorsForJob(jobId);
@@ -235,8 +245,11 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
           delete updatedPhases[phaseIndex].postponed;
         }
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
-        transaction.update(itemRef, { phases: finalPhases });
-        if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases: finalPhases } as WorkGroup);
+        const dummyJobForStatus = { ...(itemData as any), phases: finalPhases };
+        const newStatus = getOverallStatus(dummyJobForStatus);
+        const upds = { phases: finalPhases, status: newStatus };
+        transaction.update(itemRef, upds);
+        if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...itemData, ...upds } as any);
     });
     revalidatePath('/admin/production-console');
     await pulseOperatorsForJob(itemId);
@@ -260,7 +273,9 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
       phases[idx].status = 'paused';
       phases[idx].qualityResult = null;
       const revertedPhases = updatePhasesMaterialReadiness(phases);
-      transaction.update(jobRef, { phases: revertedPhases, status: 'production', overallEndTime: admin.firestore.FieldValue.delete() });
+      const dummyJobForStatus = { ...jobData, phases: revertedPhases };
+      const newStatus = getOverallStatus(dummyJobForStatus);
+      transaction.update(jobRef, { phases: revertedPhases, status: newStatus, overallEndTime: admin.firestore.FieldValue.delete() });
     });
     revalidatePath('/admin/production-console');
     await pulseOperatorsForJob(jobId);
@@ -311,9 +326,8 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
         return phase;
       });
 
-      const isAnyActive = updatedPhases.some((p: JobPhase) => p.status === 'in-progress');
-      const isAnyPaused = updatedPhases.some((p: JobPhase) => p.status === 'paused');
-      const newStatus = isAnyActive ? 'production' : (isAnyPaused ? 'paused' : 'production');
+      const dummyJobForStatus = { ...itemData, phases: updatedPhases, isProblemReported: reason === 'Manca Materiale' || (reason === 'Altro' && !!notes) };
+      const newStatus = getOverallStatus(dummyJobForStatus);
       
       const updatePayload: any = { phases: updatedPhases, status: newStatus };
 
@@ -383,7 +397,7 @@ async function internalForceCompleteJob(transaction: admin.firestore.Transaction
     });
 
     const updates = { 
-        status: 'completed' as const, 
+        status: 'Completata' as const, 
         overallEndTime: admin.firestore.Timestamp.now(), 
         forcedCompletion: true,
         isSanatoria: true,
@@ -487,14 +501,14 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
           (gData.jobOrderIds || []).forEach(id => {
               const jRef = adminDb.collection('jobOrders').doc(id);
               const updatedPhases: JobPhase[] = (gData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
-              transaction.update(jRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: admin.firestore.FieldValue.delete() });
+              transaction.update(jRef, { status: 'In Pianificazione', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: admin.firestore.FieldValue.delete() });
           });
           transaction.delete(itemRef);
       } else {
           const jData = itemData as JobOrder;
           getActiveOperators(jData.phases || []);
           const updatedPhases: JobPhase[] = (jData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
-          transaction.update(itemRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: admin.firestore.FieldValue.delete() });
+          transaction.update(itemRef, { status: 'In Pianificazione', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: admin.firestore.FieldValue.delete() });
       }
 
       // De-activate operators
@@ -526,7 +540,8 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
           const itemData = itemSnap.data() as JobOrder | WorkGroup;
           if (!itemData.forcedCompletion) throw new Error("Solo chiusure forzate riapribili.");
           const isAct = (itemData.phases || []).some(p => p.status === 'in-progress');
-          const newStatus = isAct ? 'production' : 'paused';
+          const dummyJobForStatus = { ...itemData };
+          const newStatus = isAct ? 'In Lavorazione' : getOverallStatus(dummyJobForStatus as any);
           transaction.update(itemRef, { status: newStatus, overallEndTime: admin.firestore.FieldValue.delete(), forcedCompletion: admin.firestore.FieldValue.delete() });
           if (isGroup) { (itemData.jobOrderIds || []).forEach(id => { transaction.update(adminDb.collection('jobOrders').doc(id), { status: newStatus, overallEndTime: admin.firestore.FieldValue.delete(), forcedCompletion: admin.firestore.FieldValue.delete() }); }); }
       });
@@ -542,13 +557,16 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
   const isGroup = jobId.startsWith('group-');
   const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
   const finalPhases = updatePhasesMaterialReadiness(phases.map((p, i) => ({ ...p, sequence: i + 1 })));
+  const dummyJobForStatus = { phases: finalPhases, status: 'paused' }; // mock
+  const newStatus = getOverallStatus(dummyJobForStatus as any);
+  
   try {
-    await itemRef.update({ phases: finalPhases });
+    await itemRef.update({ phases: finalPhases, status: newStatus });
     if (isGroup) {
         const gSnap = await itemRef.get();
         const gData = gSnap.data() as WorkGroup;
         const batch = adminDb.batch();
-        (gData.jobOrderIds || []).forEach(id => batch.update(adminDb.collection('jobOrders').doc(id), { phases: finalPhases }));
+        (gData.jobOrderIds || []).forEach(id => batch.update(adminDb.collection('jobOrders').doc(id), { phases: finalPhases, status: newStatus }));
         await batch.commit();
     }
     revalidatePath('/admin/production-console');
