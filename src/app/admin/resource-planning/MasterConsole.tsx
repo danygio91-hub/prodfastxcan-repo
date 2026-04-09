@@ -78,14 +78,14 @@ export default function MasterConsole({ jobOrders, articles, onRefresh }: Master
     };
 
     return (
-        <div className="flex flex-col gap-8 p-6 bg-slate-50 min-h-screen">
+        <div className="flex flex-col gap-8 p-6 bg-slate-950 min-h-screen">
             {/* Header / Filtri */}
-            <div className="flex flex-col md:flex-row items-center justify-between gap-6 bg-white p-6 rounded-3xl border-2 border-slate-200 shadow-sm">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-6 bg-slate-900/50 p-6 rounded-[2rem] border border-slate-800/50 backdrop-blur-md shadow-2xl">
                 <div className="relative flex-1 w-full max-w-xl">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
                     <Input 
                         placeholder="Cerca per ODL, Articolo o Cliente..." 
-                        className="pl-12 h-12 bg-slate-50 border-2 border-slate-100 focus-visible:ring-2 focus-visible:ring-blue-600 font-bold text-sm rounded-2xl"
+                        className="pl-12 h-12 bg-slate-950 border-slate-800 text-white focus-visible:ring-2 focus-visible:ring-blue-600 font-bold text-sm rounded-2xl placeholder:opacity-40"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -96,11 +96,11 @@ export default function MasterConsole({ jobOrders, articles, onRefresh }: Master
                         variant={statusFilter === 'ACTIVE' ? 'default' : 'outline'} 
                         size="sm" 
                         onClick={() => setStatusFilter('ACTIVE')}
-                        className={cn("h-10 text-[10px] font-black uppercase tracking-widest px-6 rounded-xl", statusFilter === 'ACTIVE' ? "bg-blue-700 shadow-blue-200 shadow-lg" : "border-2 border-slate-100")}
+                        className={cn("h-10 text-[10px] font-black uppercase tracking-widest px-6 rounded-xl transition-all", statusFilter === 'ACTIVE' ? "bg-blue-600 text-white shadow-lg shadow-blue-900/40" : "border-slate-800 text-slate-500 hover:border-slate-600")}
                     >
                         SOLO ATTIVE
                     </Button>
-                    <div className="h-6 w-px bg-slate-200 mx-2" />
+                    <div className="h-6 w-px bg-slate-800 mx-2" />
                     {Object.entries(statusMap).map(([key, value]) => (
                         <Button 
                             key={key}
@@ -108,8 +108,8 @@ export default function MasterConsole({ jobOrders, articles, onRefresh }: Master
                             size="sm" 
                             onClick={() => setStatusFilter(key)}
                             className={cn(
-                                "h-10 text-[10px] font-black uppercase gap-2 whitespace-nowrap px-4 rounded-xl border-2 transition-all", 
-                                statusFilter === key ? `${value.color} text-white border-transparent shadow-lg` : "border-slate-50 text-slate-400 hover:border-slate-200"
+                                "h-10 text-[10px] font-black uppercase gap-2 whitespace-nowrap px-4 rounded-xl border transition-all", 
+                                statusFilter === key ? `${value.color} text-white border-transparent shadow-lg` : "border-slate-800 text-slate-500 hover:border-slate-600"
                             )}
                         >
                             {value.label}
@@ -121,9 +121,9 @@ export default function MasterConsole({ jobOrders, articles, onRefresh }: Master
             {/* Griglia Card */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
                 {filteredJobs.length === 0 ? (
-                    <div className="col-span-full flex flex-col items-center justify-center p-32 bg-white rounded-[3rem] border-4 border-dashed border-slate-100 opacity-60">
-                        <Filter className="h-16 w-16 text-slate-200 mb-6" />
-                        <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-300 italic">Il tuo quartier generale è vuoto</p>
+                    <div className="col-span-full flex flex-col items-center justify-center p-32 bg-slate-900/20 rounded-[3rem] border-4 border-dashed border-slate-800/50 opacity-60">
+                        <Filter className="h-16 w-16 text-slate-800 mb-6" />
+                        <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-700 italic">Il tuo quartier generale è vuoto</p>
                     </div>
                 ) : (
                     filteredJobs.map(job => (
@@ -142,17 +142,22 @@ export default function MasterConsole({ jobOrders, articles, onRefresh }: Master
 }
 
 function MasterConsoleJobCard({ job, article, onAdvance, statusInfo }: { job: JobOrder, article?: Article, onAdvance: (id: string, next?: string) => void, statusInfo: any }) {
+    const isClosed = job.status === 'CHIUSO';
+
     return (
-        <Card className="group border-2 border-slate-100 hover:border-blue-400 transition-all shadow-sm hover:shadow-2xl rounded-3xl overflow-hidden bg-white">
-            <CardHeader className="p-5 bg-slate-50/50 border-b-2 border-slate-100 flex flex-row items-center justify-between gap-4">
+        <Card className={cn(
+            "group border border-slate-800 transition-all shadow-xl rounded-[2rem] overflow-hidden bg-slate-900/40 backdrop-blur-sm",
+            isClosed ? "opacity-50 grayscale" : "hover:border-blue-500/50 hover:shadow-blue-900/20"
+        )}>
+            <CardHeader className="p-5 bg-slate-900/50 border-b border-slate-800/50 flex flex-row items-center justify-between gap-4">
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
-                        <span className="text-base font-black uppercase text-slate-900 tracking-tighter">{job.ordinePF}</span>
-                        <Badge variant="outline" className="text-[9px] font-black bg-white text-blue-600 border-blue-100 rounded-md py-0 px-1.5 h-5">{job.numeroODLInterno || 'N/D'}</Badge>
+                        <span className="text-base font-black uppercase text-white tracking-tighter">{job.ordinePF}</span>
+                        <Badge variant="outline" className="text-[9px] font-black bg-slate-950 text-blue-400 border-slate-800 rounded-md py-0 px-1.5 h-5">{job.numeroODLInterno || 'N/D'}</Badge>
                     </div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide truncate max-w-[180px]">{job.cliente}</p>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide truncate max-w-[180px]">{job.cliente}</p>
                 </div>
-                <div className={cn("flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl text-white shadow-xl", statusInfo.color)}>
+                <div className={cn("flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl text-white shadow-2xl", statusInfo.color)}>
                     {statusInfo.icon}
                     <span className="text-[8px] font-black uppercase tracking-tighter mt-1.5 leading-none text-center px-1">{statusInfo.label}</span>
                 </div>
@@ -160,36 +165,36 @@ function MasterConsoleJobCard({ job, article, onAdvance, statusInfo }: { job: Jo
             <CardContent className="p-6 space-y-6">
                 <div className="flex items-center justify-between">
                     <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.1em] mb-1">Codice Articolo</span>
-                        <span className="text-sm font-black uppercase text-slate-800 tracking-tight">{job.details}</span>
+                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-[0.1em] mb-1">Codice Articolo</span>
+                        <span className="text-sm font-black uppercase text-slate-300 tracking-tight">{job.details}</span>
                     </div>
                     <div className="flex flex-col items-end">
-                        <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.1em] mb-1">Quantità</span>
-                        <span className="text-sm font-black text-blue-700 bg-blue-50 px-2 rounded-lg">{job.qta} PZ</span>
+                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-[0.1em] mb-1">Quantità</span>
+                        <span className="text-sm font-black text-blue-400 bg-blue-900/30 px-2 rounded-lg py-0.5 border border-blue-800/50">{job.qta} PZ</span>
                     </div>
                 </div>
 
                 <div className="flex flex-wrap gap-3">
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-xl border-2 border-slate-100">
-                        <BoxSelect className="h-3.5 w-3.5 text-slate-400" />
-                        <span className="text-[10px] font-black text-slate-700 uppercase">{job.department}</span>
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950 rounded-xl border border-slate-800">
+                        <BoxSelect className="h-3.5 w-3.5 text-slate-500" />
+                        <span className="text-[10px] font-black text-slate-400 uppercase">{job.department}</span>
                     </div>
                     {job.dataConsegnaFinale && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-xl border-2 border-slate-100">
-                            <Truck className="h-3.5 w-3.5 text-slate-400" />
-                            <span className="text-[10px] font-black text-slate-700 uppercase">{format(new Date(job.dataConsegnaFinale), 'dd/MM/yyyy')}</span>
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950 rounded-xl border border-slate-800">
+                            <Truck className="h-3.5 w-3.5 text-slate-500" />
+                            <span className="text-[10px] font-black text-slate-400 uppercase">{format(new Date(job.dataConsegnaFinale), 'dd/MM/yyyy')}</span>
                         </div>
                     )}
                 </div>
 
-                <div className="h-px bg-slate-100 w-full" />
+                <div className="h-px bg-slate-800/50 w-full" />
 
                 {/* Pulsantiera Avanzamento */}
                 <div className="grid grid-cols-2 gap-3">
                     <Button 
                         size="sm" 
                         variant="secondary" 
-                        className="h-12 font-black text-[10px] uppercase tracking-tighter gap-2 bg-slate-100 hover:bg-blue-600 hover:text-white transition-all shadow-md rounded-xl group/btn"
+                        className="h-12 font-black text-[10px] uppercase tracking-tighter gap-2 bg-slate-800 hover:bg-blue-600 text-white transition-all shadow-lg rounded-xl group/btn border border-slate-700"
                         onClick={() => onAdvance(job.id)}
                         disabled={job.status === 'CHIUSO'}
                     >
@@ -199,7 +204,7 @@ function MasterConsoleJobCard({ job, article, onAdvance, statusInfo }: { job: Jo
                     <Button 
                         size="sm" 
                         variant="outline" 
-                        className="h-12 font-black text-[10px] uppercase tracking-tighter gap-2 border-2 border-dashed border-slate-200 hover:bg-emerald-600 hover:text-white hover:border-transparent transition-all shadow-sm rounded-xl"
+                        className="h-12 font-black text-[10px] uppercase tracking-tighter gap-2 border-2 border-dashed border-slate-800 hover:bg-emerald-600 hover:text-white hover:border-transparent transition-all shadow-sm rounded-xl"
                         onClick={() => onAdvance(job.id, 'CHIUSO')}
                         disabled={job.status === 'CHIUSO'}
                     >
@@ -208,26 +213,28 @@ function MasterConsoleJobCard({ job, article, onAdvance, statusInfo }: { job: Jo
                     </Button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                    <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        className="h-9 font-black text-[9px] uppercase tracking-widest text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
-                        onClick={() => onAdvance(job.id, 'PRONTO_PROD')}
-                        disabled={job.status === 'PRONTO_PROD'}
-                    >
-                        Salta a Pronto
-                    </Button>
-                    <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        className="h-9 font-black text-[9px] uppercase tracking-widest text-slate-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg"
-                        onClick={() => onAdvance(job.id, 'QLTY_PACK')}
-                        disabled={job.status === 'QLTY_PACK'}
-                    >
-                        Salta a Pack
-                    </Button>
-                </div>
+                {!isClosed && (
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                        <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="h-9 font-black text-[9px] uppercase tracking-widest text-slate-600 hover:text-blue-400 hover:bg-blue-900/20 rounded-lg"
+                            onClick={() => onAdvance(job.id, 'PRONTO_PROD')}
+                            disabled={job.status === 'PRONTO_PROD'}
+                        >
+                            Salta a Pronto
+                        </Button>
+                        <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="h-9 font-black text-[9px] uppercase tracking-widest text-slate-600 hover:text-pink-400 hover:bg-pink-900/20 rounded-lg"
+                            onClick={() => onAdvance(job.id, 'QLTY_PACK')}
+                            disabled={job.status === 'QLTY_PACK'}
+                        >
+                            Salta a Pack
+                        </Button>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );

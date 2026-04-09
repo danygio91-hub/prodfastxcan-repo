@@ -4,10 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, Operator, OperatorAssignment, Department, MacroArea, Article } from '@/types';
+import type { JobOrder, Operator, OperatorAssignment, Department, MacroArea, Article, ProductionSettings } from '@/types';
 import { startOfWeek, format, parseISO } from 'date-fns';
 import { convertTimestampsToDates } from '@/lib/utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
+import type { WorkPhaseTemplate } from '@/types';
 
 /**
  * Salva l'allocazione di operatori per un reparto in una specifica settimana.
@@ -17,7 +18,7 @@ export async function saveWeeklyAllocation(
     year: number,
     week: number,
     departmentId: string,
-    operatorIds: string[],
+    assignments: { operatorId: string, hours: number }[],
     uid: string
 ) {
     try {
@@ -28,7 +29,7 @@ export async function saveWeeklyAllocation(
             year,
             week,
             departmentId,
-            operatorIds,
+            assignments,
             updatedAt: admin.firestore.Timestamp.now(),
             updatedBy: uid
         });
@@ -38,6 +39,72 @@ export async function saveWeeklyAllocation(
     } catch (error) {
         console.error("Error saving weekly allocation:", error);
         return { success: false, message: "Errore durante il salvataggio dell'allocazione." };
+    }
+}
+
+/**
+ * Salva l'allocazione massiva di UN operatore su PIU' reparti per una settimana specifica.
+ */
+export async function saveMassiveAllocation(
+    year: number,
+    week: number,
+    operatorId: string,
+    distributions: { departmentId: string, hours: number }[],
+    uid: string
+) {
+    try {
+        await ensureAdmin(uid);
+        const batch = adminDb.batch();
+
+        for (const dist of distributions) {
+            const docId = `${year}_${week}_${dist.departmentId}`;
+            const docRef = adminDb.collection("weeklyCapacityAssignments").doc(docId);
+            const doc = await docRef.get();
+            
+            let currentAssignments: { operatorId: string, hours: number }[] = [];
+            if (doc.exists) {
+                const data = doc.data();
+                if (data?.assignments) {
+                    currentAssignments = data.assignments;
+                } else if (data?.operatorIds) {
+                    // Fallback per vecchi dati
+                    currentAssignments = data.operatorIds.map((id: string) => ({ operatorId: id, hours: 40 }));
+                }
+            }
+
+            // Aggiorniamo l'operatore specifico nel reparto
+            let newAssignments = [...currentAssignments];
+            const existingIdx = newAssignments.findIndex(a => a.operatorId === operatorId);
+            
+            if (dist.hours > 0) {
+                if (existingIdx >= 0) {
+                    newAssignments[existingIdx] = { ...newAssignments[existingIdx], hours: dist.hours };
+                } else {
+                    newAssignments.push({ operatorId, hours: dist.hours });
+                }
+            } else {
+                // Se ore <= 0, lo rimuoviamo dal reparto
+                if (existingIdx >= 0) {
+                    newAssignments.splice(existingIdx, 1);
+                }
+            }
+
+            batch.set(docRef, {
+                year,
+                week,
+                departmentId: dist.departmentId,
+                assignments: newAssignments,
+                updatedAt: admin.firestore.Timestamp.now(),
+                updatedBy: uid
+            }, { merge: true });
+        }
+
+        await batch.commit();
+        revalidatePath('/admin/resource-planning');
+        return { success: true };
+    } catch (error) {
+        console.error("Error saving massive allocation:", error);
+        return { success: false, message: "Errore durante il salvataggio massivo." };
     }
 }
 
@@ -141,38 +208,61 @@ export async function getWeeklyBoardData(year: number, week: number) {
         .where("year", "==", year)
         .where("week", "==", week)
         .get();
+
+    // 2. Carica Impostazioni Produzione
+    const settingsSnap = await adminDb.collection('system').doc('productionSettings').get();
+    const settings = settingsSnap.exists ? settingsSnap.data() as ProductionSettings : { capacityBufferPercent: 85 };
     
     // Riduciamo le allocazioni a un record per ID documento esatto (anno_settimana_reparto)
     const allocations = allocationsSnap.docs.reduce((acc, d) => {
         const data = d.data();
         const key = `${data.year}_${data.week}_${data.departmentId}`;
-        acc[key] = data.operatorIds;
+        
+        // Migrazione dati: se abbiamo operatorIds ma non assignments, mappiamo a 40h (o il limite attuale)
+        if (data.assignments) {
+            acc[key] = data.assignments;
+        } else if (data.operatorIds) {
+            const limit = Math.round((8 * (settings.capacityBufferPercent / 100)) * 5);
+            acc[key] = data.operatorIds.map((id: string) => ({ operatorId: id, hours: limit }));
+        } else {
+            acc[key] = [];
+        }
         return acc;
-    }, {} as Record<string, string[]>);
+    }, {} as Record<string, { operatorId: string, hours: number }[]>);
 
-    // 2. Carica TUTTE le commesse attive (non Chiuse)
-    // Includiamo anche i vecchi stati per sicurezza in caso la migrazione non sia ancora avvenuta
-    const activeStatuses = [
-        'DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK',
-        'planned', 'production', 'in-progress', 'completed', 'suspended', 'paused'
-    ] as any[];
+    const jobOrdersSnap = await adminDb.collection("jobOrders").get();
     
-    const jobOrdersSnap = await adminDb.collection("jobOrders")
-        .where("status", "in", activeStatuses)
-        .get();
-    
-    const allJobs = jobOrdersSnap.docs.map(doc => ({ 
-        ...convertTimestampsToDates(doc.data() as any), 
-        id: doc.id 
-    } as JobOrder));
+    // Lista di stati che vogliamo escludere esplicitamente dal tabellone (non attivi e non storicizzati)
+    const deadStatuses = ['shipped', 'spedito', 'annullato', 'cancelled'];
+
+    const allJobs = jobOrdersSnap.docs
+        .filter(doc => !doc.data().excludedFromPackingList && !deadStatuses.includes(doc.data().status?.toLowerCase()))
+        .map(doc => ({ 
+            ...convertTimestampsToDates(doc.data() as any), 
+            id: doc.id 
+        } as JobOrder));
 
     // 3. Separa Commesse Assegnate da Backlog (Non Assegnate)
-    const assignedJobs = allJobs.filter(j => j.assignedDate);
-    const unassignedJobs = allJobs.filter(j => !j.assignedDate);
+    // Assegnate = hanno dataConsegnaFinale valida
+    const assignedJobs = allJobs.filter(j => Boolean(j.dataConsegnaFinale) && j.dataConsegnaFinale !== 'N/D');
+    
+    // Non Assegnate = senza data (e non già chiuse per evitare backlog sporco)
+    const unassignedJobs = allJobs.filter(j => (!j.dataConsegnaFinale || j.dataConsegnaFinale === 'N/D') && j.status !== 'CHIUSO');
 
     return { 
         allocations, 
         jobOrders: assignedJobs, 
-        unassignedJobs 
+        unassignedJobs,
+        settings
     };
+}
+
+export async function getPlanningWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
+    const snapshot = await adminDb.collection('workPhaseTemplates').get();
+    return snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
+}
+
+export async function getPlanningDepartments(): Promise<Department[]> {
+    const snapshot = await adminDb.collection("departments").get();
+    return snapshot.docs.map(d => d.data() as Department);
 }

@@ -20,19 +20,22 @@ import {
     AlertCircle, 
     LayoutList,
     ChevronRight,
-    GripVertical
+    GripVertical,
+    XCircle
 } from 'lucide-react';
 import { Droppable, Draggable } from '@hello-pangea/dnd';
 import { cn } from '@/lib/utils';
 import type { JobOrder } from '@/types';
+import { Button } from '@/components/ui/button';
 
 interface BacklogDrawerProps {
     isOpen: boolean;
     onClose: () => void;
     unassignedJobs: JobOrder[];
+    onExclude?: (jobId: string) => void;
 }
 
-export default function BacklogDrawer({ isOpen, onClose, unassignedJobs }: BacklogDrawerProps) {
+export default function BacklogDrawer({ isOpen, onClose, unassignedJobs, onExclude }: BacklogDrawerProps) {
     const [searchTerm, setSearchTerm] = useState('');
 
     const filteredJobs = useMemo(() => {
@@ -64,10 +67,10 @@ export default function BacklogDrawer({ isOpen, onClose, unassignedJobs }: Backl
                                 <div className="p-2 bg-blue-600 rounded-lg">
                                     <Box className="h-5 w-5 text-white" />
                                 </div>
-                                <SheetTitle className="text-xl font-black uppercase tracking-tighter text-white">Backlog Commesse</SheetTitle>
+                                <SheetTitle className="text-xl font-black uppercase tracking-tighter text-white">Commesse da Assegnare</SheetTitle>
                             </div>
                             <SheetDescription className="text-slate-400 font-bold text-xs uppercase tracking-widest">
-                                {unassignedJobs.length} commesse da pianificare nel tabellone
+                                {unassignedJobs.length} commesse da assegnare nel tabellone
                             </SheetDescription>
                         </SheetHeader>
 
@@ -127,8 +130,13 @@ export default function BacklogDrawer({ isOpen, onClose, unassignedJobs }: Backl
                                                                             <div className={cn("h-2 w-2 rounded-full", statusColors[job.status] || 'bg-slate-300')} />
                                                                             <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">{job.status?.replace('_', ' ')}</span>
                                                                         </div>
-                                                                        <div className="flex items-center gap-1">
-                                                                             <Badge variant="outline" className="text-[8px] font-black uppercase border-slate-100 text-slate-400">{job.department}</Badge>
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <Badge variant="outline" className="text-[8px] font-black uppercase border-slate-100 text-slate-400">{job.department}</Badge>
+                                                                            {onExclude && (
+                                                                                <Button variant="ghost" size="icon" className="h-5 w-5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full shrink-0" onClick={(e) => { e.stopPropagation(); onExclude(job.id); }}>
+                                                                                    <XCircle className="h-3 w-3" />
+                                                                                </Button>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                 </div>

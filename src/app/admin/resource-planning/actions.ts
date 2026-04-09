@@ -460,3 +460,53 @@ export async function bulkUpdateJobSortOrder(updates: { id: string, sortIndex: n
         return { success: false, message: "Errore durante l'aggiornamento massivo dell'ordinamento." };
     }
 }
+
+/**
+ * Aggiorna la data di consegna finale di una commessa (Power Planning V2)
+ */
+export async function updateJobDeliveryDate(jobId: string, newDate: string, uid?: string) {
+    try {
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            dataConsegnaFinale: newDate,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+        revalidatePath('/admin/resource-planning');
+        return { success: true };
+    } catch (error) {
+        return { success: false, message: "Errore nell'aggiornamento della data di consegna." };
+    }
+}
+
+/**
+ * Aggiorna il dipartimento produttivo di una commessa (Power Planning V2)
+ */
+export async function updateJobDepartment(jobId: string, newDeptId: string, uid?: string) {
+    try {
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            department: newDeptId,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+        revalidatePath('/admin/resource-planning');
+        return { success: true };
+    } catch (error) {
+        return { success: false, message: "Errore nell'aggiornamento del reparto." };
+    }
+}
+
+/**
+ * Forza lo stato CHIUSO e imposta il flag per escluderla dalla packing list
+ */
+export async function forceCloseAndExclude(jobId: string, uid?: string) {
+    try {
+        if (uid) await ensureAdmin(uid);
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            status: 'CHIUSO',
+            excludedFromPackingList: true,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+        revalidatePath('/admin/resource-planning');
+        return { success: true, message: "Commessa chiusa ed esclusa dalle spedizioni." };
+    } catch (error) {
+        return { success: false, message: "Errore durante la chiusura forzata." };
+    }
+}

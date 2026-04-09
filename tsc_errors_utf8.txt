@@ -1,0 +1,343 @@
+﻿node_modules/@google-cloud/storage/build/cjs/src/crc32c.d.ts(66,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/@google-cloud/storage/build/cjs/src/file.d.ts(327,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/@google-cloud/storage/build/cjs/src/hash-stream-validator.d.ts(20,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/@google-cloud/storage/build/cjs/src/resumable-upload.d.ts(216,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/gaxios/build/src/gaxios.d.ts(6,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/google-auth-library/build/src/auth/awsclient.d.ts(84,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/google-auth-library/build/src/auth/baseexternalclient.d.ts(176,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/google-auth-library/build/src/auth/googleauth.d.ts(90,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/google-auth-library/build/src/util.d.ts(134,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/gtoken/build/src/index.d.ts(38,5): error TS18028: Private identifiers are only available when targeting ECMAScript 2015 and higher.
+node_modules/react-hook-form/dist/form.d.ts(1,8): error TS1259: Module '"C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/react-hook-form/dist/types/controller.d.ts(1,13): error TS1259: Module '"C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/react-hook-form/dist/types/form.d.ts(1,13): error TS1259: Module '"C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/react-hook-form/dist/useFormContext.d.ts(1,8): error TS1259: Module '"C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+src/app/admin/raw-material-management/actions.ts(4,25): error TS2307: Cannot find module '@/lib/firebase-admin' or its corresponding type declarations.
+src/app/admin/raw-material-management/actions.ts(19,8): error TS2307: Cannot find module '@/types' or its corresponding type declarations.
+src/app/admin/raw-material-management/actions.ts(20,29): error TS2307: Cannot find module '@/lib/server-auth' or its corresponding type declarations.
+src/app/admin/raw-material-management/actions.ts(21,35): error TS2307: Cannot find module '@/lib/settings-actions' or its corresponding type declarations.
+src/app/admin/raw-material-management/actions.ts(22,69): error TS2307: Cannot find module '@/lib/inventory-utils' or its corresponding type declarations.
+src/app/admin/raw-material-management/actions.ts(159,49): error TS2339: Property 'entries' does not exist on type 'FormData'.
+src/app/admin/raw-material-management/actions.ts(196,49): error TS2339: Property 'entries' does not exist on type 'FormData'.
+src/app/admin/raw-material-management/actions.ts(265,49): error TS2339: Property 'entries' does not exist on type 'FormData'.
+src/app/admin/raw-material-management/actions.ts(389,36): error TS2802: Type 'Set<unknown>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+src/app/admin/raw-material-management/actions.ts(586,30): error TS2802: Type 'Set<unknown>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+src/app/admin/raw-material-management/actions.ts(660,5): error TS2322: Type '{ lotto: string; available: number; batches: unknown; }[]' is not assignable to type 'LotInfo[]'.
+  Type '{ lotto: string; available: number; batches: unknown; }' is not assignable to type 'LotInfo'.
+    Types of property 'batches' are incompatible.
+      Type '{}' is missing the following properties from type 'RawMaterialBatch[]': length, pop, push, concat, and 29 more.
+src/app/admin/raw-material-management/actions.ts(662,32): error TS2339: Property 'reduce' does not exist on type 'unknown'.
+src/app/admin/raw-material-management/actions.ts(728,53): error TS2307: Cannot find module '@/lib/calendar-utils' or its corresponding type declarations.
+src/app/inventory/actions.ts(4,25): error TS2307: Cannot find module '@/lib/firebase-admin' or its corresponding type declarations.
+src/app/inventory/actions.ts(6,80): error TS2307: Cannot find module '@/types' or its corresponding type declarations.
+src/app/inventory/actions.ts(24,47): error TS2339: Property 'entries' does not exist on type 'FormData'.
+src/app/scan-job/actions.ts(4,25): error TS2307: Cannot find module '@/lib/firebase-admin' or its corresponding type declarations.
+src/app/scan-job/actions.ts(7,160): error TS2307: Cannot find module '@/types' or its corresponding type declarations.
+src/app/scan-job/actions.ts(8,35): error TS2307: Cannot find module '@/lib/settings-actions' or its corresponding type declarations.
+src/app/scan-job/actions.ts(9,44): error TS2307: Cannot find module '@/lib/inventory-utils' or its corresponding type declarations.
+src/app/scan-job/actions.ts(10,35): error TS2307: Cannot find module '@/app/admin/work-group-management/actions' or its corresponding type declarations.
+src/app/scan-job/actions.ts(11,29): error TS2307: Cannot find module '@/lib/server-auth' or its corresponding type declarations.
+src/app/scan-job/actions.ts(15,38): error TS2307: Cannot find module '@/lib/job-sync-server' or its corresponding type declarations.
+src/app/scan-job/actions.ts(598,49): error TS2339: Property 'entries' does not exist on type 'FormData'.
+src/app/scan-job/MaterialAssociationDialog.tsx(4,8): error TS1259: Module '"C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+src/app/scan-job/MaterialAssociationDialog.tsx(8,26): error TS2307: Cannot find module '@/hooks/use-toast' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(9,25): error TS2307: Cannot find module '@/components/auth/AuthProvider' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(10,33): error TS2307: Cannot find module '@/hooks/use-camera-stream' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(12,158): error TS2307: Cannot find module '@/types' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(17,99): error TS2307: Cannot find module '@/components/ui/dialog' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(18,24): error TS2307: Cannot find module '@/components/ui/button' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(19,23): error TS2307: Cannot find module '@/components/ui/input' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(20,23): error TS2307: Cannot find module '@/components/ui/label' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(21,80): error TS2307: Cannot find module '@/components/ui/form' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(22,79): error TS2307: Cannot find module '@/components/ui/select' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(23,53): error TS2307: Cannot find module '@/components/ui/alert' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(24,28): error TS2307: Cannot find module '@/components/ui/scroll-area' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(25,23): error TS2307: Cannot find module '@/components/ui/badge' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(28,20): error TS2307: Cannot find module '@/lib/utils' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(29,24): error TS2307: Cannot find module '@/components/ui/switch' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(30,36): error TS2307: Cannot find module '@/lib/utils' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(31,35): error TS2307: Cannot find module '@/hooks/useBatchSelection' or its corresponding type declarations.
+src/app/scan-job/MaterialAssociationDialog.tsx(90,147): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(90,183): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(90,222): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(100,37): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(142,36): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(145,74): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(147,39): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(148,36): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(151,36): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(181,38): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(182,40): error TS2339: Property 'code' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(191,40): error TS2339: Property 'code' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(197,42): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(198,44): error TS2339: Property 'code' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(205,29): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(222,54): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(228,76): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(244,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(245,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(246,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(248,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(249,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(250,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(253,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(254,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(255,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(259,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(260,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(261,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(261,79): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(264,14): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(270,40): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(279,6): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(280,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(281,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(282,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(284,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(285,23): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(286,27): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(287,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(287,114): error TS2339: Property 'code' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(288,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(288,131): error TS2339: Property 'description' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(291,27): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(292,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(293,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(294,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(295,74): error TS2339: Property 'currentStockUnits' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(295,110): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(295,144): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(297,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(298,75): error TS2339: Property 'currentWeightKg' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(302,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(306,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(308,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(309,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(310,109): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(310,143): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(312,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(315,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(323,27): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(324,31): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(325,35): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(326,35): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(328,31): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(329,35): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(330,39): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(331,39): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(333,35): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(334,39): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(335,39): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(336,59): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(340,35): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(341,39): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(342,39): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(349,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(349,82): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(351,15): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(352,19): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(353,23): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(355,20): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(356,23): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(361,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(362,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(363,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(364,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(365,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(365,42): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(370,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(371,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(372,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(374,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(375,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(380,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(390,87): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(393,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(394,53): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(396,66): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(398,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(399,105): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(409,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(410,26): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(411,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(412,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(413,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(414,53): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(414,149): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(416,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(417,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(417,50): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(417,144): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(418,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(419,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(420,156): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(421,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(429,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(430,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(431,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(432,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(432,46): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(437,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(439,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(440,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(441,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(442,79): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(444,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(445,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(446,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(447,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(459,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(460,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(461,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(461,135): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(462,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(467,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(469,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(470,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(471,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(472,125): error TS2339: Property 'unitOfMeasure' does not exist on type 'never'.
+src/app/scan-job/MaterialAssociationDialog.tsx(474,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(475,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(476,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(477,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(490,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(494,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(504,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(506,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(507,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(507,88): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(511,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(512,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(518,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(518,92): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(524,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(531,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(543,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(544,7): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(545,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(546,11): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/app/scan-job/MaterialAssociationDialog.tsx(548,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(4,8): error TS1259: Module '"C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+src/components/operator/ActiveMaterialSessionBar.tsx(9,42): error TS2307: Cannot find module '@/contexts/ActiveMaterialSessionProvider' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(10,49): error TS2307: Cannot find module '@/types' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(11,25): error TS2307: Cannot find module '@/components/auth/AuthProvider' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(12,26): error TS2307: Cannot find module '@/hooks/use-toast' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(13,24): error TS2307: Cannot find module '@/components/ui/button' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(23,8): error TS2307: Cannot find module '@/components/ui/sheet' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(24,99): error TS2307: Cannot find module '@/components/ui/dialog' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(25,80): error TS2307: Cannot find module '@/components/ui/form' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(26,23): error TS2307: Cannot find module '@/components/ui/input' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(28,23): error TS6142: Module '../ui/badge' was resolved to 'C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/src/components/ui/badge.tsx', but '--jsx' is not set.
+src/components/operator/ActiveMaterialSessionBar.tsx(29,28): error TS6142: Module '../ui/scroll-area' was resolved to 'C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/src/components/ui/scroll-area.tsx', but '--jsx' is not set.
+src/components/operator/ActiveMaterialSessionBar.tsx(30,34): error TS2307: Cannot find module '@/app/actions/material-sessions' or its corresponding type declarations.
+src/components/operator/ActiveMaterialSessionBar.tsx(110,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(111,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(112,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(113,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(114,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(116,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(117,56): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(117,133): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(121,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(123,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(124,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(125,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(126,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(129,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(130,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(131,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(132,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(134,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(135,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(136,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(138,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(139,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(140,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(145,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(146,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(147,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(151,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(152,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(153,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(156,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(160,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(161,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(162,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(163,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(172,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(177,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(178,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(183,53): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(183,105): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(187,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(194,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(202,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(203,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(237,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(238,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(239,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(240,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(240,70): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(241,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(243,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(244,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(245,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(246,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(256,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(257,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(258,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(259,38): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(259,90): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(291,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(292,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(293,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(294,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(298,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(299,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(300,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(304,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(307,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(308,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(309,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(310,28): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(311,32): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(313,28): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(315,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(319,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(320,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(324,37): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(326,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(331,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(336,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(337,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(338,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(339,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(341,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(342,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(343,53): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(345,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(346,53): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(351,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(352,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(353,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(353,91): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(354,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(356,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(358,53): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(363,53): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(367,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(373,53): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(378,41): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(379,45): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(385,49): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(393,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(394,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(395,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(402,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/operator/ActiveMaterialSessionBar.tsx(412,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/contexts/ActiveMaterialSessionProvider.tsx(4,8): error TS1259: Module '"C:/Users/HP/Desktop/PFXcan/prodfastxcan-repo/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+src/contexts/ActiveMaterialSessionProvider.tsx(5,93): error TS2307: Cannot find module '@/types' or its corresponding type declarations.
+src/contexts/ActiveMaterialSessionProvider.tsx(6,25): error TS2307: Cannot find module '@/components/auth/AuthProvider' or its corresponding type declarations.
+src/contexts/ActiveMaterialSessionProvider.tsx(8,20): error TS2307: Cannot find module '@/lib/firebase' or its corresponding type declarations.
+src/contexts/ActiveMaterialSessionProvider.tsx(9,84): error TS2307: Cannot find module '@/app/actions/material-sessions' or its corresponding type declarations.
+src/contexts/ActiveMaterialSessionProvider.tsx(102,5): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.

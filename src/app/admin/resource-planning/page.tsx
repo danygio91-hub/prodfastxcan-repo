@@ -12,7 +12,7 @@ export default function ResourcePlanningPage() {
   return (
     <AdminAuthGuard>
       <AppShell>
-        <div className="container mx-auto py-6">
+        <div className="w-full h-full flex flex-col flex-1 pb-10">
           <ResourcePlanningClientPage />
         </div>
       </AppShell>

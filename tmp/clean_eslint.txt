@@ -1,0 +1,174 @@
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\app-settings\page.tsx
+  Line 496: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\article-management\ArticleManagementClientPage.tsx
+  Line 379: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 379: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\attendance-calendar\page.tsx
+  Line 355: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\batch-management\BatchManagementClientPage.tsx
+  Line 305: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 375: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\dashboard\page.tsx
+  Line 61: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\data-healing\page.tsx
+  Line 470: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 826: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 826: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 836: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 866: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 891: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 895: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 924: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 924: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 1000: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 1000: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 1054: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 1054: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 1054: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 1054: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 1068: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 1068: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\department-management\page.tsx
+  Line 182: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\inventory-management\InventoryClientPage.tsx
+  Line 296: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 296: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 308: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 511: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 511: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 526: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 543: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 544: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 544: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\inventory-management\InventoryRecordSheet.tsx
+  Line 117: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 117: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\material-import\MaterialImportClientPage.tsx
+  Line 241: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 263: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 318: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\operator-management\OperatorManagementClientPage.tsx
+  Line 370: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\packaging-management\page.tsx
+  Line 198: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\privacy-management\page.tsx
+  Line 81: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\production-console\JobOrderCard.tsx
+  Line 389: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 389: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 395: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 395: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 401: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 401: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 438: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 438: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 587: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 587: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\production-console\ProductionConsoleClientPage.tsx
+  Line 628: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\production-console\WorkGroupCard.tsx
+  Line 248: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 266: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 266: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 272: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 272: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 284: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\production-settings\page.tsx
+  Line 143: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 158: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 158: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 158: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 187: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 187: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\production-time-analysis\ProductionTimeAnalysisClientPage.tsx
+  Line 303: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 303: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\purchase-orders\PurchaseOrderManagementClientPage.tsx
+  Line 378: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 380: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 426: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 426: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\raw-material-management\CommitmentManagementClientPage.tsx
+  Line 678: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 678: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 678: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 678: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 686: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 686: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 686: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\reports\operator\[operatorId]\page.tsx
+  Line 126: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\resource-planning\OperatorSkillLoanDialog.tsx
+  Line 147: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\settings\odl-designer\page.tsx
+  Line 787: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 787: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\settings\parameters\page.tsx
+  Line 122: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 304: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\time-tracking-settings\page.tsx
+  Line 93: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 122: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 122: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 142: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 144: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 144: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\work-phase-management\page.tsx
+  Line 220: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 220: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 490: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 512: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 534: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 534: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\admin\working-hours\page.tsx
+  Line 137: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 150: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\dashboard\page.tsx
+  Line 40: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\forms\LoginForm.tsx
+  Line 200: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 260: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\inventory\page.tsx
+  Line 200: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 347: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\manual-withdrawal\page.tsx
+  Line 407: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 746: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\material-check\page.tsx
+  Line 112: React Hook "useCallback" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return? (react-hooks/rules-of-hooks)
+  Line 154: React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return? (react-hooks/rules-of-hooks)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\material-loading\page.tsx
+  Line 518: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 564: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\operator\PrivacyForm.tsx
+  Line 121: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\operator\packing\PackingClientPage.tsx
+  Line 202: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 202: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\scan-job\MaterialAssociationDialog.tsx
+  Line 515: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\scan-job\page.tsx
+  Line 862: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 868: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 896: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 987: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\app\supervisor\dashboard\page.tsx
+  Line 116: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 116: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\components\PwaInstaller.tsx
+  Line 113: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\components\forms\ProblemReportForm.tsx
+  Line 73: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\components\production-console\JobOrderCard.tsx
+  Line 440: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 440: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 447: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 447: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 453: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 453: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)
+  Line 490: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 490: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 696: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+  Line 696: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`. (react/no-unescaped-entities)
+FILE: C:\Users\HP\Desktop\PFXcan\prodfastxcan-repo\src\components\production-console\WorkGroupCard.tsx
+  Line 151: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`. (react/no-unescaped-entities)

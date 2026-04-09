@@ -15,6 +15,7 @@ import { Users, Star, TrendingUp, Info, Search, Factory, ShieldCheck, Zap } from
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Progress } from '@/components/ui/progress';
 import type { Operator, Department, Article } from '@/types';
 
 interface OperatorSkillLoanDialogProps {
@@ -24,8 +25,9 @@ interface OperatorSkillLoanDialogProps {
     week: number;
     year: number;
     operators: Operator[];
-    currentAllocations: string[]; // IDs di operatori già assegnati
-    onSelect: (operatorId: string) => void;
+    currentAllocations: Record<string, { operatorId: string, hours: number }[]>; 
+    weeklyLimit: number;
+    onSelect: (operatorId: string, hours: number) => void;
 }
 
 export default function OperatorSkillLoanDialog({
@@ -36,35 +38,46 @@ export default function OperatorSkillLoanDialog({
     year,
     operators,
     currentAllocations,
+    weeklyLimit,
     onSelect
 }: OperatorSkillLoanDialogProps) {
     const [searchTerm, setSearchTerm] = useState('');
+    const [customHours, setCustomHours] = useState<Record<string, number>>({});
 
     const recommendedOperators = useMemo(() => {
-        // 1. Escludi chi è già assegnato
-        const available = operators.filter(op => !currentAllocations.includes(op.id));
+        const weekPrefix = `${year}_${week}_`;
+        
+        // 1. Calcola ore totali già assegnate per ogni operatore in questa settimana
+        const usedHoursMap: Record<string, number> = {};
+        Object.keys(currentAllocations).forEach(key => {
+            if (key.startsWith(weekPrefix)) {
+                currentAllocations[key].forEach(a => {
+                    usedHoursMap[a.operatorId] = (usedHoursMap[a.operatorId] || 0) + a.hours;
+                });
+            }
+        });
 
-        // 2. Calcola punteggio di affinità
-        return available.map(op => {
-            // Affinità di Reparto (Booleano)
+        const targetKey = `${year}_${week}_${targetDept}`;
+        const alreadyInDept = currentAllocations[targetKey]?.map(a => a.operatorId) || [];
+
+        // 2. Calcola punteggio e disponibilità
+        return operators.map(op => {
+            const usedHours = usedHoursMap[op.id] || 0;
+            const remainingHours = Math.max(0, weeklyLimit - usedHours);
             const isDeptCompatible = op.reparto.includes(targetDept);
+            const isAlreadyHere = alreadyInDept.includes(op.id);
             
-            // Skill specifica (se esiste una skill che mappa sul reparto o mansione principale)
-            // In una produzione reale, targetDept mappa su una o più PhaseId
-            // Qui cerchiamo la skill con il punteggio più alto tra quelle dell'operatore
             const bestSkill = op.skills?.reduce((prev, curr) => (curr.efficiencyPercent > prev ? curr.efficiencyPercent : prev), 0) || 0;
-            
-            // Punteggio finale: Compatibilità Reparto (1000 punti) + Skill Efficiency (0-100)
-            const score = (isDeptCompatible ? 1000 : 0) + bestSkill;
+            const score = (isDeptCompatible ? 1000 : 0) + bestSkill - (isAlreadyHere ? 5000 : 0);
 
-            return { ...op, score, isDeptCompatible, bestSkill };
+            return { ...op, score, isDeptCompatible, bestSkill, remainingHours, usedHours, isAlreadyHere };
         })
         .filter(op => {
             const matchesSearch = !searchTerm || op.nome.toLowerCase().includes(searchTerm.toLowerCase());
             return matchesSearch;
         })
         .sort((a, b) => b.score - a.score);
-    }, [operators, currentAllocations, targetDept, searchTerm]);
+    }, [operators, currentAllocations, targetDept, searchTerm, weeklyLimit, year, week]);
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -104,37 +117,67 @@ export default function OperatorSkillLoanDialog({
                                 <div 
                                     key={op.id} 
                                     className={cn(
-                                        "flex items-center justify-between p-4 rounded-2xl border-2 transition-all hover:bg-slate-50 group cursor-pointer",
-                                        idx === 0 ? "border-emerald-100 bg-emerald-50/20" : "border-slate-100"
+                                        "flex items-center justify-between p-4 rounded-2xl border-2 transition-all hover:bg-slate-50 group",
+                                        op.isAlreadyHere ? "opacity-60 grayscale border-slate-100 bg-slate-50" : (idx === 0 ? "border-emerald-100 bg-emerald-50/20" : "border-slate-100")
                                     )}
-                                    onClick={() => onSelect(op.id)}
                                 >
-                                    <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-4 flex-1">
                                         <div className="h-10 w-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-500 font-black">
                                             {op.nome.substring(0, 2).toUpperCase()}
                                         </div>
-                                        <div className="flex flex-col">
+                                        <div className="flex flex-col flex-1">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-black text-slate-800">{op.nome}</span>
-                                                {idx === 0 && <Badge className="bg-emerald-500 text-[8px] font-black uppercase h-4 px-1">Top Match</Badge>}
+                                                {op.isAlreadyHere && <Badge className="bg-slate-400 text-[8px] font-black uppercase h-4 px-1">Già assegnato</Badge>}
+                                                {!op.isAlreadyHere && idx === 0 && <Badge className="bg-emerald-500 text-[8px] font-black uppercase h-4 px-1">Top Match</Badge>}
                                             </div>
-                                            <div className="flex items-center gap-2 mt-0.5">
-                                                {op.isDeptCompatible ? (
-                                                    <Badge variant="outline" className="text-[7px] font-black bg-emerald-50 text-emerald-600 border-emerald-100 uppercase py-0 leading-none">Abilitato {targetDept}</Badge>
-                                                ) : (
-                                                    <Badge variant="outline" className="text-[7px] font-black bg-slate-100 text-slate-400 border-slate-200 uppercase py-0 leading-none">Fuori Reparto</Badge>
-                                                )}
-                                                <div className="flex items-center gap-1 text-[9px] font-bold text-slate-400">
-                                                    <Star className={cn("h-3 w-3", op.bestSkill > 80 ? "text-amber-500 fill-amber-500" : "")} />
-                                                    Efficienza: {op.bestSkill}%
+                                            <div className="flex flex-col gap-1.5 mt-1.5">
+                                                <div className="flex items-center gap-2">
+                                                    {op.isDeptCompatible ? (
+                                                        <Badge variant="outline" className="text-[7px] font-black bg-emerald-50 text-emerald-600 border-emerald-100 uppercase py-0 leading-none">Abilitato {targetDept}</Badge>
+                                                    ) : (
+                                                        <Badge variant="outline" className="text-[7px] font-black bg-slate-100 text-slate-400 border-slate-200 uppercase py-0 leading-none">Fuori Reparto</Badge>
+                                                    )}
+                                                    <div className="flex items-center gap-1 text-[9px] font-bold text-slate-400">
+                                                        <Star className={cn("h-3 w-3", op.bestSkill > 80 ? "text-amber-500 fill-amber-500" : "")} />
+                                                        Efficienza: {op.bestSkill}%
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="flex flex-col gap-1 w-full max-w-[140px]">
+                                                    <div className="flex justify-between text-[8px] font-black uppercase tracking-tighter">
+                                                        <span className="text-slate-400">Occupato: {op.usedHours}h</span>
+                                                        <span className={cn(op.remainingHours > 0 ? "text-blue-500" : "text-red-400")}>
+                                                            Residuo: {op.remainingHours}h
+                                                        </span>
+                                                    </div>
+                                                    <Progress value={(op.usedHours / weeklyLimit) * 100} className="h-1 w-full bg-slate-100 [&>div]:bg-blue-500" />
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                     
-                                    <Button variant="ghost" size="sm" className="h-9 w-9 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-white border shadow-sm">
-                                        <PlusCircleIcon className="h-5 w-5 text-blue-600" />
-                                    </Button>
+                                    {!op.isAlreadyHere && (
+                                        <div className="flex items-center gap-2 ml-4">
+                                            <div className="flex flex-col items-center gap-0.5">
+                                                <span className="text-[8px] font-black text-slate-400 uppercase">Ore</span>
+                                                <Input 
+                                                    type="number" 
+                                                    className="h-9 w-16 text-center font-black text-sm rounded-lg border-slate-200 focus:ring-blue-500"
+                                                    value={customHours[op.id] !== undefined ? customHours[op.id] : op.remainingHours}
+                                                    onChange={(e) => setCustomHours(prev => ({ ...prev, [op.id]: parseFloat(e.target.value) || 0 }))}
+                                                />
+                                            </div>
+                                            <Button 
+                                                variant="default" 
+                                                size="sm" 
+                                                className="h-10 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[10px] gap-2 shadow-lg shadow-blue-900/20"
+                                                onClick={() => onSelect(op.id, customHours[op.id] !== undefined ? customHours[op.id] : op.remainingHours)}
+                                            >
+                                                <PlusCircleIcon className="h-4 w-4" /> Aggiungi
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>

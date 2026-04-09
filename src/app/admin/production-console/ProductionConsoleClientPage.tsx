@@ -137,7 +137,7 @@ export default function ProductionConsoleClientPage() {
   const [assignments, setAssignments] = useState<OperatorAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const isReallyLoading = isLoading || isMasterLoading;
-  const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
+  const [activeFilter, setActiveFilter] = useState<FilterStatus>('In Pianificazione');
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
   const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   const [materialManagedItem, setMaterialManagedItem] = useState<JobOrder | WorkGroup | null>(null);
@@ -594,7 +594,6 @@ export default function ProductionConsoleClientPage() {
             <Card className="p-2 space-y-2">
           <div className="flex flex-wrap items-center justify-center gap-1">
               {[
-                { label: 'Tutte', value: 'all', icon: Briefcase },
                 { label: 'In Pianificazione', value: 'In Pianificazione', icon: CalendarDays },
                 { label: 'Da Iniziare', value: 'Da Iniziare', icon: Package2 },
                 { label: 'In Lavorazione', value: 'IN_LAVORAZIONE_FX', icon: Combine },
@@ -602,6 +601,7 @@ export default function ProductionConsoleClientPage() {
                 { label: 'Sospesa', value: 'Sospesa', icon: PauseCircle },
                 { label: 'Manca Materiale', value: 'Manca Materiale', icon: PackageX },
                 { label: 'Problema', value: 'Problema', icon: ShieldAlert },
+                { label: 'Tutte', value: 'all', icon: Briefcase },
               ].map(f => (
                 <Button key={f.value} variant={activeFilter === f.value && !showCompleted ? 'secondary' : 'ghost'} onClick={() => handleFilterClick(f.value as any)} className="text-xs sm:text-sm">
                   <f.icon className={cn("mr-2 h-4 w-4", f.value === 'LIVE' && "text-red-400 animate-pulse")} /> {f.label}
