@@ -391,8 +391,15 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         }
         mq = mq.limit(50);
     }
+    const activeStatuses = [
+        "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
+        "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+        "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
+        "Manca Materiale", "Problema", "Sospesa", "planned", "In Pianificazione", "IN_PIANIFICAZIONE", "IN_ATTESA",
+        "PRODUCTION", "PAUSED", "SUSPENDED"
+    ];
     const [jobsSnap, materialsSnap, commitmentsSnap, posSnap, settings] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"] as any[]).get(),
+        adminDb.collection("jobOrders").where("status", "in", activeStatuses as any[]).get(),
         mq.get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get(),
@@ -502,8 +509,15 @@ export type CommitmentDetail = { jobId: string; type: 'PRODUZIONE' | 'MANUALE'; 
 
 export async function getMaterialCommitmentDetails(materialCode: string): Promise<CommitmentDetail[]> {
     const norm = materialCode.toLowerCase().trim();
+    const activeStatuses = [
+        "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
+        "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+        "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
+        "Manca Materiale", "Problema", "Sospesa", "planned", "In Pianificazione", "IN_PIANIFICAZIONE", "IN_ATTESA",
+        "PRODUCTION", "PAUSED", "SUSPENDED"
+    ];
     const [jobsSnap, commitmentsSnap, articlesSnap, materialsSnap, settings] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"] as any[]).get(),
+        adminDb.collection("jobOrders").where("status", "in", activeStatuses as any[]).get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('articles').get(),
         adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get(),
