@@ -12,9 +12,13 @@ export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
         'QLTY_PACK': 'QLTY & PACK',
         'CHIUSO': 'CHIUSO',
         'completed': 'CHIUSO',
+        'COMPLETED': 'CHIUSO',
         'Completata': 'CHIUSO',
+        'COMPLETATA': 'CHIUSO',
         'shipped': 'CHIUSO',
+        'SHIPPED': 'CHIUSO',
         'closed': 'CHIUSO',
+        'CLOSED': 'CHIUSO',
         'Da Iniziare': 'DA INIZIARE',
         'In Preparazione': 'IN PREP.',
         'IN PREP': 'IN PREP.',
@@ -31,8 +35,9 @@ export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
         'QLTY & PACK': 'QLTY & PACK'
     };
 
-    if (item.status && pipelineMap[item.status]) {
-        return pipelineMap[item.status];
+    const statusKey = item.status || '';
+    if (statusKey && (pipelineMap[statusKey] || pipelineMap[statusKey.toUpperCase()])) {
+        return pipelineMap[statusKey] || pipelineMap[statusKey.toUpperCase()];
     }
 
     if (item.status === 'planned' || item.status === 'In Pianificazione' || item.status === 'IN_PIANIFICAZIONE' || item.status === 'IN_ATTESA') {

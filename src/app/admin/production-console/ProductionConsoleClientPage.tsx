@@ -151,11 +151,18 @@ export default function ProductionConsoleClientPage() {
   
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
-  const searchFromUrl = searchParams.get('search');
+  const searchFromUrl = searchParams.get('search') || searchParams.get('ordinePF');
   
   const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || searchFromUrl || '');
   const [isTargetedLoad, setIsTargetedLoad] = useState(!!(groupIdFromUrl || searchFromUrl));
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
+  // Auto-set filter to 'all' if coming from a direct search link
+  useEffect(() => {
+    if (searchFromUrl) {
+      setActiveFilter('all');
+    }
+  }, [searchFromUrl]);
 
   const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
   const [isDateFilterActive, setIsDateFilterActive] = useState(false);

@@ -1,13 +1,13 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { format, addWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek } from 'date-fns';
+import { format, addWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek, isSameDay } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from "@/components/ui/progress";
 import { Button } from '@/components/ui/button';
-import { Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Boxes, Package, Factory, Scissors, Calendar, Hash } from 'lucide-react';
+import { Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -16,7 +16,10 @@ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea
 
 import type { JobOrder, Operator, Department, Article } from '@/types';
 import { advanceJobStatus } from './weekly-actions';
+import { toggleExcludeFromPackingList } from './actions';
 import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
+import { getOverallStatus } from '@/lib/types';
 
 interface WeeklyCapacityBoardProps {
     jobOrders: JobOrder[];
@@ -44,6 +47,7 @@ export default function WeeklyCapacityBoard({
     onManageAllocations
 }: WeeklyCapacityBoardProps) {
     const { toast } = useToast();
+    const router = useRouter();
     const [numWeeks] = useState(4);
 
     const weeks = useMemo(() => {
@@ -169,19 +173,48 @@ export default function WeeklyCapacityBoard({
                                     const weekStartDateStr = format(week.start, 'yyyy-MM-dd');
                                     
                                     const weekJobs = jobOrders.filter(job => {
-                                        const jobDateStr = job.dataConsegnaFinale?.trim();
-                                        if (!jobDateStr || jobDateStr === 'N/D') return false;
-                                        const jobDate = parseISO(jobDateStr);
-                                        if (isNaN(jobDate.getTime())) return false;
+                                        const displayStatus = getOverallStatus(job);
+                                        const isClosed = displayStatus === 'CHIUSO';
                                         
-                                        const isSame = isSameWeek(jobDate, week.start, { weekStartsOn: 1 });
-                                        const isFirstWeek = isSameWeek(week.start, currentDate, { weekStartsOn: 1 });
-                                        const isPast = jobDate < startOfWeek(currentDate, { weekStartsOn: 1 });
-                                        const normalizedStatus = job.status?.toUpperCase() || '';
-                                        const isClosed = ['CHIUSO', 'COMPLETATA', 'COMPLETED', 'FINE_PRODUZIONE', 'CONCLUSA', 'CONCLUSI'].includes(normalizedStatus);
+                                        // 1. DATA DI RIFERIMENTO (Natural Week)
+                                        // Se chiusa, conta QUANDO è stata chiusa. Se no, quando è prevista la consegna.
+                                        let referenceDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' 
+                                            ? parseISO(job.dataConsegnaFinale) 
+                                            : null;
+                                            
+                                        if (isClosed && job.overallEndTime) {
+                                            referenceDate = new Date(job.overallEndTime);
+                                        }
+
+                                        const currentBoardStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+
+                                        if ((!referenceDate || isNaN(referenceDate.getTime())) && !isClosed) {
+                                            // Se non ha data ma è aperta, la mettiamo forzatamente nella prima colonna
+                                            // per evitare che sparisca dal sistema.
+                                            referenceDate = currentBoardStart;
+                                        }
+
+                                        if (!referenceDate || isNaN(referenceDate.getTime())) return false;
+
+                                        // 2. LOGICA DI ASSEGNAZIONE COLONNA (Deduplicazione)
                                         
-                                        const isApplicable = isClosed ? isSame : (isSame || (isPast && isFirstWeek));
-                                        if (!isApplicable) return false;
+                                        // Dove 'dovrebbe' stare questa commessa?
+                                        const naturalWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
+                                        const isOverdue = !isClosed && referenceDate < currentBoardStart;
+
+                                        let assignedWeekStart: Date;
+                                        if (isOverdue) {
+                                            // Se è in ritardo (e aperta), va SEMPRE e SOLO nella prima colonna visualizzata
+                                            assignedWeekStart = currentBoardStart;
+                                        } else {
+                                            // Altrimenti va nella sua settimana naturale
+                                            assignedWeekStart = naturalWeekStart;
+                                        }
+
+                                        // Finalmente verifichiamo se la colonna corrente è quella assegnata
+                                        if (!isSameWeek(week.start, assignedWeekStart, { weekStartsOn: 1 })) {
+                                            return false;
+                                        }
 
                                         if (isSatellite) return getJobLoadInDept(job, dept.id) > 0;
                                         
@@ -266,6 +299,11 @@ export default function WeeklyCapacityBoard({
                                                                         job={job} 
                                                                         load={getJobLoadInDept(job, dept.id)} 
                                                                         onAdvance={() => onStatusAdvance(job.id)}
+                                                                        onToggleExclude={async (val) => {
+                                                                            const res = await toggleExcludeFromPackingList(job.id, val);
+                                                                            if(res.success) toast({ title: "Aggiornato", description: res.message });
+                                                                        }}
+                                                                        onNavigate={() => router.push(`/admin/production-console?ordinePF=${job.ordinePF}&status=all`)}
                                                                         innerRef={provided.innerRef}
                                                                         provided={provided}
                                                                         isDragging={dSnapshot.isDragging}
@@ -290,7 +328,26 @@ export default function WeeklyCapacityBoard({
     );
 }
 
-function JobCompactCard({ job, load, onAdvance, innerRef, provided, isDragging }: { job: JobOrder, load: number, onAdvance: () => void, innerRef: any, provided: any, isDragging: boolean }) {
+function JobCompactCard({ 
+    job, 
+    load, 
+    onAdvance, 
+    onToggleExclude,
+    onNavigate,
+    innerRef, 
+    provided, 
+    isDragging 
+}: { 
+    job: JobOrder, 
+    load: number, 
+    onAdvance: () => void, 
+    onToggleExclude: (val: boolean) => void,
+    onNavigate: () => void,
+    innerRef: any, 
+    provided: any, 
+    isDragging: boolean 
+}) {
+    const isOverdue = job.dataConsegnaFinale && new Date(job.dataConsegnaFinale) < startOfWeek(new Date(), { weekStartsOn: 1 }) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
     const statusColors: Record<string, string> = {
         'DA_INIZIARE': 'bg-slate-400',
         'IN_PREPARAZIONE': 'bg-amber-400',
@@ -318,7 +375,8 @@ function JobCompactCard({ job, load, onAdvance, innerRef, provided, isDragging }
             {...provided.dragHandleProps}
             className={cn(
                 "p-3 border shadow-sm transition-all group relative overflow-hidden",
-                isClosed ? "bg-emerald-950/20 border-emerald-900/40 opacity-70" : "bg-slate-900 border-slate-800 hover:shadow-lg hover:border-slate-600",
+                isClosed ? "bg-emerald-950/40 border-emerald-500/50 shadow-emerald-900/20" : "bg-slate-900 border-slate-800 hover:shadow-lg hover:border-slate-600",
+                isOverdue && !isClosed && "border-red-600/50 bg-red-950/10",
                 isDragging && "shadow-2xl shadow-blue-900/50 border-blue-600 scale-[1.05] z-50 bg-slate-800"
             )}
         >
@@ -353,18 +411,43 @@ function JobCompactCard({ job, load, onAdvance, innerRef, provided, isDragging }
                 
                 <div className="flex items-center gap-2 mt-1 pt-1 border-t border-slate-800/50">
                     <div className={cn("h-2 w-2 rounded-full shadow-sm shrink-0", statusColors[job.status?.toUpperCase()] || 'bg-slate-600')} />
-                    <span className={cn("text-[8px] font-black uppercase tracking-tighter truncate", isClosed ? "text-emerald-500" : "text-slate-400")}>{job.status?.replace('_', ' ')}</span>
+                    <span className={cn("text-[8px] font-black uppercase tracking-tighter truncate", isClosed ? "text-emerald-500" : "text-slate-400")}>
+                        {job.status?.replace('_', ' ')}
+                    </span>
                     
-                    {!isClosed && (
+                    <div className="flex items-center gap-1 ml-auto shrink-0">
+                        {isClosed && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button 
+                                            size="icon" 
+                                            variant="ghost" 
+                                            className={cn(
+                                                "h-6 w-6 rounded-md transition-all",
+                                                job.excludedFromPackingList ? "bg-red-950 text-red-500 hover:bg-red-900" : "bg-slate-950 text-slate-500 hover:bg-emerald-900 hover:text-emerald-400"
+                                            )}
+                                            onClick={(e) => { e.stopPropagation(); onToggleExclude(!job.excludedFromPackingList); }}
+                                        >
+                                            <PackageX className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="bg-slate-950 border-slate-800 text-[10px] font-bold uppercase py-1 px-2">
+                                        {job.excludedFromPackingList ? "Includi in Packing List" : "Escludi da Packing List"}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                        
                         <Button 
                             size="icon" 
                             variant="ghost" 
-                            className="h-5 w-5 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-800 hover:text-white text-slate-500 rounded-md"
-                            onClick={(e) => { e.stopPropagation(); onAdvance(); }}
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-800 hover:text-white text-slate-500 rounded-md"
+                            onClick={(e) => { e.stopPropagation(); onNavigate(); }}
                         >
-                            <ChevronRight className="h-3.5 w-3.5" />
+                            <ChevronRight className="h-4 w-4" />
                         </Button>
-                    )}
+                    </div>
                 </div>
             </div>
         </Card>

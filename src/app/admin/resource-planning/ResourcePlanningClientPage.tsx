@@ -14,6 +14,8 @@ import {
     Zap
 } from 'lucide-react';
 import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek } from 'date-fns';
+import { it } from 'date-fns/locale';
+import { getOverallStatus } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -166,17 +168,34 @@ export default function ResourcePlanningClientPage() {
         const depts = [...coreDepts, {id: 'PREP'}, {id: 'PACK'}];
         
         boardData.jobOrders.forEach(job => {
-            if (!job.dataConsegnaFinale || job.dataConsegnaFinale === 'N/D') return;
-            const jobD = parseISO(job.dataConsegnaFinale);
-            const isSame = isSameWeek(jobD, currentWStart, { weekStartsOn: 1 });
-            const isFirstWeek = isSameWeek(currentWStart, new Date(), { weekStartsOn: 1 });
-            const isPast = jobD < currentWStart;
-            const normalizedStatus = job.status?.toUpperCase() || '';
-            const isClosed = ['CHIUSO', 'COMPLETATA', 'COMPLETED', 'FINE_PRODUZIONE', 'CONCLUSA', 'CONCLUSI'].includes(normalizedStatus);
+            const displayStatus = getOverallStatus(job);
+            const isClosed = displayStatus === 'CHIUSO';
             
-            const isApplicable = isClosed ? isSame : (isSame || (isPast && isFirstWeek));
-            
-            if (isApplicable) {
+            let refDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' 
+                ? parseISO(job.dataConsegnaFinale) 
+                : null;
+                
+            if (isClosed && job.overallEndTime) {
+                refDate = new Date(job.overallEndTime);
+            }
+
+            if ((!refDate || isNaN(refDate.getTime())) && !isClosed) {
+                refDate = currentWStart;
+            }
+
+            if (!refDate || isNaN(refDate.getTime())) return;
+
+            const naturalWeekStart = startOfWeek(refDate, { weekStartsOn: 1 });
+            const isOverdue = !isClosed && refDate < currentWStart;
+
+            let assignedWeekStart: Date;
+            if (isOverdue) {
+                assignedWeekStart = currentWStart;
+            } else {
+                assignedWeekStart = naturalWeekStart;
+            }
+
+            if (isSameWeek(currentWStart, assignedWeekStart, { weekStartsOn: 1 })) {
                 depts.forEach(d => {
                     load += getJobLoadLocal(job, d.id);
                 });

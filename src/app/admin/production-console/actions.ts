@@ -165,7 +165,7 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
 
         // If everything is now finished, close the whole job order
         if (allPhasesDone) {
-            finalStatus = 'Completata';
+            finalStatus = 'CHIUSO';
             updates.overallEndTime = admin.firestore.Timestamp.now();
             updates.forcedCompletion = true;
         }

@@ -502,11 +502,29 @@ export async function forceCloseAndExclude(jobId: string, uid?: string) {
         await adminDb.collection("jobOrders").doc(jobId).update({
             status: 'CHIUSO',
             excludedFromPackingList: true,
+            overallEndTime: admin.firestore.Timestamp.now(),
             updatedAt: admin.firestore.Timestamp.now()
         });
         revalidatePath('/admin/resource-planning');
         return { success: true, message: "Commessa chiusa ed esclusa dalle spedizioni." };
     } catch (error) {
         return { success: false, message: "Errore durante la chiusura forzata." };
+    }
+}
+
+/**
+ * Attiva o disattiva l'esclusione dalla packing list senza forzare la chiusura
+ */
+export async function toggleExcludeFromPackingList(jobId: string, value: boolean, uid?: string) {
+    try {
+        if (uid) await ensureAdmin(uid);
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            excludedFromPackingList: value,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+        revalidatePath('/admin/resource-planning');
+        return { success: true, message: value ? "Esclusa dai report di spedizione." : "Re-inclusa nei report di spedizione." };
+    } catch (error) {
+        return { success: false, message: "Errore durante l'aggiornamento." };
     }
 }

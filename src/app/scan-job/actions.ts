@@ -400,7 +400,7 @@ export async function handlePhaseScanResult(
                 const updates: any = { 
                     phases: updatedPhases,
                     status: newStatus,
-                    ...(newStatus === 'Completata' ? { overallEndTime: new Date() } : {})
+                    ...(newStatus === 'CHIUSO' ? { overallEndTime: new Date() } : {})
                 };
 
                 // HANDLE ANOMALIES (Quality)
