@@ -166,7 +166,7 @@ export async function migrateJobOrderStatuses(uid: string) {
 
         const batch = adminDb.batch();
         const mapping: Record<string, any> = {
-            "planned": "DA_INIZIARE",
+            "planned": "IN_PIANIFICAZIONE", // Consideriamo i vecchi 'planned' come backlog finché non vengono avviati esplicitamente
             "production": "IN_PRODUZIONE",
             "in-progress": "IN_PRODUZIONE",
             "completed": "FINE_PRODUZIONE",

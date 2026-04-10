@@ -58,7 +58,7 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
 export async function getCompletedJobOrders(): Promise<JobOrder[]> {
     const snap = await adminDb.collection("jobOrders")
         .where("status", "in", ["Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD"])
-        .limit(500).get(); 
+        .get(); 
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
@@ -155,7 +155,7 @@ export async function saveManualJobOrder(data: any) {
 
     const newJob: JobOrder = {
         id: sanitizedId,
-        status: 'In Pianificazione',
+        status: 'IN_PIANIFICAZIONE',
         postazioneLavoro: 'Da Assegnare',
         cliente: cliente || "N/D",
         ordinePF: ordinePF,
@@ -168,7 +168,9 @@ export async function saveManualJobOrder(data: any) {
         dataConsegnaFinale: dataConsegnaFinale || '',
         dataFinePreparazione: dataFinePreparazione || '',
         department: department || "N/D",
-        workCycleId: workCycleId || ''
+        workCycleId: workCycleId || '',
+        createdAt: admin.firestore.Timestamp.now(),
+        updatedAt: admin.firestore.Timestamp.now()
     };
 
     try {
@@ -344,38 +346,83 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
     const now = new Date();
     const year = now.getFullYear();
     const shortYear = year.toString().slice(-2);
+    
     const result = await adminDb.runTransaction(async (t) => {
       const snap = await t.get(jobRef);
-      if (!snap.exists) throw new Error("Non trovata.");
+      if (!snap.exists) throw new Error("Commessa non trovata.");
+      
       const job = snap.data() as JobOrder;
-      if (job.status !== 'planned' && job.status !== 'IN_ATTESA' && job.status !== 'In Pianificazione' && job.status !== 'IN_PIANIFICAZIONE') {
-          throw new Error("Stato non valido per l'avvio (richiesto In Pianificazione).");
+      
+      // Accettiamo i vecchi stati per compatibilità ma puntiamo a quelli nuovi
+      const validBacklogStatuses = [
+        'planned', 
+        'IN_ATTESA', 
+        'In Pianificazione', 
+        'IN_PIANIFICAZIONE'
+      ];
+      
+      if (!validBacklogStatuses.includes(job.status)) {
+          throw new Error(`Stato non valido per l'avvio (stato attuale: ${job.status}).`);
       }
+      
       if (!job.billOfMaterials || job.billOfMaterials.length === 0) throw new Error("Distinta Base vuota.");
-      if (!job.phases || job.phases.length === 0) throw new Error("Nessun ciclo.");
+      if (!job.phases || job.phases.length === 0) throw new Error("Nessun ciclo di lavorazione presente.");
+
+      // Recuperiamo (o creiamo) il counter per l'ANNO CORRENTE
       const counterRef = adminDb.collection("counters").doc(`odl_${year}`);
       const counterSnap = await t.get(counterRef);
-      const currentCounter = counterSnap.data()?.value || 0;
+      const currentCounter = (counterSnap.exists) ? (counterSnap.data()?.value || 0) : 0;
+      
       let newOdlId: string;
-      let newCounterValue: number;
+      let newCounterValue: number = currentCounter;
+      
       if (manualOdlNumberStr) {
+          // Caso: numero inserito manualmente nell'app
           const manualNum = parseInt(manualOdlNumberStr, 10);
           newOdlId = `${String(manualNum).padStart(4, '0')}-${shortYear}`;
           newCounterValue = Math.max(currentCounter, manualNum);
       } else if (job.numeroODLInterno) {
+          // Caso: ODL già presente nel record (es. da import Excel)
           newOdlId = job.numeroODLInterno;
-          newCounterValue = currentCounter;
+          // Non incrementiamo il counter globale ma assicuriamoci che sia almeno allineato 
+          // se il numero segue il formato standard
+          if (newOdlId.includes('-')) {
+              const [numPart] = newOdlId.split('-');
+              const numVal = parseInt(numPart, 10);
+              if (!isNaN(numVal)) newCounterValue = Math.max(currentCounter, numVal);
+          }
       } else {
+          // Caso: generazione automatica progressiva
           newCounterValue = currentCounter + 1;
           newOdlId = `${String(newCounterValue).padStart(4, '0')}-${shortYear}`;
       }
-      t.update(jobRef, { status: 'Da Iniziare', odlCreationDate: admin.firestore.Timestamp.fromDate(now), numeroODLInterno: newOdlId, odlCounter: newCounterValue });
-      if (newCounterValue > currentCounter) t.set(counterRef, { value: newCounterValue });
+      
+      // Aggiorniamo la commessa allo stato DA_INIZIARE (nuova pipeline)
+      t.update(jobRef, { 
+          status: 'DA_INIZIARE', 
+          odlCreationDate: admin.firestore.Timestamp.fromDate(now), 
+          numeroODLInterno: newOdlId, 
+          odlCounter: newCounterValue,
+          updatedAt: admin.firestore.Timestamp.fromDate(now)
+      });
+      
+      // Aggiorniamo il counter solo se è aumentato
+      if (newCounterValue > currentCounter) {
+          t.set(counterRef, { value: newCounterValue, year: year, updatedAt: admin.firestore.Timestamp.fromDate(now) }, { merge: true });
+      }
+      
       return newOdlId;
     });
+    
     revalidatePath('/admin/data-management');
-    return { success: true, message: `ODL #${result} creato.` };
-  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
+    revalidatePath('/admin/production-console');
+    revalidatePath('/admin/resource-planning');
+    
+    return { success: true, message: `ODL #${result} avviato con successo.` };
+  } catch (error) { 
+      console.error("Error in createODL:", error);
+      return { success: false, message: error instanceof Error ? error.message : "Errore interno durante l'avvio." }; 
+  }
 }
 
 export async function createMultipleODLs(jobIds: string[]) {
@@ -385,9 +432,15 @@ export async function createMultipleODLs(jobIds: string[]) {
 }
 
 export async function cancelODL(jobId: string) {
-  await adminDb.collection("jobOrders").doc(jobId).update({ status: 'In Pianificazione', odlCreationDate: null });
+  await adminDb.collection("jobOrders").doc(jobId).update({ 
+      status: 'IN_PIANIFICAZIONE', 
+      odlCreationDate: null,
+      updatedAt: admin.firestore.Timestamp.now()
+  });
   revalidatePath('/admin/data-management');
-  return { success: true, message: 'Annullato.' };
+  revalidatePath('/admin/production-console');
+  revalidatePath('/admin/resource-planning');
+  return { success: true, message: 'ODL annullato e riportato in pianificazione.' };
 }
 
 export async function deleteSelectedJobOrders(ids: string[]) {

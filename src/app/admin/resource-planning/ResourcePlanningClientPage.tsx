@@ -147,8 +147,8 @@ export default function ResourcePlanningClientPage() {
     }, [currentDate]);
 
     useEffect(() => {
-        const wNum = getWeek(currentDate, { weekStartsOn: 1 });
-        const year = currentDate.getFullYear();
+        const year = currentYear;
+        const wNum = currentWeek;
         let cap = 0;
         Object.keys(boardData.allocations).forEach(k => {
             if (k.startsWith(`${year}_${wNum}_`)) {
@@ -209,8 +209,8 @@ export default function ResourcePlanningClientPage() {
         else setLoading(true);
         
         try {
-            const week = getWeek(currentDate, { weekStartsOn: 1 });
-            const year = currentDate.getFullYear();
+            const week = currentWeek;
+            const year = currentYear;
             
             const data = await getWeeklyBoardData(year, week);
             const templates = await getPlanningWorkPhaseTemplates();
@@ -400,7 +400,7 @@ export default function ResourcePlanningClientPage() {
                                 <div className="flex items-center gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner">
                                     <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white" onClick={handlePrevWeek}><ChevronLeft className="h-5 w-5" /></Button>
                                     <div className="px-4 font-black text-sm text-slate-200 min-w-[170px] text-center uppercase tracking-tighter">
-                                        SETT. {getWeek(currentDate, { weekStartsOn: 1 })} — {currentDate.getFullYear()}
+                                        SETT. {currentWeek} — {currentYear}
                                     </div>
                                     <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white" onClick={handleNextWeek}><ChevronRight className="h-5 w-5" /></Button>
                                 </div>

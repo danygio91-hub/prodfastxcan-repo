@@ -110,7 +110,7 @@ const JobTableRows = ({
         const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
         const effectivePrepDate = j.dataFinePreparazione || j.dataConsegnaFinale;
         const displayPrepDateText = effectivePrepDate ? format(parseISO(effectivePrepDate), "dd/MM/yyyy") : "Scegli...";
-        const isInProductionGrouping = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'Da Iniziare', 'In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Manca Materiale', 'Pronto per Finitura', 'Problema'].includes(j.status as any);
+        const isInProductionGrouping = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'Da Iniziare', 'In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Manca Materiale', 'Pronto per Finitura', 'Problema', 'PRODUCTION'].includes(j.status as any);
         const isReadyBody = isInProductionGrouping && isJobReadyForProduction(j);
 
 
