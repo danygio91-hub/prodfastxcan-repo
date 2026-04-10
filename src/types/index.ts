@@ -302,7 +302,7 @@ export interface ProductionSettings {
   prioritizeActualTime: boolean;
 }
 
-export type OverallStatus = 'In Pianificazione' | 'Da Iniziare' | 'In Preparazione' | 'Pronto per Produzione' | 'In Lavorazione' | 'Completata' | 'Problema' | 'Sospesa' | 'Pronto per Finitura' | 'Manca Materiale';
+export type OverallStatus = 'DA INIZIARE' | 'IN PREP.' | 'PRONTO PROD.' | 'IN PROD.' | 'FINE PROD.' | 'QLTY & PACK' | 'CHIUSO' | 'In Pianificazione' | 'Problema' | 'Sospesa' | 'Manca Materiale' | 'Pronto per Produzione' | 'Pronto per Finitura' | 'In Lavorazione' | 'In Preparazione' | 'Completata' | 'Da Iniziare';
 
 export interface ManualCommitment {
   id: string;

@@ -45,14 +45,19 @@ export async function getPlannedJobOrders(): Promise<JobOrder[]> {
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
     const snap = await adminDb.collection("jobOrders")
-        .where("status", "in", ["Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Manca Materiale", "Sospesa", "Pronto per Finitura", "Problema", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK"])
+        .where("status", "in", [
+            "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
+            "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+            "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
+            "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED"
+        ])
         .get();
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
 export async function getCompletedJobOrders(): Promise<JobOrder[]> {
     const snap = await adminDb.collection("jobOrders")
-        .where("status", "in", ["Completata", "CHIUSO", "completed", "shipped", "closed"])
+        .where("status", "in", ["Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD"])
         .limit(500).get(); 
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }

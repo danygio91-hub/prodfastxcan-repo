@@ -39,7 +39,9 @@ import {
   ChevronDown,
   AlertCircle,
   CalendarDays,
-  Clock
+  Clock,
+  Timer,
+  Factory
 } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, WorkingHoursConfig, OperatorAssignment, Article, OverallStatus, ProductionSettings } from '@/types';
 import { useMasterData } from '@/contexts/MasterDataProvider';
@@ -112,7 +114,7 @@ import { getWorkingHoursConfig } from '@/app/admin/working-hours/actions';
 import { convertTimestampsToDates } from "@/lib/utils";
 
 
-type FilterStatus = OverallStatus | 'all' | 'LIVE' | 'IN_LAVORAZIONE_FX';
+type FilterStatus = OverallStatus | 'all' | 'LIVE' | 'ACTIVE';
 
 interface WeeklyGroup {
     weekNumber: number;
@@ -137,7 +139,7 @@ export default function ProductionConsoleClientPage() {
   const [assignments, setAssignments] = useState<OperatorAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const isReallyLoading = isLoading || isMasterLoading;
-  const [activeFilter, setActiveFilter] = useState<FilterStatus>('In Pianificazione');
+  const [activeFilter, setActiveFilter] = useState<FilterStatus>('ACTIVE');
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
   const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   const [materialManagedItem, setMaterialManagedItem] = useState<JobOrder | WorkGroup | null>(null);
@@ -179,7 +181,7 @@ export default function ProductionConsoleClientPage() {
     const deliveryDateString = item.dataConsegnaFinale;
     if (!deliveryDateString || !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)) return false;
     const deliveryDate = parseISO(deliveryDateString);
-    return isPast(deliveryDate) && getOverallStatus(item) !== 'Completata';
+    return isPast(deliveryDate) && getOverallStatus(item) !== 'CHIUSO' && getOverallStatus(item) !== 'Completata';
   };
 
   const loadAllData = useCallback(async (isManualRefresh = false) => {
@@ -189,7 +191,13 @@ export default function ProductionConsoleClientPage() {
     try {
         const currentGroupId = searchParams.get('groupId');
         const currentSearch = searchParams.get('search');
-        const prodStatuses = ["production", "suspended", "paused", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", "planned", "IN_ATTESA", "In Pianificazione", "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Sospesa", "Manca Materiale", "Pronto per Finitura", "Problema"];
+        const prodStatuses = [
+            "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
+            "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+            "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
+            "Manca Materiale", "Problema", "Sospesa", "planned", "In Pianificazione", "IN_PIANIFICAZIONE", "IN_ATTESA",
+            "PRODUCTION", "PAUSED", "SUSPENDED"
+        ];
         let jobsQuery = query(collection(db, "jobOrders"), where("status", "in", prodStatuses));
         let groupsQuery = query(collection(db, "workGroups"), where("status", "in", prodStatuses));
 
@@ -261,15 +269,15 @@ export default function ProductionConsoleClientPage() {
   const applyFilters = <T extends JobOrder | WorkGroup>(items: T[]): T[] => {
       let f = items;
       if (showCompleted) {
-          f = f.filter(i => getOverallStatus(i) === 'Completata');
+          f = f.filter(i => getOverallStatus(i) === 'CHIUSO' || getOverallStatus(i) === 'Completata');
           if (isDateFilterActive && completedDateFilter) f = f.filter(i => i.overallEndTime && isSameDay(new Date(i.overallEndTime), completedDateFilter));
       } else {
-          f = f.filter(i => getOverallStatus(i) !== 'Completata');
+          f = f.filter(i => getOverallStatus(i) !== 'CHIUSO' && getOverallStatus(i) !== 'Completata');
           if (activeFilter !== 'all') {
              if (activeFilter === 'LIVE') f = f.filter(isJobLive);
-             else if (activeFilter === 'IN_LAVORAZIONE_FX') {
-                 const lavStatuses = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Pronto per Finitura'];
-                 f = f.filter(i => lavStatuses.includes(getOverallStatus(i)));
+             else if (activeFilter === 'ACTIVE') {
+                 const activeStatuses = ['DA INIZIARE', 'IN PREP.', 'PRONTO PROD.', 'IN PROD.', 'FINE PROD.', 'QLTY & PACK'];
+                 f = f.filter(i => activeStatuses.includes(getOverallStatus(i)));
              }
              else f = f.filter(i => getOverallStatus(i) === activeFilter);
           }
@@ -591,34 +599,105 @@ export default function ProductionConsoleClientPage() {
           />
         ) : (
           <>
-            <Card className="p-2 space-y-2">
-          <div className="flex flex-wrap items-center justify-center gap-1">
-              {[
-                { label: 'In Pianificazione', value: 'In Pianificazione', icon: CalendarDays },
-                { label: 'Da Iniziare', value: 'Da Iniziare', icon: Package2 },
-                { label: 'In Lavorazione', value: 'IN_LAVORAZIONE_FX', icon: Combine },
-                { label: 'In Corso (Live)', value: 'LIVE', icon: Activity },
-                { label: 'Sospesa', value: 'Sospesa', icon: PauseCircle },
-                { label: 'Manca Materiale', value: 'Manca Materiale', icon: PackageX },
-                { label: 'Problema', value: 'Problema', icon: ShieldAlert },
-                { label: 'Tutte', value: 'all', icon: Briefcase },
-              ].map(f => (
-                <Button key={f.value} variant={activeFilter === f.value && !showCompleted ? 'secondary' : 'ghost'} onClick={() => handleFilterClick(f.value as any)} className="text-xs sm:text-sm">
-                  <f.icon className={cn("mr-2 h-4 w-4", f.value === 'LIVE' && "text-red-400 animate-pulse")} /> {f.label}
-                </Button>
-              ))}
+            <Card className="p-6 bg-slate-900/50 border-slate-800/50 backdrop-blur-md rounded-[2rem] shadow-xl space-y-6">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="flex items-center gap-2 overflow-x-auto w-full pb-2 md:pb-0 scrollbar-hide">
+                  <Button 
+                      variant={activeFilter === 'ACTIVE' && !showCompleted ? 'default' : 'outline'} 
+                      size="sm" 
+                      onClick={() => handleFilterClick('ACTIVE')}
+                      className={cn(
+                          "h-10 text-[10px] font-black uppercase tracking-widest px-6 rounded-xl transition-all", 
+                          activeFilter === 'ACTIVE' && !showCompleted ? "bg-blue-600 text-white shadow-lg shadow-blue-900/40" : "bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600"
+                      )}
+                  >
+                      SOLO ATTIVE
+                  </Button>
+                  
+                  <div className="h-6 w-px bg-slate-800 mx-2" />
+                  
+                  {[
+                    { label: 'DA INIZIARE', value: 'DA INIZIARE', color: 'bg-slate-400', icon: Package2 },
+                    { label: 'IN PREP.', value: 'IN PREP.', color: 'bg-amber-500', icon: Timer },
+                    { label: 'PRONTO PROD.', value: 'PRONTO PROD.', color: 'bg-emerald-500', icon: PlayCircle },
+                    { label: 'IN PROD.', value: 'IN PROD.', color: 'bg-blue-600', icon: Factory },
+                    { label: 'FINE PROD.', value: 'FINE PROD.', color: 'bg-purple-600', icon: CheckCircle2 },
+                    { label: 'QLTY & PACK', value: 'QLTY & PACK', color: 'bg-pink-600', icon: Boxes },
+                  ].map(f => (
+                    <Button 
+                      key={f.value} 
+                      variant={activeFilter === f.value && !showCompleted ? 'default' : 'outline'} 
+                      size="sm"
+                      onClick={() => handleFilterClick(f.value as any)} 
+                      className={cn(
+                          "h-10 text-[10px] font-black uppercase gap-2 whitespace-nowrap px-4 rounded-xl border transition-all", 
+                          activeFilter === f.value && !showCompleted ? `${f.color} text-white border-transparent shadow-lg` : "bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600"
+                      )}
+                    >
+                      <f.icon className="h-4 w-4" /> {f.label}
+                    </Button>
+                  ))}
+
+                  <div className="h-6 w-px bg-slate-800 mx-2" />
+
+                  <Button 
+                    variant={activeFilter === 'LIVE' && !showCompleted ? 'default' : 'outline'} 
+                    size="sm"
+                    onClick={() => handleFilterClick('LIVE')} 
+                    className={cn(
+                        "h-10 text-[10px] font-black uppercase gap-2 whitespace-nowrap px-4 rounded-xl border transition-all", 
+                        activeFilter === 'LIVE' && !showCompleted ? "bg-red-600 text-white border-transparent shadow-lg animate-pulse" : "bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600"
+                    )}
+                  >
+                    <Activity className="h-4 w-4" /> LIVE
+                  </Button>
+                  
+                  <Button 
+                    variant={activeFilter === 'all' && !showCompleted ? 'default' : 'outline'} 
+                    size="sm"
+                    onClick={() => handleFilterClick('all')} 
+                    className={cn(
+                        "h-10 text-[10px] font-black uppercase gap-2 whitespace-nowrap px-4 rounded-xl border transition-all", 
+                        activeFilter === 'all' && !showCompleted ? "bg-slate-700 text-white border-transparent shadow-lg" : "bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600"
+                    )}
+                  >
+                    TUTTE
+                  </Button>
+              </div>
           </div>
-           <div className="border-t pt-2 flex items-center justify-center gap-4 flex-wrap">
-                  <div className="flex items-center space-x-2"><Switch id="over-sw" checked={showOnlyOverdue} onCheckedChange={setShowOnlyOverdue} /><Label htmlFor="over-sw" className="text-destructive">Filtra Ritardi</Label></div>
-                  <div className="flex items-center space-x-2"><Switch id="comp-sw" checked={showCompleted} onCheckedChange={setShowCompleted} /><Label htmlFor="comp-sw">Mostra Completate</Label></div>
-                  {showCompleted && (
-                    <div className="flex items-center gap-2">
-                      <Switch id="dt-sw" checked={isDateFilterActive} onCheckedChange={setIsDateFilterActive} /><Label htmlFor="dt-sw">Filtra Data</Label>
-                      <Popover><PopoverTrigger asChild><Button variant="outline" className={cn("w-[200px] justify-start", !isDateFilterActive && "opacity-50")} disabled={!isDateFilterActive}><CalendarIcon className="mr-2 h-4 w-4" />{completedDateFilter ? format(completedDateFilter, "PPP", { locale: it }) : "Data"}</Button></PopoverTrigger>
-                      <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={completedDateFilter} onSelect={setCompletedDateFilter} initialFocus /></PopoverContent></Popover>
+
+          <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-800/50">
+                <div className="flex items-center gap-6">
+                    <div className="flex items-center space-x-2">
+                        <Switch id="over-sw" checked={showOnlyOverdue} onCheckedChange={setShowOnlyOverdue} className="data-[state=checked]:bg-destructive" />
+                        <Label htmlFor="over-sw" className="text-[10px] font-black uppercase tracking-widest text-destructive">Filtra Ritardi</Label>
                     </div>
-                  )}
-           </div>
+                    <div className="flex items-center space-x-2">
+                        <Switch id="comp-sw" checked={showCompleted} onCheckedChange={setShowCompleted} />
+                        <Label htmlFor="comp-sw" className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mostra CHIUSE</Label>
+                    </div>
+                </div>
+
+                {showCompleted && (
+                    <div className="flex items-center gap-4 animate-in fade-in slide-in-from-top-1">
+                        <div className="flex items-center space-x-2">
+                            <Switch id="dt-sw" checked={isDateFilterActive} onCheckedChange={setIsDateFilterActive} />
+                            <Label htmlFor="dt-sw" className="text-[10px] font-black uppercase tracking-widest text-slate-400">Filtra Data</Label>
+                        </div>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" size="sm" className={cn("h-10 bg-slate-950 border-slate-800 text-slate-400 rounded-xl", !isDateFilterActive && "opacity-50")} disabled={!isDateFilterActive}>
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {completedDateFilter ? format(completedDateFilter, "PPP", { locale: it }) : "Data"}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0 bg-slate-950 border-slate-800" align="end">
+                                <Calendar mode="single" selected={completedDateFilter} onSelect={setCompletedDateFilter} initialFocus className="text-slate-400" />
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+                )}
+          </div>
         </Card>
         
          {filteredItems.length > 0 && (
