@@ -18,7 +18,7 @@ const workCycleSchema = z.object({
 // --- Actions ---
 
 export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
-  const snapshot = await adminDb.collection('workPhaseTemplates').orderBy("sequence").get();
+  const snapshot = await adminDb.collection('workPhaseTemplates').orderBy("name").get();
   const list = snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
   return list;
 }
