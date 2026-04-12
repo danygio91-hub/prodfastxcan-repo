@@ -135,7 +135,7 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
               <Button size="sm" variant="secondary" className="h-8 w-full sm:w-auto text-xs font-bold" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
             )}
             
-            {canStart && <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold ring-2 ring-primary/10"><QrCode className="mr-2 h-4 w-4" /> Avvia</Button>}
+            {canStart && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} className="h-8 w-full sm:w-auto text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-sm transition-all active:scale-95"><PlayCircle className="mr-2 h-4 w-4" /> Avvia</Button>}
             
             {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-blue-600 border-blue-200 bg-blue-50/50"><Combine className="mr-2 h-4 w-4" /> Partecipa</Button>}
             
@@ -205,8 +205,7 @@ export default function ScanJobPage() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [manualCode, setManualCode] = useState('');
   
-  const [isPhaseScanDialogOpen, setIsPhaseScanDialogOpen] = useState(false);
-  const [phaseForPhaseScan, setPhaseForPhaseScan] = useState<JobPhase | null>(null);
+
   const [isMaterialAssociationDialogOpen, setIsMaterialAssociationDialogOpen] = useState(false);
   const [phaseForMaterialAssociation, setPhaseForMaterialAssociation] = useState<JobPhase | null>(null);
 
@@ -233,7 +232,7 @@ export default function ScanJobPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const groupingVideoRef = useRef<HTMLVideoElement>(null);
 
-  const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scanning' || isPhaseScanDialogOpen, videoRef);
+  const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scanning', videoRef);
   const { hasPermission: hasGroupingCameraPermission } = useCameraStream(isGroupingScanActive, groupingVideoRef);
 
   useEffect(() => { 
@@ -472,10 +471,7 @@ export default function ScanJobPage() {
   };
 
 
-  const handleOpenPhaseScanDialog = (phase: JobPhase) => {
-    setPhaseForPhaseScan(phase);
-    setIsPhaseScanDialogOpen(true);
-  };
+
 
   const handleOpenMaterialAssociationDialog = (phase: JobPhase) => {
     setPhaseForMaterialAssociation(phase);
@@ -708,7 +704,7 @@ export default function ScanJobPage() {
                   <CardHeader><CardTitle>Fasi Lavorazione</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
                     {(activeJob.phases || []).sort((a,b) => a.sequence - b.sequence).map(p => (
-                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handleOpenPhaseScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog, handleOpenDeclarationDialog}} />
+                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog, handleOpenDeclarationDialog}} />
                     ))}
                   </CardContent>
                 </Card>
@@ -792,23 +788,7 @@ export default function ScanJobPage() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Avvia Fase: {phaseForPhaseScan?.name}</DialogTitle></DialogHeader>
-              {renderScanArea(videoRef, hasCameraPermission)}
-              <DialogFooter>
-                <Button onClick={() => triggerScan(videoRef, async (val) => { 
-                  if(val.toLowerCase() === phaseForPhaseScan?.name.toLowerCase()) { 
-                    await handlePhaseScanResult(activeJob!.id, phaseForPhaseScan!.id, operator!.id, false); 
-                    setIsPhaseScanDialogOpen(false); 
-                    refreshJob();
-                  } else {
-                    toast({ variant: 'destructive', title: 'QR Errato', description: 'Scansiona il codice corrispondente alla fase.' });
-                  }
-                })} className="w-full">Scansiona QR Fase</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+
 
 
           {isMaterialAssociationDialogOpen && phaseForMaterialAssociation && (
