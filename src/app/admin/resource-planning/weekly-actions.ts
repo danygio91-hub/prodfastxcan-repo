@@ -232,15 +232,23 @@ export async function getWeeklyBoardData(year: number, week: number) {
 
     const jobOrdersSnap = await adminDb.collection("jobOrders").get();
     
-    // Lista di stati che vogliamo escludere esplicitamente dal tabellone (non attivi e non storicizzati)
-    const deadStatuses = ['shipped', 'spedito', 'annullato', 'cancelled'];
+    const ALLOWED_PRODUCTION_STATUSES = [
+        "In Produzione", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
+        "da_iniziare", "in_preparazione", "pronto_prod", "in_produzione", "fine_produzione", "qlty_pack",
+        "DA INIZIARE", "IN PREPARAZIONE", "PRONTO PROD", "IN PRODUZIONE", "FINE PRODUZIONE", "QLTY PACK",
+        "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+        "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED", "IN PROD.", "FINE PROD.", "PRONTO PROD.", "QLTY & PACK", "PRONTO",
+        "Da Produrre", "In Attesa", "Lavorazione"
+    ];
 
-    const allJobs = jobOrdersSnap.docs
-        .filter(doc => !doc.data().excludedFromPackingList && !deadStatuses.includes(doc.data().status?.toLowerCase()))
-        .map(doc => ({ 
-            ...convertTimestampsToDates(doc.data() as any), 
-            id: doc.id 
-        } as JobOrder));
+    const ALLOWED_COMPLETED_STATUSES = [
+        "Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD", "Chiuso", "Consegnata"
+    ];
+
+    const allJobs = jobOrdersSnap.docs.map(doc => ({ 
+        ...convertTimestampsToDates(doc.data() as any), 
+        id: doc.id 
+    } as JobOrder));
 
     // 3. Separa Commesse Assegnate da Backlog (Non Assegnate)
     // Assegnate = hanno dataConsegnaFinale valida

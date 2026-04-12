@@ -121,7 +121,7 @@ export async function getPlanningData(dateIso: string) {
     const end = endOfWeek(targetDate, { weekStartsOn: 1 });
     
     const [jobOrdersSnap, operatorsSnap, departmentsSnap, assignments, settingsSnap, rawMaterialsSnap, purchaseOrdersSnap, manualCommitmentsSnap] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", ["DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", "CHIUSO", "paused", "suspended", "planned", "production"] as any[]).get(),
+        adminDb.collection("jobOrders").where("status", "in", ["DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", "CHIUSO", "paused", "suspended", "production"] as any[]).get(),
         adminDb.collection("operators").get(),
         adminDb.collection("departments").orderBy("name").get(),
         getOperatorAssignments(format(start, 'yyyy-MM-dd'), format(end, 'yyyy-MM-dd')),
@@ -132,7 +132,19 @@ export async function getPlanningData(dateIso: string) {
     ]);
 
 
-    const jobOrders = jobOrdersSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
+    const ALLOWED_PLANNING_STATUSES = [
+        'DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 
+        'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 
+        'CHIUSO', 'PAUSED', 'SUSPENDED', 'PRODUCTION',
+        'IN LAVORAZIONE', 'COMPLETATA', 'SOSPESA', 'ARCHIVIATA', 'IN ATTESA'
+    ];
+
+    const jobOrders = jobOrdersSnap.docs
+        .map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder))
+        .filter(job => {
+            const status = (job.status || '').toUpperCase();
+            return ALLOWED_PLANNING_STATUSES.includes(status) && !job.excludedFromPackingList;
+        });
     const operators = operatorsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as Operator)).filter(op => op.isReal !== false);
     const departments = departmentsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as Department));
     const settings = settingsSnap.exists ? convertTimestampsToDates(settingsSnap.data()) as any : {};
@@ -199,7 +211,7 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
     // 2. Se non esiste o forceRefresh = true, procedi con il calcolo
     const [assignments, jobOrdersSnapshot, operatorsSnapshot, departmentsSnapshot, timeAnalysis] = await Promise.all([
         getOperatorAssignments(format(start, 'yyyy-MM-dd'), format(end, 'yyyy-MM-dd')),
-        adminDb.collection("jobOrders").where("status", "in", ["DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", "CHIUSO", "planned", "production"] as any[]).get(),
+        adminDb.collection("jobOrders").where("status", "in", ["DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", "CHIUSO", "production"] as any[]).get(),
         adminDb.collection("operators").get(),
         adminDb.collection("departments").get(),
         getProductionTimeAnalysisMap()

@@ -306,7 +306,25 @@ export async function processAndValidateImport(data: any[]): Promise<{
             }
         }
 
-        newJobs.push({ id: sanitizedId, status: 'In Pianificazione', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', dataFinePreparazione: validData.dataFinePreparazione || '', department: validData.department || "N/D", workCycleId: workCycleId });
+        newJobs.push({ 
+            id: sanitizedId, 
+            status: 'In Pianificazione', 
+            postazioneLavoro: 'Da Assegnare', 
+            cliente: validData.cliente || "N/D", 
+            ordinePF: validData.ordinePF, 
+            numeroODL: validData.numeroODL || "N/D", 
+            numeroODLInterno: odlToAssign, 
+            details: articleCode, 
+            qta: validData.qta, 
+            billOfMaterials: jobBOM, 
+            phases: phases, 
+            dataConsegnaFinale: validData.dataConsegnaFinale || '', 
+            dataFinePreparazione: validData.dataFinePreparazione || '', 
+            department: validData.department || "N/D", 
+            workCycleId: workCycleId,
+            createdAt: admin.firestore.Timestamp.now(),
+            updatedAt: admin.firestore.Timestamp.now()
+        });
     }
     return { success: true, message: "Analisi completata.", newJobs, jobsToUpdate, blockedJobs };
 }

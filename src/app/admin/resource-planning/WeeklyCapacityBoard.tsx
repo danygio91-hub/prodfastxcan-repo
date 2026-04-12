@@ -1,18 +1,25 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { format, addWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek, isSameDay } from 'date-fns';
+import { format, addWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek, isSameDay, isBefore, getDay } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from "@/components/ui/progress";
 import { Button } from '@/components/ui/button';
-import { Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX } from 'lucide-react';
+import { 
+    Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, 
+    Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX, Search, XCircle,
+    Zap, CalendarCheck, ChevronDown, ChevronUp
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+
+
 
 import type { JobOrder, Operator, Department, Article } from '@/types';
 import { advanceJobStatus } from './weekly-actions';
@@ -23,6 +30,7 @@ import { getOverallStatus } from '@/lib/types';
 
 interface WeeklyCapacityBoardProps {
     jobOrders: JobOrder[];
+    unassignedJobs: JobOrder[];
     operators: Operator[];
     departments: Department[];
     articles: Article[];
@@ -30,12 +38,18 @@ interface WeeklyCapacityBoardProps {
     phaseTemplates: any[];
     currentDate: Date;
     weeklyLimit: number;
+    searchQuery?: string;
+    onSearchChange?: (q: string) => void;
+    onJumpToDate?: (d: Date) => void;
+    onOpenBacklog?: () => void;
     onStatusAdvance: (jobId: string) => void;
     onManageAllocations: (deptId: string, week: number, year: number) => void;
+    onJobClick: (jobId: string) => void;
 }
 
 export default function WeeklyCapacityBoard({
     jobOrders,
+    unassignedJobs = [],
     operators,
     departments,
     articles,
@@ -43,12 +57,112 @@ export default function WeeklyCapacityBoard({
     phaseTemplates,
     currentDate,
     weeklyLimit,
+    searchQuery = '',
+    onSearchChange,
+    onJumpToDate,
+    onOpenBacklog,
     onStatusAdvance,
-    onManageAllocations
+    onManageAllocations,
+    onJobClick
 }: WeeklyCapacityBoardProps) {
     const { toast } = useToast();
     const router = useRouter();
     const [numWeeks] = useState(4);
+    const [isSimulationMode, setIsSimulationMode] = useState(false);
+    const [activeResultIndex, setActiveResultIndex] = useState(0);
+
+    // Costanti per il Check-up di Fattibilità
+    const EFFICIENCY_FACTOR = 0.85;
+    const DEFAULT_PREP_OPERATORS = 2;
+    const DEFAULT_PACK_OPERATORS = 2;
+
+    // Whitelists Ufficiali Dogana (Gestione Commesse) per Audit 1:1
+    const PRODUCTION_STATUS_WHITELIST = [
+        "In Produzione", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK",
+        "da_iniziare", "in_preparazione", "pronto_prod", "in_produzione", "fine_produzione", "qlty_pack",
+        "DA INIZIARE", "IN PREPARAZIONE", "PRONTO PROD", "IN PRODUZIONE", "FINE PRODUZIONE", "QLTY PACK",
+        "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+        "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED", "IN PROD.", "FINE PROD.", "PRONTO PROD.", "QLTY & PACK", "PRONTO",
+        "Da Produrre", "In Attesa", "Lavorazione"
+    ];
+
+    const COMPLETED_STATUS_WHITELIST = [
+        "Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD", "Chiuso", "Consegnata"
+    ];
+
+    // Logica di Matching per la Ricerca Globale
+    const isMatch = (job: JobOrder) => {
+        if (!searchQuery || searchQuery.trim().length < 2) return false;
+        const q = searchQuery.toLowerCase().trim();
+        return (
+            (job.numeroODLInterno?.toLowerCase().includes(q)) ||
+            (job.ordinePF?.toLowerCase().includes(q)) ||
+            (job.details?.toLowerCase().includes(q))
+        );
+    };
+
+    // Memo degli tutti i job che corrispondono alla ricerca, ordinati cronologicamente
+    const matchingJobs = useMemo(() => {
+        if (!searchQuery || searchQuery.trim().length < 2) return [];
+        
+        const allJobs = [...jobOrders, ...unassignedJobs];
+        const matches = allJobs.filter(isMatch);
+        
+        // Ordiniamo cronologicamente: chiusi prima (storico), poi per data di consegna, poi quelli senza data (backlog)
+        return matches.sort((a, b) => {
+            const dateA = a.dataConsegnaFinale && a.dataConsegnaFinale !== 'N/D' ? a.dataConsegnaFinale : '9999-99-99';
+            const dateB = b.dataConsegnaFinale && b.dataConsegnaFinale !== 'N/D' ? b.dataConsegnaFinale : '9999-99-99';
+            return dateA.localeCompare(dateB);
+        });
+    }, [searchQuery, jobOrders, unassignedJobs]);
+
+    const jumpToMatch = (index: number) => {
+        const target = matchingJobs[index];
+        if (!target) return;
+
+        setActiveResultIndex(index);
+
+        if (target.dataConsegnaFinale && target.dataConsegnaFinale !== 'N/D') {
+            const date = parseISO(target.dataConsegnaFinale);
+            if (!isNaN(date.getTime())) {
+                onJumpToDate?.(date);
+            }
+        } else {
+            // Se non ha data, apriamo il backlog
+            onOpenBacklog?.();
+            toast({ 
+                title: "Match nel Backlog", 
+                description: `L'ODL ${target.numeroODLInterno || target.ordinePF} è nel backlog.`,
+                variant: "default"
+            });
+        }
+    };
+
+    const handleSearchSubmit = (e?: React.KeyboardEvent) => {
+        if (e && e.key !== 'Enter') return;
+        if (matchingJobs.length === 0) {
+            if (searchQuery.length >= 3) {
+                toast({ title: "Nessun Risultato", description: "Non abbiamo trovato commesse corrispondenti.", variant: "destructive" });
+            }
+            return;
+        }
+
+        // Se premiamo invio, andiamo al prossimo match (ciclico)
+        const nextIdx = (activeResultIndex + 1) % matchingJobs.length;
+        jumpToMatch(nextIdx);
+    };
+
+    const prevMatch = () => {
+        const nextIdx = (activeResultIndex - 1 + matchingJobs.length) % matchingJobs.length;
+        jumpToMatch(nextIdx);
+    };
+
+    const nextMatch = () => {
+        const nextIdx = (activeResultIndex + 1) % matchingJobs.length;
+        jumpToMatch(nextIdx);
+    };
+
+
 
     const weeks = useMemo(() => {
         const start = startOfWeek(currentDate, { weekStartsOn: 1 });
@@ -95,7 +209,6 @@ export default function WeeklyCapacityBoard({
         if (!article) return 0;
 
         const phaseTimes = article.phaseTimes || {};
-        // Filtriamo i template attivi nel ciclo dell'articolo
         const activeTemplates = phaseTemplates.filter(t => phaseTimes[t.id]?.enabled !== false && (phaseTimes[t.id]?.expectedMinutesPerPiece || 0) > 0);
 
         let relevantTemplates = [];
@@ -104,13 +217,12 @@ export default function WeeklyCapacityBoard({
         } else if (deptId === 'PACK') {
             relevantTemplates = activeTemplates.filter(t => t.type === 'quality' || t.type === 'packaging');
         } else {
-            // Reparti Core: solo fasi di produzione E matching del reparto principale della commessa
             relevantTemplates = activeTemplates.filter(t => t.type === 'production');
             
-            // Per i reparti CORE, filtriamo anche per appartenenza
             const jobDept = job.department?.toUpperCase() || '';
-            const dCode = (departments.find(d => d.id === deptId) as any)?.code?.toUpperCase() || '';
-            const dName = (departments.find(d => d.id === deptId) as any)?.name?.toUpperCase() || '';
+            const targetDept = departments.find(d => d.id === deptId);
+            const dCode = targetDept?.code?.toUpperCase() || '';
+            const dName = targetDept?.name?.toUpperCase() || '';
             const dId = deptId.toUpperCase();
             
             const isMatchingDept = jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
@@ -123,6 +235,96 @@ export default function WeeklyCapacityBoard({
         }, 0);
 
         return totalMins / 60;
+    };
+
+    const isMacroAreaCompleted = (job: JobOrder, type: 'preparation' | 'production' | 'quality_pack') => {
+        const phases = job.phases || [];
+        let relevantPhases = [];
+        if (type === 'preparation') relevantPhases = phases.filter(p => p.type === 'preparation');
+        else if (type === 'production') relevantPhases = phases.filter(p => p.type === 'production');
+        else relevantPhases = phases.filter(p => p.type === 'quality' || p.type === 'packaging');
+
+        if (relevantPhases.length === 0) return true;
+        return relevantPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+    };
+
+    const isMacroAreaStarted = (job: JobOrder, type: 'preparation' | 'production' | 'quality_pack') => {
+        const phases = job.phases || [];
+        let relevantPhases = [];
+        if (type === 'preparation') relevantPhases = phases.filter(p => p.type === 'preparation');
+        else if (type === 'production') relevantPhases = phases.filter(p => p.type === 'production');
+        else relevantPhases = phases.filter(p => p.type === 'quality' || p.type === 'packaging');
+
+        return relevantPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
+    };
+
+    const getCloneStatus = (job: JobOrder, currentArea: 'PREP' | 'CORE' | 'PACK'): 'status-gray' | 'status-amber' | 'status-blue' | 'status-green' => {
+        if (currentArea === 'PREP') {
+            if (isMacroAreaCompleted(job, 'preparation')) return 'status-green';
+            if (isMacroAreaStarted(job, 'preparation')) return 'status-blue';
+            return 'status-amber'; // La Prep è sempre pronta (o quasi) se la commessa è avviata
+        }
+
+        if (currentArea === 'CORE') {
+            if (isMacroAreaCompleted(job, 'production')) return 'status-green';
+            if (isMacroAreaStarted(job, 'production')) return 'status-blue';
+            
+            // Ambra se Prep è finita (o non necessaria)
+            const prepNeeded = departments.find(d => d.id === job.department || d.code === job.department)?.dependsOnPreparation;
+            const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
+            
+            if (prepNeeded && hasPrepPhases) {
+                if (isMacroAreaCompleted(job, 'preparation')) return 'status-amber';
+                return 'status-gray';
+            }
+            return 'status-amber';
+        }
+
+        if (currentArea === 'PACK') {
+            if (isMacroAreaCompleted(job, 'quality_pack')) return 'status-green';
+            if (isMacroAreaStarted(job, 'quality_pack')) return 'status-blue';
+            
+            // Ambra se Core è finito
+            if (isMacroAreaCompleted(job, 'production')) return 'status-amber';
+            return 'status-gray';
+        }
+
+        return 'status-gray';
+    };
+
+    const checkTechnicalFeasibility = (job: JobOrder, deptId: string, week: { start: Date, weekNum: number, year: number }) => {
+        // STEP 0: Se il clone è già COMPLETATO (Verde), non segnalare allarmi
+        const macroArea = deptId === 'PREP' ? 'PREP' : deptId === 'PACK' ? 'PACK' : 'CORE';
+        if (getCloneStatus(job, macroArea) === 'status-green') return false;
+
+        // 1. Identifica il numero di operatori
+        let numOperators = 0;
+        if (deptId === 'PREP') numOperators = DEFAULT_PREP_OPERATORS;
+        else if (deptId === 'PACK') numOperators = DEFAULT_PACK_OPERATORS;
+        else {
+            const allocationKey = `${week.year}_${week.weekNum}_${deptId}`;
+            numOperators = allocations[allocationKey]?.length || 0;
+        }
+
+        if (numOperators <= 0) return true; // Se non ci sono risorse impostate, l'alert non scatta per ora
+
+        // 2. Calcola Indice Giorno (0=Lunedì, 4=Venerdì). Cap a 4 per weekend come da specifica.
+        const refDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' ? parseISO(job.dataConsegnaFinale) : null;
+        if (!refDate) return false;
+
+        let dayIdx = getDay(refDate) - 1; // getDay: 0=Domenica, 1=Lunedì...
+        if (dayIdx === -1) dayIdx = 4; // Domenica -> Venerdì (indice 4)
+        if (dayIdx > 4) dayIdx = 4; // Sabato -> Venerdì (indice 4)
+        if (dayIdx < 0) dayIdx = 0; // Per sicurezza
+
+        // 3. Capacità Cumulata Giornaliera
+        const dailyHours = numOperators * 8 * EFFICIENCY_FACTOR;
+        const cumulativeCapacity = (dayIdx + 1) * dailyHours;
+
+        // 4. Carico del Clone in questa macro-area
+        const jobLoad = getJobLoadInDept(job, deptId);
+
+        return jobLoad > cumulativeCapacity;
     };
 
     const deptColors: Record<string, { tab: string, border: string, bg: string }> = {
@@ -140,23 +342,151 @@ export default function WeeklyCapacityBoard({
     return (
         <div className="flex flex-col gap-4 p-4 bg-slate-900 rounded-xl border border-slate-800 shadow-inner flex-1 min-h-[500px]">
             <Tabs defaultValue={allDisplayDepts[0]?.id} className="w-full">
-                <div className="flex justify-between items-center mb-6 overflow-x-auto pb-2">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-6">
                     <TabsList className="bg-slate-950 h-14 p-1 rounded-2xl border border-slate-800">
                         {allDisplayDepts.map(dept => {
                             const isSatellite = ['PREP', 'PACK'].includes(dept.id);
                             const tColors = getColors(dept.id, (dept as any).code);
+                            
+                            // Verifica se il reparto contiene match per la ricerca
+                            const hasMatchInDept = searchQuery.length >= 2 && jobOrders.some(j => {
+                                if (!isMatch(j)) return false;
+                                
+                                const jobDept = j.department?.toUpperCase() || '';
+                                const dCode = (dept as any).code?.toUpperCase() || '';
+                                const dName = (dept as any).name?.toUpperCase() || '';
+                                const dId = dept.id.toUpperCase();
+                                
+                                if (dept.id === 'PREP' && (j.phases || []).some(p => p.type === 'preparation')) return true;
+                                if (dept.id === 'PACK') return true; 
+
+                                return jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
+                            });
+
                             return (
                                 <TabsTrigger 
                                     key={dept.id} 
                                     value={dept.id} 
-                                    className={cn("h-full px-6 rounded-xl font-black uppercase text-xs tracking-widest flex items-center gap-2 transition-all", tColors.tab)}
+                                    className={cn("relative h-full px-6 rounded-xl font-black uppercase text-xs tracking-widest flex items-center gap-2 transition-all", tColors.tab)}
                                 >
                                     {isSatellite ? (dept as any).icon : <Factory className="h-4 w-4" />}
                                     {dept.name}
+                                    {hasMatchInDept && (
+                                        <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]"></span>
+                                        </span>
+                                    )}
                                 </TabsTrigger>
                             );
                         })}
                     </TabsList>
+
+                    <div className="flex items-center gap-6 bg-slate-950 p-2 rounded-2xl border border-slate-800">
+                        {/* Global Search Bar */}
+                        <div className="flex items-center gap-2">
+                            <div className="relative group min-w-[320px]">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 group-focus-within:text-blue-400 transition-colors">
+                                    <Search className="h-4 w-4" />
+                                </div>
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => {
+                                        onSearchChange?.(e.target.value);
+                                        setActiveResultIndex(0); // Reset index on type
+                                    }}
+                                    onKeyDown={handleSearchSubmit}
+                                    placeholder="Cerca ODL, Ordine o Codice..."
+                                    className="w-full h-10 bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 text-xs font-bold text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all shadow-inner"
+                                />
+                                {searchQuery && (
+                                    <button 
+                                        onClick={() => onSearchChange?.('')}
+                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300"
+                                    >
+                                        <XCircle className="h-4 w-4" />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Multi-Match Navigation Controls */}
+                            {matchingJobs.length > 1 && (
+                                <div className="flex items-center gap-1 bg-slate-900 border border-indigo-900/30 rounded-xl px-2 h-10 shadow-lg shadow-indigo-950/20">
+                                    <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="h-7 w-7 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/20"
+                                        onClick={prevMatch}
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                    </Button>
+                                    <div className="flex items-center gap-1 px-1">
+                                        <span className="text-[10px] font-black text-indigo-400 min-w-[30px] text-center uppercase tracking-tighter">
+                                            {activeResultIndex + 1} <span className="text-[8px] opacity-40 mx-0.5">di</span> {matchingJobs.length}
+                                        </span>
+                                    </div>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="h-7 w-7 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/20"
+                                        onClick={nextMatch}
+                                    >
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Audit Contatori: Riconciliazione SSoT con Dogana */}
+                        <div className="flex items-center gap-2 pl-2 border-l border-slate-800 ml-2">
+                            <div className="flex flex-col items-center">
+                                <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter leading-none mb-1">In Produzione</span>
+                                <Badge className="bg-blue-600/20 text-blue-400 border border-blue-500/30 font-black text-xs px-2.5 h-6">
+                                    {[...jobOrders, ...(unassignedJobs || [])].filter(j => {
+                                        const s = (j.status || '').toLowerCase().trim();
+                                        // 1. Escludiamo i chiusi
+                                        const isClosed = COMPLETED_STATUS_WHITELIST.some(cw => cw.toLowerCase() === s);
+                                        // 2. Escludiamo quelli in pianificazione (Backlog)
+                                        const isBacklog = ["planned", "in_attesa", "in pianificazione", "in_pianificazione"].includes(s);
+                                        
+                                        return !isClosed && !isBacklog;
+                                    }).length}
+                                </Badge>
+                            </div>
+                            <div className="h-8 w-px bg-slate-800 mx-1" />
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="flex flex-col items-center cursor-help">
+                                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter leading-none mb-1">Chiuse Visibili</span>
+                                            <Badge variant="outline" className="bg-slate-900 border-slate-700 text-slate-500 font-bold text-xs px-2.5 h-6">
+                                                {jobOrders.filter(j => 
+                                                    COMPLETED_STATUS_WHITELIST.some(s => s.toLowerCase() === (j.status || '').toLowerCase())
+                                                ).length}
+                                            </Badge>
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="bg-slate-900 border-slate-700 text-[10px] font-bold text-slate-300">
+                                        Commesse chiuse/concluse caricate nel range visibile della board.
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        </div>
+
+                        <div className="flex items-center gap-3 pr-2 border-l border-slate-800 pl-4">
+                            <div className="flex flex-col items-end">
+                                <Label htmlFor="simulation-mode" className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Check-up Venerdì</Label>
+                                <span className="text-[8px] font-bold text-slate-600 uppercase italic leading-none">Proiezione Arretrati</span>
+                            </div>
+                            <Switch 
+                                id="simulation-mode"
+                                checked={isSimulationMode}
+                                onCheckedChange={setIsSimulationMode}
+                                className="data-[state=checked]:bg-blue-600"
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 {allDisplayDepts.map(dept => {
@@ -176,47 +506,97 @@ export default function WeeklyCapacityBoard({
                                         const displayStatus = getOverallStatus(job);
                                         const isClosed = displayStatus === 'CHIUSO';
                                         
-                                        // 1. DATA DI RIFERIMENTO (Natural Week)
-                                        // Se chiusa, conta QUANDO è stata chiusa. Se no, quando è prevista la consegna.
-                                        let referenceDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' 
-                                            ? parseISO(job.dataConsegnaFinale) 
-                                            : null;
-                                            
-                                        if (isClosed && job.overallEndTime) {
-                                            referenceDate = new Date(job.overallEndTime);
+                                        // 1. DATA DI RIFERIMENTO DINAMICA (effectiveBoardDate)
+                                        // Se CHIUSO: usiamo la data reale di fine (SSoT Storico)
+                                        // Se ATTIVA: usiamo la data di consegna finale (SSoT Pianificazione)
+                                        let referenceDate: Date | null = null;
+
+                                        if (isClosed) {
+                                            if (job.overallEndTime) {
+                                                // Gestione robusta: potrebbe essere un Timestamp di Firestore o un oggetto Date
+                                                const rawEnd = job.overallEndTime;
+                                                referenceDate = (rawEnd && typeof rawEnd === 'object' && 'seconds' in rawEnd)
+                                                    ? new Date(rawEnd.seconds * 1000)
+                                                    : new Date(rawEnd);
+                                            }
+                                        } else {
+                                            if (job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D') {
+                                                // Fallback parsing robusto per date non standard
+                                                referenceDate = parseISO(job.dataConsegnaFinale);
+                                                if (isNaN(referenceDate.getTime()) && String(job.dataConsegnaFinale).includes('/')) {
+                                                    const parts = String(job.dataConsegnaFinale).split('/');
+                                                    if (parts.length === 3) {
+                                                        const [d, m, y] = parts;
+                                                        referenceDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+                                                    }
+                                                }
+                                            }
                                         }
 
                                         const currentBoardStart = startOfWeek(currentDate, { weekStartsOn: 1 });
 
+                                        // 2. FALLBACK PER COMMESSE SENZA DATA (EVITA SPARIZIONI)
                                         if ((!referenceDate || isNaN(referenceDate.getTime())) && !isClosed) {
-                                            // Se non ha data ma è aperta, la mettiamo forzatamente nella prima colonna
-                                            // per evitare che sparisca dal sistema.
                                             referenceDate = currentBoardStart;
                                         }
 
                                         if (!referenceDate || isNaN(referenceDate.getTime())) return false;
 
-                                        // 2. LOGICA DI ASSEGNAZIONE COLONNA (Deduplicazione)
-                                        
-                                        // Dove 'dovrebbe' stare questa commessa?
+                                        // 3. LOGICA DI ASSEGNAZIONE COLONNA (Deduplicazione e Ritardi)
                                         const naturalWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
-                                        const isOverdue = !isClosed && referenceDate < currentBoardStart;
+                                        
+                                        // STEP A: Calcoliamo lo stato del clone per decidere l'ancoraggio
+                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
+                                        const cloneStatus = getCloneStatus(job, macroArea);
+                                        const isGreen = cloneStatus === 'status-green';
+
+                                        // Il ritardo (overdue) si applica SOLO alle commesse aperte e ai cloni NON ancora finiti (non verdi)
+                                        const isOverdue = !isClosed && !isGreen && referenceDate < currentBoardStart;
 
                                         let assignedWeekStart: Date;
                                         if (isOverdue) {
-                                            // Se è in ritardo (e aperta), va SEMPRE e SOLO nella prima colonna visualizzata
+                                            // Se è in ritardo (e il clone è ancora aperto), va SEMPRE nella prima colonna visualizzata
                                             assignedWeekStart = currentBoardStart;
                                         } else {
-                                            // Altrimenti va nella sua settimana naturale
+                                            // Altrimenti va nella sua settimana naturale (Pianificata o di Chiusura Reale)
+                                            // Questo garantisce l'ancoraggio storico dei "Verdi"
                                             assignedWeekStart = naturalWeekStart;
                                         }
 
-                                        // Finalmente verifichiamo se la colonna corrente è quella assegnata
-                                        if (!isSameWeek(week.start, assignedWeekStart, { weekStartsOn: 1 })) {
-                                            return false;
+                                        // Infine verifichiamo se la colonna corrente è quella assegnata
+                                        const isAssignedToThisColumn = isSameWeek(week.start, assignedWeekStart, { weekStartsOn: 1 });
+
+                                        // LOGICA SIMULAZIONE (Spazzaneve)
+                                        if (isSimulationMode) {
+                                            const isPastOrCurrentWeek = (assignedWeekStart < currentBoardStart) || isSameWeek(assignedWeekStart, currentBoardStart, { weekStartsOn: 1 });
+                                            
+                                            // Il rollover si applica SOLO se il clone non è ancora finito (e non è CHIUSO)
+                                            const isArrearage = !isClosed && !isGreen && isPastOrCurrentWeek;
+
+                                            if (isArrearage) {
+                                                // Se è un arretrato, lo facciamo apparire SOLO nella SECONDA colonna (Proiezione Lunedì)
+                                                const secondWeek = weeks[1];
+                                                if (secondWeek && isSameWeek(week.start, secondWeek.start, { weekStartsOn: 1 })) {
+                                                    return true; 
+                                                }
+                                                return false; // scompare dalla sua colonna originale (passato/corrente) per saltare avanti
+                                            }
                                         }
 
-                                        if (isSatellite) return getJobLoadInDept(job, dept.id) > 0;
+                                        if (!isAssignedToThisColumn) return false;
+
+                                        if (isSatellite) {
+                                            if (dept.id === 'PREP') {
+                                                // Mostra solo se il reparto core ha dependsOnPreparation: true E ci sono fasi prep
+                                                const jobCoreDept = departments.find(d => d.id === job.department || d.code === job.department);
+                                                const dependsOnPrep = jobCoreDept?.dependsOnPreparation ?? false;
+                                                const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
+                                                if (!dependsOnPrep || !hasPrepPhases) return false;
+                                                return true;
+                                            }
+                                            if (dept.id === 'PACK') return true; // Mostra sempre
+                                            return false;
+                                        }
                                         
                                         const jobDept = job.department?.toUpperCase() || '';
                                         const dCode = (dept as any).code?.toUpperCase() || '';
@@ -230,17 +610,14 @@ export default function WeeklyCapacityBoard({
                                     const isOverloaded = capacityHours > 0 && totalLoad > capacityHours;
 
                                     return (
-                                        <Droppable key={`${dept.id}|${weekStartDateStr}`} droppableId={`${dept.id}|${weekStartDateStr}`}>
-                                            {(provided, snapshot) => (
-                                                <Card 
-                                                    ref={provided.innerRef}
-                                                    {...provided.droppableProps}
-                                                    className={cn(
-                                                        "group border transition-all duration-300 rounded-2xl overflow-hidden shadow-sm flex flex-col h-full",
-                                                        snapshot.isDraggingOver ? "bg-slate-800 border-blue-600 shadow-lg shadow-blue-900/50 scale-[1.01]" : "bg-slate-900 border-slate-800",
-                                                        isOverloaded ? "border-red-900/50 bg-red-950/20 shadow-red-900/20" : ""
-                                                    )}
-                                                >
+                                        <Card 
+                                            key={`${dept.id}|${weekStartDateStr}`}
+                                            className={cn(
+                                                "group border transition-all duration-300 rounded-2xl overflow-hidden shadow-sm flex flex-col h-full bg-slate-900 border-slate-800",
+                                                isOverloaded ? "border-red-900/50 bg-red-950/20 shadow-red-900/20" : ""
+                                            )}
+                                        >
+
                                                     <CardHeader className="p-4 bg-slate-950/50 border-b border-slate-800 flex flex-row items-center justify-between gap-4">
                                                         <div className="flex flex-col">
                                                             <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{week.label}</span>
@@ -289,12 +666,21 @@ export default function WeeklyCapacityBoard({
                                                             <Progress value={capacityHours > 0 ? (totalLoad / capacityHours) * 100 : 0} className={cn("h-1.5 w-16 mt-1.5", isOverloaded ? "[&>div]:bg-red-500" : "[&>div]:bg-blue-600")} />
                                                         </div>
                                                     </CardHeader>
-                                                    <CardContent className="p-3 space-y-3 min-h-[120px] bg-transparent flex-1">
-                                                        {weekJobs.map((job, index) => {
-                                                            const isClosedCard = ['CHIUSO', 'COMPLETATA', 'COMPLETED', 'FINE_PRODUZIONE', 'CONCLUSA', 'CONCLUSI'].includes(job.status?.toUpperCase() || '');
+                                                    <CardContent className="p-3 space-y-3 min-h-[250px] bg-transparent flex-1">
+                                                        {weekJobs.map((job) => {
+                                                            const isA = isMatch(job);
+                                                            const isActive = isA && matchingJobs[activeResultIndex]?.id === job.id;
+                                                            
                                                             return (
-                                                             <Draggable key={job.id} draggableId={job.id} index={index} isDragDisabled={isClosedCard}>
-                                                                {(provided, dSnapshot) => (
+                                                                <div 
+                                                                    key={job.id}
+                                                                    className={cn(
+                                                                        "relative transition-all duration-300",
+                                                                        searchQuery.length >= 2 && !isA ? "opacity-20 grayscale-[0.8] scale-[0.98]" : "opacity-100",
+                                                                        isA && !isActive ? "z-10 bg-slate-950/30 rounded-2xl ring-2 ring-blue-500/50 shadow-md scale-[1.01]" : "",
+                                                                        isActive ? "z-20 bg-amber-950/20 rounded-2xl ring-4 ring-amber-400 shadow-[0_0_25px_rgba(251,191,36,0.5)] scale-[1.05]" : ""
+                                                                    )}
+                                                                >
                                                                     <JobCompactCard 
                                                                         job={job} 
                                                                         load={getJobLoadInDept(job, dept.id)} 
@@ -304,19 +690,25 @@ export default function WeeklyCapacityBoard({
                                                                             if(res.success) toast({ title: "Aggiornato", description: res.message });
                                                                         }}
                                                                         onNavigate={() => router.push(`/admin/production-console?ordinePF=${job.ordinePF}&status=all`)}
-                                                                        innerRef={provided.innerRef}
-                                                                        provided={provided}
-                                                                        isDragging={dSnapshot.isDragging}
+                                                                        onClick={() => onJobClick(job.id)}
+                                                                        macroArea={dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE'}
+                                                                        semaphoreStatus={getCloneStatus(job, dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE')}
+                                                                        isTechnicalDelay={checkTechnicalFeasibility(job, dept.id, week)}
                                                                     />
-                                                                )}
-                                                             </Draggable>
+                                                                    {isA && (
+                                                                        <div className="absolute -top-3 -right-3 flex h-6 w-6 pointer-events-none z-30">
+                                                                            <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", isActive ? "bg-amber-400" : "bg-blue-400")}></span>
+                                                                            <span className={cn("relative inline-flex rounded-full h-6 w-6 border-2 border-white shadow-lg flex items-center justify-center", isActive ? "bg-amber-500" : "bg-blue-600")}>
+                                                                                {isActive ? <Zap className="h-3 w-3 text-white fill-white" /> : <Search className="h-3 w-3 text-white" />}
+                                                                            </span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             );
                                                         })}
-                                                        {provided.placeholder}
+
                                                     </CardContent>
                                                 </Card>
-                                            )}
-                                        </Droppable>
                                     );
                                 })}
                             </div>
@@ -334,33 +726,38 @@ function JobCompactCard({
     onAdvance, 
     onToggleExclude,
     onNavigate,
-    innerRef, 
-    provided, 
-    isDragging 
+    onClick,
+    macroArea,
+    semaphoreStatus,
+    isTechnicalDelay
 }: { 
     job: JobOrder, 
     load: number, 
     onAdvance: () => void, 
     onToggleExclude: (val: boolean) => void,
     onNavigate: () => void,
-    innerRef: any, 
-    provided: any, 
-    isDragging: boolean 
+    onClick: () => void,
+    macroArea: 'PREP' | 'CORE' | 'PACK',
+    semaphoreStatus: 'status-gray' | 'status-amber' | 'status-blue' | 'status-green',
+    isTechnicalDelay: boolean
 }) {
     const isOverdue = job.dataConsegnaFinale && new Date(job.dataConsegnaFinale) < startOfWeek(new Date(), { weekStartsOn: 1 }) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
-    const statusColors: Record<string, string> = {
-        'DA_INIZIARE': 'bg-slate-400',
-        'IN_PREPARAZIONE': 'bg-amber-400',
-        'PRONTO_PROD': 'bg-emerald-400',
-        'IN_PRODUZIONE': 'bg-blue-500',
-        'FINE_PRODUZIONE': 'bg-green-600',
-        'COMPLETATA': 'bg-green-600',
-        'COMPLETED': 'bg-green-600',
-        'QLTY_PACK': 'bg-pink-500',
-        'CHIUSO': 'bg-emerald-900'
+    const sColors: Record<string, string> = {
+        'status-gray': 'bg-slate-750 border-slate-700 opacity-60 grayscale',
+        'status-amber': 'bg-amber-950/20 border-amber-500/50 shadow-amber-900/10',
+        'status-blue': 'bg-blue-950/30 border-blue-500/60 shadow-blue-900/20 animate-pulse-subtle',
+        'status-green': 'bg-emerald-950/40 border-emerald-500/50 shadow-emerald-900/20'
     };
 
-    const isClosed = ['CHIUSO', 'COMPLETATA', 'COMPLETED', 'FINE_PRODUZIONE', 'CONCLUSA', 'CONCLUSI'].includes(job.status?.toUpperCase() || '');
+    const sIndicator: Record<string, string> = {
+        'status-gray': 'bg-slate-600',
+        'status-amber': 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]',
+        'status-blue': 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]',
+        'status-green': 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+    };
+
+    const isClosed = semaphoreStatus === 'status-green' && macroArea === 'PACK';
+
     
     // Formattazione data visiva
     let formattedDate = 'N/D';
@@ -370,17 +767,29 @@ function JobCompactCard({
 
     return (
         <Card 
-            ref={innerRef}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
+            onClick={onClick}
             className={cn(
-                "p-3 border shadow-sm transition-all group relative overflow-hidden",
-                isClosed ? "bg-emerald-950/40 border-emerald-500/50 shadow-emerald-900/20" : "bg-slate-900 border-slate-800 hover:shadow-lg hover:border-slate-600",
-                isOverdue && !isClosed && "border-red-600/50 bg-red-950/10",
-                isDragging && "shadow-2xl shadow-blue-900/50 border-blue-600 scale-[1.05] z-50 bg-slate-800"
+                "p-3 border shadow-sm transition-all group relative overflow-hidden cursor-pointer",
+                sColors[semaphoreStatus],
+                isOverdue && !isClosed && semaphoreStatus !== 'status-green' && "border-red-600/50",
+                isTechnicalDelay && !isClosed && "border-red-500 border-[3px] shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse-subtle"
             )}
         >
-            <div className={cn("absolute left-0 top-0 bottom-0 w-1", statusColors[job.status?.toUpperCase()] || 'bg-slate-600')} />
+            {isTechnicalDelay && !isClosed && (
+                <div className="absolute top-0 right-0 p-1 z-10">
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger>
+                                <AlertTriangle className="h-4 w-4 text-red-500 fill-red-500/20" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p className="text-[10px] font-black uppercase">Ritardo Tecnico: Ore Fasi &gt; Capacità Cumulata Giornaliera</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                </div>
+            )}
+            <div className={cn("absolute left-0 top-0 bottom-0 w-1.5", sIndicator[semaphoreStatus])} />
             <div className="flex flex-col gap-2 pl-1">
                 <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-black text-slate-200 uppercase tracking-tight truncate pr-4">{job.ordinePF}</span>
@@ -410,9 +819,15 @@ function JobCompactCard({
                 </div>
                 
                 <div className="flex items-center gap-2 mt-1 pt-1 border-t border-slate-800/50">
-                    <div className={cn("h-2 w-2 rounded-full shadow-sm shrink-0", statusColors[job.status?.toUpperCase()] || 'bg-slate-600')} />
-                    <span className={cn("text-[8px] font-black uppercase tracking-tighter truncate", isClosed ? "text-emerald-500" : "text-slate-400")}>
-                        {job.status?.replace('_', ' ')}
+                    <div className={cn("h-2 w-2 rounded-full shadow-sm shrink-0", sIndicator[semaphoreStatus])} />
+                    <span className={cn("text-[8px] font-black uppercase tracking-tighter truncate", 
+                        semaphoreStatus === 'status-green' ? "text-emerald-500" : 
+                        semaphoreStatus === 'status-blue' ? "text-blue-400" :
+                        semaphoreStatus === 'status-amber' ? "text-amber-400" : "text-slate-500"
+                    )}>
+                        {semaphoreStatus === 'status-green' ? 'COMPLETATA' : 
+                         semaphoreStatus === 'status-blue' ? 'IN LAVORAZIONE' :
+                         semaphoreStatus === 'status-amber' ? 'PRONTA' : 'IN ATTESA'}
                     </span>
                     
                     <div className="flex items-center gap-1 ml-auto shrink-0">

@@ -136,6 +136,8 @@ export interface JobOrder {
   anomalyNote?: string;
   dataConsegnaCliente?: string;
   dataFinePreparazione?: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';

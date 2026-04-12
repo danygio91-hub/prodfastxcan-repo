@@ -40,7 +40,7 @@ import { updateJobDeliveryDate, updateJobDepartment, forceCloseAndExclude } from
 import MassiveAllocationDialog from './MassiveAllocationDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
-import { DragDropContext, DropResult } from '@hello-pangea/dnd';
+
 
 export default function ResourcePlanningClientPage() {
     const { toast } = useToast();
@@ -48,6 +48,7 @@ export default function ResourcePlanningClientPage() {
     const uid = user?.uid || '';
     
     const [currentDate, setCurrentDate] = useState(new Date());
+    const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [activeView, setActiveView] = useState<'board' | 'console'>('board');
@@ -247,19 +248,18 @@ export default function ResourcePlanningClientPage() {
         loadData();
     };
 
-    const handleDragEnd = (result: DropResult) => {
-        if (!result.destination) return;
-        const jobId = result.draggableId;
-        const destId = result.destination.droppableId;
-        if (destId === 'BACKLOG') return;
-
-        const [deptId, dateStr] = destId.split('|');
-        if (dateStr) {
-            const dropWeekStart = parseISO(dateStr);
-            const fridayDate = format(new Date(dropWeekStart.getFullYear(), dropWeekStart.getMonth(), dropWeekStart.getDate() + 4), 'yyyy-MM-dd');
-            setPendingMove({ jobId, dateStr, deptId, suggestedDate: fridayDate });
-        }
+    const handleSearchJump = (targetDate: Date) => {
+        // Teletrasporto: impostiamo il lunedì della settimana target come inizio della board
+        setCurrentDate(startOfWeek(targetDate, { weekStartsOn: 1 }));
+        toast({
+            title: "Navigazione Automatica",
+            description: `Focus sulla settimana del ${format(targetDate, 'dd/MM/yyyy')}`,
+            variant: "default"
+        });
     };
+
+
+
 
     const handleExcludeJob = async (jobId: string) => {
         if(confirm("Sei sicuro di voler chiudere ed escludere questa commessa dalla packing list?")) {
@@ -345,6 +345,11 @@ export default function ResourcePlanningClientPage() {
         }
     };
 
+    const handleRequestAssignment = (jobId: string, suggestedDate?: string, deptId?: string) => {
+        const dateToUse = suggestedDate || format(new Date(), 'yyyy-MM-dd');
+        setPendingMove({ jobId, dateStr: dateToUse, deptId: deptId || '', suggestedDate: dateToUse });
+    };
+
     if (loading && !boardData.jobOrders.length && !boardData.unassignedJobs.length) return (
         <div className="flex flex-col items-center justify-center p-24 space-y-4 h-[60vh]">
             <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
@@ -353,7 +358,6 @@ export default function ResourcePlanningClientPage() {
     );
 
     return (
-        <DragDropContext onDragEnd={handleDragEnd}>
             <div className="flex flex-col h-full bg-slate-950 relative overflow-hidden">
                 {/* Header Master */}
                 <div className="flex flex-col lg:flex-row justify-between items-center gap-4 bg-slate-900 px-6 py-3 border-b border-slate-800 shadow-xl z-10 shrink-0">
@@ -454,6 +458,7 @@ export default function ResourcePlanningClientPage() {
                     {activeView === 'board' ? (
                         <WeeklyCapacityBoard 
                             jobOrders={boardData.jobOrders}
+                            unassignedJobs={boardData.unassignedJobs}
                             operators={planningOperators}
                             departments={cachedDepartments}
                             articles={cachedArticles}
@@ -461,11 +466,16 @@ export default function ResourcePlanningClientPage() {
                             phaseTemplates={phaseTemplates}
                             currentDate={currentDate}
                             weeklyLimit={weeklyLimitHours}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
+                            onJumpToDate={handleSearchJump}
+                            onOpenBacklog={() => setIsBacklogOpen(true)}
                             onStatusAdvance={handleStatusAdvance}
                             onManageAllocations={(deptId, week, year) => {
                                 setSelectedSlot({ deptId, week, year });
                                 setIsLoanDialogOpen(true);
                             }}
+                            onJobClick={(jobId) => handleRequestAssignment(jobId)}
                         />
                     ) : (
                         <MasterConsole 
@@ -481,7 +491,12 @@ export default function ResourcePlanningClientPage() {
                     isOpen={isBacklogOpen}
                     onClose={() => setIsBacklogOpen(false)}
                     unassignedJobs={boardData.unassignedJobs}
+                    articles={cachedArticles}
+                    phaseTemplates={phaseTemplates}
                     onExclude={handleExcludeJob}
+                    onAssignDate={(jobId) => handleRequestAssignment(jobId)}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
                 />
 
                 {selectedSlot && (
@@ -541,6 +556,5 @@ export default function ResourcePlanningClientPage() {
                     </AlertDialog>
                 )}
             </div>
-        </DragDropContext>
     );
 }
