@@ -24,10 +24,14 @@ import {
     XCircle,
     Calendar as CalendarIcon
 } from 'lucide-react';
+import { format, parseISO, isPast } from 'date-fns';
+import { it } from 'date-fns/locale';
 
 import { cn } from '@/lib/utils';
 import type { JobOrder, Article, WorkPhaseTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Hash } from 'lucide-react';
 
 interface BacklogDrawerProps {
     isOpen: boolean;
@@ -36,7 +40,7 @@ interface BacklogDrawerProps {
     articles: Article[];
     phaseTemplates: WorkPhaseTemplate[];
     onExclude?: (jobId: string) => void;
-    onAssignDate: (jobId: string) => void;
+    onAssignDate: (jobId: string, macroArea: string) => void;
     searchQuery: string;
     onSearchChange: (q: string) => void;
 }
@@ -82,6 +86,30 @@ export default function BacklogDrawer({
         'CHIUSO': 'bg-emerald-900'
     };
 
+    const calculateRemainingHours = (job: JobOrder) => {
+        const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
+        if (!article) return 0;
+        
+        const phaseTimes = article.phaseTimes || {};
+        const activeTemplates = phaseTemplates.filter(t => 
+            phaseTimes[t.id]?.enabled !== false && 
+            (phaseTimes[t.id]?.expectedMinutesPerPiece || 0) > 0
+        );
+
+        const remainingMins = activeTemplates.reduce((acc, t) => {
+            const pt = phaseTimes[t.id];
+            const jobPhase = job.phases.find(p => p.name === t.name);
+            const isCompleted = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
+            
+            if (!isCompleted) {
+                return acc + (pt.expectedMinutesPerPiece * job.qta);
+            }
+            return acc;
+        }, 0);
+
+        return remainingMins / 60;
+    };
+
     const calculateTotalHours = (job: JobOrder) => {
         const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
         if (!article) return 0;
@@ -93,8 +121,8 @@ export default function BacklogDrawer({
         );
 
         const totalMins = activeTemplates.reduce((acc, t) => {
-            const time = phaseTimes[t.id].expectedMinutesPerPiece || 0;
-            return acc + (time * job.qta);
+            const pt = phaseTimes[t.id];
+            return acc + (pt.expectedMinutesPerPiece * job.qta);
         }, 0);
 
         return totalMins / 60;
@@ -140,68 +168,126 @@ export default function BacklogDrawer({
                                     </div>
                                 ) : (
                                     filteredJobs.map((job) => {
+                                        const remainingHours = calculateRemainingHours(job);
                                         const totalHours = calculateTotalHours(job);
                                         const matched = isMatch(job);
                                         const searching = searchQuery.length >= 2;
+                                        
+                                        const deliveryDateStr = job.dataConsegnaFinale;
+                                        let deliveryDate: Date | null = null;
+                                        if (deliveryDateStr) {
+                                            if (typeof (deliveryDateStr as any).toDate === 'function') {
+                                                deliveryDate = (deliveryDateStr as any).toDate();
+                                            } else if (typeof deliveryDateStr === 'string') {
+                                                if (/^\d{4}-\d{2}-\d{2}/.test(deliveryDateStr)) {
+                                                    try { deliveryDate = parseISO(deliveryDateStr); } catch(e) {}
+                                                } else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}/.test(deliveryDateStr)) {
+                                                    const parts = deliveryDateStr.split(/[\/-]/);
+                                                    if (parts.length === 3) {
+                                                        deliveryDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        const isOverdue = deliveryDate && isPast(deliveryDate) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
+                                        const hasMaterialMissing = job.phases.some(p => p.materialStatus === 'missing') || job.isProblemReported;
 
                                         return (
                                             <div
                                                 key={job.id}
-                                                onClick={() => onAssignDate(job.id)}
+                                                onClick={() => onAssignDate(job.id, 'CORE')}
                                                 className={cn(
-                                                    "group bg-white border-2 rounded-2xl p-4 shadow-sm transition-all flex items-start gap-4 cursor-pointer relative",
-                                                    searching && !matched ? "opacity-30 grayscale-[0.5] border-slate-100" : "border-slate-100 hover:border-blue-400",
-                                                    matched ? "bg-blue-50/30 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)] scale-[1.02] ring-2 ring-blue-500/20" : ""
+                                                    "group relative flex items-center h-11 px-3 border rounded-xl transition-all cursor-pointer overflow-hidden",
+                                                    searching && !matched ? "opacity-30 grayscale-[0.5] border-slate-100" : "bg-white border-slate-100 hover:border-blue-400 shadow-sm",
+                                                    matched ? "bg-blue-50/50 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)] scale-[1.02] ring-2 ring-blue-500/20 z-10" : ""
                                                 )}
                                             >
+                                                {/* Indicatore Stato Verticale */}
+                                                <div className={cn("absolute left-0 top-0 bottom-0 w-1", statusColors[job.status] || 'bg-slate-300')} />
+
                                                 {matched && (
-                                                    <div className="absolute -top-2 -right-2 flex h-5 w-5 pointer-events-none">
-                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                                        <span className="relative inline-flex rounded-full h-5 w-5 bg-blue-600 border-2 border-white shadow-lg flex items-center justify-center">
-                                                            <Search className="h-2.5 w-2.5 text-white" />
-                                                        </span>
+                                                    <div className="absolute top-0 right-0 p-1">
+                                                        <Search className="h-2.5 w-2.5 text-blue-600" />
                                                     </div>
                                                 )}
 
-                                                <div className="flex-1 space-y-3">
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-2">
-                                                            <Badge className="bg-slate-900 text-white font-black text-[10px] uppercase px-2 py-0.5 rounded-md">
-                                                                {job.numeroODLInterno || job.numeroODL || 'ODL N/D'}
-                                                            </Badge>
-                                                            <span className="text-sm font-black text-slate-800 uppercase tracking-tight">{job.ordinePF}</span>
-                                                        </div>
-                                                        <Badge variant="outline" className="text-[10px] font-black bg-slate-50 text-slate-600 border-slate-200">
-                                                            {job.qta} PZ
-                                                        </Badge>
+                                                <div className="flex items-center w-full gap-2 pl-1">
+                                                    {/* Badge Stato Testuale */}
+                                                    <div className="px-1 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 rounded text-[7px] font-black uppercase shrink-0">
+                                                        {job.status?.replace('_', ' ')}
                                                     </div>
 
-                                                    <div className="flex flex-col gap-1">
-                                                        <div className="flex items-center gap-2">
-                                                            <Package className="h-3.5 w-3.5 text-blue-500" />
-                                                            <span className="text-xs font-black text-slate-700 uppercase">{job.details}</span>
-                                                        </div>
-                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide leading-none">{job.cliente}</p>
+                                                    {/* ODL & Articolo */}
+                                                    <div className="flex items-center gap-2 min-w-0 max-w-[40%]">
+                                                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-tight truncate whitespace-nowrap">
+                                                            {job.numeroODLInterno || job.numeroODL || 'ODL N/D'} - {job.details}
+                                                        </span>
+                                                        {/* Cliente */}
+                                                        <span className="text-[9px] font-bold text-slate-400 uppercase truncate italic shrink-0">
+                                                            {job.cliente}
+                                                        </span>
                                                     </div>
 
-                                                    <div className="flex items-center justify-between pt-1 border-t border-slate-50">
-                                                        <div className="flex items-center gap-2">
-                                                            <div className={cn("h-2 w-2 rounded-full", statusColors[job.status] || 'bg-slate-300')} />
-                                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">{job.status?.replace('_', ' ')}</span>
-                                                        </div>
-                                                        
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 border border-blue-100 rounded-md">
-                                                                <Timer className="h-3 w-3 text-blue-600" />
-                                                                <span className="text-[11px] font-black text-blue-700">{totalHours.toFixed(1)}h</span>
-                                                            </div>
-                                                            {onExclude && (
-                                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full shrink-0" onClick={(e) => { e.stopPropagation(); onExclude(job.id); }}>
-                                                                    <XCircle className="h-3.5 w-3.5" />
-                                                                </Button>
+                                                    <div className="flex-grow" />
+
+                                                    {/* Data */}
+                                                    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 border border-slate-100 rounded shrink-0">
+                                                        <CalendarIcon className={cn("h-3 w-3", isOverdue ? "text-red-500" : "text-slate-400")} />
+                                                        <span className={cn("text-[9px] font-bold", isOverdue ? "text-red-500" : "text-slate-500")}>
+                                                            {deliveryDate ? format(deliveryDate, 'dd-MM') : 'N/D'}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Alert Icons */}
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <TooltipProvider delayDuration={100}>
+                                                            {hasMaterialMissing && (
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Box className="h-3 w-3 text-red-500 cursor-help" />
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-red-400">
+                                                                        Allerta Materie Prime
+                                                                    </TooltipContent>
+                                                                </Tooltip>
                                                             )}
-                                                        </div>
+                                                            {isOverdue && (
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <AlertCircle className="h-3 w-3 text-amber-500 cursor-help" />
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-amber-400">
+                                                                        In ritardo rispetto alla data prevista
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            )}
+                                                            {job.workGroupId && (
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Hash className="h-3 w-3 text-indigo-400 cursor-help" />
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-indigo-300">
+                                                                        Commessa concatenata
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            )}
+                                                        </TooltipProvider>
                                                     </div>
+
+                                                    {/* Badge Quantità */}
+                                                    <Badge variant="outline" className="text-[9px] font-black px-1.5 h-5 bg-slate-50 text-slate-500 border-slate-200 shrink-0">
+                                                        {job.qta} PZ
+                                                    </Badge>
+
+                                                    {/* Ore (Rim/Tot) */}
+                                                    <div className="flex items-center gap-1 px-1.5 h-6 bg-blue-50 border border-blue-100 rounded-lg shrink-0 min-w-[55px] justify-center">
+                                                        <Timer className="h-3 w-3 text-blue-600" />
+                                                        <span className="text-[9px] font-black text-blue-700">
+                                                            {remainingHours.toFixed(1)}h
+                                                        </span>
+                                                    </div>
+
+                                                    <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-blue-500 transition-colors shrink-0" />
                                                 </div>
                                             </div>
                                         );

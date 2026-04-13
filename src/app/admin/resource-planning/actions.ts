@@ -474,18 +474,18 @@ export async function bulkUpdateJobSortOrder(updates: { id: string, sortIndex: n
 }
 
 /**
- * Aggiorna la data di consegna finale di una commessa (Power Planning V2)
+ * Aggiorna la data (consegna o preparazione) di una commessa (Power Planning V2)
  */
-export async function updateJobDeliveryDate(jobId: string, newDate: string, uid?: string) {
+export async function updateJobDeliveryDate(jobId: string, newDate: string, fieldName: string = 'dataConsegnaFinale', uid?: string) {
     try {
         await adminDb.collection("jobOrders").doc(jobId).update({
-            dataConsegnaFinale: newDate,
+            [fieldName]: newDate,
             updatedAt: admin.firestore.Timestamp.now()
         });
         revalidatePath('/admin/resource-planning');
         return { success: true };
     } catch (error) {
-        return { success: false, message: "Errore nell'aggiornamento della data di consegna." };
+        return { success: false, message: `Errore nell'aggiornamento della data (${fieldName}).` };
     }
 }
 

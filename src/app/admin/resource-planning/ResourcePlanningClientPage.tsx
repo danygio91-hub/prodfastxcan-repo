@@ -72,7 +72,14 @@ export default function ResourcePlanningClientPage() {
     const [isLoanDialogOpen, setIsLoanDialogOpen] = useState(false);
     const [isMassiveDialogOpen, setIsMassiveDialogOpen] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState<{ deptId: string, week: number, year: number } | null>(null);
-    const [pendingMove, setPendingMove] = useState<{jobId: string, dateStr: string, deptId: string, suggestedDate: string} | null>(null);
+    const [pendingMove, setPendingMove] = useState<{
+        jobId: string, 
+        dateStr: string, 
+        deptId: string, 
+        suggestedDate: string,
+        dateField: string,
+        dialogTitle: string
+    } | null>(null);
 
     const planningOperators = useMemo(() => {
         return cachedOperators.filter(op => op.role !== 'admin' && op.isReal !== false);
@@ -228,17 +235,17 @@ export default function ResourcePlanningClientPage() {
     const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
     const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
 
-    const handleJobMove = async (jobId: string, confirmedDate: string, targetDeptId?: string) => {
+    const handleJobMove = async (jobId: string, confirmedDate: string, targetDeptId?: string, dateField: string = 'dataConsegnaFinale') => {
         const jobToMove = [...boardData.jobOrders, ...boardData.unassignedJobs].find(j => j.id === jobId);
         if (!jobToMove) return;
 
-        const updatedAssigned = [...boardData.jobOrders.filter(j => j.id !== jobId), { ...jobToMove, dataConsegnaFinale: confirmedDate, department: targetDeptId || jobToMove.department }];
+        const updatedAssigned = [...boardData.jobOrders.filter(j => j.id !== jobId), { ...jobToMove, [dateField]: confirmedDate, department: targetDeptId || jobToMove.department }];
         const updatedUnassigned = boardData.unassignedJobs.filter(j => j.id !== jobId);
         
         setBoardData({ ...boardData, jobOrders: updatedAssigned, unassignedJobs: updatedUnassigned });
         setPendingMove(null);
 
-        const res = await updateJobDeliveryDate(jobId, confirmedDate);
+        const res = await updateJobDeliveryDate(jobId, confirmedDate, dateField);
         if (!res.success) toast({ title: 'Errore Spostamento', description: res.message, variant: 'destructive' });
 
         if (targetDeptId && targetDeptId !== jobToMove.department && !['PREP', 'PACK'].includes(targetDeptId)) {
@@ -345,9 +352,21 @@ export default function ResourcePlanningClientPage() {
         }
     };
 
-    const handleRequestAssignment = (jobId: string, suggestedDate?: string, deptId?: string) => {
+    const handleRequestAssignment = (jobId: string, suggestedDate?: string, deptId?: string, macroArea: string = 'CORE') => {
         const dateToUse = suggestedDate || format(new Date(), 'yyyy-MM-dd');
-        setPendingMove({ jobId, dateStr: dateToUse, deptId: deptId || '', suggestedDate: dateToUse });
+        
+        const isPrep = macroArea === 'PREP';
+        const dateField = isPrep ? 'dataFinePreparazione' : 'dataConsegnaFinale';
+        const dialogTitle = isPrep ? 'Pianifica Preparazione' : 'Pianifica Consegna';
+
+        setPendingMove({ 
+            jobId, 
+            dateStr: dateToUse, 
+            deptId: deptId || '', 
+            suggestedDate: dateToUse,
+            dateField,
+            dialogTitle
+        });
     };
 
     if (loading && !boardData.jobOrders.length && !boardData.unassignedJobs.length) return (
@@ -475,7 +494,7 @@ export default function ResourcePlanningClientPage() {
                                 setSelectedSlot({ deptId, week, year });
                                 setIsLoanDialogOpen(true);
                             }}
-                            onJobClick={(jobId) => handleRequestAssignment(jobId)}
+                            onJobClick={(jobId, macroArea) => handleRequestAssignment(jobId, undefined, undefined, macroArea)}
                         />
                     ) : (
                         <MasterConsole 
@@ -529,13 +548,16 @@ export default function ResourcePlanningClientPage() {
                     <AlertDialog open={!!pendingMove} onOpenChange={(o) => !o && setPendingMove(null)}>
                         <AlertDialogContent className="bg-slate-900 border-slate-700">
                             <AlertDialogHeader>
-                                <AlertDialogTitle className="text-slate-100">Conferma Spostamento</AlertDialogTitle>
+                                <AlertDialogTitle className="text-slate-100">{pendingMove.dialogTitle}</AlertDialogTitle>
                                 <AlertDialogDescription className="text-slate-400">
-                                    Conferma la nuova data di consegna finale per lo spostamento. Verrà impostato questo giorno per consolidare il piano. Se cambi reparto (tra quelli compatibili), verrà aggiornato.
+                                    Conferma la {pendingMove.dialogTitle.toLowerCase()} per consolidare il piano. 
+                                    Se cambi reparto (tra quelli compatibili), verrà aggiornato il dipartimento principale.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <div className="py-4">
-                                <label className="text-xs font-bold text-slate-300 uppercase tracking-widest block mb-2">Nuova Data Consegna Finale</label>
+                                <label className="text-xs font-bold text-slate-300 uppercase tracking-widest block mb-2">
+                                    {pendingMove.dateField === 'dataFinePreparazione' ? 'Data Fine Preparazione' : 'Data Consegna Finale'}
+                                </label>
                                 <input 
                                     type="date" 
                                     className="w-full h-12 bg-slate-950 border border-slate-800 rounded-xl px-4 text-white"
@@ -547,9 +569,9 @@ export default function ResourcePlanningClientPage() {
                                 <AlertDialogCancel className="bg-slate-800 text-slate-200 border-none hover:bg-slate-700 hover:text-white">Annulla</AlertDialogCancel>
                                 <AlertDialogAction 
                                     className="bg-blue-600 text-white hover:bg-blue-700"
-                                    onClick={() => handleJobMove(pendingMove.jobId, pendingMove.suggestedDate, pendingMove.deptId)}
+                                    onClick={() => handleJobMove(pendingMove.jobId, pendingMove.suggestedDate, pendingMove.deptId, pendingMove.dateField)}
                                 >
-                                    Conferma Spostamento
+                                    Conferma
                                 </AlertDialogAction>
                             </AlertDialogFooter>
                         </AlertDialogContent>

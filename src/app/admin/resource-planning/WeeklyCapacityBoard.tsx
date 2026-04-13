@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { format, addWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek, isSameDay, isBefore, getDay } from 'date-fns';
+import { format, addWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek, isSameDay, isBefore, getDay, isPast, startOfDay } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { 
     Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, 
     Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX, Search, XCircle,
-    Zap, CalendarCheck, ChevronDown, ChevronUp
+    Zap, CalendarCheck, ChevronDown, ChevronUp, Box
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -21,7 +21,7 @@ import { Label } from "@/components/ui/label";
 
 
 
-import type { JobOrder, Operator, Department, Article } from '@/types';
+import type { JobOrder, Operator, Department, Article, WorkPhaseTemplate } from '@/types';
 import { advanceJobStatus } from './weekly-actions';
 import { toggleExcludeFromPackingList } from './actions';
 import { useToast } from '@/hooks/use-toast';
@@ -44,8 +44,22 @@ interface WeeklyCapacityBoardProps {
     onOpenBacklog?: () => void;
     onStatusAdvance: (jobId: string) => void;
     onManageAllocations: (deptId: string, week: number, year: number) => void;
-    onJobClick: (jobId: string) => void;
+    onJobClick: (jobId: string, macroArea: string) => void;
 }
+
+// Whitelists Ufficiali Dogana (Gestione Commesse) per Audit 1:1
+const PRODUCTION_STATUS_WHITELIST = [
+    "In Produzione", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK",
+    "da_iniziare", "in_preparazione", "pronto_prod", "in_produzione", "fine_produzione", "qlty_pack",
+    "DA INIZIARE", "IN PREPARAZIONE", "PRONTO PROD", "IN PRODUZIONE", "FINE PRODUZIONE", "QLTY PACK",
+    "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+    "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED", "IN PROD.", "FINE PROD.", "PRONTO PROD.", "QLTY & PACK", "PRONTO",
+    "Da Produrre", "In Attesa", "Lavorazione"
+];
+
+const COMPLETED_STATUS_WHITELIST = [
+    "Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD", "Chiuso", "Consegnata"
+];
 
 export default function WeeklyCapacityBoard({
     jobOrders,
@@ -67,28 +81,21 @@ export default function WeeklyCapacityBoard({
 }: WeeklyCapacityBoardProps) {
     const { toast } = useToast();
     const router = useRouter();
-    const [numWeeks] = useState(4);
+    const [viewMode, setViewMode] = useState<'1W' | '2W'>('2W');
     const [isSimulationMode, setIsSimulationMode] = useState(false);
     const [activeResultIndex, setActiveResultIndex] = useState(0);
+
+    const numWeeks = viewMode === '1W' ? 1 : 2;
 
     // Costanti per il Check-up di Fattibilità
     const EFFICIENCY_FACTOR = 0.85;
     const DEFAULT_PREP_OPERATORS = 2;
     const DEFAULT_PACK_OPERATORS = 2;
 
-    // Whitelists Ufficiali Dogana (Gestione Commesse) per Audit 1:1
-    const PRODUCTION_STATUS_WHITELIST = [
-        "In Produzione", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK",
-        "da_iniziare", "in_preparazione", "pronto_prod", "in_produzione", "fine_produzione", "qlty_pack",
-        "DA INIZIARE", "IN PREPARAZIONE", "PRONTO PROD", "IN PRODUZIONE", "FINE PRODUZIONE", "QLTY PACK",
-        "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
-        "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED", "IN PROD.", "FINE PROD.", "PRONTO PROD.", "QLTY & PACK", "PRONTO",
-        "Da Produrre", "In Attesa", "Lavorazione"
-    ];
-
-    const COMPLETED_STATUS_WHITELIST = [
-        "Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD", "Chiuso", "Consegnata"
-    ];
+    // Sanificazione Backlog: Escludiamo categoricamente stati IN_PIANIFICAZIONE o planned
+    const sanitizedUnassigned = useMemo(() => {
+        return unassignedJobs.filter(job => PRODUCTION_STATUS_WHITELIST.includes(job.status));
+    }, [unassignedJobs]);
 
     // Logica di Matching per la Ricerca Globale
     const isMatch = (job: JobOrder) => {
@@ -105,7 +112,7 @@ export default function WeeklyCapacityBoard({
     const matchingJobs = useMemo(() => {
         if (!searchQuery || searchQuery.trim().length < 2) return [];
         
-        const allJobs = [...jobOrders, ...unassignedJobs];
+        const allJobs = [...jobOrders, ...sanitizedUnassigned];
         const matches = allJobs.filter(isMatch);
         
         // Ordiniamo cronologicamente: chiusi prima (storico), poi per data di consegna, poi quelli senza data (backlog)
@@ -114,7 +121,7 @@ export default function WeeklyCapacityBoard({
             const dateB = b.dataConsegnaFinale && b.dataConsegnaFinale !== 'N/D' ? b.dataConsegnaFinale : '9999-99-99';
             return dateA.localeCompare(dateB);
         });
-    }, [searchQuery, jobOrders, unassignedJobs]);
+    }, [searchQuery, jobOrders, sanitizedUnassigned, isMatch]);
 
     const jumpToMatch = (index: number) => {
         const target = matchingJobs[index];
@@ -410,6 +417,32 @@ export default function WeeklyCapacityBoard({
                                 )}
                             </div>
 
+                            {/* View Mode Toggle: 1W vs 2W */}
+                            <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-xl p-1 h-10 shadow-inner">
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => setViewMode('1W')}
+                                    className={cn(
+                                        "h-8 px-3 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
+                                        viewMode === '1W' ? "bg-blue-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+                                    )}
+                                >
+                                    1 Sett.
+                                </Button>
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => setViewMode('2W')}
+                                    className={cn(
+                                        "h-8 px-3 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
+                                        viewMode === '2W' ? "bg-blue-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+                                    )}
+                                >
+                                    2 Sett.
+                                </Button>
+                            </div>
+
                             {/* Multi-Match Navigation Controls */}
                             {matchingJobs.length > 1 && (
                                 <div className="flex items-center gap-1 bg-slate-900 border border-indigo-900/30 rounded-xl px-2 h-10 shadow-lg shadow-indigo-950/20">
@@ -443,14 +476,12 @@ export default function WeeklyCapacityBoard({
                             <div className="flex flex-col items-center">
                                 <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter leading-none mb-1">In Produzione</span>
                                 <Badge className="bg-blue-600/20 text-blue-400 border border-blue-500/30 font-black text-xs px-2.5 h-6">
-                                    {[...jobOrders, ...(unassignedJobs || [])].filter(j => {
-                                        const s = (j.status || '').toLowerCase().trim();
-                                        // 1. Escludiamo i chiusi
-                                        const isClosed = COMPLETED_STATUS_WHITELIST.some(cw => cw.toLowerCase() === s);
-                                        // 2. Escludiamo quelli in pianificazione (Backlog)
-                                        const isBacklog = ["planned", "in_attesa", "in pianificazione", "in_pianificazione"].includes(s);
+                                    {[...jobOrders, ...sanitizedUnassigned].filter(j => {
+                                        // Utilizziamo le whitelist ufficiali per il conteggio "In Produzione"
+                                        const isProd = PRODUCTION_STATUS_WHITELIST.includes(j.status);
+                                        const isClosed = COMPLETED_STATUS_WHITELIST.includes(j.status);
                                         
-                                        return !isClosed && !isBacklog;
+                                        return isProd && !isClosed;
                                     }).length}
                                 </Badge>
                             </div>
@@ -495,7 +526,12 @@ export default function WeeklyCapacityBoard({
                     
                     return (
                         <TabsContent key={dept.id} value={dept.id} className="mt-0 outline-none">
-                            <div className={cn("grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 rounded-3xl border transition-all", colors.bg, colors.border)}>
+                            <div className={cn(
+                                "grid gap-6 p-6 rounded-3xl border transition-all", 
+                                viewMode === '1W' ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2",
+                                colors.bg, 
+                                colors.border
+                            )}>
                                 {weeks.map(week => {
                                     const allocationKey = `${week.year}_${week.weekNum}_${dept.id}`;
                                     const weekAssignments = allocations[allocationKey] || [];
@@ -683,17 +719,19 @@ export default function WeeklyCapacityBoard({
                                                                 >
                                                                     <JobCompactCard 
                                                                         job={job} 
-                                                                        load={getJobLoadInDept(job, dept.id)} 
+                                                                        load={getJobRemainingLoadInDept(job, dept.id, articles, phaseTemplates)}
+                                                                        totalLoad={getJobLoadInDept(job, dept.id)}
                                                                         onAdvance={() => onStatusAdvance(job.id)}
                                                                         onToggleExclude={async (val) => {
                                                                             const res = await toggleExcludeFromPackingList(job.id, val);
                                                                             if(res.success) toast({ title: "Aggiornato", description: res.message });
                                                                         }}
                                                                         onNavigate={() => router.push(`/admin/production-console?ordinePF=${job.ordinePF}&status=all`)}
-                                                                        onClick={() => onJobClick(job.id)}
-                                                                        macroArea={dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE'}
-                                                                        semaphoreStatus={getCloneStatus(job, dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE')}
+                                                                        onClick={() => onJobClick(job.id, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
+                                                                        macroArea={dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE')}
+                                                                        semaphoreStatus={getCloneStatus(job, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
                                                                         isTechnicalDelay={checkTechnicalFeasibility(job, dept.id, week)}
+                                                                        linkedODLs={job.workGroupId ? jobOrders.filter(j => j.workGroupId === job.workGroupId && j.id !== job.id).map(j => j.numeroODLInterno || j.ordinePF) : []}
                                                                     />
                                                                     {isA && (
                                                                         <div className="absolute -top-3 -right-3 flex h-6 w-6 pointer-events-none z-30">
@@ -720,17 +758,29 @@ export default function WeeklyCapacityBoard({
     );
 }
 
-function JobCompactCard({ 
-    job, 
-    load, 
-    onAdvance, 
-    onToggleExclude,
-    onNavigate,
-    onClick,
-    macroArea,
-    semaphoreStatus,
-    isTechnicalDelay
-}: { 
+function getJobRemainingLoadInDept(job: JobOrder, deptId: string, articles: Article[], phaseTemplates: WorkPhaseTemplate[]) {
+    const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
+    if (!article) return 0;
+    
+    const phaseTimes = article.phaseTimes || {};
+    const deptPhases = phaseTemplates.filter(t => t.departmentCodes.includes(deptId));
+    
+    // Filtriamo solo per le fasi NON completate
+    const remainingMins = deptPhases.reduce((acc, t) => {
+        const pt = phaseTimes[t.id];
+        const jobPhase = job.phases.find(p => p.name === t.name);
+        const isCompleted = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
+        
+        if (!isCompleted && pt?.enabled !== false && (pt?.expectedMinutesPerPiece || 0) > 0) {
+            return acc + (pt.expectedMinutesPerPiece * job.qta);
+        }
+        return acc;
+    }, 0);
+
+    return remainingMins / 60;
+}
+
+function JobCompactCard(props: { 
     job: JobOrder, 
     load: number, 
     onAdvance: () => void, 
@@ -739,14 +789,51 @@ function JobCompactCard({
     onClick: () => void,
     macroArea: 'PREP' | 'CORE' | 'PACK',
     semaphoreStatus: 'status-gray' | 'status-amber' | 'status-blue' | 'status-green',
-    isTechnicalDelay: boolean
+    isTechnicalDelay: boolean,
+    totalLoad: number,
+    linkedODLs: string[]
 }) {
-    const isOverdue = job.dataConsegnaFinale && new Date(job.dataConsegnaFinale) < startOfWeek(new Date(), { weekStartsOn: 1 }) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
+    const { 
+        job, load, onAdvance, onToggleExclude, onNavigate, onClick, 
+        macroArea, semaphoreStatus, isTechnicalDelay, totalLoad, 
+        linkedODLs = [] 
+    } = props;
+
+    const today = startOfDay(new Date());
+
+    // SSoT: Logica Date Contestuali con Parsing Robusto
+    const contextualDateStr = macroArea === 'PREP' ? job.dataFinePreparazione : job.dataConsegnaFinale;
+    let contextualDate: Date | null = null;
+
+    if (contextualDateStr) {
+        if (typeof (contextualDateStr as any).toDate === 'function') {
+            contextualDate = (contextualDateStr as any).toDate();
+        } else if (typeof contextualDateStr === 'string') {
+            // ISO format
+            if (/^\d{4}-\d{2}-\d{2}/.test(contextualDateStr)) {
+                try { contextualDate = parseISO(contextualDateStr); } catch(e) {}
+            } 
+            // DD/MM/YYYY format
+            else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}/.test(contextualDateStr)) {
+                const parts = contextualDateStr.split(/[\/-]/);
+                if (parts.length === 3) {
+                    contextualDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                }
+            }
+        }
+    }
+
+    // SSoT: Alert Ritardo
+    const isOverdue = contextualDate && isPast(contextualDate) && !isSameDay(contextualDate, today) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
+    
+    // SSoT: Alert Materiali
+    const hasMaterialMissing = job.phases.some(p => p.materialStatus === 'missing') || job.isProblemReported;
+    
     const sColors: Record<string, string> = {
-        'status-gray': 'bg-slate-750 border-slate-700 opacity-60 grayscale',
-        'status-amber': 'bg-amber-950/20 border-amber-500/50 shadow-amber-900/10',
-        'status-blue': 'bg-blue-950/30 border-blue-500/60 shadow-blue-900/20 animate-pulse-subtle',
-        'status-green': 'bg-emerald-950/40 border-emerald-500/50 shadow-emerald-900/20'
+        'status-gray': 'bg-slate-750/30 border-slate-700/50 opacity-60 grayscale',
+        'status-amber': 'bg-amber-950/20 border-amber-500/30 shadow-amber-900/5',
+        'status-blue': 'bg-blue-950/30 border-blue-500/40 shadow-blue-900/10 active-row-glow',
+        'status-green': 'bg-emerald-950/40 border-emerald-500/30 shadow-emerald-900/5'
     };
 
     const sIndicator: Record<string, string> = {
@@ -756,115 +843,144 @@ function JobCompactCard({
         'status-green': 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
     };
 
+    const statusLabels: Record<string, string> = {
+        'status-gray': 'IN ATTESA',
+        'status-amber': 'PRONTA',
+        'status-blue': 'IN LAV.',
+        'status-green': 'COMPLETATA'
+    };
+
     const isClosed = semaphoreStatus === 'status-green' && macroArea === 'PACK';
 
-    
-    // Formattazione data visiva
-    let formattedDate = 'N/D';
-    if (job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D') {
-        try { formattedDate = format(parseISO(job.dataConsegnaFinale), 'dd/MM/yyyy'); } catch (e) {}
-    }
-
     return (
-        <Card 
+        <div 
             onClick={onClick}
             className={cn(
-                "p-3 border shadow-sm transition-all group relative overflow-hidden cursor-pointer",
+                "group relative flex items-center h-11 px-3 border rounded-xl transition-all cursor-pointer overflow-hidden",
                 sColors[semaphoreStatus],
-                isOverdue && !isClosed && semaphoreStatus !== 'status-green' && "border-red-600/50",
-                isTechnicalDelay && !isClosed && "border-red-500 border-[3px] shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse-subtle"
+                isOverdue && !isClosed && semaphoreStatus !== 'status-green' && "border-red-600/40 bg-red-950/5",
+                isTechnicalDelay && !isClosed && "border-red-500 border-2 shadow-[0_0_12px_rgba(239,68,68,0.2)]"
             )}
         >
-            {isTechnicalDelay && !isClosed && (
-                <div className="absolute top-0 right-0 p-1 z-10">
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger>
-                                <AlertTriangle className="h-4 w-4 text-red-500 fill-red-500/20" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p className="text-[10px] font-black uppercase">Ritardo Tecnico: Ore Fasi &gt; Capacità Cumulata Giornaliera</p>
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                </div>
-            )}
-            <div className={cn("absolute left-0 top-0 bottom-0 w-1.5", sIndicator[semaphoreStatus])} />
-            <div className="flex flex-col gap-2 pl-1">
-                <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-black text-slate-200 uppercase tracking-tight truncate pr-4">{job.ordinePF}</span>
-                    <Badge variant="outline" className={cn("text-[8px] px-1 h-4 font-bold whitespace-nowrap", isClosed ? "bg-emerald-950 text-emerald-500 border-emerald-900/50" : "bg-slate-950 text-slate-400 border-slate-800")}>
-                        {job.qta} PZ
-                    </Badge>
-                </div>
-                
-                {/* Dettagli Aggiuntivi: Codice Articolo e Data Consegna */}
-                <div className="flex items-center justify-between mt-0.5">
-                    <div className="flex items-center gap-1 min-w-0">
-                        <Hash className="h-3 w-3 text-slate-600 shrink-0" />
-                        <span className="text-[9px] font-bold text-slate-400 uppercase truncate">{job.details || 'N/D'}</span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
-                        <Calendar className="h-3 w-3 text-indigo-500" />
-                        <span className="text-[9px] font-bold text-indigo-400">{formattedDate}</span>
-                    </div>
+            {/* Indicatore Stato Verticale */}
+            <div className={cn("absolute left-0 top-0 bottom-0 w-1", sIndicator[semaphoreStatus])} />
+
+            <div className="flex items-center w-full gap-3 pl-1">
+                {/* Badge Stato Testuale */}
+                <div className={cn(
+                    "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0",
+                    isClosed ? "bg-emerald-500 text-white" : "bg-slate-900 text-slate-400 border border-slate-800"
+                )}>
+                    {statusLabels[semaphoreStatus]}
                 </div>
 
-                <div className="flex items-center justify-between gap-1 mt-0.5">
-                    <p className="text-[9px] font-bold text-slate-500 uppercase truncate max-w-[140px] italic">{job.cliente}</p>
-                    <div className={cn("flex items-center gap-1.5 px-1.5 py-0.5 rounded-md border shrink-0", isClosed ? "bg-emerald-950/50 border-emerald-900/50" : "bg-slate-950 border-slate-800")}>
-                        <Timer className={cn("h-3 w-3", isClosed ? "text-emerald-500" : "text-blue-500")} />
-                        <span className={cn("text-[10px] font-black", isClosed ? "text-emerald-400" : "text-blue-400")}>{load.toFixed(1)}h</span>
-                    </div>
-                </div>
-                
-                <div className="flex items-center gap-2 mt-1 pt-1 border-t border-slate-800/50">
-                    <div className={cn("h-2 w-2 rounded-full shadow-sm shrink-0", sIndicator[semaphoreStatus])} />
-                    <span className={cn("text-[8px] font-black uppercase tracking-tighter truncate", 
-                        semaphoreStatus === 'status-green' ? "text-emerald-500" : 
-                        semaphoreStatus === 'status-blue' ? "text-blue-400" :
-                        semaphoreStatus === 'status-amber' ? "text-amber-400" : "text-slate-500"
-                    )}>
-                        {semaphoreStatus === 'status-green' ? 'COMPLETATA' : 
-                         semaphoreStatus === 'status-blue' ? 'IN LAVORAZIONE' :
-                         semaphoreStatus === 'status-amber' ? 'PRONTA' : 'IN ATTESA'}
+                {/* ODL & Articolo */}
+                <div className="flex items-center gap-2 min-w-0 max-w-[40%]">
+                    <span className="text-[11px] font-black text-slate-100 uppercase tracking-tight truncate whitespace-nowrap">
+                        {job.numeroODLInterno || job.ordinePF} - {job.details}
                     </span>
-                    
-                    <div className="flex items-center gap-1 ml-auto shrink-0">
-                        {isClosed && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button 
-                                            size="icon" 
-                                            variant="ghost" 
-                                            className={cn(
-                                                "h-6 w-6 rounded-md transition-all",
-                                                job.excludedFromPackingList ? "bg-red-950 text-red-500 hover:bg-red-900" : "bg-slate-950 text-slate-500 hover:bg-emerald-900 hover:text-emerald-400"
-                                            )}
-                                            onClick={(e) => { e.stopPropagation(); onToggleExclude(!job.excludedFromPackingList); }}
-                                        >
-                                            <PackageX className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" className="bg-slate-950 border-slate-800 text-[10px] font-bold uppercase py-1 px-2">
-                                        {job.excludedFromPackingList ? "Includi in Packing List" : "Escludi da Packing List"}
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        )}
-                        
-                        <Button 
-                            size="icon" 
-                            variant="ghost" 
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-800 hover:text-white text-slate-500 rounded-md"
-                            onClick={(e) => { e.stopPropagation(); onNavigate(); }}
-                        >
-                            <ChevronRight className="h-4 w-4" />
-                        </Button>
-                    </div>
+                    {/* Cliente */}
+                    <span className="text-[10px] font-bold text-slate-500 uppercase truncate italic shrink-0">
+                        {job.cliente}
+                    </span>
                 </div>
+
+                {/* Spazio flessibile */}
+                <div className="flex-grow" />
+
+                {/* Data Contestuale */}
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-950/40 rounded-lg border border-slate-800/50 shrink-0">
+                    <Calendar className={cn("h-3 w-3", isOverdue ? "text-red-500" : "text-slate-500")} />
+                    <span className={cn("text-[9px] font-bold uppercase", isOverdue ? "text-red-400" : "text-slate-400")}>
+                        {contextualDate ? format(contextualDate, 'dd MMM', { locale: it }) : 'N/D'}
+                    </span>
+                </div>
+
+                {/* Icone di sistema (Alerts & Batching) */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <TooltipProvider delayDuration={100}>
+                        {/* Alert Materiali */}
+                        {hasMaterialMissing && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center justify-center h-6 w-6 rounded-lg bg-red-950/30 border border-red-900/30 cursor-help">
+                                        <Box className="h-3 w-3 text-red-500" />
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-red-400">
+                                    Allerta Materie Prime / Problema Segnalato
+                                </TooltipContent>
+                            </Tooltip>
+                        )}
+
+                        {/* Alert Ritardo */}
+                        {isOverdue && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center justify-center h-6 w-6 rounded-lg bg-amber-950/30 border border-amber-900/30 animate-pulse cursor-help">
+                                        <AlertTriangle className="h-3 w-3 text-amber-500" />
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-amber-400">
+                                    In ritardo rispetto alla data prevista
+                                </TooltipContent>
+                            </Tooltip>
+                        )}
+
+                        {/* Batching Icon (SSoT) */}
+                        {job.workGroupId && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center justify-center h-6 w-6 rounded-lg bg-indigo-950/30 border border-indigo-900/30 cursor-help">
+                                        <Hash className="h-3 w-3 text-indigo-400" />
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-indigo-300 max-w-[200px]">
+                                    Commesse concatenate {linkedODLs.length > 0 ? `(ODL: ${linkedODLs.join(', ')})` : ''}
+                                </TooltipContent>
+                            </Tooltip>
+                        )}
+                    </TooltipProvider>
+                </div>
+
+                {/* Quantità Badge */}
+                <Badge variant="outline" className={cn(
+                    "text-[9px] font-black px-1.5 h-6 border-none shrink-0", 
+                    isClosed ? "bg-emerald-900/50 text-emerald-500" : "bg-slate-950 text-slate-400"
+                )}>
+                    {job.qta} PZ
+                </Badge>
+
+                {/* Ore Macchina (Rimanenti / Totali) */}
+                <div className={cn(
+                    "flex items-center gap-1.5 px-2 h-6 rounded-lg border shrink-0 min-w-[70px] justify-center", 
+                    isClosed ? "bg-emerald-950/50 border-emerald-900/30" : "bg-slate-950 border-slate-800"
+                )}>
+                    <Timer className={cn("h-3 w-3", isClosed ? "text-emerald-500" : "text-blue-500")} />
+                    <span className={cn("text-[10px] font-black", isClosed ? "text-emerald-400" : "text-slate-400")}>
+                        <span className="text-blue-400">{load.toFixed(1)}h</span>
+                        <span className="mx-0.5">/</span>
+                        <span>{totalLoad.toFixed(1)}h</span>
+                    </span>
+                </div>
+
+                {/* Action Button */}
+                <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-800 text-slate-500 rounded-lg shrink-0 ml-1"
+                    onClick={(e) => { e.stopPropagation(); onNavigate(); }}
+                >
+                    <ChevronRight className="h-4 w-4" />
+                </Button>
             </div>
-        </Card>
+
+            {/* Anti-Split Alert (Technical Delay) */}
+            {isTechnicalDelay && !isClosed && (
+                <div className="absolute top-0 right-0 p-1">
+                    <AlertTriangle className="h-3 w-3 text-red-500" />
+                </div>
+            )}
+        </div>
     );
 }

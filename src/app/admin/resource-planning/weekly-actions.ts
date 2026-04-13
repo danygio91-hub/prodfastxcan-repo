@@ -166,7 +166,7 @@ export async function migrateJobOrderStatuses(uid: string) {
 
         const batch = adminDb.batch();
         const mapping: Record<string, any> = {
-            "planned": "IN_PIANIFICAZIONE", // Consideriamo i vecchi 'planned' come backlog finché non vengono avviati esplicitamente
+            "planned": "IN_PIANIFICAZIONE", // Gli stati IN_PIANIFICAZIONE restano invisibili nel Power Planning V2 fino all'Avvio Produzione
             "production": "IN_PRODUZIONE",
             "in-progress": "IN_PRODUZIONE",
             "completed": "FINE_PRODUZIONE",
@@ -250,12 +250,19 @@ export async function getWeeklyBoardData(year: number, week: number) {
         id: doc.id 
     } as JobOrder));
 
-    // 3. Separa Commesse Assegnate da Backlog (Non Assegnate)
-    // Assegnate = hanno dataConsegnaFinale valida
-    const assignedJobs = allJobs.filter(j => Boolean(j.dataConsegnaFinale) && j.dataConsegnaFinale !== 'N/D');
+    // 3. Separa Commesse Assegnate da Backlog (Non Assegnate) utilizzando la Whitelist
+    // Nessun record in 'IN_PIANIFICAZIONE' o 'planned' deve entrare nel Power Planning.
+    const assignedJobs = allJobs.filter(j => 
+        Boolean(j.dataConsegnaFinale) && 
+        j.dataConsegnaFinale !== 'N/D' && 
+        ALLOWED_PRODUCTION_STATUSES.includes(j.status)
+    );
     
-    // Non Assegnate = senza data (e non già chiuse per evitare backlog sporco)
-    const unassignedJobs = allJobs.filter(j => (!j.dataConsegnaFinale || j.dataConsegnaFinale === 'N/D') && j.status !== 'CHIUSO');
+    // Non Assegnate = senza data (e filtrate per whitelist per evitare residui di pianificazione o chiusi)
+    const unassignedJobs = allJobs.filter(j => 
+        (!j.dataConsegnaFinale || j.dataConsegnaFinale === 'N/D') && 
+        ALLOWED_PRODUCTION_STATUSES.includes(j.status)
+    );
 
     return { 
         allocations, 
