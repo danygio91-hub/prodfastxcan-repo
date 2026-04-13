@@ -136,6 +136,7 @@ export interface JobOrder {
   anomalyNote?: string;
   dataConsegnaCliente?: string;
   dataFinePreparazione?: string;
+  macroArea?: MacroArea;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -170,6 +171,7 @@ export interface Operator {
   activeMaterialSessions?: ActiveMaterialSessionData[];
   skills?: OperatorSkill[];
   canManageMaterialSessions?: boolean;
+  canManagePackingList?: boolean;
 }
 
 export interface OperatorAssignment {
@@ -305,7 +307,29 @@ export interface ProductionSettings {
   prioritizeActualTime: boolean;
 }
 
-export type OverallStatus = 'DA INIZIARE' | 'IN PREP.' | 'PRONTO PROD.' | 'IN PROD.' | 'FINE PROD.' | 'QLTY & PACK' | 'CHIUSO' | 'In Pianificazione' | 'Problema' | 'Sospesa' | 'Manca Materiale' | 'Pronto per Produzione' | 'Pronto per Finitura' | 'In Lavorazione' | 'In Preparazione' | 'Completata' | 'Da Iniziare';
+export type OverallStatus = 'DA INIZIARE' | 'IN PREP.' | 'PRONTO PROD.' | 'IN PROD.' | 'FINE PROD.' | 'QLTY & PACK' | 'CHIUSO' | 'SPEDITA' | 'In Pianificazione' | 'Problema' | 'Sospesa' | 'Manca Materiale' | 'Pronto per Produzione' | 'Pronto per Finitura' | 'In Lavorazione' | 'In Preparazione' | 'Completata' | 'Da Iniziare';
+
+export interface PackingListItem {
+  jobId: string;
+  orderPF: string;
+  odl: string;
+  articleCode: string;
+  client: string;
+  quantity: number;
+  weight?: number;
+  packages?: number;
+  previousStatus: string;
+}
+
+export interface PackingList {
+  id: string; // Formato PL-GGMMAAAA-XXX
+  createdAt: any;
+  operatorId: string;
+  operatorName: string;
+  items: PackingListItem[];
+  status: 'active' | 'cancelled';
+  cancelledAt?: any;
+}
 
 export interface ManualCommitment {
   id: string;

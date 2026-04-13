@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from 'react';
-import { JobOrder, Article } from '@/types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { JobOrder, Article, PackingList, PackingListItem } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -10,15 +10,17 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
     Package, Ship, CheckCircle2, ChevronRight, 
     ChevronLeft, Scale, Printer, Loader2, Info, AlertTriangle, Boxes,
-    Building2, ListTodo, Box
+    Building2, ListTodo, Box, History, Trash2, XCircle, Search
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { confirmPackingAndShip, getArticlesByCodes } from './actions';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import { createPackingList, getArticlesByCodes, getPackingLists, cancelPackingList } from './actions';
+import { generatePackingListPDF } from '@/lib/packing-pdf-utils';
+import { useAuth } from '@/components/auth/AuthProvider';
+import { cn } from '@/lib/utils';
 
 interface PackingRow {
     articleCode: string;
@@ -50,14 +52,30 @@ interface PackingClientPageProps {
 
 export default function PackingClientPage({ initialJobs }: PackingClientPageProps) {
     const { toast } = useToast();
+    const { operator } = useAuth();
+    const [activeTab, setActiveTab] = useState<string>("create");
     const [step, setStep] = useState<1 | 2 | 3>(1);
     const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [articles, setArticles] = useState<Record<string, Article>>({});
     const [packingData, setPackingData] = useState<Record<string, ClienteGroup>>({});
-    
-    // PDF Ref
-    const pdfRef = useRef<HTMLDivElement>(null);
+    const [history, setHistory] = useState<PackingList[]>([]);
+    const [lastCreatedPlId, setLastCreatedPlId] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState("");
+
+    // Fetch history when tab changes
+    useEffect(() => {
+        if (activeTab === "history") {
+            loadHistory();
+        }
+    }, [activeTab]);
+
+    const loadHistory = async () => {
+        setIsProcessing(true);
+        const lists = await getPackingLists();
+        setHistory(lists);
+        setIsProcessing(false);
+        return lists;
+    };
 
     // Step 1: Selection
     const toggleJob = (id: string) => {
@@ -65,6 +83,17 @@ export default function PackingClientPage({ initialJobs }: PackingClientPageProp
             prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
         );
     };
+
+    const filteredJobs = useMemo(() => {
+        if (!searchQuery) return initialJobs;
+        const q = searchQuery.toLowerCase();
+        return initialJobs.filter(j => 
+            j.ordinePF.toLowerCase().includes(q) || 
+            j.cliente?.toLowerCase().includes(q) || 
+            j.details.toLowerCase().includes(q) ||
+            j.numeroODL?.toLowerCase().includes(q)
+        );
+    }, [initialJobs, searchQuery]);
 
     const handleNextToPacking = async () => {
         if (selectedJobIds.length === 0) {
@@ -79,15 +108,14 @@ export default function PackingClientPage({ initialJobs }: PackingClientPageProp
         try {
             const fetchedArticles = await getArticlesByCodes(articleCodes);
             const articlesMap: Record<string, Article> = {};
-            fetchedArticles.forEach(a => { articlesMap[a.code.toUpperCase()] = a; });
-            setArticles(articlesMap);
+            fetchedArticles.forEach((a: any) => { articlesMap[a.code.toUpperCase()] = a; });
 
             // Grouping Logic
             const groups: Record<string, ClienteGroup> = {};
             
             selectedJobs.forEach(job => {
                 const cliente = job.cliente || "Cliente Sconosciuto";
-                const orderNum = job.numeroODL || "Ordine N/D";
+                const orderNum = job.ordinePF || "Ordine N/D";
                 const artCode = job.details;
                 const article = articlesMap[artCode.toUpperCase()];
 
@@ -101,7 +129,7 @@ export default function PackingClientPage({ initialJobs }: PackingClientPageProp
                 if (!groups[cliente].orders[orderNum].articles[artCode]) {
                     groups[cliente].orders[orderNum].articles[artCode] = {
                         articleCode: artCode,
-                        description: artCode, // Placeholder
+                        description: artCode, 
                         totalQty: 0,
                         unitWeightKg: article?.unitWeightKg || 0,
                         packagingTareWeightKg: article?.packagingTareWeightKg || 0,
@@ -118,56 +146,54 @@ export default function PackingClientPage({ initialJobs }: PackingClientPageProp
                 row.totalQty += job.qta;
                 row.jobIds.push(job.id);
                 row.theoreticalWeightKg = (row.totalQty * row.unitWeightKg) + (row.numberOfPackages * row.packagingTareWeightKg);
-                row.actualWeightKg = Number(row.theoreticalWeightKg.toFixed(2)); // Default to theoretical
+                row.actualWeightKg = Number(row.theoreticalWeightKg.toFixed(2));
             });
 
             setPackingData(groups);
             setStep(2);
         } catch (error) {
+            console.error(error);
             toast({ title: "Errore", description: "Impossibile caricare i dati degli articoli.", variant: "destructive" });
         } finally {
             setIsProcessing(false);
         }
     };
 
-    // Update Weight Logic
     const updateRow = (cliente: string, order: string, artCode: string, fields: Partial<PackingRow>) => {
         setPackingData(prev => {
             const newGroups = { ...prev };
             const row = newGroups[cliente].orders[order].articles[artCode];
             Object.assign(row, fields);
-            
-            // Recalculate theoretical if colli or qty changed (qty shouldn't change here but for safety)
             row.theoreticalWeightKg = (row.totalQty * row.unitWeightKg) + (row.numberOfPackages * row.packagingTareWeightKg);
-            
-            return newGroups;
+            return { ...newGroups };
         });
     };
 
     const handleConfirmShipment = async () => {
+        if (!operator) return;
         setIsProcessing(true);
-        const flatData: { jobId: string, actualWeightKg: number, numberOfPackages: number }[] = [];
+        
+        const itemsToSave: { jobId: string, quantity: number, weight?: number, packages?: number }[] = [];
         
         Object.values(packingData).forEach(c => {
             Object.values(c.orders).forEach(o => {
                 Object.values(o.articles).forEach(row => {
-                    // Distribuiamo il peso reale proporzionalmente alle commesse (o semplicemente lo salviamo su tutte)
-                    // Il requisito dice "salvare il peso reale confermato". 
-                    // Se più commesse sono raggruppate, salviamo il peso totale e il numero colli su ciascuna?
-                    // Probabilmente è meglio salvare il peso reale raggruppato.
                     row.jobIds.forEach(id => {
-                        flatData.push({ 
+                        itemsToSave.push({ 
                             jobId: id, 
-                            actualWeightKg: row.actualWeightKg, 
-                            numberOfPackages: row.numberOfPackages 
+                            quantity: row.totalQty / row.jobIds.length, // Approssimato se raggruppate
+                            weight: row.actualWeightKg, 
+                            packages: row.numberOfPackages 
                         });
                     });
                 });
             });
         });
 
-        const result = await confirmPackingAndShip(flatData);
-        if (result.success) {
+        const result = await createPackingList(operator.id, operator.nome, itemsToSave);
+        
+        if (result.success && result.packingListId) {
+            setLastCreatedPlId(result.packingListId);
             setStep(3);
             toast({ title: "Successo", description: result.message });
         } else {
@@ -176,289 +202,366 @@ export default function PackingClientPage({ initialJobs }: PackingClientPageProp
         setIsProcessing(false);
     };
 
-    const downloadPDF = async () => {
-        if (!pdfRef.current) return;
+    const handleCancelPL = async (id: string) => {
+        if (!confirm(`Sei sicuro di voler annullare la Packing List ${id}? Le commesse torneranno allo stato precedente.`)) return;
+        
         setIsProcessing(true);
-        try {
-            const canvas = await html2canvas(pdfRef.current, { scale: 2 });
-            const imgData = canvas.toDataURL('image/png');
-            const pdf = new jsPDF('p', 'mm', 'a4');
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            pdf.save(`PackingList_${new Date().toISOString().split('T')[0]}.pdf`);
-        } catch (error) {
-            toast({ title: "Errore", description: "Generazione PDF fallita.", variant: "destructive" });
+        const result = await cancelPackingList(id);
+        if (result.success) {
+            toast({ title: "Annullata", description: result.message });
+            loadHistory();
+        } else {
+            toast({ title: "Errore", description: result.message, variant: "destructive" });
         }
         setIsProcessing(false);
     };
 
+    const handleReprint = (pl: PackingList) => {
+        generatePackingListPDF(pl);
+        toast({ title: "PDF Generato", description: `Ristampa di ${pl.id} avviata.` });
+    };
+
     return (
-        <div className="container mx-auto p-4 max-w-5xl space-y-6 pb-20">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Packing List & Spedizioni</h1>
-                    <p className="text-muted-foreground">Gestione "Ultimo Miglio" e spedizione materiali ai clienti.</p>
+        <div className="container mx-auto p-2 sm:p-4 max-w-6xl space-y-6 pb-20">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight font-headline">Spedizioni & Packing List</h1>
+                        <p className="text-muted-foreground">Gestione logistica finale e raggruppamento per cliente.</p>
+                    </div>
+                    <TabsList className="grid w-full sm:w-[400px] grid-cols-2">
+                        <TabsTrigger value="create" className="flex items-center gap-2">
+                            <Ship className="h-4 w-4" /> Nuovo
+                        </TabsTrigger>
+                        <TabsTrigger value="history" className="flex items-center gap-2">
+                            <History className="h-4 w-4" /> Storico
+                        </TabsTrigger>
+                    </TabsList>
                 </div>
-                <div className="flex gap-2">
-                    <Badge variant={step === 1 ? "default" : "outline"} className="px-3 py-1">1. Selezione</Badge>
-                    <Badge variant={step === 2 ? "default" : "outline"} className="px-3 py-1">2. Imballo</Badge>
-                    <Badge variant={step === 3 ? "default" : "outline"} className="px-3 py-1">3. Inviato</Badge>
-                </div>
-            </div>
 
-            {step === 1 && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Box className="h-5 w-5 text-primary" />
-                            Commesse Pronte per Spedizione
-                        </CardTitle>
-                        <CardDescription>Seleziona le commesse completate che vuoi inserire nella Packing List.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <ScrollArea className="h-[500px] border rounded-md">
-                            <div className="p-0">
-                                {initialJobs.length === 0 ? (
-                                    <div className="p-8 text-center text-muted-foreground">
-                                        Nessuna commessa completata trovata.
+                <TabsContent value="create" className="space-y-6">
+                    {step === 1 && (
+                        <Card className="shadow-xl border-t-4 border-t-primary">
+                            <CardHeader className="pb-4">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                    <div className="space-y-1">
+                                        <CardTitle className="flex items-center gap-2 text-2xl">
+                                            <Box className="h-6 w-6 text-primary" />
+                                            Commesse Pronte
+                                        </CardTitle>
+                                        <CardDescription>Seleziona gli ODL da includere nella spedizione odierna.</CardDescription>
                                     </div>
-                                ) : (
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-muted sticky top-0 z-10">
-                                            <tr>
-                                                <th className="p-3 text-left w-10"></th>
-                                                <th className="p-3 text-left">Commessa</th>
-                                                <th className="p-3 text-left">Cliente</th>
-                                                <th className="p-3 text-left">Articolo</th>
-                                                <th className="p-3 text-right">Q.tà</th>
-                                                <th className="p-3 text-left">Data Fine</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y">
-                                            {initialJobs.map(job => (
-                                                <tr key={job.id} className="hover:bg-accent/50 cursor-pointer" onClick={() => toggleJob(job.id)}>
-                                                    <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                                        <Checkbox 
-                                                            checked={selectedJobIds.includes(job.id)}
-                                                            onCheckedChange={() => toggleJob(job.id)}
-                                                        />
-                                                    </td>
-                                                    <td className="p-3 font-bold">{job.ordinePF}</td>
-                                                    <td className="p-3">{job.cliente}</td>
-                                                    <td className="p-3 font-mono">{job.details}</td>
-                                                    <td className="p-3 text-right">{job.qta}</td>
-                                                    <td className="p-3 text-muted-foreground text-xs">
-                                                        {job.overallEndTime ? new Date(job.overallEndTime).toLocaleDateString() : 'N/D'}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                )}
-                            </div>
-                        </ScrollArea>
-                    </CardContent>
-                    <CardFooter className="flex justify-between border-t p-4">
-                        <p className="text-sm font-medium">{selectedJobIds.length} commesse selezionate</p>
-                        <Button onClick={handleNextToPacking} disabled={selectedJobIds.length === 0 || isProcessing}>
-                            {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ChevronRight className="mr-2 h-4 w-4"/>}
-                            Genera Packing List
-                        </Button>
-                    </CardFooter>
-                </Card>
-            )}
-
-            {step === 2 && (
-                <div className="space-y-6">
-                    <div className="flex items-center gap-4">
-                        <Button variant="outline" onClick={() => setStep(1)}><ChevronLeft className="mr-2 h-4 w-4"/> Indietro</Button>
-                        <h2 className="text-xl font-bold">Raggruppamento e Verifica Pesi</h2>
-                    </div>
-
-                    {Object.values(packingData).map(clienteGroup => (
-                        <Card key={clienteGroup.cliente} className="border-l-4 border-l-primary">
-                            <CardHeader className="bg-muted/30">
-                                <CardTitle className="text-lg flex items-center gap-2">
-                                    <Building2 className="h-5 w-5 text-primary" />
-                                    Cliente: {clienteGroup.cliente}
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="p-0">
-                                {Object.values(clienteGroup.orders).map(order => (
-                                    <div key={order.numeroODL} className="border-b last:border-0">
-                                        <div className="bg-accent/20 px-4 py-2 font-semibold text-sm flex items-center gap-2 border-b">
-                                            <ListTodo className="h-4 w-4" /> Ordine Cliente: {order.numeroODL}
-                                        </div>
-                                        <div className="p-4 space-y-6">
-                                            {Object.values(order.articles).map(row => (
-                                                <div key={row.articleCode} className="grid grid-cols-1 md:grid-cols-12 gap-6 bg-background border p-4 rounded-xl shadow-sm relative overflow-hidden">
-                                                    
-                                                    {/* Badge Decorativo Tipo Imballo */}
-                                                    <div className="absolute top-0 right-0">
-                                                        <Badge variant="secondary" className="rounded-none rounded-bl-lg text-[10px] uppercase font-bold">
-                                                            {row.packagingType}
-                                                        </Badge>
-                                                    </div>
-
-                                                    {/* Info Articolo */}
-                                                    <div className="md:col-span-4 space-y-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <Package className="h-5 w-5 text-blue-500" />
-                                                            <span className="text-lg font-bold font-mono">{row.articleCode}</span>
-                                                        </div>
-                                                        <div className="text-sm text-muted-foreground p-3 bg-muted rounded-lg border-2 border-dashed border-blue-200/50 italic">
-                                                            <div className="font-bold text-blue-600 text-[10px] uppercase mb-1">📦 Istruzioni Imballo:</div>
-                                                            {row.packingInstructions}
-                                                        </div>
-                                                        <div className="flex items-center gap-2 bg-blue-50 text-blue-700 p-2 rounded text-xs font-bold">
-                                                            <Info className="h-3 w-3" />
-                                                            {row.totalQty} pezzi totali
-                                                            <Separator orientation="vertical" className="h-4 mx-1" />
-                                                            {row.jobIds.length} Commesse
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Configurazione Colli e Pesi */}
-                                                    <div className="md:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                                                        {/* Numero Colli */}
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Num. Colli</Label>
-                                                            <div className="flex items-center gap-2">
-                                                                <Boxes className="h-4 w-4 text-muted-foreground" />
-                                                                <Input 
-                                                                    type="number" 
-                                                                    min={1} 
-                                                                    value={row.numberOfPackages}
-                                                                    onChange={(e) => updateRow(clienteGroup.cliente, order.numeroODL, row.articleCode, { numberOfPackages: parseInt(e.target.value) || 1 })}
-                                                                    className="h-10 text-center font-bold"
-                                                                />
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Peso Teorico */}
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Peso Teorico (Kg)</Label>
-                                                            <div className="h-10 flex items-center gap-2 px-3 bg-muted rounded-md font-mono font-bold text-muted-foreground border">
-                                                                <Scale className="h-4 w-4" />
-                                                                {row.theoreticalWeightKg.toFixed(2)}
-                                                            </div>
-                                                            {row.unitWeightKg === 0 && (
-                                                                <p className="text-[10px] text-destructive flex items-center gap-1">
-                                                                    <AlertTriangle className="h-3 w-3" /> Dati peso mancanti!
-                                                                </p>
-                                                            )}
-                                                        </div>
-
-                                                        {/* Peso Reale */}
-                                                        <div className="space-y-2">
-                                                            <Label className="text-xs font-bold uppercase tracking-wider text-blue-600">Peso Reale Totale (Kg)</Label>
-                                                            <div className="flex items-center gap-2">
-                                                                <Scale className="h-4 w-4 text-blue-600" />
-                                                                <Input 
-                                                                    type="number" 
-                                                                    step="0.01"
-                                                                    value={row.actualWeightKg}
-                                                                    onChange={(e) => updateRow(clienteGroup.cliente, order.numeroODL, row.articleCode, { actualWeightKg: parseFloat(e.target.value) || 0 })}
-                                                                    className="h-10 border-blue-500 font-bold text-blue-700 bg-blue-50/50"
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                    <div className="relative w-full sm:w-64">
+                                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            type="search"
+                                            placeholder="Cerca ODL, Cliente..."
+                                            className="pl-9"
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                        />
                                     </div>
-                                ))}
-                            </CardContent>
-                        </Card>
-                    ))}
-
-                    <div className="flex justify-end p-4 bg-muted/20 border rounded-lg sticky bottom-4 z-20 backdrop-blur-md">
-                        <Button size="lg" onClick={handleConfirmShipment} disabled={isProcessing} className="bg-green-600 hover:bg-green-700 h-14 px-10 text-xl shadow-lg ring-2 ring-green-500/20">
-                            {isProcessing ? <Loader2 className="mr-2 h-6 w-6 animate-spin"/> : <Ship className="mr-2 h-6 w-6"/>}
-                            Conferma Spedizione e Chiudi
-                        </Button>
-                    </div>
-                </div>
-            )}
-
-            {step === 3 && (
-                <div className="flex flex-col items-center justify-center space-y-8 py-20">
-                    <div className="h-32 w-32 rounded-full bg-green-100 flex items-center justify-center text-green-600 border-4 border-green-500 animate-bounce">
-                        <CheckCircle2 className="h-20 w-20" />
-                    </div>
-                    <div className="text-center space-y-2">
-                        <h2 className="text-4xl font-extrabold">Spedizione Confermata!</h2>
-                        <p className="text-xl text-muted-foreground">Le commesse sono state rimosse dal WIP e segnate come spedite.</p>
-                    </div>
-
-                    <div className="flex gap-4">
-                        <Button size="lg" variant="outline" onClick={() => window.location.reload()}>
-                            Nuova Spedizione
-                        </Button>
-                        <Button size="lg" onClick={downloadPDF} disabled={isProcessing}>
-                            {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Printer className="mr-2 h-4 w-4"/>}
-                            Scarica PDF Packing List
-                        </Button>
-                    </div>
-
-                    {/* Hidden PDF Template */}
-                    <div className="hidden">
-                        <div ref={pdfRef} style={{ width: '210mm', padding: '15mm', backgroundColor: 'white', color: 'black', fontFamily: 'sans-serif' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid black', paddingBottom: '5mm', marginBottom: '10mm' }}>
-                                <div style={{ fontSize: '24pt', fontWeight: 'bold' }}>PACKING LIST</div>
-                                <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontWeight: 'bold' }}>DATA: {new Date().toLocaleDateString('it-IT')}</div>
-                                    <div>PRODFAST XCAN MES</div>
                                 </div>
-                            </div>
-                            
-                            {Object.values(packingData).map(cliente => (
-                                <div key={cliente.cliente} style={{ marginBottom: '8mm' }}>
-                                    <div style={{ backgroundColor: '#f3f4f6', padding: '3mm', fontWeight: 'bold', fontSize: '14pt', border: '1px solid #ccc', marginBottom: '4mm' }}>
-                                        CLIENTE: {cliente.cliente}
-                                    </div>
-                                    {Object.values(cliente.orders).map(order => (
-                                        <div key={order.numeroODL} style={{ marginLeft: '5mm', marginBottom: '6mm' }}>
-                                            <div style={{ fontWeight: 'bold', fontSize: '11pt', borderBottom: '1px solid #eee', marginBottom: '2mm', color: '#4b5563' }}>
-                                                ORDINE CLIENTE: {order.numeroODL}
+                            </CardHeader>
+                            <CardContent>
+                                <ScrollArea className="h-[500px] rounded-md border bg-muted/10">
+                                    <div className="p-0">
+                                        {filteredJobs.length === 0 ? (
+                                            <div className="p-12 text-center text-muted-foreground flex flex-col items-center gap-4">
+                                                <Package className="h-12 w-12 opacity-20" />
+                                                <p className="text-lg">Nessun ODL candidabile alla spedizione trovato.</p>
                                             </div>
-                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10pt' }}>
-                                                <thead>
-                                                    <tr style={{ borderBottom: '2px solid #333', textAlign: 'left' }}>
-                                                        <th style={{ padding: '2mm' }}>Articolo</th>
-                                                        <th style={{ padding: '2mm' }}>Quantità</th>
-                                                        <th style={{ padding: '2mm' }}>Imballo</th>
-                                                        <th style={{ padding: '2mm' }}>Colli</th>
-                                                        <th style={{ padding: '2mm', textAlign: 'right' }}>Peso Totale (Kg)</th>
+                                        ) : (
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-muted/50 sticky top-0 z-10 backdrop-blur-sm">
+                                                    <tr className="border-b">
+                                                        <th className="p-4 text-left w-12"></th>
+                                                        <th className="p-4 text-left font-bold text-xs uppercase tracking-wider">Ordine PF</th>
+                                                        <th className="p-4 text-left font-bold text-xs uppercase tracking-wider">Cliente</th>
+                                                        <th className="p-4 text-left font-bold text-xs uppercase tracking-wider">Articolo</th>
+                                                        <th className="p-4 text-right font-bold text-xs uppercase tracking-wider">Quantità</th>
+                                                        <th className="p-4 text-left font-bold text-xs uppercase tracking-wider">Posizione</th>
                                                     </tr>
                                                 </thead>
-                                                <tbody>
-                                                    {Object.values(order.articles).map(row => (
-                                                        <tr key={row.articleCode} style={{ borderBottom: '1px solid #eee' }}>
-                                                            <td style={{ padding: '2mm', fontWeight: 'bold' }}>{row.articleCode}</td>
-                                                            <td style={{ padding: '2mm' }}>{row.totalQty} pezzi</td>
-                                                            <td style={{ padding: '2mm' }}>{row.packagingType}</td>
-                                                            <td style={{ padding: '2mm' }}>{row.numberOfPackages}</td>
-                                                            <td style={{ padding: '2mm', textAlign: 'right', fontWeight: 'bold' }}>{row.actualWeightKg.toFixed(2)}</td>
+                                                <tbody className="divide-y bg-card">
+                                                    {filteredJobs.map(job => (
+                                                        <tr 
+                                                            key={job.id} 
+                                                            className={cn(
+                                                                "hover:bg-primary/5 cursor-pointer transition-colors",
+                                                                selectedJobIds.includes(job.id) && "bg-primary/10"
+                                                            )}
+                                                            onClick={() => toggleJob(job.id)}
+                                                        >
+                                                            <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                                                <Checkbox 
+                                                                    checked={selectedJobIds.includes(job.id)}
+                                                                    onCheckedChange={() => toggleJob(job.id)}
+                                                                    className="h-5 w-5"
+                                                                />
+                                                            </td>
+                                                            <td className="p-4 font-bold text-primary">{job.ordinePF}</td>
+                                                            <td className="p-4 font-medium">{job.cliente}</td>
+                                                            <td className="p-4 font-mono text-xs">{job.details}</td>
+                                                            <td className="p-4 text-right font-bold text-base">{job.qta}</td>
+                                                            <td className="p-4">
+                                                                <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                                                                    {job.status}
+                                                                </Badge>
+                                                            </td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
                                             </table>
-                                        </div>
-                                    ))}
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                            </CardContent>
+                            <CardFooter className="flex justify-between border-t p-6 bg-muted/5">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-2xl font-black text-primary">{selectedJobIds.length}</span>
+                                    <span className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Selezionati</span>
                                 </div>
-                            ))}
+                                <Button size="lg" onClick={handleNextToPacking} disabled={selectedJobIds.length === 0 || isProcessing} className="px-8 font-bold h-14 text-lg shadow-lg">
+                                    {isProcessing ? <Loader2 className="mr-2 h-5 w-5 animate-spin"/> : <ChevronRight className="mr-2 h-5 w-5"/>}
+                                    Configura Packing
+                                </Button>
+                            </CardFooter>
+                        </Card>
+                    )}
 
-                            <div style={{ marginTop: '20mm', borderTop: '2px solid black', paddingTop: '5mm', textAlign: 'center', fontSize: '8pt', color: '#666' }}>
-                                Documento generato automaticamente dal sistema MES. Controllo qualità ed integrità colli effettuato in fase di imballaggio.
+                    {step === 2 && (
+                        <div className="space-y-6">
+                            <div className="flex items-center gap-4">
+                                <Button variant="ghost" onClick={() => setStep(1)} disabled={isProcessing}><ChevronLeft className="mr-2 h-4 w-4"/> Torna alla Selezione</Button>
+                                <h2 className="text-2xl font-bold font-headline">Raggruppamento Spedizione</h2>
+                            </div>
+
+                            <div className="space-y-8">
+                                {Object.values(packingData).map(clienteGroup => (
+                                    <div key={clienteGroup.cliente} className="space-y-4">
+                                        <div className="flex items-center gap-3 px-2">
+                                            <Building2 className="h-6 w-6 text-primary" />
+                                            <h3 className="text-xl font-black uppercase tracking-tight">{clienteGroup.cliente}</h3>
+                                        </div>
+                                        
+                                        {Object.values(clienteGroup.orders).map(order => (
+                                            <Card key={order.numeroODL} className="overflow-hidden border-2 border-primary/10 shadow-md">
+                                                <div className="bg-primary/5 px-4 py-3 font-bold text-sm flex items-center justify-between border-b">
+                                                    <div className="flex items-center gap-2">
+                                                        <ListTodo className="h-4 w-4 text-primary" /> 
+                                                        Ordine PF: <span className="text-primary">{order.numeroODL}</span>
+                                                    </div>
+                                                </div>
+                                                <CardContent className="p-4 space-y-6">
+                                                    {Object.values(order.articles).map(row => (
+                                                        <div key={row.articleCode} className="grid grid-cols-1 lg:grid-cols-12 gap-8 bg-card border border-primary/5 p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                                                            
+                                                            {/* Article Column */}
+                                                            <div className="lg:col-span-4 space-y-4">
+                                                                <div className="flex flex-col gap-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Package className="h-6 w-6 text-primary" />
+                                                                        <span className="text-xl font-black font-mono tracking-tighter">{row.articleCode}</span>
+                                                                    </div>
+                                                                    <Badge variant="secondary" className="w-fit text-[10px] px-2 py-0 h-5 font-bold uppercase">{row.packagingType}</Badge>
+                                                                </div>
+
+                                                                <div className="p-4 bg-muted/30 rounded-xl border-l-4 border-l-blue-500 text-sm italic relative">
+                                                                    <div className="text-[10px] font-bold text-blue-600 uppercase mb-1 flex items-center gap-1">
+                                                                        <Info className="h-3 w-3" /> Istruzioni Imballo
+                                                                    </div>
+                                                                    {row.packingInstructions}
+                                                                </div>
+
+                                                                <div className="flex items-center gap-3 text-xs font-bold text-muted-foreground p-1">
+                                                                    <Boxes className="h-4 w-4" /> {row.totalQty} pz totali ({row.jobIds.length} commesse)
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Entry Column */}
+                                                            <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-6">
+                                                                <div className="space-y-3">
+                                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Numero Colli</Label>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => updateRow(clienteGroup.cliente, order.numeroODL, row.articleCode, { numberOfPackages: Math.max(1, row.numberOfPackages - 1) })}>-</Button>
+                                                                        <Input 
+                                                                            type="number" 
+                                                                            min={1} 
+                                                                            value={row.numberOfPackages}
+                                                                            onChange={(e) => updateRow(clienteGroup.cliente, order.numeroODL, row.articleCode, { numberOfPackages: parseInt(e.target.value) || 1 })}
+                                                                            className="h-12 text-center font-bold text-lg"
+                                                                        />
+                                                                        <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => updateRow(clienteGroup.cliente, order.numeroODL, row.articleCode, { numberOfPackages: row.numberOfPackages + 1 })}>+</Button>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="space-y-3">
+                                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Peso Teorico (Kg)</Label>
+                                                                    <div className="h-12 flex items-center justify-center gap-2 px-3 bg-muted rounded-md font-mono font-bold text-xl text-muted-foreground border border-dashed">
+                                                                        <Scale className="h-5 w-5 opacity-50" />
+                                                                        {row.theoreticalWeightKg.toFixed(2)}
+                                                                    </div>
+                                                                    {row.unitWeightKg === 0 && (
+                                                                        <p className="text-[9px] text-destructive font-bold flex items-center gap-1">
+                                                                            <AlertTriangle className="h-3 w-3" /> DATI PESO MANCANTI
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className="space-y-3">
+                                                                    <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Peso Reale Totale (Kg)</Label>
+                                                                    <div className="relative group">
+                                                                        <Scale className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
+                                                                        <Input 
+                                                                            type="number" 
+                                                                            step="0.01"
+                                                                            value={row.actualWeightKg}
+                                                                            onChange={(e) => updateRow(clienteGroup.cliente, order.numeroODL, row.articleCode, { actualWeightKg: parseFloat(e.target.value) || 0 })}
+                                                                            className="h-12 pl-10 border-2 border-primary ring-offset-primary font-black text-xl text-primary bg-primary/5 focus-visible:ring-primary"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </CardContent>
+                                            </Card>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex justify-end p-6 bg-card border-t rounded-b-2xl sticky bottom-4 z-20 shadow-2xl backdrop-blur-xl">
+                                <Button size="lg" onClick={handleConfirmShipment} disabled={isProcessing} className="bg-green-600 hover:bg-green-700 h-16 px-12 text-2xl font-black shadow-xl transition-all hover:scale-105 active:scale-95 ring-4 ring-green-500/10">
+                                    {isProcessing ? <Loader2 className="mr-2 h-8 w-8 animate-spin"/> : <Ship className="mr-2 h-8 w-8"/>}
+                                    CHIUDI SPEDIZIONE E GENERA PL
+                                </Button>
                             </div>
                         </div>
-                    </div>
-                </div>
-            )}
+                    )}
+
+                    {step === 3 && (
+                        <div className="flex flex-col items-center justify-center space-y-10 py-20 text-center animate-in fade-in zoom-in duration-500">
+                            <div className="relative">
+                                <div className="absolute inset-0 bg-green-500 blur-3xl opacity-20 animate-pulse rounded-full" />
+                                <div className="h-40 w-40 rounded-full bg-green-500 flex items-center justify-center text-white border-8 border-white shadow-2xl relative z-10">
+                                    <CheckCircle2 className="h-24 w-24" />
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-4 max-w-lg">
+                                <h2 className="text-5xl font-black tracking-tighter uppercase font-headline">Spedizione Pronta!</h2>
+                                <p className="text-xl text-muted-foreground font-medium">
+                                    La Packing List <span className="text-primary font-bold">{lastCreatedPlId}</span> è stata registrata. 
+                                    I materiali sono ora marcati come <span className="text-green-600 font-bold italic">SPEDITI</span>.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row gap-4 pt-6">
+                                <Button size="lg" variant="outline" onClick={() => window.location.reload()} className="h-14 px-8 border-2 font-bold text-lg">
+                                    Nuova Operazione
+                                </Button>
+                                <Button size="lg" onClick={() => {
+                                    // Trova la PL appena creata nel history o passala
+                                    toast({ title: "In stampa...", description: "Generazione report in corso." });
+                                    // Per semplicità ricarichiamo history e stampiamo l'ultima
+                                    loadHistory().then(h => {
+                                        const last = (h as PackingList[]).find(x => x.id === lastCreatedPlId);
+                                        if (last) generatePackingListPDF(last);
+                                    });
+                                }} className="h-14 px-10 font-black text-xl bg-primary shadow-lg ring-4 ring-primary/20">
+                                    <Printer className="mr-3 h-6 w-6"/> SCARICA PACKING LIST
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </TabsContent>
+
+                <TabsContent value="history" className="space-y-6">
+                    <Card className="shadow-lg">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <History className="h-6 w-6 text-primary" />
+                                Storico Spedizioni
+                            </CardTitle>
+                            <CardDescription>Visualizza le ultime packing list prodotte e gestisci eventuali rollback.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="rounded-md border overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-muted/50">
+                                        <tr>
+                                            <th className="p-4 text-left font-bold text-xs uppercase">ID Packing List</th>
+                                            <th className="p-4 text-left font-bold text-xs uppercase">Data Creazione</th>
+                                            <th className="p-4 text-left font-bold text-xs uppercase">Operatore</th>
+                                            <th className="p-4 text-center font-bold text-xs uppercase">Articoli</th>
+                                            <th className="p-4 text-center font-bold text-xs uppercase">Stato</th>
+                                            <th className="p-4 text-right font-bold text-xs uppercase">Azioni</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y relative min-h-[200px]">
+                                        {isProcessing && history.length === 0 && (
+                                            <tr>
+                                                <td colSpan={6} className="p-10 text-center text-muted-foreground">
+                                                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" /> Caricamento storico...
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {history.length === 0 && !isProcessing ? (
+                                            <tr>
+                                                <td colSpan={6} className="p-12 text-center text-muted-foreground italic">
+                                                    Nessun documento in archivio.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            history.map(pl => (
+                                                <tr key={pl.id} className={cn(
+                                                    "hover:bg-muted/30 transition-colors",
+                                                    pl.status === 'cancelled' && "opacity-60 bg-red-50/10"
+                                                )}>
+                                                    <td className="p-4">
+                                                        <span className="font-black text-primary font-mono">{pl.id}</span>
+                                                    </td>
+                                                    <td className="p-4 text-muted-foreground">
+                                                        {pl.createdAt ? new Date(pl.createdAt.seconds * 1000).toLocaleString('it-IT') : 'N/D'}
+                                                    </td>
+                                                    <td className="p-4 font-medium">{pl.operatorName}</td>
+                                                    <td className="p-4 text-center">
+                                                        <Badge variant="secondary">{pl.items.length}</Badge>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        {pl.status === 'active' ? (
+                                                            <Badge className="bg-green-500 hover:bg-green-600">INVIATA</Badge>
+                                                        ) : (
+                                                            <Badge variant="destructive">ANNULLATA</Badge>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-4 text-right space-x-2">
+                                                        {pl.status === 'active' && (
+                                                            <>
+                                                                <Button variant="outline" size="sm" onClick={() => handleReprint(pl)} className="h-9 w-9 p-0" title="Ristampa PDF">
+                                                                    <Printer className="h-4 w-4" />
+                                                                </Button>
+                                                                <Button variant="ghost" size="sm" onClick={() => handleCancelPL(pl.id)} className="h-9 w-9 p-0 text-destructive hover:text-white hover:bg-destructive" title="Annulla e Ripristina ODL">
+                                                                    <XCircle className="h-4 w-4" />
+                                                                </Button>
+                                                            </>
+                                                        )}
+                                                        {pl.status === 'cancelled' && (
+                                                            <span className="text-[10px] uppercase font-black text-destructive mr-2">Rollback Eseguito</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
         </div>
     );
 }

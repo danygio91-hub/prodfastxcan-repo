@@ -57,7 +57,7 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
 
 export async function getCompletedJobOrders(): Promise<JobOrder[]> {
     const snap = await adminDb.collection("jobOrders")
-        .where("status", "in", ["Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD"])
+        .where("status", "in", ["Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD", "SPEDITA"])
         .get(); 
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }

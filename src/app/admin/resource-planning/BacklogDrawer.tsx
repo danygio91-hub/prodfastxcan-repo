@@ -22,16 +22,20 @@ import {
     ChevronRight,
     GripVertical,
     XCircle,
-    Calendar as CalendarIcon
+    Calendar as CalendarIcon,
+    CheckCircle2, 
+    AlertTriangle, 
+    Info, 
+    Hash
 } from 'lucide-react';
-import { format, parseISO, isPast } from 'date-fns';
+import { cn, formatDisplayStock, parseRobustDate } from '@/lib/utils';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { MRPTimelineEntry } from '@/lib/mrp-utils';
+import { isBefore, startOfDay, isSameDay, format, parseISO, isPast } from 'date-fns';
 import { it } from 'date-fns/locale';
-
-import { cn } from '@/lib/utils';
 import type { JobOrder, Article, WorkPhaseTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Hash } from 'lucide-react';
 
 interface BacklogDrawerProps {
     isOpen: boolean;
@@ -43,6 +47,9 @@ interface BacklogDrawerProps {
     onAssignDate: (jobId: string, macroArea: string) => void;
     searchQuery: string;
     onSearchChange: (q: string) => void;
+    rawMaterials?: any[];
+    mrpTimelines?: Map<string, MRPTimelineEntry[]>;
+    globalSettings?: any;
 }
 
 export default function BacklogDrawer({ 
@@ -54,8 +61,12 @@ export default function BacklogDrawer({
     onExclude, 
     onAssignDate,
     searchQuery,
-    onSearchChange
+    onSearchChange,
+    rawMaterials = [],
+    mrpTimelines = new Map(),
+    globalSettings
 }: BacklogDrawerProps) {
+    const today = startOfDay(new Date());
     const isMatch = (job: JobOrder) => {
         if (!searchQuery || searchQuery.trim().length < 2) return false;
         const q = searchQuery.toLowerCase().trim();
@@ -173,24 +184,45 @@ export default function BacklogDrawer({
                                         const matched = isMatch(job);
                                         const searching = searchQuery.length >= 2;
                                         
-                                        const deliveryDateStr = job.dataConsegnaFinale;
-                                        let deliveryDate: Date | null = null;
-                                        if (deliveryDateStr) {
-                                            if (typeof (deliveryDateStr as any).toDate === 'function') {
-                                                deliveryDate = (deliveryDateStr as any).toDate();
-                                            } else if (typeof deliveryDateStr === 'string') {
-                                                if (/^\d{4}-\d{2}-\d{2}/.test(deliveryDateStr)) {
-                                                    try { deliveryDate = parseISO(deliveryDateStr); } catch(e) {}
-                                                } else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}/.test(deliveryDateStr)) {
-                                                    const parts = deliveryDateStr.split(/[\/-]/);
-                                                    if (parts.length === 3) {
-                                                        deliveryDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-                                                    }
-                                                }
+                                        const deliveryDate = parseRobustDate(job.dataConsegnaFinale);
+                                        const isOverdue = deliveryDate && isPast(deliveryDate) && !isSameDay(deliveryDate, today) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
+                                        
+                                        // SSoT: Alert Materiali (Time-Phased MRP)
+                                        const stockStatus = (() => {
+                                            if (!job.billOfMaterials || job.billOfMaterials.length === 0) {
+                                                return { color: 'text-slate-500', icon: Info, label: 'Nessuna BOM' };
                                             }
-                                        }
-                                        const isOverdue = deliveryDate && isPast(deliveryDate) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
-                                        const hasMaterialMissing = job.phases.some(p => p.materialStatus === 'missing') || job.isProblemReported;
+                                            
+                                            const componentEntries: { entry: MRPTimelineEntry, item: any }[] = [];
+                                            job.billOfMaterials.forEach(item => {
+                                                const matCode = item.component?.toUpperCase();
+                                                const timeline = mrpTimelines.get(matCode) || [];
+                                                const entry = timeline.find(e => e.jobId === job.id);
+                                                if (entry) componentEntries.push({ entry, item });
+                                            });
+
+                                            if (componentEntries.length === 0) {
+                                                return { color: 'text-red-500', icon: XCircle, label: 'Materiali non configurati', details: ['Controllare anagrafica'] };
+                                            }
+
+                                            const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
+                                            const isAmber = !isRed && componentEntries.some(ce => ce.entry.status === 'AMBER');
+                                            
+                                            const combinedDetails = componentEntries.flatMap(ce => {
+                                                const prefix = ce.item.component;
+                                                return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
+                                            });
+
+                                            if (isRed) {
+                                                return { color: 'text-red-500', icon: XCircle, label: 'MANCANTE', details: combinedDetails };
+                                            }
+                                            if (isAmber) {
+                                                return { color: 'text-amber-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
+                                            }
+                                            return { color: 'text-green-500', icon: CheckCircle2, label: 'DISPONIBILE', details: combinedDetails };
+                                        })();
+
+                                        const StockIcon = stockStatus.icon;
 
                                         return (
                                             <div
@@ -239,35 +271,52 @@ export default function BacklogDrawer({
                                                     </div>
 
                                                     {/* Alert Icons */}
-                                                    <div className="flex items-center gap-1 shrink-0">
+                                                    <div className="flex items-center gap-1.5 shrink-0 px-1 border-l border-slate-100 ml-1">
                                                         <TooltipProvider delayDuration={100}>
-                                                            {hasMaterialMissing && (
-                                                                <Tooltip>
-                                                                    <TooltipTrigger asChild>
-                                                                        <Box className="h-3 w-3 text-red-500 cursor-help" />
-                                                                    </TooltipTrigger>
-                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-red-400">
-                                                                        Allerta Materie Prime
-                                                                    </TooltipContent>
-                                                                </Tooltip>
-                                                            )}
+                                                            {/* Stock Alert SSoT */}
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <div className={cn("cursor-help p-0.5 rounded-full hover:bg-slate-50 transition-colors", stockStatus.color)}>
+                                                                        <StockIcon className="h-4 w-4" />
+                                                                    </div>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent side="top" className="bg-slate-900 border-slate-700 p-2 shadow-2xl">
+                                                                    <div className="flex flex-col gap-1.5 min-w-[150px]">
+                                                                        <div className="flex items-center gap-2 border-b border-slate-800 pb-1.5">
+                                                                            <StockIcon className={cn("h-3.5 w-3.5", stockStatus.color)} />
+                                                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-200">{stockStatus.label}</span>
+                                                                        </div>
+                                                                        {stockStatus.details && (
+                                                                            <ul className="space-y-1">
+                                                                                {stockStatus.details.map((d, i) => (
+                                                                                    <li key={i} className="text-[9px] font-bold text-slate-400 leading-tight">{d}</li>
+                                                                                ))}
+                                                                            </ul>
+                                                                        )}
+                                                                    </div>
+                                                                </TooltipContent>
+                                                            </Tooltip>
+
+                                                            {/* Delay Alert */}
                                                             {isOverdue && (
                                                                 <Tooltip>
                                                                     <TooltipTrigger asChild>
-                                                                        <AlertCircle className="h-3 w-3 text-amber-500 cursor-help" />
+                                                                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500 cursor-help" />
                                                                     </TooltipTrigger>
-                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-amber-400">
-                                                                        In ritardo rispetto alla data prevista
+                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[9px] font-black text-amber-400 uppercase tracking-widest">
+                                                                        Ritardo Consegna
                                                                     </TooltipContent>
                                                                 </Tooltip>
                                                             )}
+
+                                                            {/* Batch Alert */}
                                                             {job.workGroupId && (
                                                                 <Tooltip>
                                                                     <TooltipTrigger asChild>
-                                                                        <Hash className="h-3 w-3 text-indigo-400 cursor-help" />
+                                                                        <Hash className="h-3.5 w-3.5 text-indigo-400 cursor-help" />
                                                                     </TooltipTrigger>
-                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-indigo-300">
-                                                                        Commessa concatenata
+                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[9px] font-black text-indigo-300 uppercase tracking-widest">
+                                                                        Batch Produzione
                                                                     </TooltipContent>
                                                                 </Tooltip>
                                                             )}

@@ -29,6 +29,7 @@ const operatorFormSchema = z.object({
   canAccessInventory: z.boolean().optional(),
   canAccessMaterialWithdrawal: z.boolean().optional(),
   canManageMaterialSessions: z.boolean().optional(),
+  canManagePackingList: z.boolean().optional(),
   isReal: z.boolean().optional(),
   skills: z.array(operatorSkillSchema).optional(),
 }).refine(data => {
@@ -87,6 +88,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
       canAccessInventory: validatedFields.data.canAccessInventory || false,
       canAccessMaterialWithdrawal: validatedFields.data.canAccessMaterialWithdrawal || false,
       canManageMaterialSessions: validatedFields.data.canManageMaterialSessions || false,
+      canManagePackingList: validatedFields.data.canManagePackingList || false,
       isReal: validatedFields.data.isReal || false,
       skills: validatedFields.data.skills || [],
   };

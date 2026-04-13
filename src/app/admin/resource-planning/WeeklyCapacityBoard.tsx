@@ -18,6 +18,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { formatDisplayStock, parseRobustDate } from '@/lib/utils';
+import { MRPTimelineEntry } from '@/lib/mrp-utils';
 
 
 
@@ -45,6 +48,9 @@ interface WeeklyCapacityBoardProps {
     onStatusAdvance: (jobId: string) => void;
     onManageAllocations: (deptId: string, week: number, year: number) => void;
     onJobClick: (jobId: string, macroArea: string) => void;
+    rawMaterials?: any[];
+    mrpTimelines?: Map<string, MRPTimelineEntry[]>;
+    globalSettings?: any;
 }
 
 // Whitelists Ufficiali Dogana (Gestione Commesse) per Audit 1:1
@@ -53,12 +59,13 @@ const PRODUCTION_STATUS_WHITELIST = [
     "da_iniziare", "in_preparazione", "pronto_prod", "in_produzione", "fine_produzione", "qlty_pack",
     "DA INIZIARE", "IN PREPARAZIONE", "PRONTO PROD", "IN PRODUZIONE", "FINE PRODUZIONE", "QLTY PACK",
     "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+    "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
     "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED", "IN PROD.", "FINE PROD.", "PRONTO PROD.", "QLTY & PACK", "PRONTO",
     "Da Produrre", "In Attesa", "Lavorazione"
 ];
 
 const COMPLETED_STATUS_WHITELIST = [
-    "Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD", "Chiuso", "Consegnata"
+    "Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "Chiuso", "Consegnata", "SPEDITA"
 ];
 
 export default function WeeklyCapacityBoard({
@@ -77,7 +84,10 @@ export default function WeeklyCapacityBoard({
     onOpenBacklog,
     onStatusAdvance,
     onManageAllocations,
-    onJobClick
+    onJobClick,
+    rawMaterials = [],
+    mrpTimelines = new Map(),
+    globalSettings
 }: WeeklyCapacityBoardProps) {
     const { toast } = useToast();
     const router = useRouter();
@@ -732,6 +742,9 @@ export default function WeeklyCapacityBoard({
                                                                         semaphoreStatus={getCloneStatus(job, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
                                                                         isTechnicalDelay={checkTechnicalFeasibility(job, dept.id, week)}
                                                                         linkedODLs={job.workGroupId ? jobOrders.filter(j => j.workGroupId === job.workGroupId && j.id !== job.id).map(j => j.numeroODLInterno || j.ordinePF) : []}
+                                                                        rawMaterials={rawMaterials}
+                                                                        mrpTimelines={mrpTimelines}
+                                                                        globalSettings={globalSettings}
                                                                     />
                                                                     {isA && (
                                                                         <div className="absolute -top-3 -right-3 flex h-6 w-6 pointer-events-none z-30">
@@ -757,6 +770,7 @@ export default function WeeklyCapacityBoard({
         </div>
     );
 }
+
 
 function getJobRemainingLoadInDept(job: JobOrder, deptId: string, articles: Article[], phaseTemplates: WorkPhaseTemplate[]) {
     const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
@@ -791,43 +805,67 @@ function JobCompactCard(props: {
     semaphoreStatus: 'status-gray' | 'status-amber' | 'status-blue' | 'status-green',
     isTechnicalDelay: boolean,
     totalLoad: number,
-    linkedODLs: string[]
+    linkedODLs: string[],
+    rawMaterials: any[],
+    mrpTimelines: Map<string, MRPTimelineEntry[]>,
+    globalSettings: any
 }) {
     const { 
         job, load, onAdvance, onToggleExclude, onNavigate, onClick, 
         macroArea, semaphoreStatus, isTechnicalDelay, totalLoad, 
-        linkedODLs = [] 
+        linkedODLs = [], rawMaterials, mrpTimelines, globalSettings 
     } = props;
 
     const today = startOfDay(new Date());
 
-    // SSoT: Logica Date Contestuali con Parsing Robusto
-    const contextualDateStr = macroArea === 'PREP' ? job.dataFinePreparazione : job.dataConsegnaFinale;
-    let contextualDate: Date | null = null;
-
-    if (contextualDateStr) {
-        if (typeof (contextualDateStr as any).toDate === 'function') {
-            contextualDate = (contextualDateStr as any).toDate();
-        } else if (typeof contextualDateStr === 'string') {
-            // ISO format
-            if (/^\d{4}-\d{2}-\d{2}/.test(contextualDateStr)) {
-                try { contextualDate = parseISO(contextualDateStr); } catch(e) {}
-            } 
-            // DD/MM/YYYY format
-            else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}/.test(contextualDateStr)) {
-                const parts = contextualDateStr.split(/[\/-]/);
-                if (parts.length === 3) {
-                    contextualDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-                }
-            }
-        }
-    }
+    // SSoT: Logica Date Contestuali con Parsing Robusto e Fallback Obbligatorio
+    const rawContextualDateStr = macroArea === 'PREP' 
+        ? (job.dataFinePreparazione || job.dataConsegnaFinale) 
+        : job.dataConsegnaFinale;
+        
+    const contextualDate = parseRobustDate(rawContextualDateStr);
 
     // SSoT: Alert Ritardo
     const isOverdue = contextualDate && isPast(contextualDate) && !isSameDay(contextualDate, today) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
     
-    // SSoT: Alert Materiali
-    const hasMaterialMissing = job.phases.some(p => p.materialStatus === 'missing') || job.isProblemReported;
+    // SSoT: Alert Materiali (Time-Phased MRP)
+    const stockStatus = (() => {
+        if (!job.billOfMaterials || job.billOfMaterials.length === 0) {
+            return { color: 'text-slate-500', icon: Info, label: 'Nessuna BOM definita' };
+        }
+        
+        const componentEntries: { entry: MRPTimelineEntry, item: any }[] = [];
+        job.billOfMaterials.forEach(item => {
+            const matCode = item.component?.toUpperCase();
+            const timeline = mrpTimelines.get(matCode) || [];
+            const entry = timeline.find(e => e.jobId === job.id);
+            if (entry) componentEntries.push({ entry, item });
+        });
+
+        if (componentEntries.length === 0) {
+             return { color: 'text-red-500', icon: XCircle, label: 'Materiali non configurati', details: ['Controllare anagrafica materiali'] };
+        }
+
+        const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
+        const isAmber = !isRed && componentEntries.some(ce => ce.entry.status === 'AMBER');
+        
+        // Costruiamo i dettagli specifici partendo dai messaggi del motore MRP
+        // Aggiungiamo il prefisso col codice componente per chiarezza nel tooltip
+        const combinedDetails = componentEntries.flatMap(ce => {
+            const prefix = ce.item.component;
+            return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
+        });
+
+        if (isRed) {
+            return { color: 'text-red-500', icon: XCircle, label: 'MANCANZA MATERIALI', details: combinedDetails };
+        }
+        if (isAmber) {
+            return { color: 'text-amber-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
+        }
+        return { color: 'text-green-500', icon: CheckCircle2, label: 'TUTTO DISPONIBILE', details: combinedDetails };
+    })();
+
+    const StockIcon = stockStatus.icon;
     
     const sColors: Record<string, string> = {
         'status-gray': 'bg-slate-750/30 border-slate-700/50 opacity-60 grayscale',
@@ -888,99 +926,98 @@ function JobCompactCard(props: {
                 {/* Spazio flessibile */}
                 <div className="flex-grow" />
 
-                {/* Data Contestuale */}
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-950/40 rounded-lg border border-slate-800/50 shrink-0">
-                    <Calendar className={cn("h-3 w-3", isOverdue ? "text-red-500" : "text-slate-500")} />
-                    <span className={cn("text-[9px] font-bold uppercase", isOverdue ? "text-red-400" : "text-slate-400")}>
+                {/* Data */}
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/50 border border-slate-800 rounded-lg shrink-0">
+                    <Calendar className={cn("h-3 w-3", isOverdue ? "text-red-500" : "text-slate-400")} />
+                    <span className={cn("text-[9px] font-black uppercase tracking-tight", isOverdue ? "text-red-500 font-black" : "text-slate-400")}>
                         {contextualDate ? format(contextualDate, 'dd MMM', { locale: it }) : 'N/D'}
                     </span>
                 </div>
 
-                {/* Icone di sistema (Alerts & Batching) */}
-                <div className="flex items-center gap-1.5 shrink-0">
+                {/* Alert Icons */}
+                <div className="flex items-center gap-1.5 shrink-0 px-1 border-l border-slate-800 ml-1">
                     <TooltipProvider delayDuration={100}>
-                        {/* Alert Materiali */}
-                        {hasMaterialMissing && (
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div className="flex items-center justify-center h-6 w-6 rounded-lg bg-red-950/30 border border-red-900/30 cursor-help">
-                                        <Box className="h-3 w-3 text-red-500" />
+                        {/* Stock Alert SSoT */}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className={cn("cursor-help p-0.5 rounded-full hover:bg-slate-800 transition-colors", stockStatus.color)}>
+                                    <StockIcon className="h-4 w-4" />
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="bg-slate-900 border-slate-700 p-2 shadow-2xl">
+                                <div className="flex flex-col gap-1.5 min-w-[150px]">
+                                    <div className="flex items-center gap-2 border-b border-slate-800 pb-1.5">
+                                        <StockIcon className={cn("h-3.5 w-3.5", stockStatus.color)} />
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-200">{stockStatus.label}</span>
                                     </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-red-400">
-                                    Allerta Materie Prime / Problema Segnalato
-                                </TooltipContent>
-                            </Tooltip>
-                        )}
+                                    {stockStatus.details && (
+                                        <ul className="space-y-1">
+                                            {stockStatus.details.map((d, i) => (
+                                                <li key={i} className="text-[9px] font-bold text-slate-400 leading-tight">{d}</li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            </TooltipContent>
+                        </Tooltip>
 
-                        {/* Alert Ritardo */}
+                        {/* Delay Alert */}
                         {isOverdue && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <div className="flex items-center justify-center h-6 w-6 rounded-lg bg-amber-950/30 border border-amber-900/30 animate-pulse cursor-help">
-                                        <AlertTriangle className="h-3 w-3 text-amber-500" />
-                                    </div>
+                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500 cursor-help animate-pulse" />
                                 </TooltipTrigger>
-                                <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-amber-400">
-                                    In ritardo rispetto alla data prevista
+                                <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[9px] font-black text-amber-400 uppercase tracking-widest">
+                                    Ritardo Consegna
                                 </TooltipContent>
                             </Tooltip>
                         )}
 
-                        {/* Batching Icon (SSoT) */}
-                        {job.workGroupId && (
+                        {/* Batch Alert */}
+                        {linkedODLs.length > 0 && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <div className="flex items-center justify-center h-6 w-6 rounded-lg bg-indigo-950/30 border border-indigo-900/30 cursor-help">
-                                        <Hash className="h-3 w-3 text-indigo-400" />
-                                    </div>
+                                    <Hash className="h-3.5 w-3.5 text-indigo-400 cursor-help" />
                                 </TooltipTrigger>
-                                <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[10px] font-bold text-indigo-300 max-w-[200px]">
-                                    Commesse concatenate {linkedODLs.length > 0 ? `(ODL: ${linkedODLs.join(', ')})` : ''}
+                                <TooltipContent side="top" className="bg-slate-900 border-slate-700">
+                                    <div className="flex flex-col gap-1 text-[9px]">
+                                        <span className="font-black text-indigo-300 uppercase tracking-widest border-b border-indigo-900/50 pb-1 mb-1">Batch di Produzione</span>
+                                        <div className="flex flex-wrap gap-1">
+                                            {linkedODLs.map((odl, i) => (
+                                                <span key={i} className="bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-800/30 font-bold">{odl}</span>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </TooltipContent>
                             </Tooltip>
                         )}
                     </TooltipProvider>
                 </div>
 
-                {/* Quantità Badge */}
-                <Badge variant="outline" className={cn(
-                    "text-[9px] font-black px-1.5 h-6 border-none shrink-0", 
-                    isClosed ? "bg-emerald-900/50 text-emerald-500" : "bg-slate-950 text-slate-400"
-                )}>
+                {/* Badge Quantità */}
+                <Badge variant="outline" className="text-[9px] font-black px-1.5 h-6 bg-slate-900/40 text-slate-300 border-slate-800 shrink-0">
                     {job.qta} PZ
                 </Badge>
 
-                {/* Ore Macchina (Rimanenti / Totali) */}
-                <div className={cn(
-                    "flex items-center gap-1.5 px-2 h-6 rounded-lg border shrink-0 min-w-[70px] justify-center", 
-                    isClosed ? "bg-emerald-950/50 border-emerald-900/30" : "bg-slate-950 border-slate-800"
-                )}>
-                    <Timer className={cn("h-3 w-3", isClosed ? "text-emerald-500" : "text-blue-500")} />
-                    <span className={cn("text-[10px] font-black", isClosed ? "text-emerald-400" : "text-slate-400")}>
-                        <span className="text-blue-400">{load.toFixed(1)}h</span>
-                        <span className="mx-0.5">/</span>
-                        <span>{totalLoad.toFixed(1)}h</span>
+                {/* Ore (Rim/Tot) */}
+                <div className="flex items-center gap-1.5 px-2 h-7 bg-blue-600/10 border border-blue-500/20 rounded-lg shrink-0 min-w-[65px] justify-center">
+                    <Timer className="h-3 w-3 text-blue-400" />
+                    <span className="text-[10px] font-black text-blue-300">
+                        {load.toFixed(1)}h
+                        {totalLoad > load && (
+                             <span className="text-slate-500 ml-1 font-bold">/ {totalLoad.toFixed(1)}</span>
+                        )}
                     </span>
                 </div>
 
-                {/* Action Button */}
                 <Button 
-                    size="icon" 
                     variant="ghost" 
-                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-800 text-slate-500 rounded-lg shrink-0 ml-1"
+                    className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-800/50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all shrink-0"
                     onClick={(e) => { e.stopPropagation(); onNavigate(); }}
                 >
                     <ChevronRight className="h-4 w-4" />
                 </Button>
             </div>
-
-            {/* Anti-Split Alert (Technical Delay) */}
-            {isTechnicalDelay && !isClosed && (
-                <div className="absolute top-0 right-0 p-1">
-                    <AlertTriangle className="h-3 w-3 text-red-500" />
-                </div>
-            )}
         </div>
     );
 }

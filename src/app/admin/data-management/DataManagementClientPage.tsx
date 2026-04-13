@@ -39,6 +39,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cn, formatDisplayStock, isJobReadyForProduction } from '@/lib/utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { calculateMRPTimelines, MRPTimelineEntry } from '@/lib/mrp-utils';
 import { GlobalSettings } from '@/lib/settings-types';
 
 import { jsPDF } from "jspdf";
@@ -117,44 +118,37 @@ const JobTableRows = ({
         const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
         const hasSecondaryCycle = article && (article.secondaryWorkCycleId && article.secondaryWorkCycleId !== 'manual');
 
+        // SSoT: Alert Materiali (Time-Phased MRP)
         const stockStatus = (() => {
           if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
-          const lines: string[] = [];
-          let ok = 0;
-          let totalCoveredByOrders = 0;
-          let earliestCoverDate: string | null = null;
-
+          
+          const componentEntries: { entry: MRPTimelineEntry, item: any }[] = [];
           j.billOfMaterials.forEach(item => {
-            const matCode = item.component.toUpperCase();
-            const mat = rawMaterials.find(m => m.code.toUpperCase() === matCode);
-            if (!mat) { lines.push(`❌ ${item.component}: Non in anagrafica`); return; }
-            
-            const config = globalSettings?.rawMaterialTypes.find((t: any) => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-            const req = calculateBOMRequirement(j.qta, item, mat, config as any);
-            const required = req.totalInBaseUnits;
-            
+            const matCode = item.component?.toUpperCase();
             const timeline = mrpTimelines.get(matCode) || [];
-            const jobEntry = timeline.find(entry => entry.jobId === j.id);
-            if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
-            const coverStatus = jobEntry.date;
-            if (coverStatus === 'IMMEDIATA') {
-              lines.push(`✅ ${item.component}: Disponibile Stock (${formatDisplayStock(mat.currentStockUnits, mat.unitOfMeasure)})`);
-              ok++;
-            } else if (coverStatus === 'MAI') {
-              lines.push(`❌ ${item.component}: Mancante e NON ordinato (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
-            } else {
-              const poDate = format(parseISO(coverStatus), 'dd/MM/yy');
-              lines.push(`⚠️ ${item.component}: In arrivo il ${poDate} (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
-              totalCoveredByOrders++;
-              if (!earliestCoverDate || isBefore(parseISO(coverStatus), parseISO(earliestCoverDate))) earliestCoverDate = coverStatus;
-            }
+            const entry = timeline.find(e => e.jobId === j.id);
+            if (entry) componentEntries.push({ entry, item });
           });
 
-          if (ok === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: lines };
-          if (totalCoveredByOrders > 0 && (ok + totalCoveredByOrders === j.billOfMaterials.length)) {
-            return { color: 'text-yellow-500', icon: AlertTriangle, label: `In arrivo dal ${format(parseISO(earliestCoverDate!), 'dd/MM/yy')}`, details: lines };
+          if (componentEntries.length === 0) {
+            return { color: 'text-red-500', icon: XCircle, label: 'Materiali non configurati', details: ['Controllare anagrafica'] };
           }
-          return { color: 'text-red-500', icon: XCircle, label: 'Materiale Mancante', details: lines };
+
+          const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
+          const isAmber = !isRed && componentEntries.some(ce => ce.entry.status === 'AMBER');
+          
+          const combinedDetails = componentEntries.flatMap(ce => {
+            const prefix = ce.item.component;
+            return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
+          });
+
+          if (isRed) {
+              return { color: 'text-red-500', icon: XCircle, label: 'MANCANTE', details: combinedDetails };
+          }
+          if (isAmber) {
+              return { color: 'text-yellow-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
+          }
+          return { color: 'text-green-500', icon: CheckCircle2, label: 'DISPONIBILE', details: combinedDetails };
         })();
 
         const StockIcon = stockStatus.icon;
@@ -364,92 +358,14 @@ export default function DataManagementClientPage({
 
 
   const mrpTimelines = useMemo(() => {
-    const timelines = new Map<string, { date: string, qty: number, jobId: string }[]>();
-    const demands: { materialCode: string, qty: number, date: string, id: string }[] = [];
-
-    const allJobs = [...plannedJobOrders, ...productionJobOrders];
-    allJobs.forEach(job => {
-      (job.billOfMaterials || []).forEach(item => {
-        if (item.status !== 'withdrawn') {
-          const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
-          if (mat) {
-            const config = globalSettings?.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-            const req = calculateBOMRequirement(job.qta, item, mat, config as any);
-            demands.push({
-              materialCode: mat.code.toUpperCase(),
-              qty: req.totalInBaseUnits,
-              date: job.dataConsegnaFinale || '9999-12-31',
-              id: job.id
-            });
-          }
-        }
-      });
-    });
-
-    manualCommitments.filter(c => c.status === 'pending').forEach(c => {
-      const art = articles.find(a => a.code.toUpperCase() === c.articleCode.toUpperCase());
-      if (art) {
-        art.billOfMaterials.forEach(item => {
-          const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
-          if (mat) {
-            const config = globalSettings?.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-            const req = calculateBOMRequirement(c.quantity, item, mat, config as any);
-            demands.push({
-              materialCode: mat.code.toUpperCase(),
-              qty: req.totalInBaseUnits,
-              date: c.deliveryDate || '9999-12-31',
-              id: c.id
-            });
-          }
-        });
-      }
-    });
-
-    demands.sort((a, b) => a.date.localeCompare(b.date));
-
-    const supplies = purchaseOrders
-      .filter(po => po.status === 'pending' || po.status === 'partially_received')
-      .map(po => ({
-        materialCode: po.materialCode.toUpperCase(),
-        qty: po.quantity - (po.receivedQuantity || 0),
-        date: po.expectedDeliveryDate,
-        id: po.id
-      }));
-
-    supplies.sort((a, b) => a.date.localeCompare(b.date));
-
-    rawMaterials.forEach(mat => {
-      const code = mat.code.toUpperCase();
-      let balance = mat.currentStockUnits || 0;
-      const matDemands = demands.filter(d => d.materialCode === code);
-      const matSupplies = [...supplies.filter(s => s.materialCode === code)];
-
-      const timeline: { date: string, qty: number, jobId: string }[] = [];
-
-      matDemands.forEach(demand => {
-        balance -= demand.qty;
-
-        let coverDate = 'IMMEDIATA';
-        if (balance < -0.001) {
-          let tempBalance = balance;
-          for (const supply of matSupplies) {
-            if (tempBalance >= -0.001) break;
-            tempBalance += supply.qty;
-            coverDate = supply.date;
-          }
-
-          if (tempBalance < -0.001) {
-            coverDate = 'MAI';
-          }
-        }
-
-        timeline.push({ date: coverDate, qty: demand.qty, jobId: demand.id });
-      });
-
-      timelines.set(code, timeline);
-    });
-
-    return timelines;
+    return calculateMRPTimelines(
+      [...plannedJobOrders, ...productionJobOrders],
+      rawMaterials,
+      purchaseOrders,
+      manualCommitments,
+      articles,
+      globalSettings
+    );
   }, [plannedJobOrders, productionJobOrders, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings]);
 
   const handleSort = (key: keyof JobOrder | 'reparto_codice') => {

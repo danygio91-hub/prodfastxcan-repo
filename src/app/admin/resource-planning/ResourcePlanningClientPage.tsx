@@ -39,6 +39,7 @@ import {
 import { updateJobDeliveryDate, updateJobDepartment, forceCloseAndExclude } from './actions';
 import MassiveAllocationDialog from './MassiveAllocationDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { calculateMRPTimelines } from '@/lib/mrp-utils';
 
 
 
@@ -65,7 +66,11 @@ export default function ResourcePlanningClientPage() {
         jobOrders: any[],
         unassignedJobs: any[],
         allocations: Record<string, { operatorId: string, hours: number }[]>,
-        settings?: any
+        settings?: any,
+        rawMaterials?: any[],
+        purchaseOrders?: any[],
+        manualCommitments?: any[],
+        globalSettings?: any
     }>({ jobOrders: [], unassignedJobs: [], allocations: {} });
     const [phaseTemplates, setPhaseTemplates] = useState<any[]>([]);
 
@@ -149,6 +154,18 @@ export default function ResourcePlanningClientPage() {
         
         return relevantTemplates.reduce((acc, t) => acc + (phaseTimes[t.id].expectedMinutesPerPiece * job.qta), 0) / 60;
     };
+
+    const mrpTimelines = useMemo(() => {
+        if (!boardData.rawMaterials) return new Map();
+        return calculateMRPTimelines(
+            [...boardData.jobOrders, ...boardData.unassignedJobs],
+            boardData.rawMaterials,
+            boardData.purchaseOrders || [],
+            boardData.manualCommitments || [],
+            cachedArticles,
+            boardData.globalSettings || null
+        );
+    }, [boardData, cachedArticles]);
 
     useEffect(() => {
         loadData();
@@ -495,6 +512,9 @@ export default function ResourcePlanningClientPage() {
                                 setIsLoanDialogOpen(true);
                             }}
                             onJobClick={(jobId, macroArea) => handleRequestAssignment(jobId, undefined, undefined, macroArea)}
+                            rawMaterials={boardData.rawMaterials || []}
+                            mrpTimelines={mrpTimelines}
+                            globalSettings={boardData.globalSettings}
                         />
                     ) : (
                         <MasterConsole 
@@ -516,6 +536,9 @@ export default function ResourcePlanningClientPage() {
                     onAssignDate={(jobId) => handleRequestAssignment(jobId)}
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
+                    rawMaterials={boardData.rawMaterials || []}
+                    mrpTimelines={mrpTimelines}
+                    globalSettings={boardData.globalSettings}
                 />
 
                 {selectedSlot && (

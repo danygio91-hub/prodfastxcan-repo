@@ -35,7 +35,7 @@ function OperatorNavMenu() {
       { href: '/material-loading', label: 'Carico Merce', icon: PackagePlus },
       { href: '/material-check', label: 'Verifica Materiale', icon: SearchCheck }
     ] : []),
-    ...(hasShippingAccess ? [
+    ...(operator?.canManagePackingList ? [
       { href: '/operator/packing', label: 'Packing List', icon: Truck }
     ] : []),
     ...(operator?.canAccessMaterialWithdrawal ? [{ href: '/manual-withdrawal', label: 'Scarico Materiale', icon: MinusSquare }] : []),

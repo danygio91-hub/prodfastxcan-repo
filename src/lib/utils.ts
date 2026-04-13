@@ -51,6 +51,23 @@ export function isJobReadyForProduction(job: any, deptDependsOnPrep: boolean = t
     return prepPhases.every((p: any) => p.status === 'completed' || p.status === 'skipped');
 }
 
+/**
+ * Utility Parser Robusto & Universale (Firebase, ISO, DD/MM/YYYY)
+ */
+export function parseRobustDate(dateInput: any): Date | null {
+    if (!dateInput) return null;
+    if (typeof dateInput.toDate === 'function') return dateInput.toDate();
+    if (typeof dateInput === 'string') {
+        if (/^\d{4}-\d{2}-\d{2}/.test(dateInput)) return new Date(dateInput);
+        const italianMatch = dateInput.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+        if (italianMatch) {
+            return new Date(parseInt(italianMatch[3]), parseInt(italianMatch[2]) - 1, parseInt(italianMatch[1]));
+        }
+    }
+    if (dateInput instanceof Date && !isNaN(dateInput.getTime())) return dateInput;
+    return null;
+}
+
 
 
 

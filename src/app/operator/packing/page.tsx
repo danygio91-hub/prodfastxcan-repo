@@ -1,5 +1,4 @@
-import React from 'react';
-import { getCompletedJobs } from './actions';
+import { getAvailableJobsForPacking } from './actions';
 import PackingClientPage from './PackingClientPage';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -10,10 +9,9 @@ export const metadata = {
 };
 
 export default async function PackingPage() {
-    const completedJobs = await getCompletedJobs();
+    const jobs = await getAvailableJobsForPacking();
     
-    // Convertiamo eventuali date/timestamp per evitare errori di serializzazione se necessario
-    const serializedJobs = JSON.parse(JSON.stringify(completedJobs));
+    const serializedJobs = JSON.parse(JSON.stringify(jobs));
 
     return (
         <AuthGuard>
