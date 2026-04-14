@@ -408,7 +408,7 @@ export default function RawMaterialManagementClientPage({
               <CardContent>
                 <div className="overflow-x-auto">
                   <Table>
-                    <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>Stock</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                    <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>UOM</TableHead><TableHead>Stock</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {isSearching ? (
                         <TableRow><TableCell colSpan={7} className="text-center h-32"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></TableCell></TableRow>
@@ -418,6 +418,7 @@ export default function RawMaterialManagementClientPage({
                           <TableRow key={m.id}>
                             <TableCell className="font-bold">{m.code}</TableCell>
                             <TableCell className="truncate max-w-[200px] text-xs text-muted-foreground">{m.description}</TableCell>
+                            <TableCell className="text-xs font-medium text-muted-foreground uppercase">{m.unitOfMeasure}</TableCell>
                             <TableCell className="font-semibold">{formatDisplayStock(s ? s.stock : m.currentStockUnits, m.unitOfMeasure)}</TableCell>
                             <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
                             <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>

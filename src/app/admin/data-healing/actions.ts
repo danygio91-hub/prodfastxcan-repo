@@ -1291,5 +1291,202 @@ export async function resyncSingleMaterialStock(materialId: string, uid: string)
     }
 }
 
+/**
+ * STEP 2: ALLINEAMENTO SPUNTE BOM DA STORICO PRELIEVI
+ * Legge i log dei prelievi e forza lo stato 'withdrawn' sulle BOM delle commesse.
+ * NON tocca le giacenze di magazzino.
+ */
+export async function alignBOMFromWithdrawalHistory(uid: string): Promise<{ success: boolean; message: string; jobsProcessed: number }> {
+    await ensureAdmin(uid);
+    const startTime = Date.now();
+    let jobsProcessed = 0;
+    
+    try {
+        // 1. Pre-fetch materiale e tipi per matching rapido
+        const materialsSnap = await adminDb.collection('rawMaterials').get();
+        const materialTypeMap = new Map<string, string>();
+        materialsSnap.docs.forEach(d => {
+            const m = d.data();
+            if (m.code) materialTypeMap.set(m.code.toUpperCase(), m.type.toUpperCase());
+        });
+
+        // 2. Recupera tutti i prelievi che hanno un jobId associato
+        const withdrawalsSnap = await adminDb.collection('materialWithdrawals').get();
+        
+        // Mappa: jobId -> { codes: Set<string>, types: Set<string> }
+        const jobWithdrawals = new Map<string, { codes: Set<string>, types: Set<string> }>();
+
+        withdrawalsSnap.docs.forEach(doc => {
+            const w = doc.data() as MaterialWithdrawal;
+            // Un prelievo può essere associato a più jobIds (sessioni condivise)
+            const ids = w.jobIds || w.associatedJobIds || [];
+            
+            ids.forEach((id: string) => {
+                if (!id) return;
+                if (!jobWithdrawals.has(id)) {
+                    jobWithdrawals.set(id, { codes: new Set(), types: new Set() });
+                }
+                
+                const entry = jobWithdrawals.get(id)!;
+                if (w.materialCode) {
+                    const codeUpper = w.materialCode.toUpperCase();
+                    entry.codes.add(codeUpper);
+                    const type = materialTypeMap.get(codeUpper);
+                    if (type) entry.types.add(type);
+                }
+            });
+        });
+
+        const jobIds = Array.from(jobWithdrawals.keys());
+        
+        // 3. Iterazione su ogni JobOrder per allineare la BOM
+        for (const rawId of jobIds) {
+            const sanitizedId = rawId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+            const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
+            
+            await adminDb.runTransaction(async (t) => {
+                const snap = await t.get(jobRef);
+                if (!snap.exists) return;
+                
+                const job = snap.data() as JobOrder;
+                if (!job.billOfMaterials || job.billOfMaterials.length === 0) return;
+
+                const withdrawalData = jobWithdrawals.get(rawId)!;
+                let modified = false;
+
+                const updatedBOM = job.billOfMaterials.map(item => {
+                    const compCode = (item.component || '').toUpperCase();
+                    const compType = materialTypeMap.get(compCode);
+
+                    const matchCode = withdrawalData.codes.has(compCode);
+                    const matchType = compType && withdrawalData.types.has(compType);
+
+                    // Se abbiamo trovato un prelievo storico per questo codice o tipo
+                    if ((matchCode || matchType) && (item.status !== 'withdrawn' || !item.withdrawn)) {
+                        modified = true;
+                        return { 
+                            ...item, 
+                            status: 'withdrawn' as const, 
+                            withdrawn: true 
+                        };
+                    }
+                    return item;
+                });
+
+                if (modified) {
+                    t.update(jobRef, { billOfMaterials: updatedBOM });
+                }
+            });
+            jobsProcessed++;
+        }
+
+        // 4. Logging dell'operazione di sanatoria
+        await adminDb.collection("system_maintenance_logs").add({
+            action: 'BOM_ALIGNMENT_FROM_HISTORY',
+            executedBy: uid,
+            timestamp: admin.firestore.Timestamp.now(),
+            jobsProcessed,
+            durationMs: Date.now() - startTime,
+            summary: `Allineate spunte BOM (withdrawn) per ${jobsProcessed} commesse analizzando lo storico prelievi.`
+        });
+
+        return { 
+            success: true, 
+            message: `Allineamento completato: analizzate ${jobIds.length} commesse, aggiornate ${jobsProcessed} commesse.`, 
+            jobsProcessed 
+        };
+    } catch (e: any) {
+        console.error("BOM alignment history error:", e);
+        return { success: false, message: `Errore: ${e.message}`, jobsProcessed: 0 };
+    }
+}
+
+/**
+ * RISOLUTORE RACE CONDITION CHIRURGICO (Safe Sync)
+ * Forza lo stato 'withdrawn' su un singolo componente di una singola commessa.
+ * NON tocca le giacenze.
+ */
+export async function surgicalBOMSync(
+    jobId: string, 
+    materialCode: string, 
+    uid: string
+): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    try {
+        const sanitizedId = jobId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
+        const targetMaterial = materialCode.trim().toUpperCase();
+
+        const result = await adminDb.runTransaction(async (t) => {
+            const snap = await t.get(jobRef);
+            if (!snap.exists) throw new Error(`Commessa ${jobId} non trovata.`);
+
+            const job = snap.data() as JobOrder;
+            if (!job.billOfMaterials) throw new Error("La commessa non ha una distinta base.");
+
+            let modified = false;
+            const updatedBOM = job.billOfMaterials.map(item => {
+                const comp = (item.component || '').trim().toUpperCase();
+                if (comp === targetMaterial && (item.status !== 'withdrawn' || !item.withdrawn)) {
+                    modified = true;
+                    return { ...item, status: 'withdrawn' as const, withdrawn: true };
+                }
+                return item;
+            });
+
+            if (modified) {
+                t.update(jobRef, { billOfMaterials: updatedBOM });
+                return true;
+            }
+            return false;
+        });
+
+        if (result) {
+            await adminDb.collection("system_maintenance_logs").add({
+                action: 'SURGICAL_BOM_SYNC',
+                executedBy: uid,
+                timestamp: admin.firestore.Timestamp.now(),
+                details: `Sincronizzato chirurgicamente ${materialCode} per Job ${jobId}`,
+            });
+            return { success: true, message: `Sincronizzazione completata per ${materialCode} nel Job ${jobId}.` };
+        } else {
+            return { success: true, message: `L'item ${materialCode} era già marcato come prelevato.` };
+        }
+    } catch (e: any) {
+        return { success: false, message: e.message };
+    }
+}
+
+/**
+ * SANATORIA MASSIVA STOCK (Healing)
+ * Esegue il ricalcolo per TUTTE le materie prime, applicando la nuova logica FIFO
+ * che riassorbe i prelievi anonimi nei lotti esistenti.
+ */
+export async function runMassiveStockRecalculation(uid: string): Promise<{ success: boolean; message: string; processed: number }> {
+    await ensureAdmin(uid);
+    try {
+        const materialsSnap = await adminDb.collection("rawMaterials").get();
+        let processed = 0;
+        
+        for (const doc of materialsSnap.docs) {
+            await recalculateMaterialStock(doc.id);
+            processed++;
+        }
+
+        await adminDb.collection("system_maintenance_logs").add({
+            action: 'MASSIVE_RECALCULATION_FIFO',
+            executedBy: uid,
+            timestamp: admin.firestore.Timestamp.now(),
+            details: `Ricalcolo massivo FIFO completato per ${processed} materiali.`,
+        });
+
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: `Ricalcolo completato per ${processed} materiali.`, processed };
+    } catch (e: any) {
+        console.error("Massive recalculation error:", e);
+        return { success: false, message: e.message, processed: 0 };
+    }
+}
+
 
 

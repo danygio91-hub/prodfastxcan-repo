@@ -188,7 +188,8 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
                     displayUnit = item.unit;
                   }
 
-                  const isFullyWithdrawn = totalRequirement > 0 && withdrawnQty >= totalRequirement - 0.001;
+                  const isFlaggedWithdrawn = item.withdrawn === true || item.status === 'withdrawn';
+                  const isFullyWithdrawn = (totalRequirement > 0 && withdrawnQty >= totalRequirement - 0.001) || isFlaggedWithdrawn;
                   const stockAvailable = material?.currentStockUnits || 0;
                   const remainingRequirement = Math.max(0, totalRequirement - withdrawnQty);
                   const isAvailable = stockAvailable >= remainingRequirement - 0.001;

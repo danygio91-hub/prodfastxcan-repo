@@ -273,59 +273,93 @@ export async function resolveJobBOMCommitmentsByType(
 ) {
     if (!jobIds || !jobIds.length || !materialTypesToExtinguish || !materialTypesToExtinguish.length) return;
 
-    const rawMaterialsSnap = await adminDb.collection('rawMaterials').get();
-    const materialTypeMap = new Map<string, string>();
-    rawMaterialsSnap.docs.forEach(doc => {
-        const mat = doc.data() as RawMaterial;
-        if (mat.code) {
-            materialTypeMap.set(mat.code.toUpperCase(), mat.type);
-        }
+    // 1. Pre-mappa i tipi di materiale per evitare lookup ripetuti se possibile
+    // Recuperiamo le anagrafiche materiali coinvolte
+    const materialsSnap = await adminDb.collection('rawMaterials').get();
+    const typeMap = new Map<string, string>();
+    materialsSnap.docs.forEach(d => {
+        const m = d.data();
+        if (m.code) typeMap.set(m.code.toUpperCase(), m.type.toUpperCase());
     });
 
-    const jobsToUpdate = new Map<string, JobBillOfMaterialsItem[]>();
-    const jobRefs = jobIds.map(id => {
-        const sanitizedId = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
-        return adminDb.collection('jobOrders').doc(sanitizedId);
-    });
+    const typesToMatch = materialTypesToExtinguish.map(t => t.toUpperCase());
 
-    const jobSnaps = transaction 
-        ? await Promise.all(jobRefs.map(ref => transaction.get(ref))) 
-        : await Promise.all(jobRefs.map(ref => ref.get()));
-
-    for (let i = 0; i < jobSnaps.length; i++) {
-        const snap = jobSnaps[i];
+    for (const rawId of jobIds) {
+        const sanitizedId = rawId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
+        
+        // Read-Modify-Write Pattern
+        const snap = transaction ? await transaction.get(jobRef) : await jobRef.get();
         if (!snap.exists) continue;
         
         const jobData = snap.data() as JobOrder;
         if (!jobData.billOfMaterials || jobData.billOfMaterials.length === 0) continue;
 
         let modified = false;
-        const newBom = jobData.billOfMaterials.map(item => {
+        const updatedBOM = jobData.billOfMaterials.map(item => {
             const compCode = item.component?.toUpperCase() || '';
-            const compType = materialTypeMap.get(compCode);
-            
-            if (compType && materialTypesToExtinguish.includes(compType) && item.status !== 'withdrawn') {
+            const compType = typeMap.get(compCode);
+
+            // Matching: se il tipo corrisponde ed è tra quelli da estinguere
+            if (compType && typesToMatch.includes(compType) && (item.status !== 'withdrawn' || !item.withdrawn)) {
                 modified = true;
-                return { ...item, status: 'withdrawn' as const };
+                return { 
+                    ...item, 
+                    status: 'withdrawn' as const, 
+                    withdrawn: true 
+                };
             }
             return item;
         });
 
         if (modified) {
             if (transaction) {
-                transaction.update(jobRefs[i], { billOfMaterials: newBom });
+                transaction.update(jobRef, { billOfMaterials: updatedBOM });
             } else {
-                jobsToUpdate.set(jobRefs[i].id, newBom);
+                await jobRef.update({ billOfMaterials: updatedBOM });
             }
         }
     }
+}
 
-    if (!transaction && jobsToUpdate.size > 0) {
-        const batch = adminDb.batch();
-        for (const [id, newBom] of jobsToUpdate) {
-            batch.update(adminDb.collection('jobOrders').doc(id), { billOfMaterials: newBom });
+/**
+ * Risolve un impegno SPECIFICO in BOM tramite codice materiale.
+ * Pattern Read-Modify-Write rigoroso.
+ */
+export async function resolveJobBOMCommitmentByMaterialCode(
+    jobIds: string[],
+    materialCode: string,
+    transaction?: admin.firestore.Transaction
+) {
+    if (!jobIds || !jobIds.length || !materialCode) return;
+    const targetCode = materialCode.trim().toUpperCase();
+
+    for (const rawId of jobIds) {
+        const sanitizedId = rawId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
+        
+        const snap = transaction ? await transaction.get(jobRef) : await jobRef.get();
+        if (!snap.exists) continue;
+        
+        const jobData = snap.data() as JobOrder;
+        if (!jobData.billOfMaterials || jobData.billOfMaterials.length === 0) continue;
+
+        let modified = false;
+        const updatedBOM = jobData.billOfMaterials.map(item => {
+            if (item.component.trim().toUpperCase() === targetCode && (item.status !== 'withdrawn' || !item.withdrawn)) {
+                modified = true;
+                return { ...item, status: 'withdrawn' as const, withdrawn: true };
+            }
+            return item;
+        });
+
+        if (modified) {
+            if (transaction) {
+                transaction.update(jobRef, { billOfMaterials: updatedBOM });
+            } else {
+                await jobRef.update({ billOfMaterials: updatedBOM });
+            }
         }
-        await batch.commit();
     }
 }
 
@@ -723,6 +757,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             // ADDED: DUAL-DYNAMIC A (SESSION EXTINGUISHMENT)
             if (session.associatedJobs.length > 0) {
                 const jobIds = session.associatedJobs.map(j => j.jobId);
+                await resolveJobBOMCommitmentByMaterialCode(jobIds, session.materialCode, transaction);
                 await resolveJobBOMCommitmentsByType(jobIds, [material.type], transaction);
             }
         });
@@ -820,6 +855,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 }
             }
             
+            await resolveJobBOMCommitmentByMaterialCode(finalJobIds, material.code, t);
             await resolveJobBOMCommitmentsByType(finalJobIds, [material.type], t);
         });
         return { success: true, message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato." };

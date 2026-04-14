@@ -119,7 +119,13 @@ export function calculateInventoryMovement(
       }
 
       // We still find the first lot used for recording purposes in FIFO
-      const sortedItems = validBatches.sort((a, b) => new Date(a.b.date).getTime() - new Date(b.b.date).getTime());
+      // Sorting by date (oldest first) and ignoring exhausted or zero-qty batches
+      const sortedItems = validBatches.sort((a, b) => {
+          const dateA = new Date(a.b.date).getTime();
+          const dateB = new Date(b.b.date).getTime();
+          return dateA - dateB;
+      });
+
       if (sortedItems.length > 0) {
           usedLotto = sortedItems[0].b.lotto as string;
       }

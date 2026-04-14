@@ -49,7 +49,7 @@ export async function recalculateMaterialStock(
         batches = material.batches || [];
     }
 
-    // 1. Group withdrawals by lot (only considering those with a lot code)
+    // 1. Group withdrawals by lot (only considering those WITH a lot code)
     const withdrawalsByLotto = withdrawals.reduce((acc, w) => {
         if (w.lotto) {
             acc[w.lotto] = (acc[w.lotto] || 0) + (w.consumedUnits || 0);
@@ -57,15 +57,16 @@ export async function recalculateMaterialStock(
         return acc;
     }, {} as Record<string, number>);
 
-    // 2. Group withdrawals (weight) by lot
-    const weightWithdrawalsByLotto = withdrawals.reduce((acc, w) => {
-        if (w.lotto) {
-            acc[w.lotto] = (acc[w.lotto] || 0) + (w.consumedWeight || 0);
-        }
-        return acc;
-    }, {} as Record<string, number>);
+    // 2. Collect "Anonymous" withdrawals (WITHOUT lot code)
+    const anonymousWithdrawalsQty = withdrawals
+        .filter(w => !w.lotto)
+        .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
 
-    // 3. Group batches by lot
+    const anonymousWithdrawalsWeight = withdrawals
+        .filter(w => !w.lotto)
+        .reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
+
+    // 3. Group batches by lot and sort by date for FIFO
     const batchesByLotto = batches.reduce((acc, b) => {
         const lottoKey = b.lotto || 'SENZA_LOTTO';
         if (!acc[lottoKey]) acc[lottoKey] = [];
@@ -73,24 +74,52 @@ export async function recalculateMaterialStock(
         return acc;
     }, {} as Record<string, any[]>);
 
-    // 4. Calculate Available per Lot (The "Anagrafica Lotti" Brain)
+    // Sort lots by the earliest batch date
+    const sortedLotEntries = Object.entries(batchesByLotto)
+        .filter(([lotto]) => lotto !== 'SENZA_LOTTO')
+        .sort((a, b) => {
+            const dateA = new Date(a[1][0].date).getTime();
+            const dateB = new Date(b[1][0].date).getTime();
+            return dateA - dateB;
+        });
+
+    // 4. Calculate Available per Lot (Accounting for specific and anonymous withdrawals)
     let totalStockUnits = 0;
     let totalWeightKg = 0;
+    let remainingAnonUnits = anonymousWithdrawalsQty;
+    let remainingAnonWeight = anonymousWithdrawalsWeight;
 
-    Object.entries(batchesByLotto).forEach(([lotto, batchList]) => {
-        if (lotto === 'SENZA_LOTTO') return; // Ignore batches without lot if any
-
+    sortedLotEntries.forEach(([lotto, batchList]) => {
+        // A. Load initial lot capacity
         const lotLoadedUnits = batchList.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-        const lotWithdrawnUnits = withdrawalsByLotto[lotto] || 0;
-        const availableUnits = Math.max(0, lotLoadedUnits - lotWithdrawnUnits);
-
         const lotLoadedWeight = batchList.reduce((sum, b) => sum + ((b.grossWeight || 0) - (b.tareWeight || 0)), 0);
-        const lotWithdrawnWeight = weightWithdrawalsByLotto[lotto] || 0;
-        const availableWeight = Math.max(0, lotLoadedWeight - lotWithdrawnWeight);
+
+        // B. Subtract specific withdrawals
+        const lotSpecificWithdrawn = withdrawalsByLotto[lotto] || 0;
+        
+        // C. Subtract anonymous withdrawals (FIFO)
+        let availableAfterSpecific = Math.max(0, lotLoadedUnits - lotSpecificWithdrawn);
+        let unitsToTakeFromThisLot = Math.min(availableAfterSpecific, remainingAnonUnits);
+        remainingAnonUnits -= unitsToTakeFromThisLot;
+
+        const availableUnits = Math.max(0, availableAfterSpecific - unitsToTakeFromThisLot);
+
+        // Weighted equivalent for anonymous (proportional or simple subtract)
+        let availableWeightAfterSpecific = Math.max(0, lotLoadedWeight - (withdrawals.filter(w => w.lotto === lotto).reduce((sum, w) => sum + (w.consumedWeight || 0), 0)));
+        let weightToTakeFromThisLot = Math.min(availableWeightAfterSpecific, remainingAnonWeight);
+        remainingAnonWeight -= weightToTakeFromThisLot;
+
+        const availableWeight = Math.max(0, availableWeightAfterSpecific - weightToTakeFromThisLot);
 
         totalStockUnits += availableUnits;
         totalWeightKg += availableWeight;
     });
+
+    // Final guard: if there's still remainingAnonUnits, we subtract them from totalStockUnits (going towards 0)
+    if (remainingAnonUnits > 0) {
+        totalStockUnits = Math.max(0, totalStockUnits - remainingAnonUnits);
+        totalWeightKg = Math.max(0, totalWeightKg - remainingAnonWeight);
+    }
     
     // Final rounding for UI consistency
     if (material.unitOfMeasure === 'n') {

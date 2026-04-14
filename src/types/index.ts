@@ -89,6 +89,7 @@ export interface JobBillOfMaterialsItem {
   lunghezzaTaglioMm?: number;
   note?: string;
   status: 'pending' | 'committed' | 'withdrawn';
+  withdrawn?: boolean;
   isFromTemplate: boolean;
   fabbisognoTotale?: number;
   pesoStimato?: number;

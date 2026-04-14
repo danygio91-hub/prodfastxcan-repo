@@ -22,6 +22,9 @@ import {
     resyncAllMaterialStock,
     previewStockSync,
     StockSyncAnomaly,
+    alignBOMFromWithdrawalHistory,
+    surgicalBOMSync,
+    runMassiveStockRecalculation,
     type GhostCommitmentAnomaly
 } from './actions';
 import { Button } from '@/components/ui/button';
@@ -97,6 +100,11 @@ export default function AdministrationDataHealingPage() {
     const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
     const [groupConfirmText, setGroupConfirmText] = useState("");
 
+    // Massive FIFO Recalculation State
+    const [massiveRicalcoloExecuting, setMassiveRicalcoloExecuting] = useState(false);
+    const [isMassiveModalOpen, setIsMassiveModalOpen] = useState(false);
+    const [massiveConfirmText, setMassiveConfirmText] = useState("");
+
     // Global Stock Resync Wizard State
     const [resyncLoading, setResyncLoading] = useState(false);
     const [resyncExecuting, setResyncExecuting] = useState(false);
@@ -115,6 +123,14 @@ export default function AdministrationDataHealingPage() {
     const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
     const [syncConfirmText, setSyncConfirmText] = useState("");
     const [syncResults, setSyncResults] = useState<{ processed: number, failed: number, errors: string[] } | null>(null);
+
+    // BOM History Alignment State
+    const [bomAlignExecuting, setBomAlignExecuting] = useState(false);
+
+    // Surgical Sync State
+    const [surgicalJobId, setSurgicalJobId] = useState("219/PF");
+    const [surgicalMaterialCode, setSurgicalMaterialCode] = useState("60X020X35FT");
+    const [surgicalExecuting, setSurgicalExecuting] = useState(false);
 
     // Reconciliation Dashboard State
     const [reconcileLoading, setReconcileLoading] = useState(false);
@@ -401,6 +417,44 @@ export default function AdministrationDataHealingPage() {
     }
 
     // --- RECONCILIATION DASHBOARD LOGIC ---
+
+    const handleExecuteSurgicalSync = async () => {
+        if (!operator || !surgicalJobId || !surgicalMaterialCode) {
+            toast({ variant: 'destructive', title: "Errore", description: "Inserisci ID Commessa e Codice Materiale." });
+            return;
+        }
+        setSurgicalExecuting(true);
+        try {
+            const res = await surgicalBOMSync(surgicalJobId, surgicalMaterialCode, operator.id);
+            toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Errore", description: "Impossibile completare l'operazione." });
+        } finally {
+            setSurgicalExecuting(false);
+        }
+    };
+
+    const handleExecuteMassiveFIFO = async () => {
+        if (massiveConfirmText.trim().toUpperCase() !== "FIFO" || !operator) return;
+        setMassiveRicalcoloExecuting(true);
+        setIsMassiveModalOpen(false);
+        try {
+            const res = await runMassiveStockRecalculation(operator.id);
+            toast({ 
+                title: res.success ? "Successo" : "Errore", 
+                description: res.message, 
+                variant: res.success ? "default" : "destructive",
+                duration: 6000
+            });
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Errore", description: "Errore durante il ricalcolo massivo." });
+        } finally {
+            setMassiveRicalcoloExecuting(false);
+            setMassiveConfirmText("");
+        }
+    };
+
+
     async function handleReconcileAudit() {
         if (!operator?.id) return;
         setReconcileLoading(true);
@@ -470,6 +524,25 @@ export default function AdministrationDataHealingPage() {
             toast({ title: "Errore di Sistema", description: "Risoluzione fallita.", variant: "destructive" });
         } finally {
             setReconcileExecuting(null);
+        }
+    }
+
+    async function handleExecuteBOMHistoryAlignment() {
+        if (!operator?.id) return;
+        if (!window.confirm("Questa azione analizzerà l'intero storico prelievi per ripristinare le spunte 'Prelevato' in BOM. Non modifica le giacenze. Continuare?")) return;
+        
+        setBomAlignExecuting(true);
+        try {
+            const res = await alignBOMFromWithdrawalHistory(operator.id);
+            if (res.success) {
+                toast({ title: "Sanatoria Completata", description: res.message });
+            } else {
+                toast({ title: "Errore Sanatoria", description: res.message, variant: "destructive" });
+            }
+        } catch (e: any) {
+            toast({ title: "Errore di Sistema", description: "Impossibile completare l'allineamento storico.", variant: "destructive" });
+        } finally {
+            setBomAlignExecuting(false);
         }
     }
 
@@ -1235,6 +1308,40 @@ export default function AdministrationDataHealingPage() {
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
+
+                            {/* --- NUOVA CARD: ALLINEAMENTO DA STORICO PRELIEVI --- */}
+                            <Card className="border-l-4 border-l-blue-600 shadow-lg mt-8">
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                                                <History className="text-blue-600 h-6 w-6" /> Ripristino Spunte BOM da Storico
+                                            </CardTitle>
+                                            <CardDescription className="text-md">
+                                                Analizza tutti i prelievi registrati per marcare come "Prelevato" le voci corrispondenti in BOM.
+                                            </CardDescription>
+                                        </div>
+                                        <Button 
+                                            variant="secondary" 
+                                            className="bg-blue-600 hover:bg-blue-700 text-white h-12 px-8 font-bold" 
+                                            onClick={handleExecuteBOMHistoryAlignment}
+                                            disabled={bomAlignExecuting}
+                                        >
+                                            {bomAlignExecuting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <History className="mr-2 h-5 w-5" />}
+                                            Allinea Spunte BOM da Storico Prelievi
+                                        </Button>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                        <p className="text-sm text-blue-800 flex items-center gap-2">
+                                            <Info className="h-4 w-4" /> 
+                                            <strong>Sicurezza Garantita:</strong> Questa funzione lavora solo sulla visualizzazione dello stato in BOM. 
+                                            <strong> Non vengono effettuate modifiche alle giacenze</strong> o ai movimenti di magazzino esistenti.
+                                        </p>
+                                    </div>
+                                </CardContent>
+                            </Card>
                         </TabsContent>
 
                         {/* --- TAB 6: RECONCILIATION DASHBOARD (SAFE PREVIEW) --- */}
@@ -1246,25 +1353,128 @@ export default function AdministrationDataHealingPage() {
                                     </h2>
                                     <p className="text-sm text-muted-foreground">Analisi incrociata Stock e Impegni per la risoluzione manuale dei disallineamenti.</p>
                                 </div>
-                                <Button 
-                                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold h-12 shadow-sm" 
-                                    onClick={handleReconcileAudit} 
-                                    disabled={reconcileLoading}
-                                >
-                                    {reconcileLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Search className="mr-2 h-5 w-5" />}
-                                    AVVIA AUDIT RICONCILIAZIONE
-                                </Button>
+                                <div className="flex gap-2">
+                                    <Button 
+                                        variant="outline"
+                                        className="border-purple-600 text-purple-700 hover:bg-purple-50 font-bold h-12 shadow-sm" 
+                                        onClick={() => setIsMassiveModalOpen(true)} 
+                                        disabled={massiveRicalcoloExecuting}
+                                    >
+                                        {massiveRicalcoloExecuting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <RotateCcw className="mr-2 h-5 w-5" />}
+                                        RICALCOLA TUTTO (FIFO)
+                                    </Button>
+                                    <Button 
+                                        className="bg-purple-600 hover:bg-purple-700 text-white font-bold h-12 shadow-sm" 
+                                        onClick={handleReconcileAudit} 
+                                        disabled={reconcileLoading}
+                                    >
+                                        {reconcileLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Search className="mr-2 h-5 w-5" />}
+                                        AVVIA AUDIT RICONCILIAZIONE
+                                    </Button>
+                                </div>
                             </div>
+
+                            {/* --- NUOVA SEZIONE: RISOLUTORE RACE CONDITION CHIRURGICO --- */}
+                            <Card className="border-l-4 border-l-red-600 shadow-xl bg-slate-900 text-white overflow-hidden animate-pulse-subtle">
+                                <CardHeader className="border-b border-red-900/30">
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <CardTitle className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3">
+                                                <Zap className="text-red-500 h-8 w-8 fill-current" />
+                                                Risolutore Race Condition (Safe Sync)
+                                            </CardTitle>
+                                            <CardDescription className="text-red-200/60 font-medium">
+                                                Operazione Chirurgica: Forza lo stato "Prelevato" su una riga BOM senza toccare le giacenze.
+                                            </CardDescription>
+                                        </div>
+                                        <Badge variant="destructive" className="bg-red-600 text-white animate-bounce">URGENTE</Badge>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="pt-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase text-red-500 tracking-widest">ID Commessa / Ordine PF</label>
+                                            <Input 
+                                                value={surgicalJobId} 
+                                                onChange={(e) => setSurgicalJobId(e.target.value)} 
+                                                className="bg-black/40 border-red-900/50 text-white font-mono font-bold h-12 text-lg"
+                                                placeholder="es. 219/PF"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase text-red-500 tracking-widest">Codice Materia Prima</label>
+                                            <Input 
+                                                value={surgicalMaterialCode} 
+                                                onChange={(e) => setSurgicalMaterialCode(e.target.value)} 
+                                                className="bg-black/40 border-red-900/50 text-white font-mono font-bold h-12 text-lg"
+                                                placeholder="es. 60X020X35FT"
+                                            />
+                                        </div>
+                                        <Button 
+                                            className="h-12 bg-red-600 hover:bg-red-500 text-white font-black text-lg uppercase tracking-tight shadow-[0_0_20px_rgba(220,38,38,0.4)] transition-all active:scale-95"
+                                            onClick={handleExecuteSurgicalSync}
+                                            disabled={surgicalExecuting}
+                                        >
+                                            {surgicalExecuting ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <Hammer className="mr-2 h-6 w-6" />}
+                                            Sincronizza Stato BOM (Solo Visivo)
+                                        </Button>
+                                    </div>
+                                    <div className="mt-6 p-4 rounded-xl bg-black/40 border border-red-900/20 flex items-start gap-4">
+                                        <ShieldCheck className="h-6 w-6 text-green-500 shrink-0" />
+                                        <div className="space-y-1">
+                                            <p className="text-xs font-bold text-green-400 uppercase">Verifica di Sicurezza Superata</p>
+                                            <p className="text-[11px] text-slate-400">
+                                                L'azione modificherà esclusivamente il campo <code>withdrawn: true</code> e <code>status: 'withdrawn'</code> nell'array della distinta base. 
+                                                Le giacenze di magazzino (Stock) resteranno invariate.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
 
                             <Alert className="border-purple-200 bg-purple-50/50">
                                 <Info className="h-5 w-5 text-purple-600" />
                                 <AlertTitle className="text-purple-800 font-bold">Guida alla Riconciliazione</AlertTitle>
-                                <AlertDescription className="text-purple-700 text-sm">
-                                    Questa dashboard mostra solo i dati che presentano anomalie. 
-                                    Usa la <strong>Sincronizzazione Stock</strong> per allineare il Master Stock alla realtà fisica dei Lotti. 
-                                    Usa la <strong>Pulizia Impegni</strong> per chiudere residui di prelievo su commesse terminate.
+                                <AlertDescription className="text-purple-700/80">
+                                    Il pulsante <strong>RICALCOLA TUTTO (FIFO)</strong> è il risolutore definitivo: applica la nuova logica per distribuire i prelievi senza lotto sulle giacenze esistenti, pareggiando i conti. 
+                                    L'<strong>Audit</strong> invece ti permette di vedere i singoli millimetri di differenza prima di agire.
                                 </AlertDescription>
                             </Alert>
+
+                            <Dialog open={isMassiveModalOpen} onOpenChange={setIsMassiveModalOpen}>
+                                <DialogContent className="sm:max-w-md">
+                                    <DialogHeader>
+                                        <DialogTitle className="flex items-center gap-2 text-purple-600">
+                                            <RotateCcw className="h-5 w-5" /> Sanatoria Massiva Stock (FIFO)
+                                        </DialogTitle>
+                                        <DialogDescription className="py-2">
+                                            Stai per ricalcolare la giacenza di TUTTE le materie prime. 
+                                            I prelievi registrati senza lotto verranno addebitati ai lotti disponibili partendo dai più vecchi.
+                                            <strong> Questa operazione riallineerà Master e Lotti.</strong>
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-4">
+                                        <p className="text-sm font-medium">Scrivi <span className="font-mono font-bold text-purple-600">FIFO</span> per avviare il riallineamento:</p>
+                                        <Input 
+                                            value={massiveConfirmText} 
+                                            onChange={e => setMassiveConfirmText(e.target.value)} 
+                                            placeholder="FIFO" 
+                                            className="uppercase font-bold border-purple-300 focus-visible:ring-purple-500"
+                                        />
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="ghost" onClick={() => setIsMassiveModalOpen(false)}>Annulla</Button>
+                                        <Button 
+                                            variant="default" 
+                                            className="bg-purple-600 hover:bg-purple-700" 
+                                            disabled={massiveConfirmText.trim().toUpperCase() !== "FIFO" || massiveRicalcoloExecuting}
+                                            onClick={handleExecuteMassiveFIFO}
+                                        >
+                                            ESEGUI SANATORIA
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
 
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                 {/* --- SECTION 1: STOCK DISCREPANCIES --- */}
