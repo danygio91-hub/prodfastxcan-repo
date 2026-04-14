@@ -805,6 +805,22 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 isFinal: isFinished,
                 source: 'production'
             });
+
+            // --- EVASIONE IMPEGNATO (Floor Truth) ---
+            // Regola: La realtà di fabbrica vince. Qualsiasi scarico associato a una commessa 
+            // estingue il fabbisogno per quella tipologia di materiale, gestendo anche gli equivalenti.
+            const sid = (jobId as string);
+            const isGroup = sid.startsWith('group-');
+            let finalJobIds = [sid];
+            
+            if (isGroup) {
+                const gSnap = await t.get(adminDb.collection('workGroups').doc(sid));
+                if (gSnap.exists) {
+                    finalJobIds = (gSnap.data() as any).jobOrderIds || [];
+                }
+            }
+            
+            await resolveJobBOMCommitmentsByType(finalJobIds, [material.type], t);
         });
         return { success: true, message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato." };
     } catch (e) { 

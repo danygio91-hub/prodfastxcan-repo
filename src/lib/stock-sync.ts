@@ -102,7 +102,8 @@ export async function recalculateMaterialStock(
 
     const updateData = {
         currentStockUnits: totalStockUnits,
-        currentWeightKg: totalWeightKg
+        currentWeightKg: totalWeightKg,
+        stock: totalStockUnits
     };
     
     if (transaction) {

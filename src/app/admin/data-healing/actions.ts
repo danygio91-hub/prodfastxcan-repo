@@ -1149,3 +1149,147 @@ async function fetchInChunks<T>(collection: admin.firestore.CollectionReference,
     }
     return results;
 }
+
+export interface GhostCommitmentAnomaly {
+    id: string; // jobId + materialCode
+    jobId: string;
+    jobOrderPF: string;
+    status: string;
+    materialCode: string;
+    neededQuantity: number;
+    unit: string;
+}
+
+const FINISHED_STATUSES = [
+    'FINE PROD.', 'FINE_PRODUZIONE', 'QLTY_PACK', 'QLTY & PACK', 
+    'CHIUSO', 'CHIUSA', 'SPEDITA', 'COMPLETATA', 'COMPLETATO'
+];
+
+/**
+ * RECONCILIATION: Step 1 - Audit Ghost Commitments
+ * Finds jobs in finished status that still have unfulfilled BOM entries.
+ */
+export async function auditGhostCommitments(uid: string): Promise<{ success: boolean; anomalies: GhostCommitmentAnomaly[] }> {
+    await ensureAdmin(uid);
+    const anomalies: GhostCommitmentAnomaly[] = [];
+
+    try {
+        const jobsSnap = await adminDb.collection("jobOrders")
+            .where("status", "in", FINISHED_STATUSES)
+            .get();
+
+        jobsSnap.forEach(doc => {
+            const job = doc.data() as JobOrder;
+            (job.billOfMaterials || []).forEach(item => {
+                // If the BOM item is not withdrawn despite the job being "finished"
+                if (item.status !== 'withdrawn' && ((item.fabbisognoTotale || 0) > 0 || (item.quantity || 0) > 0)) {
+                    anomalies.push({
+                        id: `${doc.id}_${item.component}`.replace(/\s+/g, '_'),
+                        jobId: doc.id,
+                        jobOrderPF: job.ordinePF,
+                        status: job.status as string,
+                        materialCode: item.component,
+                        neededQuantity: item.fabbisognoTotale || item.quantity,
+                        unit: item.unit
+                    });
+                }
+            });
+        });
+        return { success: true, anomalies: anomalies.sort((a, b) => a.jobOrderPF.localeCompare(b.jobOrderPF)) };
+    } catch (e) {
+        console.error("Audit ghost commitments error:", e);
+        return { success: false, anomalies: [] };
+    }
+}
+
+/**
+ * RECONCILIATION: Step 2 - Resolve Single Ghost Commitment
+ * Manually marks a BOM item as 'withdrawn' for a specific job using a robust Read-Modify-Write pattern.
+ */
+export async function resolveSingleGhostCommitment(jobId: string, materialCode: string, uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    try {
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        let resultMessage = "";
+        
+        await adminDb.runTransaction(async (t) => {
+            const snap = await t.get(jobRef);
+            if (!snap.exists) throw new Error("Commessa non trovata.");
+            const job = snap.data() as JobOrder;
+            
+            let modified = false;
+            const newBOM = (job.billOfMaterials || []).map(item => {
+                // Case insensitive check and check if not already withdrawn
+                if (item.component.trim().toUpperCase() === materialCode.trim().toUpperCase() && item.status !== 'withdrawn') {
+                    modified = true;
+                    return { ...item, status: 'withdrawn' as const };
+                }
+                return item;
+            });
+
+            if (modified) {
+                t.update(jobRef, { billOfMaterials: newBOM });
+                resultMessage = `RICONCILIAZIONE: Chiuso impegno [${materialCode}] per ODL [${job.numeroODL || job.ordinePF}] - Esito: SUCCESS`;
+            } else {
+                resultMessage = `RICONCILIAZIONE: Impegno [${materialCode}] per ODL [${job.numeroODL || job.ordinePF}] già evaso o non trovato.`;
+            }
+        });
+        
+        console.log(resultMessage);
+        return { success: true, message: resultMessage };
+    } catch (e: any) {
+        const errorMsg = `RICONCILIAZIONE ERROR: Fallimento chiusura impegno [${materialCode}] per ODL [${jobId}] - ${e.message}`;
+        console.error(errorMsg);
+        return { success: false, message: errorMsg };
+    }
+}
+
+/**
+ * RECONCILIATION: Step 3 - Combined Stock & Commitment Sync
+ * First recalculates global stock, then scans all finished jobs to close matching commitments.
+ * Mandatory Coupling version.
+ */
+export async function resyncSingleMaterialStock(materialId: string, uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    try {
+        // 1. Recalculate Stock
+        await recalculateMaterialStock(materialId);
+        
+        // 2. Load Material Code for the scan
+        const matSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
+        if (!matSnap.exists) throw new Error("Materiale non trovato.");
+        const matCode = matSnap.data()?.code;
+        if (!matCode) throw new Error("Codice materiale mancante.");
+
+        // 3. Scan & Heal Finished Jobs (Mandatory Coupling)
+        const jobsSnap = await adminDb.collection("jobOrders")
+            .where("status", "in", FINISHED_STATUSES)
+            .get();
+
+        let healedCount = 0;
+        
+        // Use sequential processing for transactions to ensure stability
+        for (const doc of jobsSnap.docs) {
+            const job = doc.data() as JobOrder;
+            const hasPending = (job.billOfMaterials || []).some(
+                item => item.component.trim().toUpperCase() === matCode.trim().toUpperCase() && item.status !== 'withdrawn'
+            );
+
+            if (hasPending) {
+                const res = await resolveSingleGhostCommitment(doc.id, matCode, uid);
+                if (res.success) healedCount++;
+            }
+        }
+
+        const finalMsg = `Sincronizzazione completata per ${matCode}. Ricalcolato Stock Master e chiusi ${healedCount} impegni fantasma.`;
+        console.log(`RICONCILIAZIONE TOTALE: ${matCode} - Stock ricalcolato - Impegni chiusi: ${healedCount}`);
+        
+        return { success: true, message: finalMsg };
+    } catch (e: any) {
+        console.error("Combined resync error:", e);
+        return { success: false, message: `Errore nella sincronizzazione accoppiata: ${e.message}` };
+    }
+}
+
+
+

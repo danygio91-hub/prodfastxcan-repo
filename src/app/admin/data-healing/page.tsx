@@ -14,11 +14,15 @@ import {
     auditGroupBlockers,
     forceUnlockAndDissolveGroup,
     GroupBlocker,
-    previewStockSync,
-    resyncAllMaterialStock,
-    StockSyncAnomaly,
     fixCorruptedBatchLoads,
-    syncAllJobOrderCommitments
+    syncAllJobOrderCommitments,
+    auditGhostCommitments,
+    resolveSingleGhostCommitment,
+    resyncSingleMaterialStock,
+    resyncAllMaterialStock,
+    previewStockSync,
+    StockSyncAnomaly,
+    type GhostCommitmentAnomaly
 } from './actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
@@ -111,6 +115,12 @@ export default function AdministrationDataHealingPage() {
     const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
     const [syncConfirmText, setSyncConfirmText] = useState("");
     const [syncResults, setSyncResults] = useState<{ processed: number, failed: number, errors: string[] } | null>(null);
+
+    // Reconciliation Dashboard State
+    const [reconcileLoading, setReconcileLoading] = useState(false);
+    const [reconcileExecuting, setReconcileExecuting] = useState<string | null>(null); // Stores ID of being processed item
+    const [ghostAnomalies, setGhostAnomalies] = useState<GhostCommitmentAnomaly[]>([]);
+    const [reconcileStockAnomalies, setReconcileStockAnomalies] = useState<StockSyncAnomaly[]>([]);
 
     // --- INVENTORY LOGIC ---
     async function handleAudit() {
@@ -390,6 +400,79 @@ export default function AdministrationDataHealingPage() {
         }
     }
 
+    // --- RECONCILIATION DASHBOARD LOGIC ---
+    async function handleReconcileAudit() {
+        if (!operator?.id) return;
+        setReconcileLoading(true);
+        setError(null);
+        try {
+            const [stockRes, ghostRes] = await Promise.all([
+                previewStockSync(operator.id),
+                auditGhostCommitments(operator.id)
+            ]);
+            
+            if (stockRes.success) {
+                // Show only those that need sync in the reconciliation dashboard
+                setReconcileStockAnomalies(stockRes.anomalies.filter(a => a.needsSync));
+            }
+            
+            if (ghostRes.success) {
+                setGhostAnomalies(ghostRes.anomalies);
+            }
+
+            if (!stockRes.success || !ghostRes.success) {
+                setError("Caricamento parziale dei dati di riconciliazione.");
+            } else {
+                toast({ 
+                    title: "Audit Completata", 
+                    description: `Rilevati ${stockRes.anomalies.filter(a => a.needsSync).length} disallineamenti stock e ${ghostRes.anomalies.length} impegni fantasma.` 
+                });
+            }
+        } catch (e) {
+            setError("Errore durante l'audit di riconciliazione.");
+        } finally {
+            setReconcileLoading(false);
+        }
+    }
+
+    async function handleSingleSync(materialId: string) {
+        if (!operator?.id) return;
+        setReconcileExecuting(materialId);
+        try {
+            const res = await resyncSingleMaterialStock(materialId, operator.id);
+            if (res.success) {
+                toast({ title: "Sincronizzato & Sanato", description: res.message });
+                // Re-trigger audit to refresh both tables (mandatory coupling)
+                await handleReconcileAudit();
+            } else {
+                toast({ title: "Errore", description: res.message, variant: "destructive" });
+            }
+        } catch (e) {
+            toast({ title: "Errore di Sistema", description: "Sincronizzazione fallita.", variant: "destructive" });
+        } finally {
+            setReconcileExecuting(null);
+        }
+    }
+
+    async function handleSingleGhostResolve(anomaly: GhostCommitmentAnomaly) {
+        if (!operator?.id) return;
+        setReconcileExecuting(anomaly.id);
+        try {
+            const res = await resolveSingleGhostCommitment(anomaly.jobId, anomaly.materialCode, operator.id);
+            if (res.success) {
+                toast({ title: "Risolto", description: res.message });
+                // Re-trigger audit to refresh
+                await handleReconcileAudit();
+            } else {
+                toast({ title: "Errore", description: res.message, variant: "destructive" });
+            }
+        } catch (e) {
+            toast({ title: "Errore di Sistema", description: "Risoluzione fallita.", variant: "destructive" });
+        } finally {
+            setReconcileExecuting(null);
+        }
+    }
+
     return (
         <AdminAuthGuard>
             <AppShell>
@@ -403,20 +486,23 @@ export default function AdministrationDataHealingPage() {
                     </div>
 
                     <Tabs defaultValue="inventory" className="w-full">
-                        <TabsList className="grid w-full grid-cols-4 max-w-4xl mb-8">
-                            <TabsTrigger value="inventory" className="flex items-center gap-2">
+                        <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 mb-8 h-auto gap-2 p-1 bg-slate-100/50">
+                            <TabsTrigger value="reconciliation" className="flex items-center gap-2 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                                <Search className="h-4 w-4 text-purple-600" /> Riconciliazione
+                            </TabsTrigger>
+                            <TabsTrigger value="inventory" className="flex items-center gap-2 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                                 <Database className="h-4 w-4" /> Integrità Magazzino
                             </TabsTrigger>
-                            <TabsTrigger value="zombie" className="flex items-center gap-2">
-                                <Ghost className="h-4 w-4" /> Cacciatore di Zombie
+                            <TabsTrigger value="zombie" className="flex items-center gap-2 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                                <Ghost className="h-4 w-4" /> Zombie Hunter
                             </TabsTrigger>
-                            <TabsTrigger value="recovery" className="flex items-center gap-2">
+                            <TabsTrigger value="recovery" className="flex items-center gap-2 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                                 <RotateCcw className="h-4 w-4 text-orange-500" /> Ripristino Lotti
                             </TabsTrigger>
-                            <TabsTrigger value="groups" className="flex items-center gap-2">
+                            <TabsTrigger value="groups" className="flex items-center gap-2 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                                 <Layers className="h-4 w-4 text-blue-500" /> Sblocco Gruppi
                             </TabsTrigger>
-                            <TabsTrigger value="jobs" className="flex items-center gap-2">
+                            <TabsTrigger value="jobs" className="flex items-center gap-2 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                                 <Zap className="h-4 w-4 text-yellow-500" /> Sync Impegni
                             </TabsTrigger>
                         </TabsList>
@@ -1149,6 +1235,152 @@ export default function AdministrationDataHealingPage() {
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
+                        </TabsContent>
+
+                        {/* --- TAB 6: RECONCILIATION DASHBOARD (SAFE PREVIEW) --- */}
+                        <TabsContent value="reconciliation" className="space-y-8">
+                            <div className="flex justify-between items-center mb-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold flex items-center gap-2 text-purple-700">
+                                        <ShieldCheck className="h-7 w-7" /> Dashboard di Riconciliazione (Safe Preview)
+                                    </h2>
+                                    <p className="text-sm text-muted-foreground">Analisi incrociata Stock e Impegni per la risoluzione manuale dei disallineamenti.</p>
+                                </div>
+                                <Button 
+                                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold h-12 shadow-sm" 
+                                    onClick={handleReconcileAudit} 
+                                    disabled={reconcileLoading}
+                                >
+                                    {reconcileLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Search className="mr-2 h-5 w-5" />}
+                                    AVVIA AUDIT RICONCILIAZIONE
+                                </Button>
+                            </div>
+
+                            <Alert className="border-purple-200 bg-purple-50/50">
+                                <Info className="h-5 w-5 text-purple-600" />
+                                <AlertTitle className="text-purple-800 font-bold">Guida alla Riconciliazione</AlertTitle>
+                                <AlertDescription className="text-purple-700 text-sm">
+                                    Questa dashboard mostra solo i dati che presentano anomalie. 
+                                    Usa la <strong>Sincronizzazione Stock</strong> per allineare il Master Stock alla realtà fisica dei Lotti. 
+                                    Usa la <strong>Pulizia Impegni</strong> per chiudere residui di prelievo su commesse terminate.
+                                </AlertDescription>
+                            </Alert>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                {/* --- SECTION 1: STOCK DISCREPANCIES --- */}
+                                <Card className="border-purple-100 shadow-sm overflow-hidden flex flex-col">
+                                    <CardHeader className="bg-slate-50 border-b py-4">
+                                        <div className="flex items-center justify-between">
+                                            <CardTitle className="text-lg flex items-center gap-2 text-blue-700">
+                                                <Scale className="h-5 w-5" /> Disallineamenti Stock
+                                            </CardTitle>
+                                            <Badge variant="outline" className="text-blue-700 border-blue-200 bg-blue-50">Master vs Lotti</Badge>
+                                        </div>
+                                        <CardDescription className="text-xs">Rileva discrepanze tra la giacenza master e la somma dei lotti.</CardDescription>
+                                    </CardHeader>
+                                    <div className="flex-1 overflow-auto max-h-[600px]">
+                                        <Table>
+                                            <TableHeader className="bg-slate-50/50 sticky top-0 z-10 backdrop-blur-sm">
+                                                <TableRow>
+                                                    <TableHead className="py-2">Articolo</TableHead>
+                                                    <TableHead className="text-right py-2">Master</TableHead>
+                                                    <TableHead className="text-right py-2 text-blue-700">Lotti</TableHead>
+                                                    <TableHead className="text-right py-2">Delta</TableHead>
+                                                    <TableHead className="text-center py-2">Azione</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {reconcileStockAnomalies.length > 0 ? (
+                                                    reconcileStockAnomalies.map((a) => (
+                                                        <TableRow key={a.materialId}>
+                                                            <TableCell className="font-bold text-xs">{a.code}</TableCell>
+                                                            <TableCell className="text-right font-mono text-xs">{a.currentStock.toFixed(2)}</TableCell>
+                                                            <TableCell className="text-right font-mono text-xs text-blue-700 font-bold">{a.calculatedStock.toFixed(2)}</TableCell>
+                                                            <TableCell className={`text-right font-mono text-xs font-bold ${a.difference > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                                {a.difference > 0 ? `+${a.difference.toFixed(2)}` : a.difference.toFixed(2)}
+                                                            </TableCell>
+                                                            <TableCell className="text-center p-1">
+                                                                <Button 
+                                                                    size="sm" 
+                                                                    variant="outline" 
+                                                                    className="h-7 px-2 border-primary/20 hover:bg-primary/10 text-primary font-bold text-[10px]"
+                                                                    onClick={() => handleSingleSync(a.materialId)}
+                                                                    disabled={reconcileExecuting === a.materialId}
+                                                                >
+                                                                    {reconcileExecuting === a.materialId ? <Loader2 className="h-3 w-3 animate-spin" /> : "Sincronizza"}
+                                                                </Button>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))
+                                                ) : (
+                                                    <TableRow>
+                                                        <TableCell colSpan={5} className="h-32 text-center text-muted-foreground italic text-sm">
+                                                            {reconcileLoading ? <div className="flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin"/> Analisi in corso...</div> : "Nessuna discrepanza rilevata."}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </Card>
+
+                                {/* --- SECTION 2: GHOST COMMITMENTS --- */}
+                                <Card className="border-purple-100 shadow-sm overflow-hidden flex flex-col">
+                                    <CardHeader className="bg-slate-50 border-b py-4">
+                                        <div className="flex items-center justify-between">
+                                            <CardTitle className="text-lg flex items-center gap-2 text-purple-700">
+                                                <Ghost className="h-5 w-5" /> Ghost Commitments
+                                            </CardTitle>
+                                            <Badge variant="outline" className="text-purple-700 border-purple-200 bg-purple-50">Impegni Residui</Badge>
+                                        </div>
+                                        <CardDescription className="text-xs">Impegni aperti su commesse terminate (spedite, chiuse, ecc).</CardDescription>
+                                    </CardHeader>
+                                    <div className="flex-1 overflow-auto max-h-[600px]">
+                                        <Table>
+                                            <TableHeader className="bg-slate-50/50 sticky top-0 z-10 backdrop-blur-sm">
+                                                <TableRow>
+                                                    <TableHead className="py-2">ODL / Commessa</TableHead>
+                                                    <TableHead className="py-2">Materiale</TableHead>
+                                                    <TableHead className="text-right py-2">Qta</TableHead>
+                                                    <TableHead className="text-center py-2">Azione</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {ghostAnomalies.length > 0 ? (
+                                                    ghostAnomalies.map((a) => (
+                                                        <TableRow key={a.id}>
+                                                            <TableCell className="py-2">
+                                                                <div className="font-bold text-xs">{a.jobOrderPF}</div>
+                                                                <div className="text-[9px] text-muted-foreground uppercase">{a.status}</div>
+                                                            </TableCell>
+                                                            <TableCell className="font-mono text-[10px] py-2">{a.materialCode}</TableCell>
+                                                            <TableCell className="text-right font-mono text-xs font-bold text-orange-600 py-2">
+                                                                {a.neededQuantity.toFixed(1)} {a.unit}
+                                                            </TableCell>
+                                                            <TableCell className="text-center p-1 py-2">
+                                                                <Button 
+                                                                    size="sm" 
+                                                                    className="h-7 px-2 bg-purple-100 hover:bg-purple-200 text-purple-800 border-0 shadow-none font-bold text-[10px]"
+                                                                    onClick={() => handleSingleGhostResolve(a)}
+                                                                    disabled={reconcileExecuting === a.id}
+                                                                >
+                                                                    {reconcileExecuting === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Chiudi"}
+                                                                </Button>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))
+                                                ) : (
+                                                    <TableRow>
+                                                        <TableCell colSpan={4} className="h-32 text-center text-muted-foreground italic text-sm">
+                                                            {reconcileLoading ? <div className="flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin"/> Analisi in corso...</div> : "Nessun impegno fantasma rilevato."}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </Card>
+                            </div>
                         </TabsContent>
                     </Tabs>
                 </div>
