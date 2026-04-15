@@ -266,10 +266,10 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
 
             transaction.update(materialRef, { 
                 batches, 
-                // currentStockUnits/currentWeightKg will be overwritten by recalculateMaterialStock below
+                stock: admin.firestore.FieldValue.increment(diffU),
+                currentStockUnits: admin.firestore.FieldValue.increment(diffU),
+                currentWeightKg: admin.firestore.FieldValue.increment(diffW)
             });
-
-            await recalculateMaterialStock(materialId, transaction, { material, batches, withdrawals });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiornato.' };
@@ -328,9 +328,10 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             const updatedBatches = [...(material.batches || []), newBatch];
             transaction.update(materialRef, { 
                 batches: updatedBatches, 
+                stock: admin.firestore.FieldValue.increment(finalUnits),
+                currentStockUnits: admin.firestore.FieldValue.increment(finalUnits),
+                currentWeightKg: admin.firestore.FieldValue.increment(weightFromGross)
             });
-
-            await recalculateMaterialStock(materialId, transaction, { material, batches: updatedBatches, withdrawals });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiunto.' };
@@ -354,10 +355,13 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             if (!batch) throw new Error("Lotto non trovato.");
 
             const updatedBatches = material.batches.filter(b => b.id !== batchId);
+            const oldNetWeight = (batch.grossWeight || 0) - (batch.tareWeight || 0);
             t.update(materialRef, { 
-                batches: updatedBatches 
+                batches: updatedBatches,
+                stock: admin.firestore.FieldValue.increment(-batch.netQuantity),
+                currentStockUnits: admin.firestore.FieldValue.increment(-batch.netQuantity),
+                currentWeightKg: admin.firestore.FieldValue.increment(-oldNetWeight)
             });
-            await recalculateMaterialStock(materialId, t, { material, batches: updatedBatches, withdrawals });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto eliminato.' };
@@ -600,9 +604,12 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
                 const m = mSnap.data() as RawMaterial;
                 const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
                 
-                // MODIFIED: No batch mutation needed. 
-                // Deleting the withdrawal record automatically "restores" availability in Live Aggregation.
-                await recalculateMaterialStock(w.materialId, t, { material: m, batches: m.batches || [], withdrawals });
+                // ATOMIC STOCK RESTORE
+                t.update(mRef, {
+                    stock: admin.firestore.FieldValue.increment(w.consumedUnits || 0),
+                    currentStockUnits: admin.firestore.FieldValue.increment(w.consumedUnits || 0),
+                    currentWeightKg: admin.firestore.FieldValue.increment(w.consumedWeight || 0)
+                });
             }
             t.delete(ref);
         });
@@ -651,14 +658,13 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
                     batches[bIdx].grossWeight = Math.max(batches[bIdx].tareWeight || 0, batches[bIdx].grossWeight - w);
                 }
                 updatedBatchesMap.set(s.materialId, batches);
-                t.update(adminDb.collection("rawMaterials").doc(s.materialId), { batches });
-                
-                const prefetched = { 
-                    material: m, 
-                    batches: batches, 
-                    withdrawals: wDataMap.get(s.materialId) || [] 
-                };
-                await recalculateMaterialStock(s.materialId, t, prefetched);
+                // ATOMIC STOCK UPDATE
+                t.update(adminDb.collection("rawMaterials").doc(s.materialId), { 
+                    batches,
+                    stock: admin.firestore.FieldValue.increment(-s.consumed),
+                    currentStockUnits: admin.firestore.FieldValue.increment(-s.consumed),
+                    currentWeightKg: admin.firestore.FieldValue.increment(-w)
+                });
                 // ------------------------------------------------
 
                 const wRef = adminDb.collection("materialWithdrawals").doc();
@@ -705,14 +711,13 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
                         if (batches[bIdx].netQuantity > 0.001) batches[bIdx].isExhausted = false;
                     }
                     updatedBatchesMap.set(w.materialId, batches);
-                    t.update(adminDb.collection("rawMaterials").doc(w.materialId), { batches });
-
-                    const prefetched = {
-                        material: m,
-                        batches: batches,
-                        withdrawals: wMap.get(w.materialId) || []
-                    };
-                    await recalculateMaterialStock(w.materialId, t, prefetched);
+                    // ATOMIC STOCK RESTORE
+                    t.update(adminDb.collection("rawMaterials").doc(w.materialId), { 
+                        batches,
+                        stock: admin.firestore.FieldValue.increment(w.consumedUnits || 0),
+                        currentStockUnits: admin.firestore.FieldValue.increment(w.consumedUnits || 0),
+                        currentWeightKg: admin.firestore.FieldValue.increment(w.consumedWeight || 0)
+                    });
                 }
                 t.delete(wd.ref);
             }

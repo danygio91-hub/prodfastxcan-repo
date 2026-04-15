@@ -88,7 +88,12 @@ export async function logManualWithdrawal(
             transaction.update(materialRef, updates);
         }
 
-        await recalculateMaterialStock(materialId, transaction, { material, batches: updatedBatches, withdrawals });
+        // ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
+        transaction.update(materialRef, {
+            stock: admin.firestore.FieldValue.increment(-unitsToChange),
+            currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
+            currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
+        });
         
         const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
         transaction.set(withdrawalRef, {

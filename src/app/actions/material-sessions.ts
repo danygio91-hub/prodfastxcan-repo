@@ -160,11 +160,36 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 }
             }
 
-            if (Object.keys(updates).length > 0) {
-                transaction.update(materialRef, updates);
-            }
+            // 4. ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
+            transaction.update(materialRef, {
+                stock: admin.firestore.FieldValue.increment(-unitsToChange),
+                currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
+                currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
+            });
 
-            await recalculateMaterialStock(session.materialId, transaction, { material, batches: updatedBatches, withdrawals });
+            // 5. BOM ALIGNMENT & "PRELEVATO" CHECK (MANDATORY RMW)
+            if (session.linkedJobOrderIds && session.linkedJobOrderIds.length > 0) {
+                for (const rawId of session.linkedJobOrderIds) {
+                    const sanitizedId = rawId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                    const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
+                    const jSnap = await transaction.get(jobRef);
+                    if (jSnap.exists) {
+                        const jData = jSnap.data() as any;
+                        let modified = false;
+                        const updatedBOM = (jData.billOfMaterials || []).map((item: any) => {
+                            const match = item.component?.trim().toUpperCase() === session.materialCode.trim().toUpperCase();
+                            if (match && !item.withdrawn) {
+                                modified = true;
+                                return { ...item, status: 'withdrawn', withdrawn: true };
+                            }
+                            return item;
+                        });
+                        if (modified) {
+                            transaction.update(jobRef, { billOfMaterials: updatedBOM });
+                        }
+                    }
+                }
+            }
 
             // CREATE SINGLE WITHDRAWAL RECORD
             const withdrawalRef = adminDb.collection("materialWithdrawals").doc();

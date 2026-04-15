@@ -109,9 +109,11 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             
             const updatedBatches = [...(material.batches || []), newBatch];
             transaction.update(mRef, { 
-                batches: updatedBatches 
+                batches: updatedBatches,
+                stock: admin.firestore.FieldValue.increment(unitsToChange),
+                currentStockUnits: admin.firestore.FieldValue.increment(unitsToChange),
+                currentWeightKg: admin.firestore.FieldValue.increment(weightToChange)
             });
-            await recalculateMaterialStock(record.materialId, transaction, { material, batches: updatedBatches, withdrawals });
             transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() });
         });
         revalidatePath('/admin/inventory-management');
@@ -165,9 +167,11 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
                 if (batch) {
                     const updatedBatches = (mat.batches || []).filter(b => b.inventoryRecordId !== id);
                     transaction.update(mRef, { 
-                        batches: updatedBatches, 
+                        batches: updatedBatches,
+                        stock: admin.firestore.FieldValue.increment(-(batch.netQuantity || 0)),
+                        currentStockUnits: admin.firestore.FieldValue.increment(-(batch.netQuantity || 0)),
+                        currentWeightKg: admin.firestore.FieldValue.increment(-((batch.grossWeight || 0) - (batch.tareWeight || 0)))
                     });
-                    await recalculateMaterialStock(rec.materialId, transaction, { material: mat, batches: updatedBatches, withdrawals });
                 }
             }
         }

@@ -737,7 +737,12 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 transaction.update(materialRef, updates);
             }
 
-            await recalculateMaterialStock(session.materialId, transaction, { material, batches: updatedBatches, withdrawals });
+            // ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
+            transaction.update(materialRef, {
+                stock: admin.firestore.FieldValue.increment(-unitsToChange),
+                currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
+                currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
+            });
 
             const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
             transaction.set(withdrawalRef, {
@@ -824,7 +829,12 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 t.update(mRef, updates);
             }
 
-            await recalculateMaterialStock(materialId as string, t, { material, batches: updatedBatches, withdrawals });
+            // ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
+            t.update(mRef, {
+                stock: admin.firestore.FieldValue.increment(-unitsToChange),
+                currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
+                currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
+            });
 
             const wRef = adminDb.collection("materialWithdrawals").doc();
             t.set(wRef, {
