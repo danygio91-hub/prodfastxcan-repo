@@ -7,10 +7,10 @@ export interface MRPTimelineEntry {
     jobId: string;
     materialCode: string;
     requiredQty: number;
-    status: 'GREEN' | 'AMBER' | 'RED';
+    status: 'GREEN' | 'AMBER' | 'LATE' | 'RED';
     projectedBalance: number;
-    supplyArrivalDate?: string; // Data del primo PO che copre la mancanza (se AMBER)
-    details: string[]; // Messaggi per il tooltip
+    supplyArrivalDate?: string; 
+    details: string[]; 
 }
 
 /**
@@ -41,7 +41,7 @@ export function calculateMRPTimelines(
         allJobs.forEach(job => {
             (job.billOfMaterials || []).forEach(item => {
                 if (item.status !== 'withdrawn') {
-                    const mat = rawMaterials.find(m => m.code.toUpperCase() === (item.component || '').toUpperCase());
+                    const mat = rawMaterials.find(m => (m.code || '').toUpperCase().trim() === (item.component || '').toUpperCase().trim());
                     if (mat) {
                         const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
                         const req = calculateBOMRequirement(job.qta, item, mat, config as any);
@@ -50,7 +50,7 @@ export function calculateMRPTimelines(
                         const demandDate = job.dataFinePreparazione || job.dataConsegnaFinale || '9999-12-31';
 
                         demands.push({
-                            materialCode: mat.code.toUpperCase(),
+                            materialCode: mat.code.toUpperCase().trim(),
                             qty: req.totalInBaseUnits,
                             date: demandDate,
                             jobId: job.id,
@@ -66,12 +66,12 @@ export function calculateMRPTimelines(
             const art = articles.find(a => a && a.code.toUpperCase() === (c.articleCode || '').toUpperCase());
             if (art) {
                 (art.billOfMaterials || []).forEach(item => {
-                    const mat = rawMaterials.find(m => m.code.toUpperCase() === (item.component || '').toUpperCase());
+                    const mat = rawMaterials.find(m => (m.code || '').toUpperCase().trim() === (item.component || '').toUpperCase().trim());
                     if (mat) {
                         const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
                         const req = calculateBOMRequirement(c.quantity, item, mat, config as any);
                         demands.push({
-                            materialCode: mat.code.toUpperCase(),
+                            materialCode: mat.code.toUpperCase().trim(),
                             qty: req.totalInBaseUnits,
                             date: c.deliveryDate || '9999-12-31',
                             jobId: c.id,
@@ -87,9 +87,8 @@ export function calculateMRPTimelines(
         const supplies = purchaseOrders
             .filter(po => po && (po.status === 'pending' || po.status === 'partially_received'))
             .map(po => ({
-                materialCode: (po.materialCode || '').toUpperCase(),
+                materialCode: (po.materialCode || '').toUpperCase().trim(),
                 qty: (po.quantity || 0) - (po.receivedQuantity || 0),
-                // Un PO senza data è trattato come "Mai" (9999-12-31)
                 date: po.expectedDeliveryDate || '9999-12-31',
                 id: po.id
             }));
@@ -97,7 +96,7 @@ export function calculateMRPTimelines(
         // 3. Calcolo Timeline per Materiale
         rawMaterials.forEach(mat => {
             if (!mat || !mat.code) return;
-            const code = mat.code.toUpperCase();
+            const code = (mat.code || '').toUpperCase().trim();
             let currentBalance = mat.currentStockUnits || 0;
             const initialStock = currentBalance;
             
@@ -124,22 +123,35 @@ export function calculateMRPTimelines(
                 const relevantSupplies = matSupplies.filter(s => s.date <= demand.date);
                 const totalSuppliesUntilNow = relevantSupplies.reduce((sum, s) => sum + s.qty, 0);
                 
+                // Tutti i PO per questo materiale, anche quelli futurissimi
+                const totalSuppliesEver = matSupplies.reduce((sum, s) => sum + s.qty, 0);
+                
                 const projectedAvailability = initialStock + totalSuppliesUntilNow - cumulativeDemands;
                 const balanceWithoutPOs = initialStock - cumulativeDemands;
+                const absoluteFutureBalance = initialStock + totalSuppliesEver - cumulativeDemands;
 
-                let status: 'GREEN' | 'AMBER' | 'RED' = 'GREEN';
+                let status: 'GREEN' | 'AMBER' | 'LATE' | 'RED' = 'GREEN';
                 let supplyArrivalDate: string | undefined = undefined;
                 const details: string[] = [];
 
                 if (projectedAvailability < -0.001) {
-                    status = 'RED';
-                    details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
-                    details.push("❌ Stock in esaurimento / Non disponibile per questa data.");
-                    details.push("ORDINARE IMMEDIATAMENTE.");
+                    // Verifichiamo se almeno con i PO futuri arriviamo a coprire
+                    if (absoluteFutureBalance >= -0.001) {
+                        status = 'LATE';
+                        const firstLatePO = matSupplies.find(s => s.date > demand.date);
+                        supplyArrivalDate = firstLatePO?.date;
+                        details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
+                        details.push(`🟠 IN RITARDO: In arrivo il ${supplyArrivalDate || 'futuro'}`);
+                        details.push("Verificare se è possibile anticipare la consegna.");
+                    } else {
+                        status = 'RED';
+                        details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
+                        details.push("❌ MANCANTE: Stock insufficiente, nessun ordine futuro sufficiente.");
+                        details.push("ORDINARE IMMEDIATAMENTE.");
+                    }
                 } else if (balanceWithoutPOs < -0.001) {
-                    // Coperto solo grazie ai PO
+                    // Coperto grazie ai PO in tempo
                     status = 'AMBER';
-                    // Troviamo il primo PO che innesca la copertura
                     const firstCoveringPO = relevantSupplies.find((s, idx) => {
                         const sumBefore = initialStock + relevantSupplies.slice(0, idx).reduce((acc, rs) => acc + rs.qty, 0) - cumulativeDemands;
                         const sumAfter = sumBefore + s.qty;
@@ -148,12 +160,12 @@ export function calculateMRPTimelines(
 
                     supplyArrivalDate = firstCoveringPO?.date;
                     details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
-                    details.push(`⚠️ Materiale in arrivo il ${supplyArrivalDate ? supplyArrivalDate : 'N/D'}.`);
+                    details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate}.`);
                     details.push("Monitorare fornitore.");
                 } else {
                     status = 'GREEN';
                     details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
-                    details.push("✅ Disponibile (Stock fisico).");
+                    details.push("✅ DISPONIBILE (Stock fisico).");
                 }
 
                 materialEntries.push({

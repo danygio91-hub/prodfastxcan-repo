@@ -122,9 +122,21 @@ const JobTableRows = ({
         const stockStatus = (() => {
           if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
           
+          const withdrawnItems = j.billOfMaterials.filter(i => i.status === 'withdrawn');
+          const pendingItems = j.billOfMaterials.filter(i => i.status !== 'withdrawn');
+
+          if (pendingItems.length === 0) {
+            return { 
+                color: 'text-green-500', 
+                icon: CheckCircle2, 
+                label: 'MATERIALE PRELEVATO', 
+                details: withdrawnItems.map(i => `✅ ${i.component} - Prelevato`) 
+            };
+          }
+
           const componentEntries: { entry: MRPTimelineEntry, item: any }[] = [];
-          j.billOfMaterials.forEach(item => {
-            const matCode = item.component?.toUpperCase();
+          pendingItems.forEach(item => {
+            const matCode = (item.component || '').toUpperCase().trim();
             const timeline = mrpTimelines.get(matCode) || [];
             const entry = timeline.find(e => e.jobId === j.id);
             if (entry) componentEntries.push({ entry, item });
@@ -135,15 +147,22 @@ const JobTableRows = ({
           }
 
           const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
-          const isAmber = !isRed && componentEntries.some(ce => ce.entry.status === 'AMBER');
+          const isLate = !isRed && componentEntries.some(ce => ce.entry.status === 'LATE');
+          const isAmber = !isRed && !isLate && componentEntries.some(ce => ce.entry.status === 'AMBER');
           
-          const combinedDetails = componentEntries.flatMap(ce => {
-            const prefix = ce.item.component;
-            return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
-          });
+          const combinedDetails = [
+            ...withdrawnItems.map(i => `✅ ${i.component} - Prelevato`),
+            ...componentEntries.flatMap(ce => {
+                const prefix = ce.item.component;
+                return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
+            })
+          ];
 
           if (isRed) {
               return { color: 'text-red-500', icon: XCircle, label: 'MANCANTE', details: combinedDetails };
+          }
+          if (isLate) {
+              return { color: 'text-orange-600', icon: AlertTriangle, label: 'IN RITARDO', details: combinedDetails };
           }
           if (isAmber) {
               return { color: 'text-yellow-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
@@ -501,7 +520,7 @@ export default function DataManagementClientPage({
         'Ordine Nr Est': 'EST-001',
         'N° ODL': '0001-24',
         'Data Fine Prep': '2024-12-24',
-        'Data Consegna': '2024-12-31',
+        'Data Consegna Finale': '2024-12-31',
         'Reparto': 'CP',
         'Ciclo': 'STANDARD'
       }
@@ -545,8 +564,24 @@ export default function DataManagementClientPage({
               const buffer = await file.arrayBuffer();
               const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
               const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: true });
-              const result = await processAndValidateImport(json); setImportReport(result);
-            } catch (e) { toast({ variant: "destructive", title: "Errore Import" }); }
+              const result = await processAndValidateImport(json);
+              if (result.success) {
+                setImportReport(result);
+              } else {
+                toast({
+                  variant: "destructive",
+                  title: "Analisi Fallita",
+                  description: result.message
+                });
+              }
+            } catch (e) { 
+              console.error("Import error:", e);
+              toast({ 
+                variant: "destructive", 
+                title: "Errore Import", 
+                description: e instanceof Error ? e.message : "Errore sconosciuto durante l'elaborazione del file." 
+              }); 
+            }
             finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
           }} accept=".xlsx, .xls" className="hidden" />
           

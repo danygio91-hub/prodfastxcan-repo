@@ -11,7 +11,7 @@ import * as admin from 'firebase-admin';
  */
 export async function fetchInChunks<T>(
     collection: admin.firestore.CollectionReference | admin.firestore.Query,
-    field: string,
+    field: string | admin.firestore.FieldPath,
     values: any[],
     chunkSize: number = 30
 ): Promise<T[]> {
