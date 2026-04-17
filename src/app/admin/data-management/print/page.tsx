@@ -90,9 +90,8 @@ function PrintPageContent() {
   
   return (
     <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">
-       <div className="max-w-[29.7cm] mx-auto bg-white shadow-2xl print:shadow-none min-h-[21cm] p-[0.5cm]">
-        
-        <div className="flex justify-between items-center mb-6 print:hidden bg-slate-800 text-white p-4 rounded-lg">
+        {/* Print specific control header - hidden during print */}
+        <div className="max-w-[29.7cm] mx-auto mb-6 print:hidden bg-slate-800 text-white p-4 rounded-lg flex justify-between items-center shadow-lg">
             <div className="space-y-1">
                 <h3 className="font-bold text-lg">Anteprima Scheda Lavorazione (ODL)</h3>
                 <p className="text-xs opacity-70">Verifica i dati. La stampa è ottimizzata per A4 Orizzontale.</p>
@@ -103,14 +102,16 @@ function PrintPageContent() {
             </div>
         </div>
 
-        <ODLPrintTemplate 
-            job={job}
-            article={article}
-            materials={materials}
-            config={config}
-            qrRule={qrRule}
-        />
-      </div>
+        {/* Main Print Container */}
+        <div className="mx-auto bg-white shadow-2xl print:shadow-none print:w-full print:h-full">
+            <ODLPrintTemplate 
+                job={job}
+                article={article}
+                materials={materials}
+                config={config}
+                qrRule={qrRule}
+            />
+        </div>
 
        <style jsx global>{`
         @page {

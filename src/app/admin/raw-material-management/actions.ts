@@ -43,7 +43,7 @@ export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise
         });
 
         for (const item of items) {
-            const code = String(item.CODICE || item.Codice || item.codice || "").trim();
+            const code = String(item.CODICE || item.Codice || item.codice || "").trim().toUpperCase();
             if (!code) continue;
             
             const code_normalized = code.toLowerCase();
@@ -166,7 +166,7 @@ export async function getRawMaterials(searchTerm?: string, lastCode?: string): P
 export async function saveRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
     const rawData = Object.fromEntries(formData.entries());
     const id = rawData.id as string;
-    const code = String(rawData.code).trim();
+    const code = String(rawData.code).trim().toUpperCase();
     const code_normalized = code.toLowerCase();
 
     // CONVALIDA DUPLICATI

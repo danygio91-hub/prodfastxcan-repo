@@ -135,7 +135,12 @@ export async function saveManualJobOrder(data: any) {
     const articleData = articleSnap.data() as Article;
 
     const phases = await createPhasesFromCycle(workCycleId);
-    const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ ...item, status: 'pending', isFromTemplate: true }));
+    const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ 
+        ...item, 
+        component: item.component.toUpperCase().trim(),
+        status: 'pending', 
+        isFromTemplate: true 
+    }));
 
     const now = new Date();
     const shortYear = now.getFullYear().toString().slice(-2);
@@ -199,10 +204,11 @@ export async function processAndValidateImport(data: any[]): Promise<{
             return { success: false, message: "Il file è vuoto o non contiene dati validi.", newJobs: [], jobsToUpdate: [], blockedJobs: [] };
         }
 
-        const [articlesSnap, cyclesSnap, templatesSnap] = await Promise.all([
+        const [articlesSnap, cyclesSnap, templatesSnap, deptsSnap] = await Promise.all([
             adminDb.collection("articles").get(), 
             adminDb.collection("workCycles").get(),
-            adminDb.collection("workPhaseTemplates").get()
+            adminDb.collection("workPhaseTemplates").get(),
+            adminDb.collection("departments").get()
         ]);
         
         const articlesMap = new Map(articlesSnap.docs
@@ -214,6 +220,15 @@ export async function processAndValidateImport(data: any[]): Promise<{
             .map(d => [String(d.data().name).toUpperCase().trim(), { ...d.data(), id: d.id } as WorkCycle])
         );
         const templatesMap = new Map(templatesSnap.docs.map(d => [d.id, d.data() as WorkPhaseTemplate]));
+
+        const allowedDepts = deptsSnap.docs
+            .map(d => d.data() as Department)
+            .filter(d => d.macroAreas.includes('PRODUZIONE') || d.code === 'MAG');
+        
+        const allowedDeptIdentifiers = new Set([
+            ...allowedDepts.map(d => d.code.toUpperCase().trim()),
+            ...allowedDepts.map(d => d.name.toUpperCase().trim())
+        ]);
         
         // Helper per trovare valori con nomi colonna flessibili
         const getVal = (row: any, candidates: string[]) => {
@@ -281,6 +296,14 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 blockedJobs.push({ row, reason: "La data fine preparazione non può essere successiva alla consegna finale." });
                 continue;
             }
+
+            if (mappedRow.department && mappedRow.department !== 'N/D') {
+                const deptIdent = mappedRow.department.toUpperCase().trim();
+                if (!allowedDeptIdentifiers.has(deptIdent)) {
+                    blockedJobs.push({ row, reason: `Reparto "${mappedRow.department}" non valido per nuove commesse.` });
+                    continue;
+                }
+            }
             
             const articleCode = mappedRow.details.toUpperCase().trim();
             const articleData = articlesMap.get(articleCode);
@@ -305,7 +328,12 @@ export async function processAndValidateImport(data: any[]): Promise<{
             }
 
             const phases = workCycleId ? await createPhasesFromCycle(workCycleId, templatesMap) : [];
-            const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ ...item, status: 'pending', isFromTemplate: true }));
+            const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ 
+                ...item, 
+                component: item.component.toUpperCase().trim(),
+                status: 'pending', 
+                isFromTemplate: true 
+            }));
             
             let odlToAssign = null;
             if (mappedRow.numeroODLInternoImport) {

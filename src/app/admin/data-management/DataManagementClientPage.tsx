@@ -109,7 +109,7 @@ const JobTableRows = ({
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
         const isPlanned = ['planned', 'IN_ATTESA', 'IN_PIANIFICAZIONE', 'In Pianificazione'].includes(j.status as any);
         const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
-        const effectivePrepDate = j.dataFinePreparazione || j.dataConsegnaFinale;
+        const effectivePrepDate = j.dataFinePreparazione;
         const displayPrepDateText = effectivePrepDate ? format(parseISO(effectivePrepDate), "dd/MM/yyyy") : "Scegli...";
         const isInProductionGrouping = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'Da Iniziare', 'In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Manca Materiale', 'Pronto per Finitura', 'Problema', 'PRODUCTION'].includes(j.status as any);
         const isReadyBody = isInProductionGrouping && isJobReadyForProduction(j);
@@ -386,6 +386,12 @@ export default function DataManagementClientPage({
       globalSettings
     );
   }, [plannedJobOrders, productionJobOrders, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings]);
+
+  const filteredDepartmentsForManualCreate = useMemo(() => {
+    return departments.filter(d => 
+      d.macroAreas.includes('PRODUZIONE') || d.code === 'MAG'
+    );
+  }, [departments]);
 
   const handleSort = (key: keyof JobOrder | 'reparto_codice') => {
     setSortConfig(current => {
@@ -778,7 +784,21 @@ export default function DataManagementClientPage({
             </div>
             <div className="grid grid-cols-2 gap-4">
               <FormField control={manualForm.control} name="dataConsegnaFinale" render={({ field }) => (<FormItem><FormLabel>Consegna Finale (Cliente)</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>)} />
-              <FormField control={manualForm.control} name="department" render={({ field }) => (<FormItem><FormLabel>Reparto</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{departments.map(d => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent></Select></FormItem>)} />
+              <FormField control={manualForm.control} name="department" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Reparto</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {filteredDepartmentsForManualCreate.map(d => (
+                        <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormItem>
+              )} />
             </div>
             <FormField control={manualForm.control} name="workCycleId" render={({ field }) => (<FormItem><FormLabel>Ciclo</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></FormItem>)} />
             <DialogFooter><Button type="submit">Salva</Button></DialogFooter>

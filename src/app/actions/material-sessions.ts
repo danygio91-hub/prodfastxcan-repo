@@ -101,6 +101,8 @@ export async function addJobsToSession(sessionId: string, jobIdsOrPFs: string[])
 
 export async function closeIndependentSession(sessionId: string, closingGrossWeight: number, isFinished: boolean = false) {
     try {
+        const globalSettings = await getGlobalSettings();
+        
         await adminDb.runTransaction(async (transaction) => {
             const sessionRef = adminDb.collection('materialSessions').doc(sessionId);
             const sessionSnap = await transaction.get(sessionRef);
@@ -108,15 +110,23 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
             const session = sessionSnap.data() as IndependentMaterialSession;
 
             const materialRef = adminDb.collection('rawMaterials').doc(session.materialId);
-            const [matSnap, withdrawalsSnap] = await Promise.all([
+            
+            // 1. COLLECT ALL READS AT THE START
+            const jobIds = session.linkedJobOrderIds || [];
+            const [matSnap, withdrawalsSnap, ...jobSnaps] = await Promise.all([
                 transaction.get(materialRef),
-                adminDb.collection('materialWithdrawals').where('materialId', '==', session.materialId).get()
+                adminDb.collection('materialWithdrawals').where('materialId', '==', session.materialId).get(),
+                ...jobIds.map(id => {
+                    const sanitizedId = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                    return transaction.get(adminDb.collection('jobOrders').doc(sanitizedId));
+                })
             ]);
             
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
             const material = matSnap.data() as RawMaterial;
             const withdrawals = withdrawalsSnap.docs.map(d => d.data());
 
+            // 2. CALCULATIONS
             let consumedWeight = 0;
             if (isFinished && session.lotto) {
                 const batch = (material.batches || []).find(b => b.lotto === session.lotto);
@@ -133,7 +143,6 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
             }
 
-            const globalSettings = await getGlobalSettings();
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
                 id: material.type,
                 label: material.type,
@@ -151,58 +160,49 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 withdrawals
             );
 
-            const updates: any = {};
+            // 3. START WRITES - NO READS ALLOWED AFTER THIS
+            const matUpdates: any = {
+                stock: admin.firestore.FieldValue.increment(-unitsToChange),
+                currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
+                currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
+            };
+
             if (isFinished && usedLotto) {
                 const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
                 if (bIdx !== -1) {
                     updatedBatches[bIdx].isExhausted = true;
-                    updates.batches = updatedBatches; 
+                    matUpdates.batches = updatedBatches; 
                 }
             }
+            transaction.update(materialRef, matUpdates);
 
-            // 4. ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
-            transaction.update(materialRef, {
-                stock: admin.firestore.FieldValue.increment(-unitsToChange),
-                currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
-                currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
-            });
-
-            // 5. BOM ALIGNMENT & "PRELEVATO" CHECK (MANDATORY RMW)
-            if (session.linkedJobOrderIds && session.linkedJobOrderIds.length > 0) {
-                for (const rawId of session.linkedJobOrderIds) {
-                    const sanitizedId = rawId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
-                    const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
-                    const jSnap = await transaction.get(jobRef);
-                    if (jSnap.exists) {
-                        const jData = jSnap.data() as any;
-                        let modified = false;
-                        const updatedBOM = (jData.billOfMaterials || []).map((item: any) => {
-                            const match = item.component?.trim().toUpperCase() === session.materialCode.trim().toUpperCase();
-                            if (match && !item.withdrawn) {
-                                modified = true;
-                                return { ...item, status: 'withdrawn', withdrawn: true };
-                            }
-                            return item;
-                        });
-                        if (modified) {
-                            transaction.update(jobRef, { billOfMaterials: updatedBOM });
+            // Update Job Orders using pre-fetched snapshots
+            jobSnaps.forEach((jSnap, idx) => {
+                if (jSnap.exists) {
+                    const jData = jSnap.data() as any;
+                    let modified = false;
+                    const updatedBOM = (jData.billOfMaterials || []).map((item: any) => {
+                        const match = item.component?.trim().toUpperCase() === session.materialCode.trim().toUpperCase();
+                        if (match && !item.withdrawn) {
+                            modified = true;
+                            return { ...item, status: 'withdrawn', withdrawn: true };
                         }
+                        return item;
+                    });
+                    if (modified) {
+                        transaction.update(jSnap.ref, { billOfMaterials: updatedBOM });
                     }
                 }
-            }
+            });
 
-            // CREATE SINGLE WITHDRAWAL RECORD
+            // Create withdrawal record
             const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
-            
-            // Fetch PFs if needed for better reporting (optional but good for UX)
-            const jobSnaps = await Promise.all(
-                (session.linkedJobOrderIds || []).map(id => adminDb.collection('jobOrders').doc(id).get())
-            );
+            // Map snapshots back to PFs for the report
             const jobPFs = jobSnaps.filter(s => s.exists).map(s => (s.data() as any).ordinePF || s.id);
 
             transaction.set(withdrawalRef, {
-                associatedJobIds: session.linkedJobOrderIds, // As requested
-                jobIds: session.linkedJobOrderIds, // For compatibility
+                associatedJobIds: jobIds, 
+                jobIds: jobIds, 
                 jobOrderPFs: jobPFs, 
                 materialId: session.materialId,
                 materialCode: session.materialCode,

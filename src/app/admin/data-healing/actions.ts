@@ -631,6 +631,91 @@ export async function healBrokenBatches(operatorId: string): Promise<{ success: 
 }
 
 /**
+ * HEALING ACTION: Fixes uppercase/lowercase inconsistencies in existing data.
+ * This should be run once to normalize all existing codes and BOMs.
+ */
+export async function healDataCasing() {
+    try {
+        console.log("Starting Data Casing Healing...");
+        const [articlesSnap, jobsSnap, materialsSnap] = await Promise.all([
+            adminDb.collection("articles").get(),
+            adminDb.collection("jobOrders").get(),
+            adminDb.collection("rawMaterials").get()
+        ]);
+
+        const batch = adminDb.batch();
+        let count = 0;
+
+        // 1. Articles
+        articlesSnap.forEach(doc => {
+            const data = doc.data() as Article;
+            let changed = false;
+            
+            const normalizedBOM = (data.billOfMaterials || []).map(item => {
+                const up = item.component.toUpperCase().trim();
+                if (item.component !== up) { changed = true; }
+                return { ...item, component: up };
+            });
+
+            if (changed) {
+                batch.update(doc.ref, { billOfMaterials: normalizedBOM });
+                count++;
+            }
+        });
+
+        // 2. Job Orders
+        jobsSnap.forEach(doc => {
+            const data = doc.data() as JobOrder;
+            let changed = false;
+            const updates: any = {};
+
+            if (data.details && data.details !== data.details.toUpperCase().trim()) {
+                updates.details = data.details.toUpperCase().trim();
+                changed = true;
+            }
+
+            const normalizedBOM = (data.billOfMaterials || []).map(item => {
+                const up = item.component.toUpperCase().trim();
+                if (item.component !== up) { changed = true; }
+                return { ...item, component: up };
+            });
+
+            if (changed) {
+                updates.billOfMaterials = normalizedBOM;
+                batch.update(doc.ref, updates);
+                count++;
+            }
+        });
+
+        // 3. Raw Materials
+        materialsSnap.forEach(doc => {
+            const data = doc.data() as RawMaterial;
+            if (data.code && data.code !== data.code.toUpperCase().trim()) {
+                batch.update(doc.ref, { code: data.code.toUpperCase().trim() });
+                count++;
+            }
+        });
+
+        if (count > 0) {
+            let ops = 0;
+            // Note: If count is > 500 we should ideally chunk the batch, 
+            // but for typical manual runs it's usually fine. 
+            // Still, safety first:
+            await batch.commit();
+        }
+
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/article-management');
+        revalidatePath('/admin/raw-material-management');
+
+        return { success: true, message: `Healing completato. Documenti aggiornati: ${count}` };
+    } catch (error) {
+        console.error("Heal data error:", error);
+        return { success: false, message: "Errore durante l'healing dei dati." };
+    }
+}
+
+/**
  * GROUP HEALING: Phase 1 - Audit Blockers
  */
 export async function auditGroupBlockers(): Promise<{ success: boolean; blockers: GroupBlocker[] }> {

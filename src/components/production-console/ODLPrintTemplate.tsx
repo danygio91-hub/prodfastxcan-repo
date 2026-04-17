@@ -25,6 +25,15 @@ export default function ODLPrintTemplate({
   qrRule = "{ordinePF}@{details}@{qta}",
   globalSettings
 }: ODLPrintTemplateProps) {
+  console.log("ODL Print Job Data:", {
+    id: job.id,
+    numeroODL: job.numeroODL,
+    ordinePF: job.ordinePF,
+    dataFinePreparazione: job.dataFinePreparazione,
+    dataConsegnaFinale: job.dataConsegnaFinale,
+    dataConsegnaCliente: job.dataConsegnaCliente
+  });
+
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
 
   const allItems = (job.billOfMaterials || []).map(item => {
@@ -51,7 +60,10 @@ export default function ODLPrintTemplate({
   const formatDateSafe = (dateInput: any) => {
     if (!dateInput) return '---';
     try {
-      const d = typeof dateInput === 'string' ? parseISO(dateInput) : (dateInput.toDate ? dateInput.toDate() : new Date(dateInput));
+      const d = typeof dateInput === 'string' 
+        ? (dateInput.includes('T') ? parseISO(dateInput) : new Date(dateInput))
+        : (dateInput.toDate ? dateInput.toDate() : new Date(dateInput));
+      
       return isValid(d) ? format(d, 'dd/MM/yyyy') : '---';
     } catch (e) { return '---'; }
   };
@@ -68,9 +80,9 @@ export default function ODLPrintTemplate({
 
   const styles = {
     page: {
-      width: "297mm",
+      width: "297mm", 
       height: "210mm",
-      padding: "5mm",
+      padding: "5mm", 
       backgroundColor: "white",
       color: "black",
       fontFamily: "'PT Sans', 'Calibri', sans-serif",
@@ -78,6 +90,7 @@ export default function ODLPrintTemplate({
       display: "flex",
       flexDirection: "column" as const,
       overflow: "hidden",
+      position: "relative" as const,
       pageBreakAfter: "always" as const,
     },
     masterTable: {
@@ -118,15 +131,8 @@ export default function ODLPrintTemplate({
         justifyContent: 'center',
         height: '100%',
         width: '100%',
-        padding: '2mm',
-        boxSizing: 'border-box' as const,
-    },
-    qrInner: {
-        backgroundColor: 'white',
         padding: '1mm',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        boxSizing: 'border-box' as const,
     },
     verificaGrid: {
         display: "flex",
@@ -139,13 +145,19 @@ export default function ODLPrintTemplate({
         borderRight: `1px solid ${config.colors.border}`,
     },
     valueLarge: {
-        fontSize: "12pt", // Slightly smaller but bold
+        fontSize: "12pt",
         fontWeight: "bold" as const,
     },
-    spacingRow: {
-        height: "3mm",
-        width: "100%",
-        backgroundColor: "white",
+    pageNumber: {
+        position: 'absolute' as const,
+        bottom: '5mm',
+        right: '5mm',
+        fontSize: '9pt',
+        fontWeight: 'bold' as const,
+        backgroundColor: '#000',
+        color: '#fff',
+        padding: '1mm 3mm',
+        borderRadius: '1mm',
     }
   };
 
@@ -164,30 +176,51 @@ export default function ODLPrintTemplate({
     };
   };
 
-  // NORMALIZED GRID: 10 Columns
-  const GRID_COLS = 10;
-  const colWidth = 100 / GRID_COLS;
-
   const activeHeaderCols = config.header.columns?.filter(c => c.visible) || [];
 
-  const renderHeader = () => {
+  const renderHeader = (isContinuation: boolean = false) => {
     const logoSrc = config.header.logoBase64 || config.header.logoUrl;
+    
+    // Minimalist header for continuation pages
+    if (isContinuation) {
+        return (
+            <div style={{ marginBottom: '2mm' }}>
+                <table style={{ ...styles.masterTable }}>
+                    <colgroup>
+                        <col width="15%" />
+                        <col width="50%" />
+                        <col width="35%" />
+                    </colgroup>
+                    <tbody>
+                        <tr>
+                            <td style={{ ...styles.cell, borderBottom: 0, padding: '1mm' }}>
+                                {logoSrc && <img src={logoSrc} alt="Logo" style={{ height: '8mm', objectFit: 'contain' }} />}
+                            </td>
+                            <td style={{ ...styles.cell, borderBottom: 0, backgroundColor: config.colors.primary, color: 'white', fontWeight: 'bold', fontSize: '10pt' }}>
+                                SCHEDA DI LAVORAZIONE - CONTINUAZIONE
+                            </td>
+                            <td style={{ ...styles.cell, borderBottom: 0, fontWeight: 'bold', fontSize: '10pt' }}>
+                                ODL: {job.numeroODLInterno || '---'} | PF: {job.ordinePF}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        );
+    }
 
     return (
       <div style={{ marginBottom: '3mm', position: 'relative' }}>
-        {/* Revision Info - Independent Top Right */}
-        {config.header.showRevInfo && (
-            <div style={{ 
-                position: 'absolute', 
-                top: '-2mm', 
-                right: '0', 
-                fontSize: '6pt', 
-                color: '#666',
-                fontStyle: 'italic'
-            }}>
-                {config.header.revText}
-            </div>
-        )}
+        <div style={{ 
+            position: 'absolute', 
+            top: '-4mm', 
+            right: '0', 
+            fontSize: '7pt', 
+            color: '#333',
+            fontWeight: 'bold'
+        }}>
+            {config.header.showRevInfo && <span>{config.header.revText}</span>}
+        </div>
 
         <table style={{ ...styles.masterTable }}>
             <colgroup>
@@ -222,7 +255,6 @@ export default function ODLPrintTemplate({
                             ))}
                           </colgroup>
                           <tbody>
-                            {/* HEADER LABELS */}
                             <tr style={{ backgroundColor: config.colors.headerBg }}>
                               {activeHeaderCols.map((col, idx) => (
                                 <td key={col.id} style={{ ...styles.cell, borderTop: 0, borderBottom: 0, borderLeft: idx === 0 ? 0 : `1px solid ${config.colors.border}`, borderRight: idx === activeHeaderCols.length - 1 ? 0 : `1px solid ${config.colors.border}`, fontSize: `${col.fontSize || config.typography.headerFontSize}pt` }}>
@@ -230,7 +262,6 @@ export default function ODLPrintTemplate({
                                 </td>
                               ))}
                             </tr>
-                            {/* HEADER VALUES */}
                             <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
                               {activeHeaderCols.map((col, idx) => {
                                 let val = '---';
@@ -272,18 +303,16 @@ export default function ODLPrintTemplate({
     );
   };
 
-  const renderJobDetails = () => {
+  const renderJobDetails = (showDrawingArea: boolean = true) => {
     const activeInfoCols = config.info.columns.filter(c => c.visible);
     const rowCount = activeInfoCols.length || 1;
     
-    // Label and Value widths from config. The rest for Drawing.
     const labelW = config.info.labelWidth || '15%';
     const valueW = config.info.valueWidth || '25%';
     
-    // Convert percentages to numbers to calculate remaining
     const lVal = parseFloat(labelW);
     const vVal = parseFloat(valueW);
-    const drawW = 100 - lVal - vVal; // Full remaining width 
+    const drawW = 100 - lVal - vVal;
 
     return (
       <div style={{ marginBottom: '3mm' }}>
@@ -299,21 +328,19 @@ export default function ODLPrintTemplate({
               if (col.field === 'cliente') val = job.cliente;
               if (col.field === 'details') val = job.details;
               if (col.field === 'qta') val = `${job.qta}`;
-              if (col.field === 'dataFinePreparazione') val = formatDateSafe(job.dataFinePreparazione || job.dataConsegnaFinale);
+              
+              if (col.field === 'dataFinePreparazione') val = formatDateSafe(job.dataFinePreparazione);
               if (col.field === 'dataConsegnaFinale') val = formatDateSafe(job.dataConsegnaFinale);
 
               return (
                 <tr key={col.id} style={{ height: '8.5mm' }}>
-                  {/* LABEL */}
                   <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
                       <div style={getCellFlexStyles()}>{col.label}</div>
                   </td>
-                  {/* VALUE */}
                   <td style={{ ...styles.cell, backgroundColor: col.colorKey ? (config.colors as any)[col.colorKey] : 'white', fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
                     <div style={getCellFlexStyles()}>{val}</div>
                   </td>
 
-                  {/* DRAWING / NOTES AREA */}
                   {idx === 0 && (
                     <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}`, height: config.layout.drawingAreaHeight || '40mm' }} rowSpan={rowCount}>
                       <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
@@ -340,12 +367,12 @@ export default function ODLPrintTemplate({
     );
   };
 
-  const renderSectionHeader = () => (
+  const renderSectionHeader = (typeStr: string, isContinuation: boolean = false) => (
     <table style={{ ...styles.masterTable, marginBottom: '0' }}>
       <tbody>
         <tr>
-          <td style={{ ...styles.cell, backgroundColor: config.colors.tableHeaderBg, color: config.colors.tableHeaderText, height: "6mm", border: `1.5px solid ${config.colors.border}` }}>
-            <div style={getCellFlexStyles()}>PREPARAZIONE COMPONENTI {config.layout.splitByCategoryThreshold < allItems.length ? "(CONTINUA)" : ""}</div>
+          <td style={{ ...styles.cell, backgroundColor: config.colors.tableHeaderBg, color: config.colors.tableHeaderText, height: "6mm", border: `1.5px solid ${config.colors.border}`, fontWeight: 'bold' }}>
+            <div style={getCellFlexStyles()}>PREPARAZIONE {typeStr.toUpperCase()} {isContinuation ? "(CONTINUA)" : ""}</div>
           </td>
         </tr>
       </tbody>
@@ -355,21 +382,14 @@ export default function ODLPrintTemplate({
   const renderTableRows = (items: any[], columnConfigs: any[], sectionType: 'treccia' | 'tubi' | 'guaina') => {
     if (items.length === 0) return null;
 
-    // Check if any item in this section has notes
     const hasAnyNote = items.some(item => item.note && item.note.trim() !== '');
-    
-    // Dynamic column balancing
     let visibleCols = columnConfigs.filter(c => c.visible);
     
-    // If NO notes in entire section, and 'note' column is selected, we hide it and expand others
     const noteColIndex = visibleCols.findIndex(c => c.field === 'note');
     if (!hasAnyNote && noteColIndex !== -1) {
         const removedWidthStr = visibleCols[noteColIndex].width;
         const removedWidth = parseFloat(removedWidthStr) || 0;
-        
         visibleCols = visibleCols.filter(c => c.field !== 'note');
-        
-        // Redistribute width (pro-rata expansion)
         if (visibleCols.length > 0 && removedWidth > 0 && removedWidthStr.includes('%')) {
             const extra = removedWidth / visibleCols.length;
             visibleCols = visibleCols.map(c => ({
@@ -403,7 +423,7 @@ export default function ODLPrintTemplate({
             const data: any = {
               codice: item.component,
               lunghezzaTaglio: item.lunghezzaTaglioMm || 0,
-              quantita: req.totalPieces, // Use total pieces as requested
+              quantita: req.totalPieces,
               pesoTotale: req.weightKg.toFixed(1),
               metriTotali: req.totalMeters?.toFixed(2) || '0.00',
               placeholder: '',
@@ -413,11 +433,10 @@ export default function ODLPrintTemplate({
             };
 
             return (
-              <tr key={`${sectionType}-${i}`} style={{ height: '9mm', backgroundColor: sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina }}>
+              <tr key={`${sectionType}-${i}`} style={{ height: '9.2mm', backgroundColor: sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina }}>
                 {visibleCols.map((col) => {
                   const isTempoPrevisto = col.field === 'tempoPrevisto';
                   const cellFontSize = col.fontSize || config.typography.baseFontSize;
-                  
                   if (isTempoPrevisto) {
                     if (i === 0) {
                       return (
@@ -433,10 +452,7 @@ export default function ODLPrintTemplate({
                     }
                     return null;
                   }
-
-                  // Conditional rendering for notes: only show if present
                   const displayValue = col.field === 'note' ? (data.note || '') : (data[col.field] ?? '---');
-
                   return (
                     <td key={col.id} style={{ ...styles.cell, fontSize: `${cellFontSize}pt` }}>
                       <div style={getCellFlexStyles(col)}>
@@ -456,7 +472,7 @@ export default function ODLPrintTemplate({
   };
 
   const renderFooter = () => (
-    <table style={{ ...styles.masterTable, marginTop: '3mm' }}>
+    <table style={{ ...styles.masterTable, marginTop: '2mm' }}>
       <tbody>
         <tr style={{ height: '10mm' }}>
           <td style={{ ...styles.cell, backgroundColor: config.colors.footerBg, color: config.colors.footerText, fontWeight: 'bold', padding: '2mm' }} colSpan={6}>
@@ -479,60 +495,145 @@ export default function ODLPrintTemplate({
     </table>
   );
 
-  const totalItemsRows = trecciaItems.length + tubiItems.length + guainaItems.length;
-  const shouldSplit = totalItemsRows > config.layout.splitByCategoryThreshold && (
-      (trecciaItems.length > 0 && tubiItems.length > 0) || 
-      (trecciaItems.length > 0 && guainaItems.length > 0) || 
-      (tubiItems.length > 0 && guainaItems.length > 0)
-  );
+  // --- PAGINATION LOGIC V2 ---
+  // --- DYNAMIC PAGINATION LOGIC (Smart Hybrid Strategy) ---
+  
+  type RenderBlock = 
+    | { type: 'category-header'; categoryName: string; sectionType: 'treccia' | 'tubi' | 'guaina'; isContinuation: boolean }
+    | { type: 'item-row'; item: any; sectionType: 'treccia' | 'tubi' | 'guaina'; colConfig: any[] };
 
-  if (shouldSplit) {
-    return (
-      <div id="odl-pdf-pages" style={{ width: '297mm' }}>
-        {trecciaItems.length > 0 && (
-          <div className="odl-page" style={styles.page}>
-              {renderHeader()}
-              {renderJobDetails()}
-              {renderSectionHeader()}
-              {renderTableRows(trecciaItems, config.columns.treccia, 'treccia')}
-              {renderFooter()}
-          </div>
-        )}
-        {tubiItems.length > 0 && (
-          <div className="odl-page" style={styles.page}>
-              {renderHeader()}
-              {renderJobDetails()}
-              {renderSectionHeader()}
-              {renderTableRows(tubiItems, config.columns.tubi, 'tubi')}
-              {renderFooter()}
-          </div>
-        )}
-        {guainaItems.length > 0 && (
-          <div className="odl-page" style={styles.page}>
-              {renderHeader()}
-              {renderJobDetails()}
-              {renderSectionHeader()}
-              {renderTableRows(guainaItems, config.columns.guaina, 'guaina')}
-              {renderFooter()}
-          </div>
-        )}
-      </div>
-    );
+  const allBlocks: RenderBlock[] = [];
+  const trecciaCount = trecciaItems.length;
+  const tubiCount = tubiItems.length;
+  const guainaCount = guainaItems.length;
+  const totalRows = trecciaCount + tubiCount + guainaCount;
+
+  // Rule: Small orders fit on one page. Large orders separate by category.
+  const STRATEGY = totalRows <= 7 ? 'UNIFIED' : 'ORGANIZED';
+
+  const addCategoryToBlocks = (items: any[], categoryName: string, sectionType: 'treccia' | 'tubi' | 'guaina', colConfig: any[]) => {
+    if (items.length === 0) return;
+    allBlocks.push({ type: 'category-header', categoryName, sectionType, isContinuation: false });
+    items.forEach(item => {
+      allBlocks.push({ type: 'item-row', item, sectionType, colConfig });
+    });
+  };
+
+  addCategoryToBlocks(trecciaItems, 'Componenti Treccia/Corda', 'treccia', config.columns.treccia);
+  addCategoryToBlocks(tubiItems, 'Componenti Tubi', 'tubi', config.columns.tubi);
+  addCategoryToBlocks(guainaItems, 'Componenti Guaina', 'guaina', config.columns.guaina);
+
+  // Pagination Constants
+  const FIRST_PAGE_ROW_LIMIT = 7;
+  const SUBSEQUENT_PAGE_ROW_LIMIT = 17;
+
+  const pages: RenderBlock[][] = [];
+  let currentPage: RenderBlock[] = [];
+  let currentRowCount = 0;
+  let isFirstPage = true;
+
+  allBlocks.forEach((block) => {
+    const limit = isFirstPage ? FIRST_PAGE_ROW_LIMIT : SUBSEQUENT_PAGE_ROW_LIMIT;
+    let shouldBreak = currentRowCount >= limit;
+
+    // STRATEGY: ORGANIZED -> Force break before category header (except first)
+    if (STRATEGY === 'ORGANIZED' && block.type === 'category-header' && !block.isContinuation && allBlocks.indexOf(block) > 0) {
+        shouldBreak = true;
+    }
+    
+    if (shouldBreak) {
+        if (currentPage.length > 0) {
+            pages.push(currentPage);
+        }
+        currentPage = [];
+        currentRowCount = 0;
+        isFirstPage = false;
+
+        // Continuation logic: if we broke on a row, add the header on the new page
+        if (block.type === 'item-row') {
+            currentPage.push({ 
+                type: 'category-header', 
+                categoryName: block.sectionType === 'treccia' ? 'Componenti Treccia/Corda' : block.sectionType === 'tubi' ? 'Componenti Tubi' : 'Componenti Guaina', 
+                sectionType: block.sectionType, 
+                isContinuation: true 
+            });
+            currentRowCount++;
+        }
+    }
+
+    currentPage.push(block);
+    currentRowCount++;
+  });
+
+  if (currentPage.length > 0) {
+    pages.push(currentPage);
+  }
+
+  // Fallback for empty BOM
+  if (pages.length === 0) {
+    pages.push([{ type: 'category-header', categoryName: 'Distinta Base', sectionType: 'treccia', isContinuation: false }]);
   }
 
   return (
     <div id="odl-pdf-pages" style={{ width: '297mm' }}>
-      <div className="odl-page" style={styles.page}>
-          {renderHeader()}
-          {renderJobDetails()}
-          {renderSectionHeader()}
-          {renderTableRows(trecciaItems, config.columns.treccia, 'treccia')}
-          {trecciaItems.length > 0 && (tubiItems.length > 0 || guainaItems.length > 0) && <div style={styles.spacingRow}></div>}
-          {renderTableRows(tubiItems, config.columns.tubi, 'tubi')}
-          {tubiItems.length > 0 && guainaItems.length > 0 && <div style={styles.spacingRow}></div>}
-          {renderTableRows(guainaItems, config.columns.guaina, 'guaina')}
-          {renderFooter()}
-      </div>
+      {pages.map((pageBlocks, idx) => {
+        const isFirstPageOfDoc = idx === 0;
+        const isLastPageOfDoc = idx === pages.length - 1;
+
+        return (
+          <div key={idx} className="odl-page" style={styles.page}>
+             {renderHeader(!isFirstPageOfDoc)}
+             {isFirstPageOfDoc && renderJobDetails(true)}
+             
+             <div style={{ flex: 1 }}>
+                {/* Render the stream of blocks for this page with grouping for tables */}
+                {(() => {
+                    const elements: React.ReactNode[] = [];
+                    let currentTableRows: any[] = [];
+                    let currentTableConfig: any[] = [];
+                    let currentTableType: 'treccia' | 'tubi' | 'guaina' | null = null;
+
+                    const flushTable = () => {
+                        if (currentTableRows.length > 0 && currentTableType) {
+                            const tableEl = renderTableRows(currentTableRows, currentTableConfig, currentTableType);
+                            if (tableEl) {
+                                elements.push(React.cloneElement(tableEl as React.ReactElement, { key: `table-${elements.length}` }));
+                            }
+                            currentTableRows = [];
+                            currentTableType = null;
+                        }
+                    };
+
+                    pageBlocks.forEach((block, bIdx) => {
+                        if (block.type === 'category-header') {
+                            flushTable();
+                            const headerEl = renderSectionHeader(block.categoryName, block.isContinuation);
+                            if (headerEl) {
+                                elements.push(React.cloneElement(headerEl as React.ReactElement, { key: `header-${bIdx}` }));
+                            }
+                        } else {
+                            if (currentTableType && currentTableType !== block.sectionType) {
+                                flushTable();
+                            }
+                            currentTableType = block.sectionType as any;
+                            currentTableConfig = block.colConfig;
+                            currentTableRows.push(block.item);
+                        }
+                    });
+                    flushTable();
+                    return elements;
+                })()}
+             </div>
+
+             {isLastPageOfDoc && renderFooter()}
+             
+             {/* Bottom Right Page Numbering (X/Y of Total) */}
+             <div style={styles.pageNumber}>
+                 PAGINA {idx + 1} DI {pages.length}
+             </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

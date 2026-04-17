@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { QrCode, Loader2, Weight, Archive, Send, Barcode, Play, Camera, AlertTriangle, Boxes, Info, X, Lock } from 'lucide-react';
+import { QrCode, Loader2, Weight, Archive, Send, Barcode, Play, Camera, AlertTriangle, Boxes, Info, X, Lock, ClipboardList } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
@@ -90,6 +90,12 @@ export default function MaterialAssociationDialog({
   const lottoValue = form.watch('lotto');
   const isBobina = useMemo(() => (phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0') && selectedMaterial?.unitOfMeasure !== 'n', [phase.name, selectedMaterial]);
 
+  const bomRequirement = useMemo(() => {
+    if (!selectedMaterial || !job?.billOfMaterials) return 0;
+    const item = job.billOfMaterials.find(i => i.component?.toUpperCase() === selectedMaterial.code?.toUpperCase());
+    return item?.fabbisognoTotale || 0;
+  }, [selectedMaterial, job?.billOfMaterials]);
+
   const {
       isLoading: isLoadingMetadata,
       lotAvailability,
@@ -101,11 +107,23 @@ export default function MaterialAssociationDialog({
       materialId: selectedMaterial?.id,
       quantityFieldName: isBobina ? 'openingWeightManual' : 'quantityToWithdraw',
       packagingFieldName: 'packagingId',
-      autoFillQuantity: selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg'
+      autoFillQuantity: (selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg') // Only auto-fill for Kg (scale weight)
   });
 
   const isKgMode = selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
   const effectiveNet = (calculatedNet > 0) ? calculatedNet : (lotAvailability?.available || 0);
+
+  // Split-Picking Pre-fill Logic (Non-KG Mode)
+  useEffect(() => {
+    if (!isKgMode && lotAvailability && !isBobina) {
+        const currentQty = form.getValues('quantityToWithdraw');
+        if (!currentQty) {
+            // Suggest MIN(LotAvailable, BOMRequirement)
+            const suggest = bomRequirement > 0 ? Math.min(lotAvailability.available, bomRequirement) : lotAvailability.available;
+            form.setValue('quantityToWithdraw', Number(suggest.toFixed(3)));
+        }
+    }
+  }, [lotAvailability, bomRequirement, isKgMode, isBobina, form]);
 
   const handleScanTrigger = (type: ScanType) => {
     setScanType(type);
@@ -343,32 +361,53 @@ export default function MaterialAssociationDialog({
                           </div>
                       </div>
 
-                       {/* Ferrous Rule 1: Transparency Panel for KG */}
-                      {isKgMode && lotAvailability && (
-                          <div className="p-3 border-2 border-orange-500/20 bg-orange-500/5 rounded-xl space-y-2 animate-in slide-in-from-top-2">
-                              <div className="flex justify-between items-center text-[10px] uppercase font-black text-orange-700/70 mb-1">
-                                  <span>Trasparenza Peso (KG)</span>
-                                  <Info className="h-3 w-3" />
-                              </div>
-                              <div className="grid grid-cols-3 gap-2 text-center">
-                                  <div>
-                                      <p className="text-[8px] font-bold text-muted-foreground uppercase leading-none mb-1">Netto</p>
-                                      <p className="text-xs font-black">{effectiveNet.toFixed(3)}</p>
-                                  </div>
-                                  <div>
-                                      <p className="text-[8px] font-bold text-muted-foreground uppercase leading-none mb-1">Tara</p>
-                                      <p className={cn("text-xs font-black", isFixedTare ? "text-primary" : "text-orange-600")}>
-                                          {isFixedTare && <Lock className="inline-block h-2 w-2 mr-0.5 mb-0.5" />}
-                                          +{tare.toFixed(3)}
-                                      </p>
-                                  </div>
-                                  <div className="bg-orange-500/10 rounded py-1">
-                                      <p className="text-[8px] font-bold text-orange-700 uppercase leading-none mb-1">Lordo (Input)</p>
-                                      <p className="text-xs font-black text-orange-700">{(Number(form.watch(isBobina ? 'openingWeightManual' : 'quantityToWithdraw')) || 0).toFixed(3)}</p>
-                                  </div>
-                              </div>
-                          </div>
-                      )}
+                           {/* Split-Picking Hint Panel */}
+                           {selectedMaterial && (
+                               <div className="p-3 border rounded-xl bg-primary/5 border-primary/10 flex flex-col gap-1">
+                                   <div className="flex justify-between items-center text-[10px] font-black uppercase text-primary/70">
+                                       <div className="flex items-center gap-1"><ClipboardList className="h-3 w-3" /> Fabbisogno BOM</div>
+                                       <span>{isKgMode ? 'KG Stimati' : 'Pezzi/MT'}</span>
+                                   </div>
+                                   <div className="flex justify-between items-end">
+                                       <p className="text-lg font-black tracking-tighter">
+                                           {bomRequirement > 0 ? formatDisplayStock(bomRequirement, selectedMaterial.unitOfMeasure) : 'N/D'}
+                                       </p>
+                                       <Badge variant={bomRequirement > 0 ? "secondary" : "outline"} className="text-[8px] h-4 font-black">
+                                           {bomRequirement > 0 ? 'RIFERIMENTO' : 'NON DEFINITO'}
+                                       </Badge>
+                                   </div>
+                                   <p className="text-[9px] text-muted-foreground italic leading-tight mt-1">
+                                       La riga BOM verrà smarcata al primo prelievo. Scarichi successivi sono permessi liberamente.
+                                   </p>
+                               </div>
+                           )}
+
+                           {/* Ferrous Rule 1: Transparency Panel for KG */}
+                           {isKgMode && lotAvailability && (
+                               <div className="p-3 border-2 border-orange-500/20 bg-orange-500/5 rounded-xl space-y-2 animate-in slide-in-from-top-2">
+                                   <div className="flex justify-between items-center text-[10px] uppercase font-black text-orange-700/70 mb-1">
+                                       <span>Trasparenza Peso (KG)</span>
+                                       <Info className="h-3 w-3" />
+                                   </div>
+                                   <div className="grid grid-cols-3 gap-2 text-center">
+                                       <div>
+                                           <p className="text-[8px] font-bold text-muted-foreground uppercase leading-none mb-1">Netto</p>
+                                           <p className="text-xs font-black">{effectiveNet.toFixed(3)}</p>
+                                       </div>
+                                       <div>
+                                           <p className="text-[8px] font-bold text-muted-foreground uppercase leading-none mb-1">Tara</p>
+                                           <p className={cn("text-xs font-black", isFixedTare ? "text-primary" : "text-orange-600")}>
+                                               {isFixedTare && <Lock className="inline-block h-2 w-2 mr-0.5 mb-0.5" />}
+                                               +{tare.toFixed(3)}
+                                           </p>
+                                       </div>
+                                       <div className="bg-orange-500/10 rounded py-1">
+                                           <p className="text-[8px] font-bold text-orange-700 uppercase leading-none mb-1">Lordo (Input)</p>
+                                           <p className="text-xs font-black text-orange-700">{(Number(form.watch(isBobina ? 'openingWeightManual' : 'quantityToWithdraw')) || 0).toFixed(3)}</p>
+                                       </div>
+                                   </div>
+                               </div>
+                           )}
 
                   </div>
               ) : <Alert className="border-primary/20 bg-primary/5 text-primary"><AlertDescription className="font-bold text-xs uppercase">Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}

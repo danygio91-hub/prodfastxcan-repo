@@ -52,9 +52,11 @@ export async function getArticles(searchTerm?: string, lastCode?: string, limitC
 
 export async function saveArticle(data: any): Promise<{ success: boolean; message: string; }> {
     try {
-        // Filter out empty components before validation to allow partial forms
+        // Filter out empty components before validation to allow partial forms and ensure uppercase
         if (data.billOfMaterials && Array.isArray(data.billOfMaterials)) {
-            data.billOfMaterials = data.billOfMaterials.filter((item: any) => item.component && item.component.trim() !== '');
+            data.billOfMaterials = data.billOfMaterials
+                .filter((item: any) => item.component && item.component.trim() !== '')
+                .map((item: any) => ({ ...item, component: item.component.toUpperCase().trim() }));
         }
 
         const validatedFields = articleSchema.safeParse(data);
@@ -162,7 +164,12 @@ export async function deleteArticle(id: string): Promise<{ success: boolean; mes
 
 export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
     const allImportedComponents = new Set<string>();
-    articles.forEach(art => art.billOfMaterials?.forEach(item => { if (item.component) allImportedComponents.add(item.component.toUpperCase()) }));
+    articles.forEach(art => art.billOfMaterials?.forEach(item => { 
+        if (item.component) {
+            item.component = item.component.toUpperCase().trim();
+            allImportedComponents.add(item.component);
+        }
+    }));
     const uniqueComponents = [...allImportedComponents];
     
     const validCodes = new Set<string>();
@@ -211,8 +218,13 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
 export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
     const batch = adminDb.batch();
     articles.forEach(art => {
-        const id = art.code.toUpperCase();
-        batch.set(adminDb.collection('articles').doc(id), { ...art, id, code: id }, { merge: true });
+        const id = art.code.toUpperCase().trim();
+        // Ensure BOM components are uppercase
+        const normalizedBOM = (art.billOfMaterials || []).map(item => ({
+            ...item,
+            component: item.component.toUpperCase().trim()
+        }));
+        batch.set(adminDb.collection('articles').doc(id), { ...art, id, code: id, billOfMaterials: normalizedBOM }, { merge: true });
     });
     await batch.commit();
     revalidatePath('/admin/article-management');
