@@ -135,7 +135,6 @@ export interface JobOrder {
   hasAnomaly?: boolean;
   anomalyType?: string;
   anomalyNote?: string;
-  dataConsegnaCliente?: string;
   dataFinePreparazione?: string;
   macroArea?: MacroArea;
   createdAt?: any;

@@ -38,7 +38,6 @@ const MOCK_JOB = {
     { component: 'TUBO-SIL-DN10', quantity: 1, lunghezzaTaglioMm: 0, note: 'INSERIRE BOCCOLA' },
     { component: 'GUAINA-TERM-12', quantity: 0.5, lunghezzaTaglioMm: 120 },
   ],
-  dataConsegnaCliente: new Date(Date.now() + 86400000 * 7).toISOString(), // +7 days
 };
 
 const MOCK_ARTICLE = {
@@ -99,10 +98,15 @@ export default function ODLDesignerPage() {
 
       // Migration: Ensure new fields are added to existing configs if missing
       if (finalConfig && finalConfig.info && finalConfig.info.columns) {
-        const hasClienteDeliv = finalConfig.info.columns.some(c => c.field === 'dataConsegnaCliente');
-        if (!hasClienteDeliv) {
-          const prepDateIdx = finalConfig.info.columns.findIndex(c => c.field === 'dataConsegnaFinale');
-          const newCol = { id: `i${Date.now()}`, label: 'DATA CONSEGNA FINALE', field: 'dataConsegnaCliente', visible: true, colorKey: 'bgValueYellow' };
+        // First convert any legacy dataConsegnaCliente to dataConsegnaFinale
+        finalConfig.info.columns.forEach(c => {
+          if (c.field === 'dataConsegnaCliente') c.field = 'dataConsegnaFinale';
+        });
+
+        const hasDelivDate = finalConfig.info.columns.some(c => c.field === 'dataConsegnaFinale');
+        if (!hasDelivDate) {
+          const prepDateIdx = finalConfig.info.columns.findIndex(c => c.field === 'dataFinePreparazione');
+          const newCol = { id: `i${Date.now()}`, label: 'DATA CONSEGNA FINALE', field: 'dataConsegnaFinale', visible: true, colorKey: 'bgValueYellow' };
           if (prepDateIdx !== -1) {
             finalConfig.info.columns.splice(prepDateIdx + 1, 0, newCol);
           } else {

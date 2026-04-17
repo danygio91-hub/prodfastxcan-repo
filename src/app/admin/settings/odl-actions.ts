@@ -10,7 +10,9 @@ export async function getODLConfig(): Promise<ODLConfig> {
     if (!doc.exists) {
       return DEFAULT_ODL_CONFIG;
     }
-    return { ...DEFAULT_ODL_CONFIG, ...doc.data() } as ODLConfig;
+    const config = { ...DEFAULT_ODL_CONFIG, ...doc.data() } as ODLConfig;
+    
+    return config;
   } catch (error) {
     console.error("Error fetching ODL config:", error);
     return DEFAULT_ODL_CONFIG;

@@ -30,8 +30,7 @@ export default function ODLPrintTemplate({
     numeroODL: job.numeroODL,
     ordinePF: job.ordinePF,
     dataFinePreparazione: job.dataFinePreparazione,
-    dataConsegnaFinale: job.dataConsegnaFinale,
-    dataConsegnaCliente: job.dataConsegnaCliente
+    dataConsegnaFinale: job.dataConsegnaFinale
   });
 
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
@@ -304,15 +303,28 @@ export default function ODLPrintTemplate({
   };
 
   const renderJobDetails = (showDrawingArea: boolean = true) => {
-    const activeInfoCols = config.info.columns.filter(c => c.visible);
-    const rowCount = activeInfoCols.length || 1;
+    // Filter out date fields from the dynamic columns to avoid duplicates or mapping errors
+    const dynamicInfoCols = config.info.columns.filter(c => 
+        c.visible && 
+        c.field !== 'dataFinePreparazione' && 
+        c.field !== 'dataConsegnaFinale' &&
+        c.field !== 'dataConsegnaCliente' &&
+        !c.label.toUpperCase().includes('FINE PREPARAZIONE') &&
+        !c.label.toUpperCase().includes('CONSEGNA FINALE')
+    );
+
+    // Final total rows = dynamic rows + 2 hardcoded date rows
+    const rowCount = dynamicInfoCols.length + 2;
     
     const labelW = config.info.labelWidth || '15%';
     const valueW = config.info.valueWidth || '25%';
-    
-    const lVal = parseFloat(labelW);
-    const vVal = parseFloat(valueW);
-    const drawW = 100 - lVal - vVal;
+    const drawW = 100 - parseFloat(labelW) - parseFloat(valueW);
+
+    // Hardcoded row definitions for Dates
+    const dateRows = [
+        { label: 'DATA FINE PREPARAZIONE MATERIALE', value: job.dataFinePreparazione, colorKey: 'bgValueYellow' },
+        { label: 'DATA CONSEGNA FINALE', value: job.dataConsegnaFinale, colorKey: 'bgValueYellow' }
+    ];
 
     return (
       <div style={{ marginBottom: '3mm' }}>
@@ -323,14 +335,12 @@ export default function ODLPrintTemplate({
               <col width={`${drawW}%`} />
           </colgroup>
           <tbody>
-            {(activeInfoCols.length > 0 ? activeInfoCols : [{ id: 'empty', label: '-', field: '', visible: true }]).map((col, idx) => {
+            {/* 1. Dynamic Info Rows (ONLY Cliente, Articolo, Qtà... NO DATES) */}
+            {dynamicInfoCols.map((col, idx) => {
               let val = '---';
-              if (col.field === 'cliente') val = job.cliente;
-              if (col.field === 'details') val = job.details;
-              if (col.field === 'qta') val = `${job.qta}`;
-              
-              if (col.field === 'dataFinePreparazione') val = formatDateSafe(job.dataFinePreparazione);
-              if (col.field === 'dataConsegnaFinale') val = formatDateSafe(job.dataConsegnaFinale);
+              if (col.field === 'cliente') val = job.cliente || '---';
+              if (col.field === 'details') val = job.details || '---';
+              if (col.field === 'qta') val = `${job.qta || 0}`;
 
               return (
                 <tr key={col.id} style={{ height: '8.5mm' }}>
@@ -361,6 +371,34 @@ export default function ODLPrintTemplate({
                 </tr>
               );
             })}
+
+            {/* 2. MANUAL HARD-WIRED DATE BOX 1: PREPARAZIONE */}
+            <tr key="manual-row-prep" style={{ height: '8.5mm' }}>
+                <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
+                    <div style={getCellFlexStyles()}>DATA FINE PREPARAZIONE MATERIALE</div>
+                </td>
+                <td style={{ ...styles.cell, backgroundColor: config.colors.bgValueYellow, fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
+                    <div style={getCellFlexStyles()}>{formatDateSafe(job.dataFinePreparazione)}</div>
+                </td>
+                {/* Fallback for drawing area rowSpan if no dynamic rows exist */}
+                {dynamicInfoCols.length === 0 && (
+                    <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}`, height: config.layout.drawingAreaHeight || '40mm' }} rowSpan={rowCount}>
+                        <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
+                            <div>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
+                        </div>
+                    </td>
+                )}
+            </tr>
+
+            {/* 3. MANUAL HARD-WIRED DATE BOX 2: CONSEGNA FINALE */}
+            <tr key="manual-row-delivery" style={{ height: '8.5mm' }}>
+                <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
+                    <div style={getCellFlexStyles()}>DATA CONSEGNA FINALE</div>
+                </td>
+                <td style={{ ...styles.cell, backgroundColor: config.colors.bgValueYellow, fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
+                    <div style={getCellFlexStyles()}>{formatDateSafe(job.dataConsegnaFinale)}</div>
+                </td>
+            </tr>
           </tbody>
         </table>
       </div>
