@@ -11,7 +11,9 @@ import {
     RefreshCcw, 
     LayoutGrid, 
     Settings2, 
-    Zap
+    Zap,
+    Download,
+    FileSpreadsheet
 } from 'lucide-react';
 import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -38,8 +40,23 @@ import {
 } from './weekly-actions';
 import { updateJobDeliveryDate, updateJobDepartment, forceCloseAndExclude } from './actions';
 import MassiveAllocationDialog from './MassiveAllocationDialog';
+import QuickJobOrderDialog from './QuickJobOrderDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { 
+    DropdownMenu, 
+    DropdownMenuContent, 
+    DropdownMenuGroup, 
+    DropdownMenuItem, 
+    DropdownMenuLabel, 
+    DropdownMenuSeparator, 
+    DropdownMenuTrigger,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+    DropdownMenuPortal
+} from "@/components/ui/dropdown-menu";
 import { calculateMRPTimelines } from '@/lib/mrp-utils';
+import { exportPlanningToExcel } from '@/lib/excel-export';
 
 
 
@@ -54,6 +71,7 @@ export default function ResourcePlanningClientPage() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [activeView, setActiveView] = useState<'board' | 'console'>('board');
     const [isBacklogOpen, setIsBacklogOpen] = useState(false);
+    const [quickViewJob, setQuickViewJob] = useState<any | null>(null);
     
     const { 
         operators: cachedOperators, 
@@ -386,7 +404,56 @@ export default function ResourcePlanningClientPage() {
         });
     };
 
-    if (loading && !boardData.jobOrders.length && !boardData.unassignedJobs.length) return (
+    const handleExport = (scope: 'current' | 'next' | 'both', deptIds: string[] | 'ALL') => {
+        const nextWeekDate = addWeeks(currentDate, 1);
+        
+        const filteredJobs = boardData.jobOrders.filter(job => {
+            const jobDate = parseISO(job.dataConsegnaFinale);
+            const isInCurrent = isSameWeek(jobDate, currentDate, { weekStartsOn: 1 });
+            const isInNext = isSameWeek(jobDate, nextWeekDate, { weekStartsOn: 1 });
+            
+            let matchesWeek = false;
+            if (scope === 'current') matchesWeek = isInCurrent;
+            else if (scope === 'next') matchesWeek = isInNext;
+            else if (scope === 'both') matchesWeek = isInCurrent || isInNext;
+            
+            if (!matchesWeek) return false;
+            if (deptIds === 'ALL') return true;
+            
+            // Filtro Reparto/Macroarea
+            return deptIds.some(dId => {
+                if (dId === 'PREP') return true; // Tutte le commesse della settimana hanno prep
+                if (dId === 'PACK') return true; // Tutte le commesse della settimana hanno pack
+                
+                // Reparti Core: controlliamo il job.department
+                const targetDept = cachedDepartments.find(d => d.id === dId);
+                const jobDept = job.department?.toUpperCase() || '';
+                const dCode = targetDept?.code?.toUpperCase() || '';
+                const dName = targetDept?.name?.toUpperCase() || '';
+                const dIdUpper = dId.toUpperCase();
+                
+                return jobDept === dIdUpper || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
+            });
+        });
+
+        if (filteredJobs.length === 0) {
+            toast({ title: "Nessun dato", description: "Non ci sono commesse pianificate per i criteri selezionati.", variant: "destructive" });
+            return;
+        }
+
+        const macroAreaLabel = deptIds === 'ALL' ? 'Tutti' : (deptIds.length > 1 ? 'PRODUZIONE' : deptIds[0]);
+        const weekLabel = scope === 'current' ? `Sett_${currentWeek}` : (scope === 'next' ? `Sett_${getWeek(nextWeekDate, { weekStartsOn: 1 })}` : 'Sett_Combo');
+
+        exportPlanningToExcel(
+            filteredJobs, 
+            deptIds.includes('PREP') ? 'PREP' : (deptIds.includes('PACK') ? 'PACK' : 'CORE'),
+            weekLabel
+        );
+        
+        toast({ title: "Report Generato", description: `Scaricamento del report per ${macroAreaLabel} in corso...` });
+    };
+
+    if (loading && !isRefreshing && !boardData.jobOrders.length && !boardData.unassignedJobs.length) return (
         <div className="flex flex-col items-center justify-center p-24 space-y-4 h-[60vh]">
             <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
             <p className="text-sm font-black uppercase tracking-widest text-slate-400 animate-pulse">Accessing Weekly Capacity Grid...</p>
@@ -477,6 +544,82 @@ export default function ResourcePlanningClientPage() {
                             </Button>
                         </div>
 
+                        {/* EXPORT REPORT */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button 
+                                    variant="outline" 
+                                    className="h-12 px-6 rounded-xl bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 transition-all font-black text-[11px] uppercase tracking-widest gap-2 shadow-lg border border-slate-700 shrink-0"
+                                >
+                                    <Download className="h-4 w-4" />
+                                    Esporta Report
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-64 bg-slate-900 border-slate-800 text-slate-200">
+                                <DropdownMenuLabel className="text-blue-400 uppercase tracking-tighter font-black">Scarica Report Excel</DropdownMenuLabel>
+                                <DropdownMenuSeparator className="bg-slate-800" />
+                                
+                                {/* SETTIMANA CORRENTE */}
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger className="focus:bg-slate-800">
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        <span>Settimana Corrente</span>
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuPortal>
+                                        <DropdownMenuSubContent className="bg-slate-900 border-slate-800 text-slate-200">
+                                            <DropdownMenuItem className="focus:bg-blue-600 focus:text-white" onClick={() => handleExport('current', ['PREP'])}>PREPARAZIONE</DropdownMenuItem>
+                                            <DropdownMenuSeparator className="bg-slate-800" />
+                                            {cachedDepartments.filter(d => d.macroAreas?.includes('PRODUZIONE')).map(d => (
+                                                <DropdownMenuItem key={d.id} className="focus:bg-blue-600 focus:text-white" onClick={() => handleExport('current', [d.id])}>
+                                                    REPARTO: {d.name}
+                                                </DropdownMenuItem>
+                                            ))}
+                                            <DropdownMenuSeparator className="bg-slate-800" />
+                                            <DropdownMenuItem className="focus:bg-blue-600 focus:text-white" onClick={() => handleExport('current', ['PACK'])}>QUALITÀ & IMBALLO</DropdownMenuItem>
+                                        </DropdownMenuSubContent>
+                                    </DropdownMenuPortal>
+                                </DropdownMenuSub>
+
+                                {/* SETTIMANA PROSSIMA */}
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger className="focus:bg-slate-800">
+                                        <CalendarIcon className="mr-2 h-4 w-4 opacity-70" />
+                                        <span>Settimana Prossima</span>
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuPortal>
+                                        <DropdownMenuSubContent className="bg-slate-900 border-slate-800 text-slate-200">
+                                            <DropdownMenuItem className="focus:bg-blue-600 focus:text-white" onClick={() => handleExport('next', ['PREP'])}>PREPARAZIONE</DropdownMenuItem>
+                                            <DropdownMenuSeparator className="bg-slate-800" />
+                                            {cachedDepartments.filter(d => d.macroAreas?.includes('PRODUZIONE')).map(d => (
+                                                <DropdownMenuItem key={d.id} className="focus:bg-blue-600 focus:text-white" onClick={() => handleExport('next', [d.id])}>
+                                                    REPARTO: {d.name}
+                                                </DropdownMenuItem>
+                                            ))}
+                                            <DropdownMenuSeparator className="bg-slate-800" />
+                                            <DropdownMenuItem className="focus:bg-blue-600 focus:text-white" onClick={() => handleExport('next', ['PACK'])}>QUALITÀ & IMBALLO</DropdownMenuItem>
+                                        </DropdownMenuSubContent>
+                                    </DropdownMenuPortal>
+                                </DropdownMenuSub>
+
+                                <DropdownMenuSeparator className="bg-slate-800" />
+                                
+                                {/* ENTRAMBE LE SETTIMANE (Macroaree) */}
+                                <DropdownMenuLabel className="text-[10px] text-slate-500 uppercase py-2 px-2 font-black tracking-widest">Due Settimane Combinate</DropdownMenuLabel>
+                                <DropdownMenuItem className="focus:bg-amber-600 focus:text-white" onClick={() => handleExport('both', ['PREP'])}>
+                                    <FileSpreadsheet className="mr-2 h-4 w-4 text-amber-500" />
+                                    PREPARAZIONE (Totale)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="focus:bg-blue-600 focus:text-white" onClick={() => handleExport('both', cachedDepartments.filter(d => d.macroAreas?.includes('PRODUZIONE')).map(d => d.id))}>
+                                    <FileSpreadsheet className="mr-2 h-4 w-4 text-blue-500" />
+                                    PRODUZIONE (Totale)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="focus:bg-emerald-600 focus:text-white" onClick={() => handleExport('both', ['PACK'])}>
+                                    <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-500" />
+                                    QUALITÀ & IMBALLO (Totale)
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+
                         <Button 
                             variant="outline" 
                             size="icon"
@@ -512,6 +655,7 @@ export default function ResourcePlanningClientPage() {
                                 setIsLoanDialogOpen(true);
                             }}
                             onJobClick={(jobId, macroArea) => handleRequestAssignment(jobId, undefined, undefined, macroArea)}
+                            onQuickView={(job) => setQuickViewJob(job)}
                             rawMaterials={boardData.rawMaterials || []}
                             mrpTimelines={mrpTimelines}
                             globalSettings={boardData.globalSettings}
@@ -600,6 +744,13 @@ export default function ResourcePlanningClientPage() {
                         </AlertDialogContent>
                     </AlertDialog>
                 )}
+
+                <QuickJobOrderDialog 
+                    isOpen={!!quickViewJob}
+                    onClose={() => setQuickViewJob(null)}
+                    job={quickViewJob}
+                    onActionSuccess={() => loadData(true)}
+                />
             </div>
     );
 }

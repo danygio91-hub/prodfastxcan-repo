@@ -10,7 +10,12 @@ export async function getODLConfig(): Promise<ODLConfig> {
     if (!doc.exists) {
       return DEFAULT_ODL_CONFIG;
     }
-    const config = { ...DEFAULT_ODL_CONFIG, ...doc.data() } as ODLConfig;
+    const data = doc.data();
+    const config = { 
+      ...DEFAULT_ODL_CONFIG, 
+      ...data,
+      colors: { ...DEFAULT_ODL_CONFIG.colors, ...(data?.colors || {}) } 
+    } as ODLConfig;
     
     return config;
   } catch (error) {

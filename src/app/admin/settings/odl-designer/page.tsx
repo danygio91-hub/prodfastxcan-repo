@@ -31,6 +31,7 @@ const MOCK_JOB = {
   numeroODLInterno: 'ODL-2024-999',
   department: 'CP - CONNESSIONE PICCOLE',
   qta: 150,
+  dataFinePreparazione: new Date(Date.now() - 86400000 * 5).toISOString(), // 5 days ago
   dataConsegnaFinale: new Date().toISOString(),
   billOfMaterials: [
     { component: 'TRECCIA-CO-10', quantity: 2.5, lunghezzaTaglioMm: 450, note: 'ATTENZIONE: TAGLIO A 45°' },
@@ -457,6 +458,9 @@ export default function ODLDesignerPage() {
                                         <SelectItem value="white">Bianco</SelectItem>
                                         <SelectItem value="bgValueGreen">Verde</SelectItem>
                                         <SelectItem value="bgValueYellow">Giallo</SelectItem>
+                                        <SelectItem value="bgValueRed">Rosso</SelectItem>
+                                        <SelectItem value="bgValueBlue">Blu</SelectItem>
+                                        <SelectItem value="bgValueGray">Grigio</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -738,6 +742,24 @@ export default function ODLDesignerPage() {
                       </div>
                   </div>
               </div>
+
+               <div className="space-y-4 p-5 border rounded-2xl bg-gray-50/70 shadow-sm border-dashed border-blue-300">
+                  <Label className="text-sm font-black text-blue-800 uppercase italic">Sfondi Campi Informazioni</Label>
+                  <div className="grid grid-cols-5 gap-3">
+                     {[
+                        { key: 'bgValueGreen', label: 'Verde' },
+                        { key: 'bgValueYellow', label: 'Giallo' },
+                        { key: 'bgValueRed', label: 'Rosso' },
+                        { key: 'bgValueBlue', label: 'Blu' },
+                        { key: 'bgValueGray', label: 'Grigio' },
+                     ].map((c) => (
+                        <div key={c.key} className="flex flex-col items-center gap-2 group">
+                           <Input type="color" className="w-10 h-10 shadow-md rounded-full overflow-hidden border-2 border-white cursor-pointer" value={(config.colors as any)[c.key]} onChange={(e) => updateConfig(`colors.${c.key}`, e.target.value)} />
+                           <span className="text-[9px] font-bold text-gray-500 uppercase">{c.label}</span>
+                        </div>
+                     ))}
+                  </div>
+               </div>
               
               <div className="space-y-4 p-5 border rounded-2xl bg-gray-50/70 shadow-sm border-dashed border-gray-300">
                  <Label className="text-sm font-black text-gray-800 uppercase italic">Row Highlighting (Categories)</Label>

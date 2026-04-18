@@ -48,6 +48,7 @@ interface WeeklyCapacityBoardProps {
     onStatusAdvance: (jobId: string) => void;
     onManageAllocations: (deptId: string, week: number, year: number) => void;
     onJobClick: (jobId: string, macroArea: string) => void;
+    onQuickView: (job: JobOrder) => void;
     rawMaterials?: any[];
     mrpTimelines?: Map<string, MRPTimelineEntry[]>;
     globalSettings?: any;
@@ -85,6 +86,7 @@ export default function WeeklyCapacityBoard({
     onStatusAdvance,
     onManageAllocations,
     onJobClick,
+    onQuickView,
     rawMaterials = [],
     mrpTimelines = new Map(),
     globalSettings
@@ -736,11 +738,11 @@ export default function WeeklyCapacityBoard({
                                                                             const res = await toggleExcludeFromPackingList(job.id, val);
                                                                             if(res.success) toast({ title: "Aggiornato", description: res.message });
                                                                         }}
-                                                                        onNavigate={() => router.push(`/admin/production-console?ordinePF=${job.ordinePF}&status=all`)}
                                                                         onClick={() => onJobClick(job.id, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
                                                                         macroArea={dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE')}
                                                                         semaphoreStatus={getCloneStatus(job, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
                                                                         isTechnicalDelay={checkTechnicalFeasibility(job, dept.id, week)}
+                                                                        onQuickView={() => onQuickView(job)}
                                                                         linkedODLs={job.workGroupId ? jobOrders.filter(j => j.workGroupId === job.workGroupId && j.id !== job.id).map(j => j.numeroODLInterno || j.ordinePF) : []}
                                                                         rawMaterials={rawMaterials}
                                                                         mrpTimelines={mrpTimelines}
@@ -798,8 +800,8 @@ function JobCompactCard(props: {
     job: JobOrder, 
     load: number, 
     onAdvance: () => void, 
-    onToggleExclude: (val: boolean) => void,
-    onNavigate: () => void,
+    onToggleExclude: (val: boolean) => void | Promise<void>,
+    onQuickView: () => void,
     onClick: () => void,
     macroArea: 'PREP' | 'CORE' | 'PACK',
     semaphoreStatus: 'status-gray' | 'status-amber' | 'status-blue' | 'status-green',
@@ -811,7 +813,7 @@ function JobCompactCard(props: {
     globalSettings: any
 }) {
     const { 
-        job, load, onAdvance, onToggleExclude, onNavigate, onClick, 
+        job, load, onAdvance, onToggleExclude, onQuickView, onClick, 
         macroArea, semaphoreStatus, isTechnicalDelay, totalLoad, 
         linkedODLs = [], rawMaterials, mrpTimelines, globalSettings 
     } = props;
@@ -912,15 +914,32 @@ function JobCompactCard(props: {
                     {statusLabels[semaphoreStatus]}
                 </div>
 
-                {/* ODL & Articolo */}
-                <div className="flex items-center gap-2 min-w-0 max-w-[40%]">
-                    <span className="text-[11px] font-black text-slate-100 uppercase tracking-tight truncate whitespace-nowrap">
-                        {job.numeroODLInterno || job.ordinePF} - {job.details}
-                    </span>
-                    {/* Cliente */}
-                    <span className="text-[10px] font-bold text-slate-500 uppercase truncate italic shrink-0">
+                {/* Informazioni Commessa: CLIENTE - ORDINE PF - CODICE ARTICOLO */}
+                <div className="flex items-center gap-2 min-w-0 max-w-[45%]">
+                    {/* CLIENTE */}
+                    <span className="text-[11px] font-black text-blue-400 uppercase truncate whitespace-nowrap shrink-0">
                         {job.cliente}
                     </span>
+                    
+                    <span className="text-slate-700 font-bold">•</span>
+
+                    {/* ORDINE PF */}
+                    <span className="text-[10px] font-bold text-slate-100 uppercase truncate whitespace-nowrap">
+                        {job.ordinePF || 'N/D'}
+                    </span>
+
+                    <span className="text-slate-700 font-bold">•</span>
+
+                    {/* CODICE ARTICOLO */}
+                    <span className="text-[10px] font-black text-slate-200 uppercase truncate tracking-tight">
+                        {job.details}
+                    </span>
+                </div>
+
+                {/* N° ODL (Secondario) */}
+                <div className="hidden xl:flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/30 border border-slate-800/50 rounded-lg ml-2 shrink-0">
+                    <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest">ODL:</span>
+                    <span className="text-[9px] font-black text-slate-500">{job.numeroODLInterno || 'N/D'}</span>
                 </div>
 
                 {/* Spazio flessibile */}
@@ -1013,7 +1032,7 @@ function JobCompactCard(props: {
                 <Button 
                     variant="ghost" 
                     className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-800/50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all shrink-0"
-                    onClick={(e) => { e.stopPropagation(); onNavigate(); }}
+                    onClick={(e) => { e.stopPropagation(); onQuickView(); }}
                 >
                     <ChevronRight className="h-4 w-4" />
                 </Button>

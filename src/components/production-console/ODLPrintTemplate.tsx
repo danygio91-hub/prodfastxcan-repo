@@ -303,28 +303,77 @@ export default function ODLPrintTemplate({
   };
 
   const renderJobDetails = (showDrawingArea: boolean = true) => {
-    // Filter out date fields from the dynamic columns to avoid duplicates or mapping errors
-    const dynamicInfoCols = config.info.columns.filter(c => 
-        c.visible && 
-        c.field !== 'dataFinePreparazione' && 
-        c.field !== 'dataConsegnaFinale' &&
-        c.field !== 'dataConsegnaCliente' &&
-        !c.label.toUpperCase().includes('FINE PREPARAZIONE') &&
-        !c.label.toUpperCase().includes('CONSEGNA FINALE')
-    );
+    // 1. Resolve Colors Helper
+    const resolveColBg = (colorKey?: string) => {
+      if (!colorKey || colorKey === 'white') return 'white';
+      // Use any to bypass strict type checking for dynamic keys
+      const colors = config.colors as any;
+      const defaults = DEFAULT_ODL_CONFIG.colors as any;
+      return colors[colorKey] || defaults[colorKey] || 'white';
+    };
 
-    // Final total rows = dynamic rows + 2 hardcoded date rows
-    const rowCount = dynamicInfoCols.length + 2;
-    
+    // 2. Extreme Sanitization & Deduplication
+    // We want to build a clean list of rows that matches the designer but is immune to DB corruption
+    const sanitizedRows: any[] = [];
+    const seenFields = new Set<string>();
+    const seenDateLabels = new Set<string>();
+
+    config.info.columns.forEach(col => {
+      if (!col.visible) return;
+
+      const normalizedLabel = col.label.toUpperCase();
+      const isPrepDate = col.field === 'dataFinePreparazione' || normalizedLabel.includes('FINE PREPARAZIONE');
+      const isFinalDate = col.field === 'dataConsegnaFinale' || col.field === 'dataConsegnaCliente' || normalizedLabel.includes('CONSEGNA FINALE');
+
+      // Deduplicate: If we already handled this logical field, skip
+      if (isPrepDate) {
+        if (seenDateLabels.has('PREP')) return;
+        seenDateLabels.add('PREP');
+      } else if (isFinalDate) {
+        if (seenDateLabels.has('FINAL')) return;
+        seenDateLabels.add('FINAL');
+      } else {
+        if (seenFields.has(col.field)) return;
+        seenFields.add(col.field);
+      }
+
+      // 3. Precise Data Mapping
+      let val = '---';
+      if (col.field === 'cliente') val = job.cliente || '---';
+      else if (col.field === 'details') val = job.details || '---';
+      else if (col.field === 'qta') val = `${job.qta || 0}`;
+      else if (isPrepDate) val = formatDateSafe(job.dataFinePreparazione);
+      else if (isFinalDate) val = formatDateSafe(job.dataConsegnaFinale);
+
+      sanitizedRows.push({
+        ...col,
+        label: isPrepDate ? 'DATA FINE PREPARAZIONE MATERIALE' : (isFinalDate ? 'DATA CONSEGNA FINALE' : col.label),
+        value: val
+      });
+    });
+
+    const rowCount = sanitizedRows.length || 1;
     const labelW = config.info.labelWidth || '15%';
     const valueW = config.info.valueWidth || '25%';
     const drawW = 100 - parseFloat(labelW) - parseFloat(valueW);
 
-    // Hardcoded row definitions for Dates
-    const dateRows = [
-        { label: 'DATA FINE PREPARAZIONE MATERIALE', value: job.dataFinePreparazione, colorKey: 'bgValueYellow' },
-        { label: 'DATA CONSEGNA FINALE', value: job.dataConsegnaFinale, colorKey: 'bgValueYellow' }
-    ];
+    const renderDrawingArea = () => (
+      <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}`, height: config.layout.drawingAreaHeight || '40mm' }} rowSpan={rowCount}>
+        <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
+          <div>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
+          {job.attachments && job.attachments.length > 0 && (
+            <div style={{ fontSize: '7.5pt', color: '#555', textAlign: 'left', width: '90%', marginTop: 'auto', borderTop: '1px dashed #ccc', paddingTop: '2mm' }}>
+              <div style={{ textTransform: 'uppercase', marginBottom: '1mm', color: '#000', fontSize: '8pt' }}>📄 Documentazione MES:</div>
+              {job.attachments.map((att, i) => (
+                <div key={i} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  • {att.name}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </td>
+    );
 
     return (
       <div style={{ marginBottom: '3mm' }}>
@@ -335,70 +384,22 @@ export default function ODLPrintTemplate({
               <col width={`${drawW}%`} />
           </colgroup>
           <tbody>
-            {/* 1. Dynamic Info Rows (ONLY Cliente, Articolo, Qtà... NO DATES) */}
-            {dynamicInfoCols.map((col, idx) => {
-              let val = '---';
-              if (col.field === 'cliente') val = job.cliente || '---';
-              if (col.field === 'details') val = job.details || '---';
-              if (col.field === 'qta') val = `${job.qta || 0}`;
-
-              return (
-                <tr key={col.id} style={{ height: '8.5mm' }}>
-                  <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
-                      <div style={getCellFlexStyles()}>{col.label}</div>
-                  </td>
-                  <td style={{ ...styles.cell, backgroundColor: col.colorKey ? (config.colors as any)[col.colorKey] : 'white', fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
-                    <div style={getCellFlexStyles()}>{val}</div>
-                  </td>
-
-                  {idx === 0 && (
-                    <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}`, height: config.layout.drawingAreaHeight || '40mm' }} rowSpan={rowCount}>
-                      <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
-                        <div>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
-                        {job.attachments && job.attachments.length > 0 && (
-                          <div style={{ fontSize: '8pt', color: '#555', textAlign: 'left', width: '90%', marginTop: 'auto', borderTop: '1px dashed #ccc', paddingTop: '2mm' }}>
-                            <div style={{ textTransform: 'uppercase', marginBottom: '1mm', color: '#000' }}>📄 Documentazione MES:</div>
-                            {job.attachments.map((att, i) => (
-                              <div key={i} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                • {att.name}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-
-            {/* 2. MANUAL HARD-WIRED DATE BOX 1: PREPARAZIONE */}
-            <tr key="manual-row-prep" style={{ height: '8.5mm' }}>
+            {sanitizedRows.length > 0 ? sanitizedRows.map((row, idx) => (
+              <tr key={row.id || idx} style={{ height: '8.5mm' }}>
                 <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
-                    <div style={getCellFlexStyles()}>DATA FINE PREPARAZIONE MATERIALE</div>
+                    <div style={getCellFlexStyles()}>{row.label}</div>
                 </td>
-                <td style={{ ...styles.cell, backgroundColor: config.colors.bgValueYellow, fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
-                    <div style={getCellFlexStyles()}>{formatDateSafe(job.dataFinePreparazione)}</div>
+                <td style={{ ...styles.cell, backgroundColor: resolveColBg(row.colorKey), fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
+                  <div style={getCellFlexStyles()}>{row.value}</div>
                 </td>
-                {/* Fallback for drawing area rowSpan if no dynamic rows exist */}
-                {dynamicInfoCols.length === 0 && (
-                    <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}`, height: config.layout.drawingAreaHeight || '40mm' }} rowSpan={rowCount}>
-                        <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
-                            <div>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
-                        </div>
-                    </td>
-                )}
-            </tr>
-
-            {/* 3. MANUAL HARD-WIRED DATE BOX 2: CONSEGNA FINALE */}
-            <tr key="manual-row-delivery" style={{ height: '8.5mm' }}>
-                <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
-                    <div style={getCellFlexStyles()}>DATA CONSEGNA FINALE</div>
-                </td>
-                <td style={{ ...styles.cell, backgroundColor: config.colors.bgValueYellow, fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
-                    <div style={getCellFlexStyles()}>{formatDateSafe(job.dataConsegnaFinale)}</div>
-                </td>
-            </tr>
+                {idx === 0 && renderDrawingArea()}
+              </tr>
+            )) : (
+              <tr style={{ height: '8.5mm' }}>
+                 <td style={styles.cell} colSpan={2}><div style={getCellFlexStyles()}>--- NESSUNA INFORMAZIONE VISIBILE ---</div></td>
+                 {renderDrawingArea()}
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

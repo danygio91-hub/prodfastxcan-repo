@@ -67,6 +67,9 @@ export interface ODLConfig {
     drawingAreaText: string;
     bgValueGreen: string;
     bgValueYellow: string;
+    bgValueRed: string;
+    bgValueBlue: string;
+    bgValueGray: string;
     bgTreccia: string;
     bgTubi: string;
     bgGuaina: string;
@@ -146,6 +149,9 @@ export const DEFAULT_ODL_CONFIG: ODLConfig = {
     drawingAreaText: "#cccccc",
     bgValueGreen: "#c8e6c9",
     bgValueYellow: "#fff9c4",
+    bgValueRed: "#ffcdd2",
+    bgValueBlue: "#bbdefb",
+    bgValueGray: "#eeeeee",
     bgTreccia: "#e8f5e9",
     bgTubi: "#f5f5f5",
     bgGuaina: "#e1f5fe",
