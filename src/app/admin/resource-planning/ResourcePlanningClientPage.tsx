@@ -170,7 +170,16 @@ export default function ResourcePlanningClientPage() {
             if (!isMatchingDept) return 0;
         }
         
-        return relevantTemplates.reduce((acc, t) => acc + (phaseTimes[t.id].expectedMinutesPerPiece * job.qta), 0) / 60;
+        return relevantTemplates.reduce((acc, t) => {
+            const pt = phaseTimes[t.id];
+            const jobPhase = (job.phases || []).find((p: any) => p.name === t.name);
+            const isDone = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
+            
+            if (!isDone) {
+                return acc + (pt.expectedMinutesPerPiece * job.qta);
+            }
+            return acc;
+        }, 0) / 60;
     };
 
     const mrpTimelines = useMemo(() => {
@@ -408,9 +417,36 @@ export default function ResourcePlanningClientPage() {
         const nextWeekDate = addWeeks(currentDate, 1);
         
         const filteredJobs = boardData.jobOrders.filter(job => {
-            const jobDate = parseISO(job.dataConsegnaFinale);
-            const isInCurrent = isSameWeek(jobDate, currentDate, { weekStartsOn: 1 });
-            const isInNext = isSameWeek(jobDate, nextWeekDate, { weekStartsOn: 1 });
+            const displayStatus = getOverallStatus(job);
+            const isClosed = displayStatus === 'CHIUSO';
+            
+            let referenceDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' 
+                ? parseISO(job.dataConsegnaFinale) 
+                : null;
+                
+            if (isClosed && job.overallEndTime) {
+                referenceDate = new Date(job.overallEndTime);
+            }
+
+            if ((!referenceDate || isNaN(referenceDate.getTime())) && !isClosed) {
+                referenceDate = currentDate;
+            }
+
+            if (!referenceDate || isNaN(referenceDate.getTime())) return false;
+
+            const naturalWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
+            const currentBoardStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+            const isOverdue = !isClosed && referenceDate < currentBoardStart;
+
+            let assignedWeekStart: Date;
+            if (isOverdue) {
+                assignedWeekStart = currentBoardStart;
+            } else {
+                assignedWeekStart = naturalWeekStart;
+            }
+
+            const isInCurrent = isSameWeek(assignedWeekStart, currentDate, { weekStartsOn: 1 });
+            const isInNext = isSameWeek(assignedWeekStart, nextWeekDate, { weekStartsOn: 1 });
             
             let matchesWeek = false;
             if (scope === 'current') matchesWeek = isInCurrent;
@@ -422,15 +458,18 @@ export default function ResourcePlanningClientPage() {
             
             // Filtro Reparto/Macroarea
             return deptIds.some(dId => {
-                if (dId === 'PREP') return true; // Tutte le commesse della settimana hanno prep
-                if (dId === 'PACK') return true; // Tutte le commesse della settimana hanno pack
-                
-                // Reparti Core: controlliamo il job.department
                 const targetDept = cachedDepartments.find(d => d.id === dId);
                 const jobDept = job.department?.toUpperCase() || '';
                 const dCode = targetDept?.code?.toUpperCase() || '';
                 const dName = targetDept?.name?.toUpperCase() || '';
                 const dIdUpper = dId.toUpperCase();
+                
+                if (dId === 'PREP') {
+                    // Se esportiamo prep, mostriamo solo se il reparto core della commessa dipende dalla prep
+                    const jobCoreDept = cachedDepartments.find(d => d.id === job.department || d.code === job.department);
+                    return jobCoreDept?.dependsOnPreparation && (job.phases || []).some((p: any) => p.type === 'preparation');
+                }
+                if (dId === 'PACK') return true; 
                 
                 return jobDept === dIdUpper || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
             });

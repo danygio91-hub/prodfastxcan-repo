@@ -98,9 +98,10 @@ export default function WeeklyCapacityBoard({
     const [activeResultIndex, setActiveResultIndex] = useState(0);
 
     const numWeeks = viewMode === '1W' ? 1 : 2;
+    const settingsEfficiency = (globalSettings?.capacityBufferPercent || 85) / 100;
 
     // Costanti per il Check-up di Fattibilità
-    const EFFICIENCY_FACTOR = 0.85;
+    const EFFICIENCY_FACTOR = settingsEfficiency;
     const DEFAULT_PREP_OPERATORS = 2;
     const DEFAULT_PACK_OPERATORS = 2;
 
@@ -555,13 +556,10 @@ export default function WeeklyCapacityBoard({
                                         const isClosed = displayStatus === 'CHIUSO';
                                         
                                         // 1. DATA DI RIFERIMENTO DINAMICA (effectiveBoardDate)
-                                        // Se CHIUSO: usiamo la data reale di fine (SSoT Storico)
-                                        // Se ATTIVA: usiamo la data di consegna finale (SSoT Pianificazione)
                                         let referenceDate: Date | null = null;
 
                                         if (isClosed) {
                                             if (job.overallEndTime) {
-                                                // Gestione robusta: potrebbe essere un Timestamp di Firestore o un oggetto Date
                                                 const rawEnd = job.overallEndTime;
                                                 referenceDate = (rawEnd && typeof rawEnd === 'object' && 'seconds' in rawEnd)
                                                     ? new Date(rawEnd.seconds * 1000)
@@ -569,15 +567,7 @@ export default function WeeklyCapacityBoard({
                                             }
                                         } else {
                                             if (job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D') {
-                                                // Fallback parsing robusto per date non standard
-                                                referenceDate = parseISO(job.dataConsegnaFinale);
-                                                if (isNaN(referenceDate.getTime()) && String(job.dataConsegnaFinale).includes('/')) {
-                                                    const parts = String(job.dataConsegnaFinale).split('/');
-                                                    if (parts.length === 3) {
-                                                        const [d, m, y] = parts;
-                                                        referenceDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
-                                                    }
-                                                }
+                                                referenceDate = parseRobustDate(job.dataConsegnaFinale);
                                             }
                                         }
 
@@ -593,7 +583,6 @@ export default function WeeklyCapacityBoard({
                                         // 3. LOGICA DI ASSEGNAZIONE COLONNA (Deduplicazione e Ritardi)
                                         const naturalWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
                                         
-                                        // STEP A: Calcoliamo lo stato del clone per decidere l'ancoraggio
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
                                         const cloneStatus = getCloneStatus(job, macroArea);
                                         const isGreen = cloneStatus === 'status-green';
@@ -603,11 +592,9 @@ export default function WeeklyCapacityBoard({
 
                                         let assignedWeekStart: Date;
                                         if (isOverdue) {
-                                            // Se è in ritardo (e il clone è ancora aperto), va SEMPRE nella prima colonna visualizzata
+                                            // PILASTRO 5: Clamping visivo alla prima settimana della board (Settimana Corrente)
                                             assignedWeekStart = currentBoardStart;
                                         } else {
-                                            // Altrimenti va nella sua settimana naturale (Pianificata o di Chiusura Reale)
-                                            // Questo garantisce l'ancoraggio storico dei "Verdi"
                                             assignedWeekStart = naturalWeekStart;
                                         }
 
@@ -617,17 +604,14 @@ export default function WeeklyCapacityBoard({
                                         // LOGICA SIMULAZIONE (Spazzaneve)
                                         if (isSimulationMode) {
                                             const isPastOrCurrentWeek = (assignedWeekStart < currentBoardStart) || isSameWeek(assignedWeekStart, currentBoardStart, { weekStartsOn: 1 });
-                                            
-                                            // Il rollover si applica SOLO se il clone non è ancora finito (e non è CHIUSO)
                                             const isArrearage = !isClosed && !isGreen && isPastOrCurrentWeek;
 
                                             if (isArrearage) {
-                                                // Se è un arretrato, lo facciamo apparire SOLO nella SECONDA colonna (Proiezione Lunedì)
                                                 const secondWeek = weeks[1];
                                                 if (secondWeek && isSameWeek(week.start, secondWeek.start, { weekStartsOn: 1 })) {
                                                     return true; 
                                                 }
-                                                return false; // scompare dalla sua colonna originale (passato/corrente) per saltare avanti
+                                                return false; 
                                             }
                                         }
 
@@ -635,14 +619,13 @@ export default function WeeklyCapacityBoard({
 
                                         if (isSatellite) {
                                             if (dept.id === 'PREP') {
-                                                // Mostra solo se il reparto core ha dependsOnPreparation: true E ci sono fasi prep
                                                 const jobCoreDept = departments.find(d => d.id === job.department || d.code === job.department);
                                                 const dependsOnPrep = jobCoreDept?.dependsOnPreparation ?? false;
                                                 const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
                                                 if (!dependsOnPrep || !hasPrepPhases) return false;
                                                 return true;
                                             }
-                                            if (dept.id === 'PACK') return true; // Mostra sempre
+                                            if (dept.id === 'PACK') return true; 
                                             return false;
                                         }
                                         
@@ -654,7 +637,7 @@ export default function WeeklyCapacityBoard({
                                         return jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
                                     });
 
-                                    const totalLoad = weekJobs.reduce((acc, job) => acc + getJobLoadInDept(job, dept.id), 0);
+                                    const totalLoad = weekJobs.reduce((acc, job) => acc + getJobRemainingLoadInDept(job, dept.id, articles, phaseTemplates), 0);
                                     const isOverloaded = capacityHours > 0 && totalLoad > capacityHours;
 
                                     return (
@@ -665,103 +648,93 @@ export default function WeeklyCapacityBoard({
                                                 isOverloaded ? "border-red-900/50 bg-red-950/20 shadow-red-900/20" : ""
                                             )}
                                         >
-
-                                                    <CardHeader className="p-4 bg-slate-950/50 border-b border-slate-800 flex flex-row items-center justify-between gap-4">
-                                                        <div className="flex flex-col">
-                                                            <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{week.label}</span>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                <TooltipProvider>
-                                                                    <Tooltip>
-                                                                        <TooltipTrigger asChild>
-                                                                            <Button 
-                                                                                variant="ghost" 
-                                                                                size="sm" 
-                                                                                className="h-7 px-2 hover:bg-blue-600 hover:text-white rounded-lg gap-2 text-slate-400 font-black text-[10px] uppercase transition-all"
-                                                                                onClick={() => onManageAllocations(dept.id, week.weekNum, week.year)}
-                                                                            >
-                                                                                <Users className="h-3 w-3" />
-                                                                                {weekAssignments.length} Opt.
-                                                                            </Button>
-                                                                        </TooltipTrigger>
-                                                                        {weekAssignments.length > 0 && (
-                                                                            <TooltipContent className="bg-slate-900 border-slate-700 p-3 shadow-2xl rounded-xl min-w-[180px]">
-                                                                                <h4 className="text-[10px] font-black uppercase text-slate-500 mb-2 border-b border-slate-800 pb-1">Operatori Assegnati</h4>
-                                                                                <div className="space-y-2">
-                                                                                    {weekAssignments.map(a => {
-                                                                                        const op = operators.find(o => o.id === a.operatorId);
-                                                                                        return (
-                                                                                            <div key={a.operatorId} className="flex justify-between items-center gap-4">
-                                                                                                <span className="text-[10px] font-bold text-slate-200">{op?.nome || '???'}</span>
-                                                                                                <Badge className="bg-blue-600/20 text-blue-400 border-none text-[9px] font-black h-4 px-1">{a.hours}h</Badge>
-                                                                                            </div>
-                                                                                        );
-                                                                                    })}
-                                                                                </div>
-                                                                            </TooltipContent>
-                                                                        )}
-                                                                    </Tooltip>
-                                                                </TooltipProvider>
-                                                                <span className="text-[10px] font-bold text-slate-400">({capacityHours}h)</span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex flex-col items-end">
-                                                            <div className="flex items-center gap-2">
-                                                                {isOverloaded && <AlertTriangle className="h-3.5 w-3.5 text-red-600" />}
-                                                                <span className={cn("text-sm font-black italic tracking-tighter", isOverloaded ? "text-red-600 animate-pulse" : "text-blue-600")}>
-                                                                    {totalLoad.toFixed(1)}h
-                                                                </span>
-                                                            </div>
-                                                            <Progress value={capacityHours > 0 ? (totalLoad / capacityHours) * 100 : 0} className={cn("h-1.5 w-16 mt-1.5", isOverloaded ? "[&>div]:bg-red-500" : "[&>div]:bg-blue-600")} />
-                                                        </div>
-                                                    </CardHeader>
-                                                    <CardContent className="p-3 space-y-3 min-h-[250px] bg-transparent flex-1">
-                                                        {weekJobs.map((job) => {
-                                                            const isA = isMatch(job);
-                                                            const isActive = isA && matchingJobs[activeResultIndex]?.id === job.id;
-                                                            
-                                                            return (
-                                                                <div 
-                                                                    key={job.id}
-                                                                    className={cn(
-                                                                        "relative transition-all duration-300",
-                                                                        searchQuery.length >= 2 && !isA ? "opacity-20 grayscale-[0.8] scale-[0.98]" : "opacity-100",
-                                                                        isA && !isActive ? "z-10 bg-slate-950/30 rounded-2xl ring-2 ring-blue-500/50 shadow-md scale-[1.01]" : "",
-                                                                        isActive ? "z-20 bg-amber-950/20 rounded-2xl ring-4 ring-amber-400 shadow-[0_0_25px_rgba(251,191,36,0.5)] scale-[1.05]" : ""
-                                                                    )}
-                                                                >
-                                                                    <JobCompactCard 
-                                                                        job={job} 
-                                                                        load={getJobRemainingLoadInDept(job, dept.id, articles, phaseTemplates)}
-                                                                        totalLoad={getJobLoadInDept(job, dept.id)}
-                                                                        onAdvance={() => onStatusAdvance(job.id)}
-                                                                        onToggleExclude={async (val) => {
-                                                                            const res = await toggleExcludeFromPackingList(job.id, val);
-                                                                            if(res.success) toast({ title: "Aggiornato", description: res.message });
-                                                                        }}
-                                                                        onClick={() => onJobClick(job.id, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
-                                                                        macroArea={dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE')}
-                                                                        semaphoreStatus={getCloneStatus(job, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
-                                                                        isTechnicalDelay={checkTechnicalFeasibility(job, dept.id, week)}
-                                                                        onQuickView={() => onQuickView(job)}
-                                                                        linkedODLs={job.workGroupId ? jobOrders.filter(j => j.workGroupId === job.workGroupId && j.id !== job.id).map(j => j.numeroODLInterno || j.ordinePF) : []}
-                                                                        rawMaterials={rawMaterials}
-                                                                        mrpTimelines={mrpTimelines}
-                                                                        globalSettings={globalSettings}
-                                                                    />
-                                                                    {isA && (
-                                                                        <div className="absolute -top-3 -right-3 flex h-6 w-6 pointer-events-none z-30">
-                                                                            <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", isActive ? "bg-amber-400" : "bg-blue-400")}></span>
-                                                                            <span className={cn("relative inline-flex rounded-full h-6 w-6 border-2 border-white shadow-lg flex items-center justify-center", isActive ? "bg-amber-500" : "bg-blue-600")}>
-                                                                                {isActive ? <Zap className="h-3 w-3 text-white fill-white" /> : <Search className="h-3 w-3 text-white" />}
-                                                                            </span>
+                                            <CardHeader className="p-4 bg-slate-950/50 border-b border-slate-800 flex flex-row items-center justify-between gap-4">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{week.label}</span>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <Button 
+                                                                        variant="ghost" 
+                                                                        size="sm" 
+                                                                        className="h-7 px-2 hover:bg-blue-600 hover:text-white rounded-lg gap-2 text-slate-400 font-black text-[10px] uppercase transition-all"
+                                                                        onClick={() => onManageAllocations(dept.id, week.weekNum, week.year)}
+                                                                    >
+                                                                        <Users className="h-3 w-3" />
+                                                                        {weekAssignments.length} Opt.
+                                                                    </Button>
+                                                                </TooltipTrigger>
+                                                                {weekAssignments.length > 0 && (
+                                                                    <TooltipContent className="bg-slate-900 border-slate-700 p-3 shadow-2xl rounded-xl min-w-[180px]">
+                                                                        <h4 className="text-[10px] font-black uppercase text-slate-500 mb-2 border-b border-slate-800 pb-1">Operatori Assegnati</h4>
+                                                                        <div className="space-y-2">
+                                                                            {weekAssignments.map(a => {
+                                                                                const op = operators.find(o => o.id === a.operatorId);
+                                                                                return (
+                                                                                    <div key={a.operatorId} className="flex justify-between items-center gap-4">
+                                                                                        <span className="text-[10px] font-bold text-slate-200">{op?.nome || '???'}</span>
+                                                                                        <Badge className="bg-blue-600/20 text-blue-400 border-none text-[9px] font-black h-4 px-1">{a.hours}h</Badge>
+                                                                                    </div>
+                                                                                );
+                                                                            })}
                                                                         </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })}
-
-                                                    </CardContent>
-                                                </Card>
+                                                                    </TooltipContent>
+                                                                )}
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+                                                        <span className="text-[10px] font-bold text-slate-400">({capacityHours}h)</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col items-end">
+                                                    <div className="flex items-center gap-2">
+                                                        {isOverloaded && <AlertTriangle className="h-3.5 w-3.5 text-red-600" />}
+                                                        <span className={cn("text-sm font-black italic tracking-tighter", isOverloaded ? "text-red-600 animate-pulse" : "text-blue-600")}>
+                                                            {totalLoad.toFixed(1)}h
+                                                        </span>
+                                                    </div>
+                                                    <Progress value={capacityHours > 0 ? (totalLoad / capacityHours) * 100 : 0} className={cn("h-1.5 w-16 mt-1.5", isOverloaded ? "[&>div]:bg-red-500" : "[&>div]:bg-blue-600")} />
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="p-3 space-y-3 min-h-[250px] bg-transparent flex-1">
+                                                {weekJobs.map((job) => {
+                                                    const isA = isMatch(job);
+                                                    const isActive = isA && matchingJobs[activeResultIndex]?.id === job.id;
+                                                    
+                                                    return (
+                                                        <div 
+                                                            key={job.id}
+                                                            className={cn(
+                                                                "relative transition-all duration-300",
+                                                                searchQuery.length >= 2 && !isA ? "opacity-20 grayscale-[0.8] scale-[0.98]" : "opacity-100",
+                                                                isA && !isActive ? "z-10 bg-slate-950/30 rounded-2xl ring-2 ring-blue-500/50 shadow-md scale-[1.01]" : "",
+                                                                isActive ? "z-20 bg-amber-950/20 rounded-2xl ring-4 ring-amber-400 shadow-[0_0_25px_rgba(251,191,36,0.5)] scale-[1.05]" : ""
+                                                            )}
+                                                        >
+                                                            <JobCompactCard 
+                                                                job={job} 
+                                                                load={getJobRemainingLoadInDept(job, dept.id, articles, phaseTemplates)}
+                                                                totalLoad={getJobLoadInDept(job, dept.id)}
+                                                                onAdvance={() => onStatusAdvance(job.id)}
+                                                                onToggleExclude={async (val) => {
+                                                                    const res = await toggleExcludeFromPackingList(job.id, val);
+                                                                    if(res.success) toast({ title: "Aggiornato", description: res.message });
+                                                                }}
+                                                                onClick={() => onJobClick(job.id, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
+                                                                macroArea={dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE')}
+                                                                semaphoreStatus={getCloneStatus(job, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
+                                                                isTechnicalDelay={checkTechnicalFeasibility(job, dept.id, week)}
+                                                                onQuickView={() => onQuickView(job)}
+                                                                linkedODLs={job.workGroupId ? jobOrders.filter(j => j.workGroupId === job.workGroupId && j.id !== job.id).map(j => j.numeroODLInterno || j.ordinePF) : []}
+                                                                rawMaterials={rawMaterials}
+                                                                mrpTimelines={mrpTimelines}
+                                                                globalSettings={globalSettings}
+                                                            />
+                                                        </div>
+                                                    );
+                                                })}
+                                            </CardContent>
+                                        </Card>
                                     );
                                 })}
                             </div>
@@ -773,7 +746,6 @@ export default function WeeklyCapacityBoard({
     );
 }
 
-
 function getJobRemainingLoadInDept(job: JobOrder, deptId: string, articles: Article[], phaseTemplates: WorkPhaseTemplate[]) {
     const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
     if (!article) return 0;
@@ -781,10 +753,9 @@ function getJobRemainingLoadInDept(job: JobOrder, deptId: string, articles: Arti
     const phaseTimes = article.phaseTimes || {};
     const deptPhases = phaseTemplates.filter(t => t.departmentCodes.includes(deptId));
     
-    // Filtriamo solo per le fasi NON completate
     const remainingMins = deptPhases.reduce((acc, t) => {
         const pt = phaseTimes[t.id];
-        const jobPhase = job.phases.find(p => p.name === t.name);
+        const jobPhase = (job.phases || []).find(p => p.name === t.name);
         const isCompleted = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
         
         if (!isCompleted && pt?.enabled !== false && (pt?.expectedMinutesPerPiece || 0) > 0) {
@@ -818,19 +789,16 @@ function JobCompactCard(props: {
         linkedODLs = [], rawMaterials, mrpTimelines, globalSettings 
     } = props;
 
+    const { toast } = useToast();
     const today = startOfDay(new Date());
 
-    // SSoT: Logica Date Contestuali con Parsing Robusto e Fallback Obbligatorio
     const rawContextualDateStr = macroArea === 'PREP' 
         ? (job.dataFinePreparazione || job.dataConsegnaFinale) 
         : job.dataConsegnaFinale;
         
     const contextualDate = parseRobustDate(rawContextualDateStr);
-
-    // SSoT: Alert Ritardo
     const isOverdue = contextualDate && isPast(contextualDate) && !isSameDay(contextualDate, today) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
     
-    // SSoT: Alert Materiali (Time-Phased MRP)
     const stockStatus = (() => {
         if (!job.billOfMaterials || job.billOfMaterials.length === 0) {
             return { color: 'text-slate-500', icon: Info, label: 'Nessuna BOM definita' };
@@ -850,20 +818,13 @@ function JobCompactCard(props: {
 
         const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
         const isAmber = !isRed && componentEntries.some(ce => ce.entry.status === 'AMBER');
-        
-        // Costruiamo i dettagli specifici partendo dai messaggi del motore MRP
-        // Aggiungiamo il prefisso col codice componente per chiarezza nel tooltip
         const combinedDetails = componentEntries.flatMap(ce => {
             const prefix = ce.item.component;
             return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
         });
 
-        if (isRed) {
-            return { color: 'text-red-500', icon: XCircle, label: 'MANCANZA MATERIALI', details: combinedDetails };
-        }
-        if (isAmber) {
-            return { color: 'text-amber-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
-        }
+        if (isRed) return { color: 'text-red-500', icon: XCircle, label: 'MANCANZA MATERIALI', details: combinedDetails };
+        if (isAmber) return { color: 'text-amber-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
         return { color: 'text-green-500', icon: CheckCircle2, label: 'TUTTO DISPONIBILE', details: combinedDetails };
     })();
 
@@ -904,16 +865,23 @@ function JobCompactCard(props: {
                 isTechnicalDelay && !isClosed && "border-red-500 border-2 shadow-[0_0_12px_rgba(239,68,68,0.2)]"
             )}
         >
-            {/* Indicatore Stato Verticale */}
             <div className={cn("absolute left-0 top-0 bottom-0 w-1", sIndicator[semaphoreStatus])} />
 
             <div className="flex items-center w-full gap-3 pl-1">
-                {/* Badge Stato Testuale */}
-                <div className={cn(
-                    "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0",
-                    isClosed ? "bg-emerald-500 text-white" : "bg-slate-900 text-slate-400 border border-slate-800"
-                )}>
-                    {statusLabels[semaphoreStatus]}
+                <div 
+                    className={cn(
+                        "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0",
+                        isClosed ? "bg-emerald-500 text-white" : "bg-slate-900 text-slate-400 border border-slate-800",
+                        job.workGroupId && "bg-indigo-600 text-white border-none cursor-help"
+                    )}
+                    onClick={(e) => {
+                        if (job.workGroupId) {
+                            e.stopPropagation();
+                            toast({ title: "Azione Inibita", description: "Stato gestito dal WorkGroup. Usa la Console di Produzione.", variant: "destructive" });
+                        }
+                    }}
+                >
+                    {job.workGroupId ? "IN GRUPPO" : statusLabels[semaphoreStatus]}
                 </div>
 
                 {job.hasMaterialShortage && (
@@ -928,38 +896,27 @@ function JobCompactCard(props: {
                     </div>
                 )}
 
-                {/* Informazioni Commessa: CLIENTE - ORDINE PF - CODICE ARTICOLO */}
                 <div className="flex items-center gap-2 min-w-0 max-w-[45%]">
-                    {/* CLIENTE */}
                     <span className="text-[11px] font-black text-blue-400 uppercase truncate whitespace-nowrap shrink-0">
                         {job.cliente}
                     </span>
-                    
                     <span className="text-slate-700 font-bold">•</span>
-
-                    {/* ORDINE PF */}
                     <span className="text-[10px] font-bold text-slate-100 uppercase truncate whitespace-nowrap">
                         {job.ordinePF || 'N/D'}
                     </span>
-
                     <span className="text-slate-700 font-bold">•</span>
-
-                    {/* CODICE ARTICOLO */}
                     <span className="text-[10px] font-black text-slate-200 uppercase truncate tracking-tight">
                         {job.details}
                     </span>
                 </div>
 
-                {/* N° ODL (Secondario) */}
                 <div className="hidden xl:flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/30 border border-slate-800/50 rounded-lg ml-2 shrink-0">
                     <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest">ODL:</span>
                     <span className="text-[9px] font-black text-slate-500">{job.numeroODLInterno || 'N/D'}</span>
                 </div>
 
-                {/* Spazio flessibile */}
                 <div className="flex-grow" />
 
-                {/* Data */}
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/50 border border-slate-800 rounded-lg shrink-0">
                     <Calendar className={cn("h-3 w-3", isOverdue ? "text-red-500" : "text-slate-400")} />
                     <span className={cn("text-[9px] font-black uppercase tracking-tight", isOverdue ? "text-red-500 font-black" : "text-slate-400")}>
@@ -967,10 +924,8 @@ function JobCompactCard(props: {
                     </span>
                 </div>
 
-                {/* Alert Icons */}
                 <div className="flex items-center gap-1.5 shrink-0 px-1 border-l border-slate-800 ml-1">
                     <TooltipProvider delayDuration={100}>
-                        {/* Stock Alert SSoT */}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <div className={cn("cursor-help p-0.5 rounded-full hover:bg-slate-800 transition-colors", stockStatus.color)}>
@@ -994,7 +949,6 @@ function JobCompactCard(props: {
                             </TooltipContent>
                         </Tooltip>
 
-                        {/* Delay Alert */}
                         {isOverdue && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1006,7 +960,6 @@ function JobCompactCard(props: {
                             </Tooltip>
                         )}
 
-                        {/* Batch Alert */}
                         {linkedODLs.length > 0 && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1027,12 +980,10 @@ function JobCompactCard(props: {
                     </TooltipProvider>
                 </div>
 
-                {/* Badge Quantità */}
                 <Badge variant="outline" className="text-[9px] font-black px-1.5 h-6 bg-slate-900/40 text-slate-300 border-slate-800 shrink-0">
                     {job.qta} PZ
                 </Badge>
 
-                {/* Ore (Rim/Tot) */}
                 <div className="flex items-center gap-1.5 px-2 h-7 bg-blue-600/10 border border-blue-500/20 rounded-lg shrink-0 min-w-[65px] justify-center">
                     <Timer className="h-3 w-3 text-blue-400" />
                     <span className="text-[10px] font-black text-blue-300">
@@ -1046,7 +997,13 @@ function JobCompactCard(props: {
                 <Button 
                     variant="ghost" 
                     className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-800/50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all shrink-0"
-                    onClick={(e) => { e.stopPropagation(); onQuickView(); }}
+                    onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if (job.workGroupId) {
+                            toast({ title: "Gestito in Gruppo", description: "Dettagli limitati in pianificazione settimanale.", variant: "default" });
+                        }
+                        onQuickView(); 
+                    }}
                 >
                     <ChevronRight className="h-4 w-4" />
                 </Button>
@@ -1054,3 +1011,4 @@ function JobCompactCard(props: {
         </div>
     );
 }
+
