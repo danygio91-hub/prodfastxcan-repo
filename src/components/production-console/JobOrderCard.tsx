@@ -3,7 +3,7 @@ import type { ProductionTimeData } from '@/app/admin/production-console/actions'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, ChevronDown, Loader2, Clock } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, ChevronDown, Loader2, Clock, Combine } from 'lucide-react';
 import { format, parseISO, isPast, differenceInSeconds } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -323,6 +323,7 @@ export default function JobOrderCard({
             <CardHeader className="pb-4 space-y-2">
                 <div className="flex justify-between items-center gap-4">
                     <div className="flex items-center gap-3">
+                        
                         {(!isPartOfGroup || forceAllowActions) && (
                           <Checkbox
                               checked={isSelected}
@@ -337,8 +338,19 @@ export default function JobOrderCard({
                                <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:-rotate-180" />
                           </div>
                         </CollapsibleTrigger>
+                    
                     </div>
-                    <StatusBadge status={overallStatus} />
+                    <div className="flex items-center gap-2">
+                        <StatusBadge status={overallStatus} />
+                        
+                        {isPartOfGroup && (
+                            <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200 flex items-center gap-1.5 py-0.5">
+                                <Combine className="h-3 w-3" />
+                                <span className="text-[10px] font-bold uppercase tracking-tighter">Gestito in Gruppo</span>
+                            </Badge>
+                        )}
+                    
+                    </div>
                 </div>
                 <div className="flex justify-between items-center gap-4">
                     <CardDescription className="flex items-center gap-2">
@@ -400,13 +412,21 @@ export default function JobOrderCard({
                                   </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                 <DropdownMenuItem onSelect={() => onOpenPhaseManager(jobOrder)} disabled={overallStatus === 'CHIUSO'}>
+                                  <DropdownMenuItem 
+                                      onSelect={() => onOpenPhaseManager(jobOrder)} 
+                                      disabled={overallStatus === 'CHIUSO' || isPartOfGroup}
+                                      className={cn(isPartOfGroup && "opacity-50 cursor-not-allowed")}
+                                  >
                                       <ListOrdered className="mr-2 h-4 w-4" />
-                                      <span>Gestisci Fasi</span>
+                                      <span>Gestisci Fasi {isPartOfGroup && "(In Gruppo)"}</span>
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onSelect={() => onOpenMaterialManager(jobOrder)} disabled={overallStatus === 'CHIUSO'}>
+                                  <DropdownMenuItem 
+                                      onSelect={() => onOpenMaterialManager(jobOrder)} 
+                                      disabled={overallStatus === 'CHIUSO' || isPartOfGroup}
+                                      className={cn(isPartOfGroup && "opacity-50 cursor-not-allowed")}
+                                  >
                                       <Boxes className="mr-2 h-4 w-4" />
-                                      <span>Gestisci Materiali</span>
+                                      <span>Gestisci Materiali {isPartOfGroup && "(In Gruppo)"}</span>
                                   </DropdownMenuItem>
                                   {canToggleGuaina && guainaPhase && (
                                       <AlertDialog>
@@ -437,7 +457,30 @@ export default function JobOrderCard({
                                   </DropdownMenuItem>
                                    {canForceFinish && (
                                       <AlertDialog>
-                                          <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><FastForward className="mr-2 h-4 w-4" />Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
+                                          <AlertDialogTrigger asChild disabled={isPartOfGroup}>
+        <div className="w-full">
+            {isPartOfGroup ? (
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
+                                <FastForward className="mr-2 h-4 w-4" />
+                                <span>Forza a Finitura (In Gruppo)</span>
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>Gestito nel Gruppo.</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            ) : (
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                    <FastForward className="mr-2 h-4 w-4" />
+                    <span>Forza a Finitura</span>
+                </DropdownMenuItem>
+            )}
+        </div>
+    </AlertDialogTrigger>
                                           <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Forzare tutte le fasi di produzione a 'completata'?</AlertDialogDescription></AlertDialogHeader>
                                           <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                       </AlertDialog>
@@ -450,7 +493,30 @@ export default function JobOrderCard({
                                   )}
                                   {canForceComplete && (
                                       <AlertDialog>
-                                          <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" />Forza Chiusura Commessa</DropdownMenuItem></AlertDialogTrigger>
+                                          <AlertDialogTrigger asChild disabled={isPartOfGroup}>
+        <div className="w-full">
+            {isPartOfGroup ? (
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
+                                <PowerOff className="mr-2 h-4 w-4" />
+                                <span>Forza Chiusura Commessa (In Gruppo)</span>
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>Gestito nel Gruppo.</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            ) : (
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                    <PowerOff className="mr-2 h-4 w-4" />
+                    <span>Forza Chiusura Commessa</span>
+                </DropdownMenuItem>
+            )}
+        </div>
+    </AlertDialogTrigger>
                                           <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Stai per impostare manualmente questa commessa come 'Completata'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                       </AlertDialog>
                                   )}
@@ -478,11 +544,29 @@ export default function JobOrderCard({
                                    )}
                                    <DropdownMenuSeparator />
                                    <AlertDialog>
-                                       <AlertDialogTrigger asChild>
-                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={overallStatus === 'CHIUSO'}>
-                                        <PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura
-                                    </DropdownMenuItem>
-                                       </AlertDialogTrigger>
+        <AlertDialogTrigger asChild disabled={isPartOfGroup}>
+            <div className="w-full">
+                {isPartOfGroup ? (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className="opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
+                                    <PowerOff className="mr-2 h-4 w-4" />
+                                    <span>Forza Chiusura (In Gruppo)</span>
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Gestito nel Gruppo.</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                ) : (
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={overallStatus === 'CHIUSO'}>
+                        <PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura
+                    </DropdownMenuItem>
+                )}
+            </div>
+        </AlertDialogTrigger>
                                        <AlertDialogContent>
                                        <AlertDialogHeader>
                                            <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>

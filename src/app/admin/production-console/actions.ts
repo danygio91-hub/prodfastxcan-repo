@@ -122,6 +122,11 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
         const snap = await transaction.get(itemRef);
         if (!snap.exists) throw new Error('Elemento non trovato.');
         const item = snap.data() as JobOrder;
+
+        // HARD LOCK: Impedisce forzature individuali se la commessa è in un gruppo
+        if (!isGroup && item.workGroupId) {
+            throw new Error(`AZIONE BLOCCATA: La commessa ${item.ordinePF} appartiene al gruppo ${item.workGroupId}. Gestiscila dalla card del gruppo.`);
+        }
         
         let allPhasesDone = true;
         const operatorIdsToPulse: Set<string> = new Set();
@@ -207,6 +212,11 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
       const snap = await transaction.get(itemRef);
       if (!snap.exists) throw new Error('Elemento non trovato.');
       const item = snap.data() as JobOrder;
+
+      // HARD LOCK: Impedisce revert individuali se la commessa è in un gruppo
+      if (!isGroup && item.workGroupId) {
+          throw new Error(`AZIONE BLOCCATA: La commessa ${item.ordinePF} appartiene al gruppo ${item.workGroupId}.`);
+      }
       let updatedPhases = item.phases.map(phase => { if (phase.forced) { const { forced, ...rest } = phase; return { ...rest, status: 'pending' as const }; } return phase; });
       updatedPhases = updatePhasesMaterialReadiness(updatedPhases);
       const dummyJobForStatus = { ...item, phases: updatedPhases };
@@ -266,6 +276,11 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists) throw new Error('Commessa non trovata.');
       const jobData = jobSnap.data() as JobOrder;
+
+      // HARD LOCK
+      if (jobData.workGroupId) {
+          throw new Error(`AZIONE BLOCCATA: La commessa ${jobData.ordinePF} appartiene al gruppo ${jobData.workGroupId}.`);
+      }
       const phases = [...(jobData.phases || [])];
       const idx = phases.findIndex(p => p.id === phaseId);
       if (idx === -1) throw new Error('Fase non trovata.');
@@ -371,6 +386,11 @@ async function internalForceCompleteJob(transaction: admin.firestore.Transaction
     const snap = await transaction.get(itemRef);
     if (!snap.exists) throw new Error(`Elemento ${jobId} non trovato.`);
     const item = snap.data() as JobOrder;
+
+    // HARD LOCK
+    if (!isGroup && item.workGroupId) {
+        throw new Error(`AZIONE BLOCCATA: La commessa ${item.ordinePF} appartiene al gruppo ${item.workGroupId}.`);
+    }
     
     const operatorIdsToPulse: Set<string> = new Set();
     const updatedPhases = (item.phases || []).map(phase => {

@@ -122,6 +122,12 @@ export async function advanceJobStatus(jobId: string, nextStatus?: string, uid?:
         if (!doc.exists) throw new Error("Commessa non trovata");
         
         const data = doc.data() as JobOrder;
+        
+        // HARD LOCK: Impedisce l'avanzamento manuale se la commessa è incatenata in un gruppo
+        if (data.workGroupId) {
+            throw new Error(`AZIONE BLOCCATA: La commessa ${data.ordinePF || jobId} è gestita all'interno del gruppo ${data.workGroupId}. Esegui l'azione sull'intero gruppo dalla Console di Produzione.`);
+        }
+
         const currentStatus = data.status;
         const pipeline = [
             'DA_INIZIARE', 

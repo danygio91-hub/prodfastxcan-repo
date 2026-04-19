@@ -74,25 +74,19 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     }
     const gDataRaw = groupSnap.data() as WorkGroup;
     
-    // 2. CHECK FASI IN-PROGRESS: Blocca solo se c'è una fase con status === 'in-progress'
+    // 2. ANTI-ZOMBIE LOCK: Blocca se c'è una fase con status === 'in-progress' o timer aperti
     const inProgressPhases = (gDataRaw.phases || []).filter(p => p.status === 'in-progress');
-
-    if (inProgressPhases.length > 0 && !forceUnlock) {
-        return { 
-            success: false, 
-            message: `Impossibile scollegare: il gruppo ha una o più fasi in stato in-progress. Chiudi o metti in pausa le fasi attive prima di procedere.` 
-        };
-    }
-
-    // Anche se non blocchiamo per i timer appesi di altre sessioni, recuperiamo comunque i timer non chiusi per resettarli
-    const activeTimers = (gDataRaw.phases || []).flatMap(p => 
-        (p.workPeriods || []).filter(wp => wp.end === null).map(wp => ({ ...wp, phaseName: p.name }))
+    const openTimers = (gDataRaw.phases || []).flatMap(p => 
+        (p.workPeriods || []).filter(wp => wp.end === null)
     );
 
-    // ID operatori da resettare (sia phantom che attivi)
+    if (inProgressPhases.length > 0 || openTimers.length > 0) {
+        throw new Error(`IMPOSSIBILE SCIOGLIERE: Il gruppo ha ${inProgressPhases.length} fasi attive e ${openTimers.length} timer operatori aperti. Chiudi o metti in pausa tutte le attività prima di procedere.`);
+    }
+
+    // ID operatori da resettare (sessioni fantasma rimaste nel documento operatore)
     const operatorIdsToReset = Array.from(new Set([
-        ...phantomOperators.map(d => d.id),
-        ...activeTimers.map(t => t.operatorId)
+        ...phantomOperators.map(d => d.id)
     ]));
 
     // 3. PREPARAZIONE DATI
@@ -126,7 +120,6 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         
         const gTx = gSnapTx.data() as WorkGroup;
         const jobRefs = jobOrderIds.map(id => {
-             // Sanitizzazione ID commessa (stessa logica usata in creazione)
              const tid = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
              return adminDb.collection('jobOrders').doc(tid);
         });
@@ -138,7 +131,7 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
             ref: doc.ref 
         } as any));
 
-        // RESET OPERATORI (Sessioni fantasma o zombie)
+        // RESET SESSIONI FANTASMA
         for (const opId of operatorIdsToReset) {
             transaction.update(adminDb.collection("operators").doc(opId), {
                 activeJobId: null,
@@ -160,7 +153,7 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
             const isLastJob = i === totalJobsCount - 1;
             const jobShare = totalQty > 0 ? (job.qta / totalQty) : (1 / totalJobsCount);
 
-            // A. RIPARTIZIONE FASI
+            // A. RIPARTIZIONE FASI (Solo log documentale - Nessun effetto stock)
             const finalJobPhases = (job.phases || []).map((originalPhase: JobPhase) => {
                 const matchedGroupPhase = (gTx.phases || []).find(gp => gp.id === originalPhase.id);
                 if (!matchedGroupPhase) return originalPhase;
@@ -168,13 +161,7 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
                 // 1. Tempi (Work Periods)
                 const scaledWorkPeriods = (matchedGroupPhase.workPeriods || []).map((wp, wpIdx) => {
                     const startTs = wp.start?.toDate ? wp.start.toDate().getTime() : new Date(wp.start).getTime();
-                    
-                    let endTs: number;
-                    if (wp.end) {
-                        endTs = wp.end.toDate ? wp.end.toDate().getTime() : new Date(wp.end).getTime();
-                    } else {
-                        endTs = startTs; // AUTO-CLOSE ZOMBIE TIMER
-                    }
+                    const endTs = wp.end?.toDate ? wp.end.toDate().getTime() : new Date(wp.end).getTime();
 
                     const totalDuration = endTs - startTs;
                     const key = `${matchedGroupPhase.id}-${wpIdx}`;
@@ -190,8 +177,7 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
                     return cleanUndefined({
                         ...wp,
                         start: admin.firestore.Timestamp.fromMillis(startTs),
-                        end: admin.firestore.Timestamp.fromMillis(startTs + Math.max(0, allocatedDuration)),
-                        reason: wp.end ? wp.reason : (wp.reason || 'Chiusura Automatica (Dissoluzione)')
+                        end: admin.firestore.Timestamp.fromMillis(startTs + Math.max(0, allocatedDuration))
                     });
                 });
 
