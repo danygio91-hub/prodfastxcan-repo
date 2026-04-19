@@ -36,24 +36,39 @@ export function calculateInventoryMovement(
   let weightToChange = 0;
 
   // 1. Calculate impact in Base UOM and KG
+  let unitsToChangeRaw = 0;
+  let weightToChangeRaw = 0;
+
   if (inputUom === 'kg') {
-    weightToChange = quantity;
+    weightToChangeRaw = quantity;
     if (baseUom === 'kg') {
-      unitsToChange = quantity;
+      unitsToChangeRaw = quantity;
     } else {
       // KG to Base (e.g. MT, N): Division by factor
-      unitsToChange = factor > 0 ? quantity / factor : quantity;
+      unitsToChangeRaw = factor > 0 ? quantity / factor : quantity;
     }
   } else {
     // Primary UOM (MT, N, or KG) to KG
-    unitsToChange = quantity;
+    unitsToChangeRaw = quantity;
     if (baseUom === 'kg') {
-      weightToChange = quantity;
+      weightToChangeRaw = quantity;
     } else {
       // Base (MT, N) to KG: Multiplication by factor
-      weightToChange = quantity * factor;
+      weightToChangeRaw = quantity * factor;
     }
   }
+
+  // HARDENING: ENFORCE INTEGRITY AND REMOVE FLOATING POINT NOISE
+  if (baseUom === 'n') {
+    // TASSATIVO: Pezzi sempre interi
+    unitsToChange = Math.round(unitsToChangeRaw);
+  } else {
+    // Normalizzazione millesimale per MT e altri
+    unitsToChange = Number(unitsToChangeRaw.toFixed(3));
+  }
+
+  // Pesi sempre normalizzati a 3 decimali
+  weightToChange = Number(weightToChangeRaw.toFixed(3));
 
   const batches = [...(material.batches || [])];
   let usedLotto: string | null = specificLotto || null;
@@ -70,8 +85,8 @@ export function calculateInventoryMovement(
     if (specificLotto) {
       const idx = batches.findIndex(b => b.lotto === specificLotto);
       if (idx !== -1) {
-        batches[idx].netQuantity = (batches[idx].netQuantity || 0) + unitsToChange;
-        batches[idx].grossWeight = (batches[idx].grossWeight || 0) + weightToChange;
+        batches[idx].netQuantity = Number(((batches[idx].netQuantity || 0) + unitsToChange).toFixed(3));
+        batches[idx].grossWeight = Number(((batches[idx].grossWeight || 0) + weightToChange).toFixed(3));
         if (batches[idx].netQuantity > 0.001) batches[idx].isExhausted = false;
       }
     }
@@ -87,8 +102,9 @@ export function calculateInventoryMovement(
           throw new Error(`Giacenza insufficiente su lotto "${specificLotto}": disponibili ${availableUnits.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
 
-      batches[idx].netQuantity = availableUnits - unitsToChange;
-      batches[idx].grossWeight = Math.max(0, (batches[idx].grossWeight || 0) - weightToChange);
+      batches[idx].netQuantity = Number((availableUnits - unitsToChange).toFixed(3));
+      batches[idx].grossWeight = Number(Math.max(0, (batches[idx].grossWeight || 0) - weightToChange).toFixed(3));
+      
       if (batches[idx].netQuantity <= 0.001) {
           batches[idx].isExhausted = true;
           batches[idx].grossWeight = 0; // Azzera anche la tara residua se esaurito
@@ -109,8 +125,7 @@ export function calculateInventoryMovement(
       }
 
       let remainingUnitsToChange = unitsToChange;
-      let remainingWeightToChange = weightToChange;
-
+      
       // We record the first lot used for reporting
       if (validBatches.length > 0) {
           usedLotto = validBatches[0].lotto as string;
@@ -122,25 +137,24 @@ export function calculateInventoryMovement(
          const qtyToDeduct = Math.min(availableInBatch, remainingUnitsToChange);
          
          const weightRatio = availableInBatch > 0 ? (b.grossWeight || 0) / availableInBatch : 0;
-         const weightToDeduct = qtyToDeduct * weightRatio;
+         const weightToDeductForThisBatch = Number((qtyToDeduct * weightRatio).toFixed(3));
 
          const actualBatchIdx = batches.findIndex(tb => tb.lotto === b.lotto);
          if (actualBatchIdx !== -1) {
-             batches[actualBatchIdx].netQuantity = availableInBatch - qtyToDeduct;
+             batches[actualBatchIdx].netQuantity = Number((availableInBatch - qtyToDeduct).toFixed(3));
              
-             // Deduce proportional net-equivalent weight, tare remains until exhausted
-             let calculatedGross = (batches[actualBatchIdx].grossWeight || 0) - (qtyToDeduct * factor);
-             batches[actualBatchIdx].grossWeight = Math.max(0, calculatedGross);
+             // Deduce proportional gross weight
+             let calculatedGross = (batches[actualBatchIdx].grossWeight || 0) - weightToDeductForThisBatch;
+             batches[actualBatchIdx].grossWeight = Number(Math.max(0, calculatedGross).toFixed(3));
              
              if (batches[actualBatchIdx].netQuantity <= 0.001) {
                  batches[actualBatchIdx].isExhausted = true;
-                 batches[actualBatchIdx].grossWeight = 0; // Azzera tara finale
+                 batches[actualBatchIdx].grossWeight = 0; 
                  batches[actualBatchIdx].netQuantity = 0;
              }
          }
 
-         remainingUnitsToChange -= qtyToDeduct;
-         remainingWeightToChange -= weightToDeduct;
+         remainingUnitsToChange = Number((remainingUnitsToChange - qtyToDeduct).toFixed(3));
       }
     }
   }

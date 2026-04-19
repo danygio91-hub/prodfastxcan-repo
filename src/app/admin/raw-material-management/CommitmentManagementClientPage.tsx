@@ -32,6 +32,7 @@ import { cn, formatDisplayStock } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
@@ -292,7 +293,6 @@ export default function CommitmentManagementClientPage({
   const { toast } = useToast();
   const { user } = useAuth();
   const router = useRouter();
-  const [dateString, setDateString] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -341,17 +341,6 @@ export default function CommitmentManagementClientPage({
   useEffect(() => {
     setCommitments(initialCommitments);
   }, [initialCommitments]);
-
-  useEffect(() => {
-    if (isFormOpen) {
-      const deliveryDate = form.getValues('deliveryDate');
-      if (deliveryDate && isValid(deliveryDate)) {
-        setDateString(format(deliveryDate, 'dd/MM/yyyy'));
-      } else {
-        setDateString('');
-      }
-    }
-  }, [isFormOpen, form]);
 
   const filteredCommitments = useMemo(() => {
     if (!searchTerm) {
@@ -573,64 +562,12 @@ export default function CommitmentManagementClientPage({
                         render={({ field }) => (
                           <FormItem className="flex flex-col">
                             <FormLabel>Data Consegna Prevista</FormLabel>
-                            <Popover>
-                              <div className="relative flex items-center">
-                                <FormControl>
-                                  <Input
-                                    placeholder="gg/mm/aaaa"
-                                    value={dateString}
-                                    onChange={(e) => {
-                                      let value = e.target.value.replace(/\D/g, "");
-                                      if (value.length > 8) {
-                                        value = value.slice(0, 8);
-                                      }
-                                      let formattedValue = value;
-                                      if (value.length > 4) {
-                                        formattedValue = `${value.slice(0, 2)}/${value.slice(2, 4)}/${value.slice(4, 8)}`;
-                                      } else if (value.length > 2) {
-                                        formattedValue = `${value.slice(0, 2)}/${value.slice(2)}`;
-                                      }
-                                      setDateString(formattedValue);
-
-                                      if (formattedValue.length === 10) {
-                                        const parsedDate = parse(formattedValue, 'dd/MM/yyyy', new Date());
-                                        if (isValid(parsedDate)) {
-                                          field.onChange(parsedDate);
-                                        } else {
-                                          field.onChange(undefined);
-                                        }
-                                      } else {
-                                        field.onChange(undefined);
-                                      }
-                                    }}
-                                  />
-                                </FormControl>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant={"ghost"}
-                                    className="absolute right-1 h-8 w-8 p-0"
-                                    aria-label="Apri calendario"
-                                  >
-                                    <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                                  </Button>
-                                </PopoverTrigger>
-                              </div>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                  mode="single"
-                                  selected={field.value}
-                                  onSelect={(date) => {
-                                    field.onChange(date);
-                                    if (date && isValid(date)) {
-                                      setDateString(format(date, 'dd/MM/yyyy'));
-                                    } else {
-                                      setDateString('');
-                                    }
-                                  }}
-                                  initialFocus
-                                />
-                              </PopoverContent>
-                            </Popover>
+                            <FormControl>
+                              <MaskedDatePicker 
+                                value={field.value} 
+                                onChange={field.onChange} 
+                              />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}

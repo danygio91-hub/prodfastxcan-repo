@@ -103,6 +103,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { format, isSameDay, isPast, parseISO, startOfWeek, endOfWeek, getWeek, isValid, addWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
@@ -690,17 +691,12 @@ export default function ProductionConsoleClientPage() {
                             <Switch id="dt-sw" checked={isDateFilterActive} onCheckedChange={setIsDateFilterActive} />
                             <Label htmlFor="dt-sw" className="text-[10px] font-black uppercase tracking-widest text-slate-400">Filtra Data</Label>
                         </div>
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Button variant="outline" size="sm" className={cn("h-10 bg-slate-950 border-slate-800 text-slate-400 rounded-xl", !isDateFilterActive && "opacity-50")} disabled={!isDateFilterActive}>
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {completedDateFilter ? format(completedDateFilter, "PPP", { locale: it }) : "Data"}
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0 bg-slate-950 border-slate-800" align="end">
-                                <Calendar mode="single" selected={completedDateFilter} onSelect={setCompletedDateFilter} initialFocus className="text-slate-400" />
-                            </PopoverContent>
-                        </Popover>
+                        <MaskedDatePicker 
+                          value={completedDateFilter} 
+                          onChange={(date) => setCompletedDateFilter(date || undefined)} 
+                          className="w-44 bg-slate-950 border-slate-800 text-slate-400 rounded-xl"
+                          disabled={!isDateFilterActive}
+                        />
                     </div>
                 )}
           </div>

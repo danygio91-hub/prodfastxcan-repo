@@ -48,6 +48,7 @@ import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { getODLConfig } from '@/app/admin/settings/odl-actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { Calendar } from '@/components/ui/calendar';
+import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const manualCreateSchema = z.object({
@@ -243,18 +244,18 @@ const JobTableRows = ({
             </TableCell>
             <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
             <TableCell>
-              <Popover><PopoverTrigger asChild><Button variant="outline" className={cn("w-[130px] h-8 justify-start text-xs", !j.dataFinePreparazione && "text-muted-foreground italic")}><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayPrepDateText}</span></Button></PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={effectivePrepDate ? parseISO(effectivePrepDate) : undefined} onSelect={d => onUpdatePrepDate(j.id, d)} initialFocus />
-                </PopoverContent>
-              </Popover>
+              <MaskedDatePicker 
+                value={effectivePrepDate ? parseISO(effectivePrepDate) : null} 
+                onChange={(date) => onUpdatePrepDate(j.id, date || undefined)} 
+                className="w-[140px]"
+              />
             </TableCell>
             <TableCell>
-              <Popover><PopoverTrigger asChild><Button variant="outline" className="w-[130px] h-8 justify-start text-xs"><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayDateText}</span></Button></PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : undefined} onSelect={d => onUpdateDate(j.id, d)} initialFocus />
-                </PopoverContent>
-              </Popover>
+              <MaskedDatePicker 
+                value={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : null} 
+                onChange={(date) => onUpdateDate(j.id, date || undefined)} 
+                className="w-[140px]"
+              />
             </TableCell>
             <TableCell className="text-center">
               <TooltipProvider><Tooltip><TooltipTrigger asChild>
@@ -780,10 +781,40 @@ export default function DataManagementClientPage({
             )} />
             <div className="grid grid-cols-2 gap-4">
               <FormField control={manualForm.control} name="qta" render={({ field }) => (<FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-              <FormField control={manualForm.control} name="dataFinePreparazione" render={({ field }) => (<FormItem><FormLabel>Fine Prep. (Magazzino)</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>)} />
+              <FormField 
+                control={manualForm.control} 
+                name="dataFinePreparazione" 
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Fine Prep. (Magazzino)</FormLabel>
+                    <FormControl>
+                      <MaskedDatePicker 
+                        value={field.value ? parseISO(field.value) : null} 
+                        onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} 
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <FormField control={manualForm.control} name="dataConsegnaFinale" render={({ field }) => (<FormItem><FormLabel>Consegna Finale (Cliente)</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>)} />
+              <FormField 
+                control={manualForm.control} 
+                name="dataConsegnaFinale" 
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Consegna Finale (Cliente)</FormLabel>
+                    <FormControl>
+                      <MaskedDatePicker 
+                        value={field.value ? parseISO(field.value) : null} 
+                        onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} 
+              />
               <FormField control={manualForm.control} name="department" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Reparto</FormLabel>

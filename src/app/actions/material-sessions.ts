@@ -44,14 +44,40 @@ export async function startIndependentSession(data: Omit<IndependentMaterialSess
             linkedJobOrderPFs: resolvedPFs
         };
 
-        await adminDb.collection('materialSessions').doc(sessionId).set(session);
+        // TRANSACTIONAL LOCK
+        await adminDb.runTransaction(async (transaction) => {
+            const materialRef = adminDb.collection('rawMaterials').doc(data.materialId);
+            const matSnap = await transaction.get(materialRef);
+            
+            if (!matSnap.exists) throw new Error("Materiale non trovato.");
+            const material = matSnap.data() as RawMaterial;
+            
+            if (data.lotto) {
+                const batches = [...(material.batches || [])];
+                const batchIdx = batches.findIndex(b => b.lotto === data.lotto);
+                
+                if (batchIdx === -1) throw new Error(`Lotto "${data.lotto}" non trovato a magazzino.`);
+                
+                const batch = batches[batchIdx];
+                if (batch.activeSessionId) {
+                    throw new Error("Questo lotto è già impegnato in una sessione attiva. Chiudi la sessione esistente per procedere.");
+                }
+                
+                // Set the lock
+                batches[batchIdx].activeSessionId = sessionId;
+                transaction.update(materialRef, { batches });
+            }
+            
+            transaction.set(adminDb.collection('materialSessions').doc(sessionId), session);
+        });
+
         revalidatePath('/scan-job');
         revalidatePath('/manual-withdrawal');
         revalidatePath('/admin/production-console');
         return { success: true, sessionId };
     } catch (e) {
         console.error("Error starting independent session:", e);
-        return { success: false, message: "Errore durante l'avvio della sessione." };
+        return { success: false, message: e instanceof Error ? e.message : "Errore durante l'avvio della sessione." };
     }
 }
 
@@ -167,13 +193,23 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
             };
 
-            if (isFinished && usedLotto) {
-                const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
+            // UNLOCK LOGIC
+            if (session.lotto) {
+                const bIdx = updatedBatches.findIndex(b => b.lotto === session.lotto);
                 if (bIdx !== -1) {
-                    updatedBatches[bIdx].isExhausted = true;
-                    matUpdates.batches = updatedBatches; 
+                    // Clear the lock
+                    updatedBatches[bIdx].activeSessionId = null;
+                    
+                    if (isFinished) {
+                        updatedBatches[bIdx].isExhausted = true;
+                    }
+                    matUpdates.batches = updatedBatches;
                 }
+            } else {
+                // If no specific lot but we have updatedBatches (FIFO), we should still pass them if we made any changes
+                matUpdates.batches = updatedBatches;
             }
+            
             transaction.update(materialRef, matUpdates);
 
             // Update Job Orders using pre-fetched snapshots

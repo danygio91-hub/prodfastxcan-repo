@@ -61,6 +61,7 @@ import * as z from 'zod';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSearchParams } from 'next/navigation';
+import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 const itemSchema = z.object({
@@ -493,7 +494,24 @@ export default function PurchaseOrderManagementClientPage({
                       </div>
                       <div className="col-span-6 sm:col-span-2"><FormField control={form.control} name={`items.${index}.quantity`} render={({ field }) => ( <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" step="any" {...field} /></FormControl></FormItem> )} /></div>
                       <div className="col-span-6 sm:col-span-2"><FormField control={form.control} name={`items.${index}.unitOfMeasure`} render={({ field }) => ( <FormItem><FormLabel>UM</FormLabel><FormControl><Input readOnly {...field} className="bg-muted"/></FormControl></FormItem> )} /></div>
-                      <div className="col-span-10 sm:col-span-3"><FormField control={form.control} name={`items.${index}.expectedDeliveryDate`} render={({ field }) => ( <FormItem><FormLabel>Consegna</FormLabel><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start">{field.value ? format(field.value, "dd/MM/yy") : "Data"}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover></FormItem> )} /></div>
+                      <div className="col-span-10 sm:col-span-3">
+                        <FormField 
+                          control={form.control} 
+                          name={`items.${index}.expectedDeliveryDate`} 
+                          render={({ field }) => ( 
+                            <FormItem>
+                              <FormLabel>Consegna</FormLabel>
+                              <FormControl>
+                                <MaskedDatePicker 
+                                  value={field.value} 
+                                  onChange={field.onChange} 
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem> 
+                          )} 
+                        />
+                      </div>
                       <div className="col-span-2 sm:col-span-1">
                         <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} className="text-destructive">
                             <X className="h-4 w-4" />

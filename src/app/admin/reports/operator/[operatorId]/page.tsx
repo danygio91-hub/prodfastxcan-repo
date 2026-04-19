@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { getOperatorDetailReport } from '@/app/admin/reports/actions';
 import { ArrowLeft, User, Clock, Calendar as CalendarIcon, Loader2, Briefcase } from 'lucide-react';
 import { format } from 'date-fns';
@@ -77,17 +78,10 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>Riepilogo Ore</CardTitle>
-              <Popover>
-                <PopoverTrigger asChild>
-                    <Button variant={"outline"}>
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {selectedDate ? format(selectedDate, "PPP", { locale: it }) : <span>Scegli una data</span>}
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
-                </PopoverContent>
-              </Popover>
+                <MaskedDatePicker 
+                  value={selectedDate} 
+                  onChange={(date) => setSelectedDate(date || undefined)} 
+                />
             </CardHeader>
             <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-sm">
                 <div className="flex items-center gap-3 p-4 bg-background rounded-lg border">

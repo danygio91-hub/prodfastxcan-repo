@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { QrCode, Loader2, Weight, Archive, Send, Barcode, Play, Camera, AlertTriangle, Boxes, Info, X, Lock, ClipboardList } from 'lucide-react';
+import { QrCode, Loader2, Weight, Archive, Send, Barcode, Play, Camera, AlertTriangle, Boxes, Info, X, Lock, ClipboardList, CheckCircle2, AlertCircle, Edit3 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
@@ -99,6 +99,9 @@ export default function MaterialAssociationDialog({
   const {
       isLoading: isLoadingMetadata,
       lotAvailability,
+      isLottoLocked,
+      setIsLottoLocked,
+      isLottoVerified,
       isFixedTare,
       calculatedNet,
       batchMetadata
@@ -425,8 +428,47 @@ export default function MaterialAssociationDialog({
                 <div className="space-y-4">
                     <FormField control={form.control} name="lotto" render={({field}) => (
                         <FormItem className="space-y-1">
-                            <FormLabel className="font-black text-[10px] uppercase text-muted-foreground tracking-wider">Numero Lotto Attezzato</FormLabel>
-                            <FormControl><Input {...field} value={field.value ?? ''} placeholder="Scansiona o digita..." className="font-mono font-bold text-sm h-9 border-primary/30" /></FormControl>
+                            <FormLabel className="font-black text-[10px] uppercase text-muted-foreground tracking-wider flex justify-between items-center">
+                                <span>Numero Lotto Attezzato</span>
+                                {field.value && (
+                                    <div className="animate-in fade-in zoom-in duration-300">
+                                        {isLottoVerified ? (
+                                            <Badge variant="outline" className="h-4 px-1.5 border-green-500 text-green-600 bg-green-500/5 text-[8px] font-black uppercase">
+                                                <CheckCircle2 className="h-2 w-2 mr-1" /> Lotto Verificato
+                                            </Badge>
+                                        ) : (
+                                            <Badge variant="outline" className="h-4 px-1.5 border-orange-500 text-orange-600 bg-orange-500/5 text-[8px] font-black uppercase">
+                                                <AlertCircle className="h-2 w-2 mr-1" /> Lotto Manuale (Nuovo)
+                                            </Badge>
+                                        )}
+                                    </div>
+                                )}
+                            </FormLabel>
+                            <FormControl>
+                                <div className="relative group">
+                                    <Input 
+                                        {...field} 
+                                        value={field.value ?? ''} 
+                                        placeholder="Scansiona o digita..." 
+                                        readOnly={isLottoLocked}
+                                        className={cn(
+                                            "font-mono font-bold text-sm h-10 border-primary/30 transition-all",
+                                            isLottoLocked && "bg-muted/50 border-green-500/30 text-green-800 pr-10 cursor-not-allowed",
+                                            !isLottoLocked && field.value && !isLottoVerified && "border-orange-500/30"
+                                        )} 
+                                    />
+                                    {isLottoLocked && (
+                                        <button 
+                                            type="button"
+                                            onClick={() => setIsLottoLocked(false)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors animate-in fade-in slide-in-from-right-1"
+                                            title="Sblocca lotto"
+                                        >
+                                            <Edit3 className="h-4 w-4" />
+                                        </button>
+                                    )}
+                                </div>
+                            </FormControl>
                         </FormItem>
                     )}/>
 

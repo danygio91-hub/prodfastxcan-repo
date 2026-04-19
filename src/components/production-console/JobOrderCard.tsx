@@ -47,6 +47,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import BOMDialog from './BOMDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import PauseReasonDialog from './PauseReasonDialog';
 import AttachmentViewerDialog from './AttachmentViewerDialog';
@@ -625,65 +626,33 @@ export default function JobOrderCard({
                          
                          <div className="space-y-2 pt-1">
                             {/* FINE PREP */}
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <button 
-                                        className="flex items-center gap-2 w-full group text-left"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <Calendar className={cn("h-3.5 w-3.5", isPrepOverdue ? "text-destructive" : "text-muted-foreground")} />
-                                        <Badge 
-                                          variant="outline" 
-                                          className={cn(
-                                            "bg-amber-500/10 text-amber-700 border-amber-500/20 hover:bg-amber-500/20 transition-colors px-2 py-0.5 text-[10px] uppercase font-bold",
-                                            isPrepOverdue && "bg-destructive/10 text-destructive border-destructive/20"
-                                          )}
-                                        >
-                                            Fine Prep: {prepDate ? format(prepDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}
-                                        </Badge>
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <CalendarPicker
-                                        mode="single"
-                                        selected={prepDate || undefined}
-                                        onSelect={(date) => {
-                                            if (date) {
-                                                onUpdatePrepDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
-                                            }
-                                        }}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-
-                            {/* CONSEGNA FINALE */}
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <button 
-                                        className={cn(
-                                            "flex items-center gap-2 text-xs font-medium hover:text-primary transition-colors pl-0.5", 
-                                            isOverdue ? "text-destructive" : "text-muted-foreground"
-                                        )}
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <Clock className="h-3.5 w-3.5" />
-                                        <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
-                                    </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <CalendarPicker
-                                        mode="single"
-                                        selected={deliveryDate || undefined}
-                                        onSelect={(date) => {
-                                            if (date) {
-                                                onUpdateDeliveryDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
-                                            }
-                                        }}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                            <div className="flex flex-col gap-1">
+                                <Label className="text-[9px] uppercase font-bold text-muted-foreground ml-0.5">Fine Prep.</Label>
+                                <MaskedDatePicker 
+                                  value={prepDate} 
+                                  onChange={(date) => {
+                                    if (date) onUpdatePrepDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
+                                  }}
+                                  className={cn(
+                                    "h-7 text-[11px] font-bold bg-amber-500/5 border-amber-500/20 text-amber-700",
+                                    isPrepOverdue && "bg-destructive/5 border-destructive/20 text-destructive"
+                                  )}
+                                />
+                            </div>
+{/* CONSEGNA FINALE */}
+                            <div className="flex flex-col gap-1 mt-1">
+                                <Label className="text-[9px] uppercase font-bold text-muted-foreground ml-0.5">Consegna Finale</Label>
+                                <MaskedDatePicker 
+                                  value={deliveryDate} 
+                                  onChange={(date) => {
+                                    if (date) onUpdateDeliveryDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
+                                  }}
+                                  className={cn(
+                                    "h-7 text-[11px] font-medium bg-transparent border-slate-200",
+                                    isOverdue && "bg-destructive/5 border-destructive/20 text-destructive"
+                                  )}
+                                />
+                            </div>
                           </div>
                      </div>
                      <div className="text-right flex-shrink-0">

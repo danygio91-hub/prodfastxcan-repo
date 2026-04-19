@@ -830,7 +830,7 @@ export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[
     return fetchInChunks<RawMaterial>(adminDb.collection("rawMaterials"), "code", validCodes);
 }
 
-export type LotInfo = { lotto: string; available: number; batches: RawMaterialBatch[] };
+export type LotInfo = { lotto: string; available: number; batches: RawMaterialBatch[]; unit?: string };
 
 export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo[]> {
     const mSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
@@ -851,7 +851,7 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
     return Object.entries(bByLotto)
         .map(([lotto, batches]) => { 
             const totalAvailable = batches.reduce((s, b) => s + (b.netQuantity || 0), 0); 
-            return { lotto, available: totalAvailable, batches }; 
+            return { lotto, available: totalAvailable, batches, unit: mat.unitOfMeasure }; 
         })
         .filter(l => l.available > 0.001);
 }

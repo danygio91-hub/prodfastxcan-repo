@@ -25,6 +25,8 @@ export function useBatchSelection({
   const [isFixedTare, setIsFixedTare] = useState(false);
   const [calculatedNet, setCalculatedNet] = useState<number>(0);
   const [batchMetadata, setBatchMetadata] = useState<any>(null);
+  const [isLottoLocked, setIsLottoLocked] = useState(false);
+  const isLottoVerified = !!lotAvailability;
 
   const lottoValue = form.watch('lotto');
   const currentGross = form.watch(quantityFieldName);
@@ -44,20 +46,27 @@ export function useBatchSelection({
       setLotAvailability(matched || null);
       setBatchMetadata(lottoData);
 
+      // Se troviamo qualcosa (o stock o metadati storici), blocchiamo il campo
+      if (matched || lottoData) {
+        setIsLottoLocked(true);
+      }
+
       if (lottoData) {
         // Auto-fill Tara
         const pkgId = lottoData.packagingId || 'none';
         form.setValue(packagingFieldName, pkgId);
         setIsFixedTare(pkgId !== 'none');
 
-        // Auto-fill Gross Weight (expected)
+        // Calcolo Lordo Atteso
         const tare = lottoData.tareWeight || 0;
-        // PRIORITY: use matched.available (current stock) instead of initial lot weight
         const net = matched?.available ?? (lottoData.netWeight || 0);
         const expectedGross = net + tare;
         
         if (autoFillQuantity) {
           form.setValue(quantityFieldName, Number(expectedGross.toFixed(3)));
+        } else {
+          // TASSATIVO: Campo vuoto per flussi manuali (Flow B)
+          form.setValue(quantityFieldName, null);
         }
         setCalculatedNet(net);
 
@@ -65,29 +74,32 @@ export function useBatchSelection({
       } else {
         setIsFixedTare(false);
         setBatchMetadata(null);
+        // Assicura campo vuoto se non c'è storico e non vogliamo auto-fill
+        if (!autoFillQuantity) form.setValue(quantityFieldName, null);
       }
     } catch (error) {
       console.error("Error updating batch info:", error);
     } finally {
-      setIsLoading(true);
-      // Wait a bit to avoid flickering if needed, or just set to false
       setIsLoading(false);
     }
   }, [materialId, form, packagingFieldName, quantityFieldName, onLotMetadataFound, autoFillQuantity]);
 
   // Handle lotto changes (debounced)
   useEffect(() => {
+    if (isLottoLocked) return;
+
     if (lottoValue && lottoValue.length >= 2 && materialId) {
       const timer = setTimeout(() => {
         updateBatchInfo(lottoValue);
       }, 600);
       return () => clearTimeout(timer);
-    } else {
+    } else if (!lottoValue) {
       setLotAvailability(null);
       setIsFixedTare(false);
       setBatchMetadata(null);
+      setIsLottoLocked(false);
     }
-  }, [lottoValue, materialId, updateBatchInfo]);
+  }, [lottoValue, materialId, updateBatchInfo, isLottoLocked]);
 
   // Real-time calculation of Net based on Gross input
   useEffect(() => {
@@ -112,15 +124,24 @@ export function useBatchSelection({
         setCalculatedNet(Number(netWeightKg.toFixed(3)));
       }
     } else if (lotAvailability) {
-      // Fallback if we only have summary info
+      // Fallback: Arrotondamento pezzi anche se non abbiamo metadati completi
       const gross = Number(currentGross) || 0;
-      setCalculatedNet(gross); // This case might need more data if we want precise units without batchMetadata
+      const uom = lotAvailability.unit?.toLowerCase();
+      
+      if (uom === 'n') {
+          setCalculatedNet(Math.round(gross)); 
+      } else {
+          setCalculatedNet(Number(gross.toFixed(3)));
+      }
     }
   }, [currentGross, batchMetadata, lotAvailability]);
 
   return {
     isLoading,
     lotAvailability,
+    isLottoLocked,
+    setIsLottoLocked,
+    isLottoVerified,
     isFixedTare,
     calculatedNet,
     batchMetadata,

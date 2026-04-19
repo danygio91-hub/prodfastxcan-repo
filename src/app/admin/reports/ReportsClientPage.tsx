@@ -29,6 +29,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package, Copy, Eye, EyeOff, ClipboardCheck } from 'lucide-react';
 import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type JobsReport, type EnrichedMaterialWithdrawal, declareWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
@@ -439,17 +440,11 @@ export default function ReportsClientPage({
                 <div className="flex justify-between items-center">
                     <CardTitle className="font-headline">Riepilogo Ore per Operatore</CardTitle>
                     <div className="flex items-center gap-2">
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Button variant={"outline"}>
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {operatorDate ? format(operatorDate, "PPP", { locale: it }) : <span>Scegli una data</span>}
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
-                                <Calendar mode="single" selected={operatorDate} onSelect={setOperatorDate} initialFocus />
-                            </PopoverContent>
-                        </Popover>
+                        <MaskedDatePicker 
+                          value={operatorDate} 
+                          onChange={(date) => setOperatorDate(date || undefined)} 
+                          className="w-48"
+                        />
                          <Button onClick={fetchOperators} variant="secondary" size="sm" disabled={isPendingOperators}>
                               {isPendingOperators ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Search className="mr-2 h-4 w-4"/>}
                               Cerca

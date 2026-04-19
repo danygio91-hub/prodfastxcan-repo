@@ -24,7 +24,7 @@ import { closeMaterialSessionAndUpdateStock, getRawMaterialByCode, findLastWeigh
 import { getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
 import type { RawMaterial, ActiveMaterialSessionData } from '@/types';
 
-import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info, PlayCircle, Weight, X, Lock } from 'lucide-react';
+import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info, PlayCircle, Weight, X, Lock, CheckCircle2, AlertCircle, Edit3 } from 'lucide-react';
 
 
 import { useCameraStream } from '@/hooks/use-camera-stream';
@@ -97,6 +97,9 @@ export default function ManualWithdrawalPage() {
   const {
       isLoading: isLoadingLots,
       lotAvailability,
+      isLottoLocked,
+      setIsLottoLocked,
+      isLottoVerified,
       isFixedTare,
       calculatedNet,
       batchMetadata
@@ -105,7 +108,7 @@ export default function ManualWithdrawalPage() {
       materialId: scannedMaterial?.id,
       quantityFieldName: 'quantity',
       packagingFieldName: 'packagingId',
-      autoFillQuantity: scannedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg'
+      autoFillQuantity: useSession // Flusso A: Sessione (Auto-compila peso noto) | Flusso B: Manuale (Vuoto)
   });
 
 
@@ -593,11 +596,46 @@ export default function ManualWithdrawalPage() {
                               name="lotto"
                               render={({ field }) => (
                                 <FormItem className="space-y-1">
-                                  <FormLabel className="font-black text-[10px] uppercase text-muted-foreground ml-1">Codice Lotto</FormLabel>
+                                  <FormLabel className="font-black text-[10px] uppercase text-muted-foreground ml-1 flex justify-between items-center">
+                                      <span>Codice Lotto</span>
+                                      {field.value && (
+                                          <div className="animate-in fade-in zoom-in duration-300">
+                                              {isLottoVerified ? (
+                                                  <Badge variant="outline" className="h-4 px-1.5 border-green-500 text-green-600 bg-green-500/5 text-[8px] font-black uppercase">
+                                                      <CheckCircle2 className="h-2 w-2 mr-1" /> Lotto Verificato
+                                                  </Badge>
+                                              ) : (
+                                                  <Badge variant="outline" className="h-4 px-1.5 border-orange-500 text-orange-600 bg-orange-500/5 text-[8px] font-black uppercase">
+                                                      <AlertCircle className="h-2 w-2 mr-1" /> Lotto Manuale (Nuovo)
+                                                  </Badge>
+                                              )}
+                                          </div>
+                                      )}
+                                  </FormLabel>
                                   <FormControl>
-                                      <div className="relative">
+                                      <div className="relative group">
                                           <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                          <Input placeholder="Scansiona o digita..." {...field} value={field.value ?? ''} className="font-mono font-black pl-10 h-11 rounded-xl bg-muted/10 border-2" />
+                                          <Input 
+                                              placeholder="Scansiona o digita..." 
+                                              {...field} 
+                                              value={field.value ?? ''} 
+                                              readOnly={isLottoLocked}
+                                              className={cn(
+                                                  "font-mono font-black pl-10 h-11 rounded-xl bg-muted/10 border-2 transition-all",
+                                                  isLottoLocked && "bg-muted/50 border-green-500/30 text-green-800 pr-10 cursor-not-allowed",
+                                                  !isLottoLocked && field.value && !isLottoVerified && "border-orange-500/30"
+                                              )} 
+                                          />
+                                          {isLottoLocked && (
+                                              <button 
+                                                  type="button"
+                                                  onClick={() => setIsLottoLocked(false)}
+                                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors animate-in fade-in slide-in-from-right-1"
+                                                  title="Sblocca lotto"
+                                              >
+                                                  <Edit3 className="h-4 w-4" />
+                                              </button>
+                                          )}
                                       </div>
                                   </FormControl>
                                   <FormMessage />
@@ -738,7 +776,11 @@ export default function ManualWithdrawalPage() {
                                                 step="0.001" 
                                                 {...field} 
                                                 value={field.value ?? ''} 
-                                                className="pl-10 h-14 text-2xl font-black font-mono border-2 border-primary/30 rounded-2xl focus:border-primary transition-all shadow-sm" 
+                                                readOnly={useSession && !!batchMetadata}
+                                                className={cn(
+                                                    "pl-10 h-14 text-2xl font-black font-mono border-2 border-primary/30 rounded-2xl focus:border-primary transition-all shadow-sm",
+                                                    useSession && !!batchMetadata && "bg-muted/50 border-primary/10 opacity-70 cursor-not-allowed"
+                                                )} 
                                               />
                                           </div>
                                       </FormControl>

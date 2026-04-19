@@ -200,6 +200,7 @@ export interface RawMaterialBatch {
   lotto?: string | null;
   purchaseOrderId?: string;
   isExhausted?: boolean;
+  activeSessionId?: string | null;
 }
 
 export interface RawMaterial {
