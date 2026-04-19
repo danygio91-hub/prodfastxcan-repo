@@ -76,58 +76,71 @@ export function calculateInventoryMovement(
       }
     }
   } else {
-    // SUBTRACTION (Withdrawal/Scarico) - MODIFIED: DIRECT DEDUCTION FROM BATCHES
-    // We use LIVE AGGREGATION for validation during the transaction
+    // SUBTRACTION (Withdrawal/Scarico) - MODIFIED: DIRECT DEDUCTION FROM BATCHES (SSoT)
     if (specificLotto) {
       const idx = batches.findIndex(b => b.lotto === specificLotto);
       if (idx === -1) throw new Error(`Lotto "${specificLotto}" non trovato.`);
       
-      const lotto = batches[idx].lotto as string;
-      const initialBatchQty = batches[idx].netQuantity || 0;
-      
-      // REAL-TIME AVAILABILITY: Batch Net - Historical Withdrawals
-      const withdrawnUnits = withdrawals
-        .filter(w => (w.lotto === lotto || w.lotto === specificLotto) && w.status !== 'cancelled')
-        .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
-      
-      const availableUnits = Math.max(0, initialBatchQty - withdrawnUnits);
+      const availableUnits = batches[idx].netQuantity || 0;
 
       if (availableUnits < unitsToChange - 0.001) {
           throw new Error(`Giacenza insufficiente su lotto "${specificLotto}": disponibili ${availableUnits.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
 
-      // NO LONGER DEDUCT FROM BATCH FOR WITHDRAWALS
-      // We only track the used lot and let Live Aggregation calculate the balance
+      batches[idx].netQuantity = availableUnits - unitsToChange;
+      batches[idx].grossWeight = Math.max(0, (batches[idx].grossWeight || 0) - weightToChange);
+      if (batches[idx].netQuantity <= 0.001) {
+          batches[idx].isExhausted = true;
+          batches[idx].grossWeight = 0; // Azzera anche la tara residua se esaurito
+          batches[idx].netQuantity = 0;
+      }
+
       usedLotto = specificLotto;
     } else {
-      // FIFO Withdrawal: Validation only (No mutation)
+      // FIFO Withdrawal: Deduct from oldest active batches
       const validBatches = batches
-        .map((b, originalIndex) => ({ b, index: originalIndex }))
-        .filter(item => !item.b.isExhausted && (item.b.netQuantity || 0) > 0.001);
+        .filter(b => !b.isExhausted && (b.netQuantity || 0) > 0.001)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      // REAL-TIME AVAILABILITY: Sum(Active Batches) - Sum(Withdrawals of those batches)
-      let totalAvail = 0;
-      validBatches.forEach(item => {
-          const wUnits = withdrawals
-            .filter(w => w.lotto === item.b.lotto && w.status !== 'cancelled')
-            .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
-          totalAvail += Math.max(0, (item.b.netQuantity || 0) - wUnits);
-      });
+      let totalAvail = validBatches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
 
       if (totalAvail < unitsToChange - 0.001) {
           throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
       }
 
-      // We still find the first lot used for recording purposes in FIFO
-      // Sorting by date (oldest first) and ignoring exhausted or zero-qty batches
-      const sortedItems = validBatches.sort((a, b) => {
-          const dateA = new Date(a.b.date).getTime();
-          const dateB = new Date(b.b.date).getTime();
-          return dateA - dateB;
-      });
+      let remainingUnitsToChange = unitsToChange;
+      let remainingWeightToChange = weightToChange;
 
-      if (sortedItems.length > 0) {
-          usedLotto = sortedItems[0].b.lotto as string;
+      // We record the first lot used for reporting
+      if (validBatches.length > 0) {
+          usedLotto = validBatches[0].lotto as string;
+      }
+
+      for (let i = 0; i < validBatches.length && remainingUnitsToChange > 0.001; i++) {
+         const b = validBatches[i];
+         const availableInBatch = b.netQuantity || 0;
+         const qtyToDeduct = Math.min(availableInBatch, remainingUnitsToChange);
+         
+         const weightRatio = availableInBatch > 0 ? (b.grossWeight || 0) / availableInBatch : 0;
+         const weightToDeduct = qtyToDeduct * weightRatio;
+
+         const actualBatchIdx = batches.findIndex(tb => tb.lotto === b.lotto);
+         if (actualBatchIdx !== -1) {
+             batches[actualBatchIdx].netQuantity = availableInBatch - qtyToDeduct;
+             
+             // Deduce proportional net-equivalent weight, tare remains until exhausted
+             let calculatedGross = (batches[actualBatchIdx].grossWeight || 0) - (qtyToDeduct * factor);
+             batches[actualBatchIdx].grossWeight = Math.max(0, calculatedGross);
+             
+             if (batches[actualBatchIdx].netQuantity <= 0.001) {
+                 batches[actualBatchIdx].isExhausted = true;
+                 batches[actualBatchIdx].grossWeight = 0; // Azzera tara finale
+                 batches[actualBatchIdx].netQuantity = 0;
+             }
+         }
+
+         remainingUnitsToChange -= qtyToDeduct;
+         remainingWeightToChange -= weightToDeduct;
       }
     }
   }

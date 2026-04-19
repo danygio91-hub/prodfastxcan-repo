@@ -396,13 +396,22 @@ async function internalForceCompleteJob(transaction: admin.firestore.Transaction
         return { ...phase, workPeriods: updatedWorkPeriods };
     });
 
-    const updates = { 
-        status: 'Completata' as const, 
+    const updates: any = { 
+        status: 'completed' as const, 
         overallEndTime: admin.firestore.Timestamp.now(), 
         forcedCompletion: true,
         isSanatoria: true,
         phases: updatedPhases 
     };
+
+    if (item.billOfMaterials && item.billOfMaterials.length > 0) {
+        updates.billOfMaterials = item.billOfMaterials.map(bItem => {
+            if (!bItem.withdrawn) {
+                return { ...bItem, status: 'withdrawn', withdrawn: true, forcedClosure: true };
+            }
+            return bItem;
+        });
+    }
 
     transaction.update(itemRef, updates);
     

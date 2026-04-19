@@ -274,20 +274,20 @@ export default function JobOrderCard({
     ? parseISO(deliveryDateString)
     : null;
     
-  const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
+  const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'CHIUSO';
   
   const prepDateString = jobOrder.dataFinePreparazione;
   const prepDate = prepDateString && /^\d{4}-\d{2}-\d{2}$/.test(prepDateString)
     ? parseISO(prepDateString)
     : null;
-  const isPrepOverdue = prepDate && isPast(new Date(prepDate.toDateString())) && overallStatus !== 'Completata';
+  const isPrepOverdue = prepDate && isPast(new Date(prepDate.toDateString())) && overallStatus !== 'CHIUSO';
 
   const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
-  const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
-  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
+  const canForceFinish = ['IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE'].includes(overallStatus);
+  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'CHIUSO';
 
   const isForcedToFinish = jobOrder.phases.some(p => p.forced);
-  const isPianificazione = overallStatus === 'In Pianificazione';
+  const isPianificazione = overallStatus === 'DA_INIZIARE' && jobOrder.status === 'IN_PIANIFICAZIONE';
 
 
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
@@ -400,11 +400,11 @@ export default function JobOrderCard({
                                   </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                 <DropdownMenuItem onSelect={() => onOpenPhaseManager(jobOrder)} disabled={overallStatus === 'Completata'}>
+                                 <DropdownMenuItem onSelect={() => onOpenPhaseManager(jobOrder)} disabled={overallStatus === 'CHIUSO'}>
                                       <ListOrdered className="mr-2 h-4 w-4" />
                                       <span>Gestisci Fasi</span>
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onSelect={() => onOpenMaterialManager(jobOrder)} disabled={overallStatus === 'Completata'}>
+                                  <DropdownMenuItem onSelect={() => onOpenMaterialManager(jobOrder)} disabled={overallStatus === 'CHIUSO'}>
                                       <Boxes className="mr-2 h-4 w-4" />
                                       <span>Gestisci Materiali</span>
                                   </DropdownMenuItem>
@@ -479,10 +479,9 @@ export default function JobOrderCard({
                                    <DropdownMenuSeparator />
                                    <AlertDialog>
                                        <AlertDialogTrigger asChild>
-                                       <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
-                                           <RefreshCcw className="mr-2 h-4 w-4" />
-                                           <span>Annulla e Resetta</span>
-                                       </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={overallStatus === 'CHIUSO'}>
+                                        <PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura
+                                    </DropdownMenuItem>
                                        </AlertDialogTrigger>
                                        <AlertDialogContent>
                                        <AlertDialogHeader>
@@ -686,7 +685,7 @@ export default function JobOrderCard({
                                      {getPhaseIcon(phase.status)}
                                      <span className={cn("text-xs font-semibold uppercase tracking-wider", phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
                                  </div>
-                                 {phase.status === 'completed' && overallStatus !== 'Completata' && !isPartOfGroup && (
+                                 {phase.status === 'completed' && overallStatus !== 'CHIUSO' && !isPartOfGroup && (
                                      <AlertDialog>
                                          <AlertDialogTrigger asChild>
                                              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">

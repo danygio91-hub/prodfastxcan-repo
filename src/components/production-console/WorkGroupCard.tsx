@@ -99,10 +99,10 @@ export default function WorkGroupCard({
   const deliveryDate = deliveryDateString && /^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)
     ? parseISO(deliveryDateString)
     : null;
-  const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
+  const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'CHIUSO';
   const prepDateString = group.dataFinePreparazione;
   const prepDate = prepDateString && /^\d{4}-\d{2}-\d{2}$/.test(prepDateString) ? parseISO(prepDateString) : null;
-  const isPrepOverdue = prepDate && isPast(new Date(prepDate.toDateString())) && overallStatus !== 'Completata';
+  const isPrepOverdue = prepDate && isPast(new Date(prepDate.toDateString())) && overallStatus !== 'CHIUSO';
 
   const validJobsInGroup = useMemo(() => {
       return jobsInGroup.filter(job => !job.id.startsWith('group-'));
@@ -143,7 +143,7 @@ export default function WorkGroupCard({
                                 
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                        <DropdownMenuItem onSelect={e => e.preventDefault()} disabled={!['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus)}>
+                                        <DropdownMenuItem onSelect={e => e.preventDefault()} disabled={!['IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE'].includes(overallStatus)}>
                                             <FastForward className="mr-2 h-4 w-4" /> Forza Finitura
                                         </DropdownMenuItem>
                                     </AlertDialogTrigger>
@@ -158,7 +158,7 @@ export default function WorkGroupCard({
 
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                        <DropdownMenuItem onSelect={e => e.preventDefault()} disabled={isLive || overallStatus === 'Completata'}>
+                                        <DropdownMenuItem onSelect={e => e.preventDefault()} disabled={isLive || overallStatus === 'CHIUSO'}>
                                             <PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura
                                         </DropdownMenuItem>
                                     </AlertDialogTrigger>

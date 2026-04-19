@@ -54,10 +54,9 @@ function StatusBadge({ status }: { status: OverallStatus }) {
     <Badge
       className={cn(
         "text-xs font-semibold",
-        status === "In Lavorazione" && "bg-accent text-accent-foreground",
-        status === "Completata" && "bg-primary text-primary-foreground",
-        status === "Problema" && "bg-destructive text-destructive-foreground",
-        status === "Sospesa" && "bg-yellow-500 text-white"
+        status === "IN_PRODUZIONE" && "bg-accent text-accent-foreground",
+        status === "CHIUSO" && "bg-primary text-primary-foreground",
+
       )}
     >
       {status}

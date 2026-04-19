@@ -34,7 +34,9 @@ import {
   getMaterialOrderedDetails,
   type OrderedDetail,
   adjustRawMaterialStock,
-  bulkUpdateRawMaterials
+  bulkUpdateRawMaterials,
+  getBatchesForReturn,
+  returnMaterialToBatch
 } from './actions';
 
 import { Button } from '@/components/ui/button';
@@ -186,6 +188,94 @@ function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onO
   );
 }
 
+function ReturnMaterialDialog({ isOpen, onOpenChange, material, onConfirm }: { isOpen: boolean, onOpenChange: (open: boolean) => void, material: RawMaterial | null, onConfirm: () => void }) {
+  const { toast } = useToast();
+  const [isPending, setIsPending] = useState(false);
+  const [lots, setLots] = useState<any[]>([]);
+  const [isLoadingLots, setIsLoadingLots] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && material) {
+      setIsLoadingLots(true);
+      getBatchesForReturn(material.id)
+        .then(setLots)
+        .finally(() => setIsLoadingLots(false));
+    }
+  }, [isOpen, material]);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    setIsPending(true);
+    const result = await returnMaterialToBatch(formData);
+    toast({ title: result.message, variant: result.success ? "default" : "destructive" });
+    if (result.success) {
+      onConfirm();
+      onOpenChange(false);
+    }
+    setIsPending(false);
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reso da Produzione: {material?.code}</DialogTitle>
+          <DialogDescription>Re-immetti a stock materiale avanzato su un lotto esistente.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 py-4">
+          <input type="hidden" name="materialId" value={material?.id || ''} />
+          
+          <div className="space-y-2">
+            <Label>Seleziona Lotto da Rimpinguare</Label>
+            <Select name="batchId" required>
+              <SelectTrigger>
+                <SelectValue placeholder={isLoadingLots ? "Caricamento lotti..." : "Scegli lotto..."} />
+              </SelectTrigger>
+              <SelectContent>
+                {lots.map(l => (
+                  <SelectItem key={l.lotto} value={l.lotto}>{l.lottoLabel} (Disp: {l.available.toFixed(2)})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Quantità da Rendere</Label>
+              <Input type="number" step="any" name="returnQuantity" required />
+            </div>
+            <div className="space-y-2">
+              <Label>Unità</Label>
+              <Select name="returnUnits" defaultValue={material?.unitOfMeasure || 'n'}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="n">PZ</SelectItem>
+                  <SelectItem value="mt">MT</SelectItem>
+                  <SelectItem value="kg">KG</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Note / Causale Reso</Label>
+            <Input name="notes" placeholder="Esempio: Avanzo di produzione ODL 123" />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
+            <Button type="submit" disabled={isPending || isLoadingLots}>
+              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowUpCircle className="mr-2 h-4 w-4" />}
+              Conferma Reso
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 interface RawMaterialManagementClientPageProps {
   initialArticles: Article[];
   initialCommitments: ManualCommitment[];
@@ -227,6 +317,7 @@ export default function RawMaterialManagementClientPage({
   const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
   const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
   const [isAdjustStockDialogOpen, setIsAdjustStockDialogOpen] = useState(false);
+  const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
   const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
@@ -423,11 +514,20 @@ export default function RawMaterialManagementClientPage({
                             <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
                             <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
                             <TableCell><button onClick={() => handleOpenOrderedDetails(m.code)} className="text-blue-600 hover:underline">{s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}</button></TableCell>
-                            <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsAdjustStockDialogOpen(true); }}><History className="mr-2 h-4 w-4 text-amber-600" /> <span className="text-amber-600">Aggiusta Stock</span></DropdownMenuItem><DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Scarti</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
-                          </TableRow>
-                        )
-                      })
-                      )}
+                          <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsReturnDialogOpen(true); }} className="text-teal-600 focus:text-teal-700 focus:bg-teal-50"><ArrowUpCircle className="mr-2 h-4 w-4" /> Reso Merce</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsAdjustStockDialogOpen(true); }}><History className="mr-2 h-4 w-4 text-amber-600" /> <span className="text-amber-600">Aggiusta Stock</span></DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Scarti</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem>
+                          </DropdownMenuContent></DropdownMenu></TableCell>
+                        </TableRow>
+                      )
+                    })
+                    )}
                     </TableBody>
                   </Table>
                   {hasMore && !isSearching && (
@@ -528,6 +628,7 @@ export default function RawMaterialManagementClientPage({
       </Dialog>
 
       <ScrapsDialog isOpen={isScrapsDialogOpen} onOpenChange={setIsScrapsDialogOpen} material={selectedMaterial} />
+      <ReturnMaterialDialog isOpen={isReturnDialogOpen} onOpenChange={setIsReturnDialogOpen} material={selectedMaterial} onConfirm={refreshData} />
 
       <Dialog open={isAdjustStockDialogOpen} onOpenChange={setIsAdjustStockDialogOpen}>
         <DialogContent className="sm:max-w-md">

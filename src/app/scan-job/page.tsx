@@ -65,7 +65,7 @@ function getPhaseIcon(status: JobPhase['status'], type?: string) {
   }
 }
 
-const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, handlers: any }) => {
+const PhaseCard = ({ phase, job, handlers, isGlobalProcessing }: { phase: JobPhase, job: JobOrder, handlers: any, isGlobalProcessing?: boolean }) => {
     const { operator } = useAuth();
     if (!operator) return null;
     const isSuper = operator.role === 'supervisor' || operator.role === 'admin';
@@ -132,20 +132,29 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
 
           <div className="mt-3 flex flex-col sm:flex-row flex-wrap gap-2">
             {hasPerm && phase.type === 'preparation' && phase.status !== 'completed' && phase.status !== 'skipped' && (
-              <Button size="sm" variant="secondary" className="h-8 w-full sm:w-auto text-xs font-bold" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
+              <Button size="sm" variant="secondary" className="h-8 w-full sm:w-auto text-xs font-bold" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)} disabled={isGlobalProcessing}>Associa Materiale</Button>
             )}
             
-            {canStart && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} className="h-8 w-full sm:w-auto text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-sm transition-all active:scale-95"><PlayCircle className="mr-2 h-4 w-4" /> Avvia</Button>}
+            {canStart && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} className="h-8 w-full sm:w-auto text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-sm transition-all active:scale-95">
+              {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />} Avvia
+            </Button>}
             
-            {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-blue-600 border-blue-200 bg-blue-50/50"><Combine className="mr-2 h-4 w-4" /> Partecipa</Button>}
+            {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-blue-600 border-blue-200 bg-blue-50/50">
+              {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Combine className="mr-2 h-4 w-4" />} Partecipa
+            </Button>}
             
-            {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-orange-600 border-orange-200">Pausa</Button>}
+            {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-orange-600 border-orange-200">
+              {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Pausa
+            </Button>}
             
-            {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-yellow-600 border-yellow-200 bg-yellow-50/50">Riprendi</Button>}
+            {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-yellow-600 border-yellow-200 bg-yellow-50/50">
+              {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Riprendi
+            </Button>}
             
             {canComplete && (
               <Button 
                 size="sm" 
+                disabled={isGlobalProcessing}
                 onClick={() => {
                   if (phase.type === 'quality' || phase.type === 'packaging') {
                     handlers.handleOpenDeclarationDialog(phase);
@@ -158,7 +167,7 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
                   (phase.type === 'quality' || phase.type === 'packaging') ? "bg-amber-500 hover:bg-amber-600" : "bg-green-600 hover:bg-green-700"
                 )}
               >
-                {(phase.type === 'quality' || phase.type === 'packaging') ? 'Dichiara' : 'Completa'}
+                {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (phase.type === 'quality' || phase.type === 'packaging' ? 'Dichiara' : 'Completa')}
               </Button>
             )}
 
@@ -228,6 +237,7 @@ export default function ScanJobPage() {
 
   const [isAttachmentsDialogOpen, setIsAttachmentsDialogOpen] = useState(false);
   const [isFastForwarding, setIsFastForwarding] = useState(false);
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const groupingVideoRef = useRef<HTMLVideoElement>(null);
@@ -414,22 +424,27 @@ export default function ScanJobPage() {
 
   const handleResumePhase = async (id: string) => {
       if (!activeJob || !operator) return;
-      
-      const avail = await isOperatorActiveOnAnyJob(operator.id, activeJob.id);
-      if (!avail.available) {
-          toast({ variant: 'destructive', title: 'Operatore Occupato', description: `Sei già attivo sulla commessa ${avail.activeJobId} nella fase ${avail.activePhaseName}.` });
-          return;
-      }
+      setIsProcessingAction(true);
+      try {
+        const avail = await isOperatorActiveOnAnyJob(operator.id, activeJob.id);
+        if (!avail.available) {
+            toast({ variant: 'destructive', title: 'Operatore Occupato', description: `Sei già attivo sulla commessa ${avail.activeJobId} nella fase ${avail.activePhaseName}.` });
+            return;
+        }
 
-      await handlePhaseScanResult(activeJob.id, id, operator.id, false);
-      triggerJobRefresh();
+        await handlePhaseScanResult(activeJob.id, id, operator.id, false);
+        triggerJobRefresh();
+      } finally { setIsProcessingAction(false); }
   };
 
 
   const handleCompletePhase = async (id: string) => {
     if (!activeJob || !operator) return;
-    await handlePhaseScanResult(activeJob.id, id, operator.id, true);
-    triggerJobRefresh();
+    setIsProcessingAction(true);
+    try {
+        await handlePhaseScanResult(activeJob.id, id, operator.id, true);
+        triggerJobRefresh();
+    } finally { setIsProcessingAction(false); }
   };
 
   const handleOpenDeclarationDialog = (phase: JobPhase) => {
@@ -704,7 +719,7 @@ export default function ScanJobPage() {
                   <CardHeader><CardTitle>Fasi Lavorazione</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
                     {(activeJob.phases || []).sort((a,b) => a.sequence - b.sequence).map(p => (
-                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog, handleOpenDeclarationDialog}} />
+                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog, handleOpenDeclarationDialog}} isGlobalProcessing={isProcessingAction || jobLoading} />
                     ))}
                   </CardContent>
                 </Card>

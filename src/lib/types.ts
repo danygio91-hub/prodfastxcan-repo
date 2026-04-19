@@ -2,56 +2,18 @@ import type { JobOrder, WorkGroup, OverallStatus } from "@/types";
 
 
 export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
-    // Pipeline statuses mapping (exact match for Firestore 'status' field)
-    const pipelineMap: Record<string, OverallStatus> = {
-        'DA_INIZIARE': 'DA INIZIARE',
-        'IN_PREPARAZIONE': 'IN PREP.',
-        'PRONTO_PROD': 'PRONTO PROD.',
-        'IN_PRODUZIONE': 'IN PROD.',
-        'FINE_PRODUZIONE': 'FINE PROD.',
-        'QLTY_PACK': 'QLTY & PACK',
-        'CHIUSO': 'CHIUSO',
-        'completed': 'CHIUSO',
-        'COMPLETED': 'CHIUSO',
-        'Completata': 'CHIUSO',
-        'COMPLETATA': 'CHIUSO',
-        'shipped': 'CHIUSO',
-        'SHIPPED': 'CHIUSO',
-        'closed': 'CHIUSO',
-        'CLOSED': 'CHIUSO',
-        'Da Iniziare': 'DA INIZIARE',
-        'In Preparazione': 'IN PREP.',
-        'IN PREP': 'IN PREP.',
-        'Pronto per Produzione': 'PRONTO PROD.',
-        'Pronto Produzione': 'PRONTO PROD.',
-        'PRONTO PROD': 'PRONTO PROD.',
-        'PRONTO': 'PRONTO PROD.',
-        'In Lavorazione': 'IN PROD.',
-        'IN PROD': 'IN PROD.',
-        'Pronto per Finitura': 'FINE PROD.',
-        'Fine Produzione': 'FINE PROD.',
-        'FINE PROD': 'FINE PROD.',
-        'Qualità & Imballo': 'QLTY & PACK',
-        'QLTY & PACK': 'QLTY & PACK'
-    };
-
-    const statusKey = item.status || '';
-    if (statusKey && (pipelineMap[statusKey] || pipelineMap[statusKey.toUpperCase()])) {
-        return pipelineMap[statusKey] || pipelineMap[statusKey.toUpperCase()];
-    }
-
-    if (item.status === 'planned' || item.status === 'In Pianificazione' || item.status === 'IN_PIANIFICAZIONE' || item.status === 'IN_ATTESA') {
-        return 'In Pianificazione';
-    }
-
     const allPhases = item.phases || [];
 
-    // Highest priority: check for specific blocking states
-    if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
-    if (item.isProblemReported) return 'Problema';
+    // Se non ci sono fasi, consideriamo lo stato di default o lo forziamo se è chiuso storicamente
+    if (allPhases.length === 0) {
+        if (item.status === 'CHIUSO' || item.status === 'completed' || item.status === 'shipped') {
+            return 'CHIUSO';
+        }
+        return 'DA_INIZIARE';
+    }
 
-    // A job/group is considered complete if all non-postponed phases are either 'completed' or 'skipped'.
-    const allRequiredPhasesDone = allPhases.length > 0 && allPhases
+    // 1. Condizione di Chiusura: tutte le fasi non posticipate sono completate o saltate
+    const allRequiredPhasesDone = allPhases
         .filter(p => !p.postponed)
         .every(p => p.status === 'completed' || p.status === 'skipped');
 
@@ -59,34 +21,42 @@ export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
       return 'CHIUSO';
     }
     
-    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
-    if (isAnyPhaseInProgress) return 'IN PROD.';
-
-    // Logic based on progression
+    // 2. Produzione in corso: se QUALSIASI fase è in-progress, il cantiere è considerato in produzione 
+    // (a meno che non sia solo la preparazione). Verifichiamo meglio la separazione.
+    
     const preparationPhases = allPhases.filter(p => p.type === 'preparation');
     const productionPhases = allPhases.filter(p => p.type === 'production');
 
-    const allPrepDone = preparationPhases
+    // 3. Controllo completamento Preparazione
+    const allPrepDone = preparationPhases.length === 0 || preparationPhases
       .filter(p => !p.postponed)
       .every(p => p.status === 'completed' || p.status === 'skipped');
 
     if (allPrepDone) {
-        const allProductionDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+        // La preparazione è finita (o non c'era).
+        // Guardiamo la produzione.
+        const allProductionDone = productionPhases.length === 0 || productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+        
         if (allProductionDone) {
-          return 'FINE PROD.'; 
+            // Produzione finita (o non c'era). Manca Quality/Pack per chiudere.
+            return 'FINE_PRODUZIONE'; 
         }
-        return 'PRONTO PROD.';
+
+        // La produzione NON è finita. C'è qualche fase in progress?
+        if (productionPhases.some(p => p.status === 'in-progress')) {
+            return 'IN_PRODUZIONE';
+        }
+        
+        // La prduzione non è finita e non è iniziata.
+        return 'PRONTO_PROD';
     }
     
+    // 4. La preparazione NON è finita.
     const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
     if (isAnyPreparationStarted) {
-      return 'IN PREP.';
+      return 'IN_PREPARAZIONE';
     }
     
-    // Fallback to 'Sospesa' if no specific state is met and it's not active
-    if (item.status === 'suspended' || item.status === 'paused' || item.status === 'Sospesa') {
-        return 'Sospesa';
-    }
-
-    return 'DA INIZIARE';
+    // 5. Nessuna fase è ancora iniziata.
+    return 'DA_INIZIARE';
 }

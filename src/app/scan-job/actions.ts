@@ -490,11 +490,18 @@ export async function handlePhaseScanResult(
                 const dummyJob = { ...data, phases: updatedPhases };
                 const newStatus = getOverallStatus(dummyJob);
                 
-                const startUpdates = { 
+                const startUpdates: any = { 
                     phases: updatedPhases, 
                     status: newStatus, 
-                    overallStartTime: data.overallStartTime || new Date() 
+                    overallStartTime: data.overallStartTime || new Date(),
+                    isSuspended: false,
+                    isProblemReported: false // Clear problem/suspension on resume
                 };
+                
+                // Clear specific material shortage problem if starting the stuck phase
+                if (data.hasMaterialShortage) {
+                   startUpdates.hasMaterialShortage = false; 
+                }
 
                 transaction.update(itemRef, startUpdates);
                 
@@ -551,15 +558,25 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
                     const opSnap = await transaction.get(adminDb.collection('operators').doc(opId));
                     phs[idx].materialStatus = 'missing';
                     phs[idx].materialReady = false;
+                    
+                    updateData.hasMaterialShortage = true;
+                    updateData.isSuspended = true; // Mother is suspended
                     updateData.isProblemReported = true;
                     updateData.problemType = 'MANCA_MATERIALE';
                     updateData.problemReportedBy = (opSnap.data() as any)?.nome || 'Operatore';
                     updateData.problemNotes = notes || 'Segnalato automaticamente dalla pausa.';
                 } else if (reason === 'Altro' && notes) {
-                    // Update notes if reason is 'Altro'
+                    updateData.isSuspended = true;
                     updateData.isProblemReported = true;
                     updateData.problemType = 'ALTRO';
                     updateData.problemNotes = notes;
+                } else {
+                    // Normal pause (end of shift, breaks)
+                    // If all phases are pending or paused (no in-progress left), mark job as suspended
+                    const isAnyPhaseInProgress = phs.some((p: any) => p.status === 'in-progress');
+                    if (!isAnyPhaseInProgress) {
+                         updateData.isSuspended = true;
+                    }
                 }
                 
                 transaction.update(itemRef, updateData);
@@ -798,6 +815,11 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
             } as any;
 
             let qtyToUse = Number(quantity);
+            
+            if (!isFinished && qtyToUse <= 0) {
+                throw new Error("La quantità prelevata deve essere maggiore di zero.");
+            }
+            
             if (isFinished && lotto) {
                 // MODIFIED: In Lot-Centric model, the balance is already on the batch
                 const batch = (material.batches || []).find(b => b.lotto === lotto);

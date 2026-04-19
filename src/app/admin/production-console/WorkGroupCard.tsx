@@ -2,7 +2,7 @@ import type { JobOrder, WorkGroup, JobPhase, OverallStatus, Operator } from '@/t
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, Timer, Loader2 } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, Timer, Loader2, AlertTriangle, Pause } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -92,7 +92,7 @@ export default function WorkGroupCard({
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
-  const hasMaterialMissing = group.phases.some(p => p.materialStatus === 'missing');
+  const hasMaterialMissing = group.hasMaterialShortage;
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
@@ -160,7 +160,7 @@ export default function WorkGroupCard({
   
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
   const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
-  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
+  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'CHIUSO';
   
   const guainaPhase = group.phases.find(p => p.name === "Taglio Guaina");
   const isWorkInProgress = group.phases.some(p => p.status === 'in-progress' || p.status === 'paused');
@@ -178,10 +178,11 @@ export default function WorkGroupCard({
       <Card 
         className={cn(
             "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-teal-500/70", 
-            (group.isProblemReported || hasMaterialMissing) && "cursor-pointer border-destructive/50 hover:border-destructive",
+            (group.isProblemReported || group.hasMaterialShortage) && "cursor-pointer ring-2 ring-destructive shadow-[0_0_15px_rgba(239,68,68,0.3)]",
+            group.isSuspended && !group.hasMaterialShortage && "cursor-pointer ring-2 ring-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.3)]",
             isSelected && "border-primary ring-2 ring-primary/50",
         )}
-        onClick={(group.isProblemReported || hasMaterialMissing) ? onProblemClick : undefined}
+        onClick={(group.isProblemReported || group.hasMaterialShortage || group.isSuspended) ? onProblemClick : undefined}
       >
         <div className="flex-grow">
             <CardHeader className="pb-3 space-y-2">
@@ -210,7 +211,19 @@ export default function WorkGroupCard({
                             </div>
                         </CollapsibleTrigger>
                     </div>
-                    <StatusBadge status={overallStatus} />
+                    <div className="flex items-center gap-2">
+                         {group.hasMaterialShortage && (
+                             <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground px-1.5 shadow-sm text-[9px]">
+                                 <AlertTriangle className="mr-1 h-3 w-3" /> MANCA MAT.
+                             </Badge>
+                         )}
+                         {group.isSuspended && !group.hasMaterialShortage && (
+                             <Badge className="bg-yellow-500 hover:bg-yellow-500 text-white px-1.5 shadow-sm text-[9px]">
+                                 <Pause className="mr-1 h-3 w-3" /> SOSP.
+                             </Badge>
+                         )}
+                        <StatusBadge status={overallStatus} />
+                    </div>
                 </div>
                 <div className="flex justify-between items-center gap-4">
                     <CardDescription className="flex items-center gap-2">
@@ -225,11 +238,11 @@ export default function WorkGroupCard({
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={() => onOpenPhaseManager(group)} disabled={overallStatus === 'Completata'}>
+                                <DropdownMenuItem onSelect={() => onOpenPhaseManager(group)} disabled={overallStatus === 'CHIUSO'}>
                                     <ListOrdered className="mr-2 h-4 w-4" />
                                     <span>Gestisci Fasi</span>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => onOpenMaterialManager(group)} disabled={overallStatus === 'Completata'}>
+                                <DropdownMenuItem onSelect={() => onOpenMaterialManager(group)} disabled={overallStatus === 'CHIUSO'}>
                                     <Boxes className="mr-2 h-4 w-4" />
                                     <span>Gestisci Materiali</span>
                                 </DropdownMenuItem>
@@ -290,7 +303,7 @@ export default function WorkGroupCard({
                     </div>
                 </div>
 
-                {(group.isProblemReported || hasMaterialMissing) && (
+                {(group.isProblemReported || group.hasMaterialShortage) && (
                     <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
                         <ShieldAlert className="mr-2 h-4 w-4" /> 
                         {group.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}

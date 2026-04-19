@@ -30,6 +30,10 @@ export async function logManualWithdrawal(
   
   const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPFs, isFinished } = validated.data;
   
+  if (!isFinished && quantity <= 0) {
+      return { success: false, message: "La quantità prelevata deve essere maggiore di zero." };
+  }
+  
   try {
     const globalSettings = await getGlobalSettings();
     
@@ -112,11 +116,9 @@ export async function logManualWithdrawal(
             source: 'manual'
         });
 
-        if (jobOrderPFs && jobOrderPFs.length > 0) {
-            const sanitizedIds = jobOrderPFs.map(pf => pf.replace(/\//g, '-').replace(/[\.#$\[\]]/g, ''));
-            const { resolveJobBOMCommitmentsByType } = await import('@/app/scan-job/actions');
-            await resolveJobBOMCommitmentsByType(sanitizedIds, [material.type], transaction);
-        }
+        // INTENTIONALLY REMOVED: Do not call resolveJobBOMCommitmentsByType anymore.
+        // I prelievi manuali non devono alterare la Distinta Base Teorica (Job BOM)
+        // anche qualora associati ad uno o più jobOrderPFs.
     });
 
     revalidatePath('/admin/raw-material-management');

@@ -9,6 +9,7 @@ import { startOfWeek, format, parseISO } from 'date-fns';
 import { convertTimestampsToDates } from '@/lib/utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
 import type { WorkPhaseTemplate } from '@/types';
+import { getOverallStatus } from '@/lib/types';
 
 /**
  * Salva l'allocazione di operatori per un reparto in una specifica settimana.
@@ -113,11 +114,15 @@ export async function saveMassiveAllocation(
  */
 export async function advanceJobStatus(jobId: string, nextStatus?: string, uid?: string) {
     try {
+        if (!uid) throw new Error("Utente non specificato per operazione riservata.");
+        await ensureAdmin(uid);
+        
         const docRef = adminDb.collection("jobOrders").doc(jobId);
         const doc = await docRef.get();
         if (!doc.exists) throw new Error("Commessa non trovata");
         
-        const currentStatus = doc.data()?.status;
+        const data = doc.data() as JobOrder;
+        const currentStatus = data.status;
         const pipeline = [
             'DA_INIZIARE', 
             'IN_PREPARAZIONE', 
@@ -130,7 +135,7 @@ export async function advanceJobStatus(jobId: string, nextStatus?: string, uid?:
 
         let finalStatus = nextStatus;
         if (!finalStatus) {
-            const currentIndex = pipeline.indexOf(currentStatus);
+            const currentIndex = pipeline.indexOf(currentStatus as string);
             if (currentIndex !== -1 && currentIndex < pipeline.length - 1) {
                 finalStatus = pipeline[currentIndex + 1];
             } else {
@@ -138,14 +143,44 @@ export async function advanceJobStatus(jobId: string, nextStatus?: string, uid?:
             }
         }
 
-        await docRef.update({
-            status: finalStatus,
+        // BOTTOM-UP OVERRIDE: Modify phases to justify the new status.
+        let updatedPhases = [...(data.phases || [])];
+        
+        if (finalStatus === 'PRONTO_PROD') {
+            updatedPhases = updatedPhases.map(p => 
+                p.type === 'preparation' ? { ...p, status: 'skipped', forced: true } : p
+            );
+        } else if (finalStatus === 'FINE_PRODUZIONE') {
+            updatedPhases = updatedPhases.map(p => 
+                (p.type === 'preparation' || p.type === 'production') ? { ...p, status: 'skipped', forced: true } : p
+            );
+        } else if (finalStatus === 'CHIUSO') {
+            updatedPhases = updatedPhases.map(p => ({ ...p, status: 'skipped', forced: true }));
+        }
+
+        const dummyJob = { ...data, phases: updatedPhases };
+        const calculatedStatus = getOverallStatus(dummyJob);
+
+        const updates: any = {
+            phases: updatedPhases,
+            status: calculatedStatus,
             updatedAt: admin.firestore.Timestamp.now()
-        });
+        };
+
+        if (data.billOfMaterials && data.billOfMaterials.length > 0) {
+            updates.billOfMaterials = data.billOfMaterials.map(item => {
+                if (!item.withdrawn) {
+                    return { ...item, status: 'withdrawn', withdrawn: true, forcedClosure: true };
+                }
+                return item;
+            });
+        }
+
+        await docRef.update(updates);
 
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');
-        return { success: true, newStatus: finalStatus };
+        return { success: true, newStatus: calculatedStatus };
     } catch (error) {
         return { success: false, message: "Errore nell'avanzamento stato." };
     }
@@ -255,32 +290,28 @@ export async function getWeeklyBoardData(year: number, week: number) {
         }
 
         const jobOrdersSnap = await adminDb.collection("jobOrders").get();
-        
-        const ALLOWED_PRODUCTION_STATUSES = [
-            "In Produzione", "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
-            "da_iniziare", "in_preparazione", "pronto_prod", "in_produzione", "fine_produzione", "qlty_pack",
-            "DA INIZIARE", "IN PREPARAZIONE", "PRONTO PROD", "IN PRODUZIONE", "FINE PRODUZIONE", "QLTY PACK",
-            "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
-            "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
-            "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED", "IN PROD.", "FINE PROD.", "PRONTO PROD.", "QLTY & PACK", "PRONTO",
-            "Da Produrre", "In Attesa", "Lavorazione"
-        ];
 
         const allJobs = jobOrdersSnap.docs.map(doc => ({ 
             ...convertTimestampsToDates(doc.data() as any), 
             id: doc.id 
         } as JobOrder));
 
-        // 3. Separa Commesse Assegnate da Backlog (Non Assegnate) utilizzando la Whitelist
+        // 3. Separa Commesse Assegnate da Backlog (Non Assegnate) rimuovendo ghosting logico
         const assignedJobs = allJobs.filter(j => 
             Boolean(j.dataConsegnaFinale) && 
             j.dataConsegnaFinale !== 'N/D' && 
-            ALLOWED_PRODUCTION_STATUSES.includes(j.status)
+            j.status !== 'CHIUSO' && 
+            j.status !== 'completed' && 
+            j.status !== 'shipped' && 
+            j.status !== 'closed'
         );
         
         const unassignedJobs = allJobs.filter(j => 
             (!j.dataConsegnaFinale || j.dataConsegnaFinale === 'N/D') && 
-            ALLOWED_PRODUCTION_STATUSES.includes(j.status)
+            j.status !== 'CHIUSO' && 
+            j.status !== 'completed' && 
+            j.status !== 'shipped' && 
+            j.status !== 'closed'
         );
 
         const payload = { 

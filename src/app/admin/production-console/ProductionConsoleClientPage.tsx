@@ -188,7 +188,7 @@ export default function ProductionConsoleClientPage() {
     const deliveryDateString = item.dataConsegnaFinale;
     if (!deliveryDateString || !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)) return false;
     const deliveryDate = parseISO(deliveryDateString);
-    return isPast(deliveryDate) && getOverallStatus(item) !== 'CHIUSO' && getOverallStatus(item) !== 'Completata';
+    return isPast(deliveryDate) && getOverallStatus(item) !== 'CHIUSO';
   };
 
   const loadAllData = useCallback(async (isManualRefresh = false) => {
@@ -275,10 +275,10 @@ export default function ProductionConsoleClientPage() {
   const applyFilters = <T extends JobOrder | WorkGroup>(items: T[]): T[] => {
       let f = items;
       if (showCompleted) {
-          f = f.filter(i => getOverallStatus(i) === 'CHIUSO' || getOverallStatus(i) === 'Completata');
+          f = f.filter(i => getOverallStatus(i) === 'CHIUSO');
           if (isDateFilterActive && completedDateFilter) f = f.filter(i => i.overallEndTime && isSameDay(new Date(i.overallEndTime), completedDateFilter));
       } else {
-          f = f.filter(i => getOverallStatus(i) !== 'CHIUSO' && getOverallStatus(i) !== 'Completata');
+          f = f.filter(i => getOverallStatus(i) !== 'CHIUSO');
           if (activeFilter !== 'all') {
              if (activeFilter === 'LIVE') f = f.filter(isJobLive);
              else if (activeFilter === 'ACTIVE') {

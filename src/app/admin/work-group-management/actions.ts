@@ -74,23 +74,20 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     }
     const gDataRaw = groupSnap.data() as WorkGroup;
     
-    // 2. CHECK TIMER ATTIVI: Blocca solo se c'è un timer (workPeriod.end === null)
+    // 2. CHECK FASI IN-PROGRESS: Blocca solo se c'è una fase con status === 'in-progress'
+    const inProgressPhases = (gDataRaw.phases || []).filter(p => p.status === 'in-progress');
+
+    if (inProgressPhases.length > 0 && !forceUnlock) {
+        return { 
+            success: false, 
+            message: `Impossibile scollegare: il gruppo ha una o più fasi in stato in-progress. Chiudi o metti in pausa le fasi attive prima di procedere.` 
+        };
+    }
+
+    // Anche se non blocchiamo per i timer appesi di altre sessioni, recuperiamo comunque i timer non chiusi per resettarli
     const activeTimers = (gDataRaw.phases || []).flatMap(p => 
         (p.workPeriods || []).filter(wp => wp.end === null).map(wp => ({ ...wp, phaseName: p.name }))
     );
-
-    if (activeTimers.length > 0 && !forceUnlock) {
-        const activeOpIds = new Set(activeTimers.map(t => t.operatorId));
-        const names = phantomOperators
-            .filter(doc => activeOpIds.has(doc.id))
-            .map(doc => (doc.data() as Operator).nome)
-            .join(", ") || "Operatore";
-
-        return { 
-            success: false, 
-            message: `Impossibile scollegare: l'operatore [${names}] ha una fase di lavoro attiva (Clock-in). Chiudi o metti in pausa la fase prima di procedere.` 
-        };
-    }
 
     // ID operatori da resettare (sia phantom che attivi)
     const operatorIdsToReset = Array.from(new Set([

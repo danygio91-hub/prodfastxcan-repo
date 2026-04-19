@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { 
     Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, 
     Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX, Search, XCircle,
-    Zap, CalendarCheck, ChevronDown, ChevronUp, Box
+    Zap, CalendarCheck, ChevronDown, ChevronUp, Box, Pause
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -898,7 +898,9 @@ function JobCompactCard(props: {
             className={cn(
                 "group relative flex items-center h-11 px-3 border rounded-xl transition-all cursor-pointer overflow-hidden",
                 sColors[semaphoreStatus],
-                isOverdue && !isClosed && semaphoreStatus !== 'status-green' && "border-red-600/40 bg-red-950/5",
+                job.hasMaterialShortage && "border-destructive border-2 shadow-[0_0_10px_rgba(239,68,68,0.4)]",
+                job.isSuspended && !job.hasMaterialShortage && "border-yellow-500 border-2 shadow-[0_0_10px_rgba(234,179,8,0.4)]",
+                isOverdue && !isClosed && semaphoreStatus !== 'status-green' && !job.hasMaterialShortage && !job.isSuspended && "border-red-600/40 bg-red-950/5",
                 isTechnicalDelay && !isClosed && "border-red-500 border-2 shadow-[0_0_12px_rgba(239,68,68,0.2)]"
             )}
         >
@@ -913,6 +915,18 @@ function JobCompactCard(props: {
                 )}>
                     {statusLabels[semaphoreStatus]}
                 </div>
+
+                {job.hasMaterialShortage && (
+                    <div className="bg-destructive text-destructive-foreground px-1 py-0.5 rounded flex items-center gap-1 shrink-0" title="Manca Materiale">
+                        <AlertTriangle className="h-3 w-3" />
+                    </div>
+                )}
+                
+                {job.isSuspended && !job.hasMaterialShortage && (
+                    <div className="bg-yellow-500 text-white px-1 py-0.5 rounded flex items-center gap-1 shrink-0" title="Sospesa">
+                        <Pause className="h-3 w-3 fill-white" />
+                    </div>
+                )}
 
                 {/* Informazioni Commessa: CLIENTE - ORDINE PF - CODICE ARTICOLO */}
                 <div className="flex items-center gap-2 min-w-0 max-w-[45%]">

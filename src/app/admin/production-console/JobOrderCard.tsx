@@ -3,7 +3,7 @@ import type { JobOrder, JobPhase, Operator, OverallStatus } from '@/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, HelpCircle, ChevronDown } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, HelpCircle, ChevronDown, AlertTriangle, Pause } from 'lucide-react';
 import { format, parseISO, isPast, differenceInSeconds } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -159,7 +159,7 @@ export default function JobOrderCard({
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
-  const hasMaterialMissing = jobOrder.phases.some(p => p.materialStatus === 'missing');
+  const hasMaterialMissing = jobOrder.hasMaterialShortage;
   const [remainingTime, setRemainingTime] = useState<string | null>(null);
 
    const updateRemainingTime = React.useCallback(() => {
@@ -255,11 +255,11 @@ export default function JobOrderCard({
     ? parseISO(deliveryDateString)
     : null;
     
-  const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
+  const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'CHIUSO';
   
   const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
-  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
+  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'CHIUSO';
 
   const isForcedToFinish = jobOrder.phases.some(p => p.forced);
 
@@ -286,12 +286,13 @@ export default function JobOrderCard({
         <Card
             className={cn(
             "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
-            (jobOrder.isProblemReported || hasMaterialMissing) && "cursor-pointer border-destructive/50 hover:border-destructive",
+            (jobOrder.isProblemReported || jobOrder.hasMaterialShortage) && "cursor-pointer ring-2 ring-destructive shadow-[0_0_15px_rgba(239,68,68,0.3)]",
+            jobOrder.isSuspended && !jobOrder.hasMaterialShortage && "cursor-pointer ring-2 ring-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.3)]",
             isSelected && "border-primary ring-2 ring-primary/50",
             isPartOfGroup && "shadow-none border-border/70",
-            isOverdue && 'border-destructive/30'
+            isOverdue && !jobOrder.hasMaterialShortage && !jobOrder.isSuspended && 'border-destructive/30'
             )}
-            onClick={(jobOrder.isProblemReported || hasMaterialMissing) ? onProblemClick : undefined}
+            onClick={(jobOrder.isProblemReported || jobOrder.hasMaterialShortage || jobOrder.isSuspended) ? onProblemClick : undefined}
         >
           <div className="flex-grow">
             <CardHeader className="pb-4 space-y-2">
@@ -312,7 +313,19 @@ export default function JobOrderCard({
                           </div>
                         </CollapsibleTrigger>
                     </div>
-                    <StatusBadge status={overallStatus} />
+                    <div className="flex items-center gap-2">
+                        {jobOrder.hasMaterialShortage && (
+                            <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground px-1.5 shadow-sm text-[9px]">
+                                <AlertTriangle className="mr-1 h-3 w-3" /> MANCA MAT.
+                            </Badge>
+                        )}
+                        {jobOrder.isSuspended && !jobOrder.hasMaterialShortage && (
+                            <Badge className="bg-yellow-500 hover:bg-yellow-500 text-white px-1.5 shadow-sm text-[9px]">
+                                <Pause className="mr-1 h-3 w-3" /> SOSP.
+                            </Badge>
+                        )}
+                        <StatusBadge status={overallStatus} />
+                    </div>
                 </div>
                 <div className="flex justify-between items-center gap-4">
                     <CardDescription className="flex items-center gap-2">
@@ -348,11 +361,11 @@ export default function JobOrderCard({
                                   </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                 <DropdownMenuItem onSelect={() => onOpenPhaseManager(jobOrder)} disabled={overallStatus === 'Completata'}>
+                                 <DropdownMenuItem onSelect={() => onOpenPhaseManager(jobOrder)} disabled={overallStatus === 'CHIUSO'}>
                                       <ListOrdered className="mr-2 h-4 w-4" />
                                       <span>Gestisci Fasi</span>
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onSelect={() => onOpenMaterialManager(jobOrder)} disabled={overallStatus === 'Completata'}>
+                                  <DropdownMenuItem onSelect={() => onOpenMaterialManager(jobOrder)} disabled={overallStatus === 'CHIUSO'}>
                                       <Boxes className="mr-2 h-4 w-4" />
                                       <span>Gestisci Materiali</span>
                                   </DropdownMenuItem>
@@ -450,7 +463,7 @@ export default function JobOrderCard({
                     </div>
                 </div>
 
-                {(jobOrder.isProblemReported || hasMaterialMissing) && (
+                {(jobOrder.isProblemReported || jobOrder.hasMaterialShortage) && (
                     <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
                         <ShieldAlert className="mr-2 h-4 w-4" /> 
                         {jobOrder.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}
@@ -576,7 +589,7 @@ export default function JobOrderCard({
                                     {getPhaseIcon(phase.status)}
                                     <span className={cn("text-xs font-semibold uppercase tracking-wider", phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
                                 </div>
-                                {phase.status === 'completed' && overallStatus !== 'Completata' && !isPartOfGroup && (
+                                {phase.status === 'completed' && overallStatus !== 'CHIUSO' && !isPartOfGroup && (
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild>
                                             <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">

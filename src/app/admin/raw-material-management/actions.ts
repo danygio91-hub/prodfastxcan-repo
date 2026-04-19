@@ -164,6 +164,7 @@ export async function getRawMaterials(searchTerm?: string, lastCode?: string): P
 }
 
 export async function saveRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
+    await ensureAdmin();
     const rawData = Object.fromEntries(formData.entries());
     const id = rawData.id as string;
     const code = String(rawData.code).trim().toUpperCase();
@@ -201,6 +202,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
 }
 
 export async function updateBatchInRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
+    await ensureAdmin();
     const rawData = Object.fromEntries(formData.entries());
     const materialId = rawData.materialId as string;
     const batchId = rawData.batchId as string;
@@ -277,6 +279,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
 }
 
 export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
+    await ensureAdmin();
     const rawData = Object.fromEntries(formData.entries());
     const materialId = rawData.materialId as string;
     const materialRef = adminDb.collection("rawMaterials").doc(materialId);
@@ -338,7 +341,76 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     } catch (error) { return { success: false, message: "Errore." }; }
 }
 
+export async function returnMaterialToBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
+    await ensureAdmin();
+    const rawData = Object.fromEntries(formData.entries());
+    const materialId = rawData.materialId as string;
+    const batchId = rawData.batchId as string;
+    const materialRef = adminDb.collection("rawMaterials").doc(materialId);
+    const globalSettings = await getGlobalSettings();
+    
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const docSnap = await transaction.get(materialRef);
+            if (!docSnap.exists) throw new Error('Materiale non trovato.');
+            const material = docSnap.data() as RawMaterial;
+            
+            const batches = [...(material.batches || [])];
+            const idx = batches.findIndex(b => b.id === batchId);
+            if (idx === -1) throw new Error('Lotto originale non trovato.');
+            
+            const returnedQty = Number(rawData.returnedQuantity);
+            
+            const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
+                id: material.type,
+                label: material.type,
+                defaultUnit: material.unitOfMeasure,
+                hasConversion: false
+            } as any;
+
+            const { unitsToChange: finalUnits, weightToChange: finalWeightKg } = calculateInventoryMovement(
+                material,
+                config,
+                returnedQty,
+                material.unitOfMeasure as any,
+                true // isAddition
+            );
+            
+            batches[idx].netQuantity = (batches[idx].netQuantity || 0) + finalUnits;
+            batches[idx].grossWeight = (batches[idx].grossWeight || 0) + finalWeightKg;
+            if (batches[idx].netQuantity > 0.001) batches[idx].isExhausted = false;
+
+            transaction.update(materialRef, { 
+                batches, 
+                stock: admin.firestore.FieldValue.increment(finalUnits),
+                currentStockUnits: admin.firestore.FieldValue.increment(finalUnits),
+                currentWeightKg: admin.firestore.FieldValue.increment(finalWeightKg)
+            });
+        });
+        
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: 'Reso registrato sul lotto originale.' };
+    } catch (error) { 
+        console.error("Errore in returnMaterialToBatch:", error);
+        return { success: false, message: "Errore durante la registrazione del reso." }; 
+    }
+}
+
+export async function getBatchesForReturn(materialId: string): Promise<{ lotto: string; lottoLabel: string; available: number }[]> {
+    const doc = await adminDb.collection("rawMaterials").doc(materialId).get();
+    if (!doc.exists) return [];
+    const material = doc.data() as RawMaterial;
+    return (material.batches || [])
+        .map(b => ({
+            lotto: b.id, 
+            lottoLabel: b.lotto || 'N/D',
+            available: b.netQuantity || 0
+        }))
+        .sort((a,b) => b.available - a.available);
+}
+
 export async function deleteBatchFromRawMaterial(materialId: string, batchId: string): Promise<{ success: boolean; message: string; }> {
+    await ensureAdmin();
     const materialRef = adminDb.collection("rawMaterials").doc(materialId);
     try {
         await adminDb.runTransaction(async (t) => {
@@ -765,17 +837,9 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
     if (!mSnap.exists) return [];
     
     const mat = mSnap.data() as RawMaterial;
-    const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
     
-    const wByLotto = wSnap.docs.reduce((acc, d) => { 
-        const w = d.data(); 
-        const l = w.lotto || 'SENZA_LOTTO'; 
-        acc[l] = (acc[l] || 0) + (w.consumedUnits || 0); 
-        return acc; 
-    }, {} as Record<string, number>);
-
-    // Filtriamo i lotti esauriti (isExhausted) a monte
-    const activeBatches = (mat.batches || []).filter(b => !b.isExhausted);
+    // Regola 1 SSoT: No more Live Aggregation. Read netQuantity directly.
+    const activeBatches = (mat.batches || []).filter(b => !b.isExhausted && (b.netQuantity || 0) > 0.001);
 
     const bByLotto = activeBatches.reduce((acc, b) => { 
         const l = b.lotto || 'SENZA_LOTTO'; 
@@ -786,11 +850,10 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
 
     return Object.entries(bByLotto)
         .map(([lotto, batches]) => { 
-            const tL = batches.reduce((s, b) => s + b.netQuantity, 0); 
-            const tW = wByLotto[lotto] || 0; 
-            return { lotto, available: tL - tW, batches }; 
+            const totalAvailable = batches.reduce((s, b) => s + (b.netQuantity || 0), 0); 
+            return { lotto, available: totalAvailable, batches }; 
         })
-        .filter(l => l.available > 0.001); // Filtro aggiuntivo per precisione numerica
+        .filter(l => l.available > 0.001);
 }
 
 export async function adjustRawMaterialStock(materialId: string, newStockUnits: number) {

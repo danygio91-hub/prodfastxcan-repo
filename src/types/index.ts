@@ -139,6 +139,8 @@ export interface JobOrder {
   macroArea?: MacroArea;
   createdAt?: any;
   updatedAt?: any;
+  isSuspended?: boolean;
+  hasMaterialShortage?: boolean;
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
@@ -285,6 +287,8 @@ export interface WorkGroup {
   hasAnomaly?: boolean;
   anomalyType?: string;
   anomalyNote?: string;
+  isSuspended?: boolean;
+  hasMaterialShortage?: boolean;
 }
 
 export interface WorkingShift {
@@ -307,7 +311,8 @@ export interface ProductionSettings {
   prioritizeActualTime: boolean;
 }
 
-export type OverallStatus = 'DA INIZIARE' | 'IN PREP.' | 'PRONTO PROD.' | 'IN PROD.' | 'FINE PROD.' | 'QLTY & PACK' | 'CHIUSO' | 'SPEDITA' | 'In Pianificazione' | 'Problema' | 'Sospesa' | 'Manca Materiale' | 'Pronto per Produzione' | 'Pronto per Finitura' | 'In Lavorazione' | 'In Preparazione' | 'Completata' | 'Da Iniziare';
+export type OverallStatus = 'DA_INIZIARE' | 'IN_PREPARAZIONE' | 'PRONTO_PROD' | 'IN_PRODUZIONE' | 'FINE_PRODUZIONE' | 'QLTY_PACK' | 'CHIUSO';
+
 
 export interface PackingListItem {
   jobId: string;
