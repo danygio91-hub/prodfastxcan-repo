@@ -38,12 +38,29 @@ export default function ODLPrintTemplate({
   const allItems = (job.billOfMaterials || []).map(item => {
     const mat = materialsMap.get(item.component.toUpperCase());
     const type = mat?.type?.toUpperCase() || 'TRECCIA';
-    return { ...item, type, mat };
+    
+    // FALLBACK LOGIC: If job item has no notes, try to find them in the Article BOM
+    let finalNote = (item.note || '').trim();
+    if (!finalNote && article?.billOfMaterials) {
+        const articleMatch = article.billOfMaterials.find(aItem => 
+            aItem.component.toUpperCase().trim() === item.component.toUpperCase().trim() &&
+            (aItem.lunghezzaTaglioMm || 0) === (item.lunghezzaTaglioMm || 0)
+        );
+        if (articleMatch?.note) {
+            finalNote = articleMatch.note.trim();
+        }
+    }
+
+    return { ...item, note: finalNote, type, mat };
   });
 
   const trecciaItems = allItems.filter(i => ['BOB', 'PF3V0', 'BARRA', 'TRECCIA'].includes(i.type));
   const tubiItems = allItems.filter(i => i.type === 'TUBI');
   const guainaItems = allItems.filter(i => i.type === 'GUAINA');
+
+  const hasTrecciaNotes = trecciaItems.some(i => i.note && i.note.trim() !== '');
+  const hasTubiNotes = tubiItems.some(i => i.note && i.note.trim() !== '');
+  const hasGuainaNotes = guainaItems.some(i => i.note && i.note.trim() !== '');
 
   const getDeptSigla = (name: string) => {
     const n = (name || '').toUpperCase();
@@ -102,10 +119,10 @@ export default function ODLPrintTemplate({
       border: `1px solid ${config.colors.border}`,
       padding: "0",
       fontSize: `${config.typography.baseFontSize}pt`,
-      height: "8.5mm",
+      minHeight: "8.5mm",
       verticalAlign: (config.layout.verticalAlign || "middle") as any,
       textAlign: (config.layout.textAlign || "center") as any,
-      lineHeight: "1",
+      lineHeight: "1.2",
       position: "relative" as const,
     },
     label: {
@@ -113,7 +130,6 @@ export default function ODLPrintTemplate({
         fontWeight: "bold" as const,
         color: config.colors.headerText || "#555",
         textAlign: "center" as const,
-        marginBottom: "1px",
     },
     title: {
       backgroundColor: config.colors.primary,
@@ -170,6 +186,8 @@ export default function ODLPrintTemplate({
       justifyContent: hAlign === 'left' ? 'flex-start' : hAlign === 'right' ? 'flex-end' : 'center',
       height: "100%",
       width: "100%",
+      whiteSpace: "normal" as any,
+      wordBreak: "break-word" as any,
       padding: `${config.layout.cellPadding || 0}px`,
       boxSizing: "border-box" as const,
     };
@@ -257,7 +275,7 @@ export default function ODLPrintTemplate({
                             <tr style={{ backgroundColor: config.colors.headerBg }}>
                               {activeHeaderCols.map((col, idx) => (
                                 <td key={col.id} style={{ ...styles.cell, borderTop: 0, borderBottom: 0, borderLeft: idx === 0 ? 0 : `1px solid ${config.colors.border}`, borderRight: idx === activeHeaderCols.length - 1 ? 0 : `1px solid ${config.colors.border}`, fontSize: `${col.fontSize || config.typography.headerFontSize}pt` }}>
-                                  <div style={styles.label}>{col.label}</div>
+                                  <div style={{ ...getCellFlexStyles(), ...styles.label }}>{col.label}</div>
                                 </td>
                               ))}
                             </tr>
@@ -418,18 +436,48 @@ export default function ODLPrintTemplate({
     </table>
   );
 
-  const renderTableRows = (items: any[], columnConfigs: any[], sectionType: 'treccia' | 'tubi' | 'guaina') => {
+  const renderTableRows = (items: any[], columnConfigs: any[], sectionType: 'treccia' | 'tubi' | 'guaina', hasAnyNoteSection: boolean) => {
     if (items.length === 0) return null;
 
-    const hasAnyNote = items.some(item => item.note && item.note.trim() !== '');
-    let visibleCols = columnConfigs.filter(c => c.visible);
+    const hasAnyNote = hasAnyNoteSection;
+    let visibleCols = [...columnConfigs.filter(c => c.visible)];
+
+    // DYNAMIC INJECTION: If BOM has notes, inject the column and adjust widths
+    const existingNoteIdx = visibleCols.findIndex(c => c.field === 'note');
     
-    const noteColIndex = visibleCols.findIndex(c => c.field === 'note');
-    if (!hasAnyNote && noteColIndex !== -1) {
-        const removedWidthStr = visibleCols[noteColIndex].width;
-        const removedWidth = parseFloat(removedWidthStr) || 0;
+    if (hasAnyNote && existingNoteIdx === -1) {
+        const tempoIdx = visibleCols.findIndex(c => c.field === 'tempoPrevisto');
+        
+        // Define Dynamic Note Column
+        const noteCol = { 
+            id: 'note-dynamic', 
+            label: 'NOTE', 
+            field: 'note', 
+            width: '15%', 
+            visible: true,
+            textAlign: 'left' as const,
+            fontSize: 7
+        };
+
+        if (tempoIdx !== -1) {
+            // Adjust widths to accommodate the 15% for NOTE
+            visibleCols = visibleCols.map(c => {
+                // 1. Shrink Tempo Previsto (20% -> 10%)
+                if (c.field === 'tempoPrevisto') return { ...c, width: '10%' };
+                // 2. Shrink Main Column (20% -> 15%)
+                if (c.field === 'codice') return { ...c, width: '15%' };
+                return c;
+            });
+            // 3. Insert NOTE exactly before Tempo Previsto
+            visibleCols.splice(tempoIdx, 0, noteCol);
+        } else {
+            visibleCols.push(noteCol);
+        }
+    } else if (!hasAnyNote && existingNoteIdx !== -1) {
+        // Fallback: If no notes but column is in config, remove and redistribute
+        const removedWidth = parseFloat(visibleCols[existingNoteIdx].width) || 0;
         visibleCols = visibleCols.filter(c => c.field !== 'note');
-        if (visibleCols.length > 0 && removedWidth > 0 && removedWidthStr.includes('%')) {
+        if (visibleCols.length > 0 && removedWidth > 0) {
             const extra = removedWidth / visibleCols.length;
             visibleCols = visibleCols.map(c => ({
                 ...c,
@@ -472,7 +520,7 @@ export default function ODLPrintTemplate({
             };
 
             return (
-              <tr key={`${sectionType}-${i}`} style={{ height: '9.2mm', backgroundColor: sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina }}>
+              <tr key={`${sectionType}-${i}`} style={{ minHeight: '9.2mm', backgroundColor: sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina }}>
                 {visibleCols.map((col) => {
                   const isTempoPrevisto = col.field === 'tempoPrevisto';
                   const cellFontSize = col.fontSize || config.typography.baseFontSize;
@@ -634,7 +682,9 @@ export default function ODLPrintTemplate({
 
                     const flushTable = () => {
                         if (currentTableRows.length > 0 && currentTableType) {
-                            const tableEl = renderTableRows(currentTableRows, currentTableConfig, currentTableType);
+                            const sectionHasNotes = currentTableType === 'treccia' ? hasTrecciaNotes : 
+                                                  currentTableType === 'tubi' ? hasTubiNotes : hasGuainaNotes;
+                            const tableEl = renderTableRows(currentTableRows, currentTableConfig, currentTableType, sectionHasNotes);
                             if (tableEl) {
                                 elements.push(React.cloneElement(tableEl as React.ReactElement, { key: `table-${elements.length}` }));
                             }
@@ -659,6 +709,7 @@ export default function ODLPrintTemplate({
                             currentTableRows.push(block.item);
                         }
                     });
+
                     flushTable();
                     return elements;
                 })()}

@@ -65,6 +65,12 @@ export async function startIndependentSession(data: Omit<IndependentMaterialSess
                 
                 // Set the lock
                 batches[batchIdx].activeSessionId = sessionId;
+                
+                // PREVENTION: Block opening if stock is 0
+                if ((batches[batchIdx].netQuantity || 0) <= 0 || batches[batchIdx].isExhausted) {
+                    throw new Error("Impossibile aprire una sessione su un lotto esaurito (giacenza zero).");
+                }
+
                 transaction.update(materialRef, { batches });
             }
             
@@ -263,6 +269,37 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
     } catch (e) {
         console.error("Close independent session error:", e);
         return { success: false, message: e instanceof Error ? e.message : "Errore chiusura sessione." };
+    }
+}
+
+export async function abortMaterialSession(sessionId: string, materialId: string, lotto: string | null) {
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const sessionRef = adminDb.collection("materialSessions").doc(sessionId);
+            const materialRef = adminDb.collection("rawMaterials").doc(materialId);
+            const matSnap = await transaction.get(materialRef);
+            
+            // EMERGENCY LOCK RELEASE
+            if (matSnap.exists && lotto) {
+                const material = matSnap.data() as RawMaterial;
+                const batches = [...(material.batches || [])];
+                const bIdx = batches.findIndex(b => b.lotto === lotto);
+                if (bIdx !== -1) {
+                    batches[bIdx].activeSessionId = null;
+                    transaction.update(materialRef, { batches });
+                }
+            }
+            
+            // BRUTE DELETE - No checks
+            transaction.delete(sessionRef);
+        });
+        
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
+        return { success: true, message: "Sessione annullata e lotto sbloccato con successo." };
+    } catch (e) {
+        console.error("Abort session error:", e);
+        return { success: false, message: "Errore durante l'annullamento della sessione." };
     }
 }
 

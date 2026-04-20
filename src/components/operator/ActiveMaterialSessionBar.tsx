@@ -26,11 +26,15 @@ import { Input } from '@/components/ui/input';
 import { Boxes, Weight, Send, Loader2, X, AlertTriangle, PlusCircle, Link2, User, Clock, Search, Camera } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
-import { addJobsToSession } from '@/app/actions/material-sessions';
+import { addJobsToSession, abortMaterialSession } from '@/app/actions/material-sessions';
+import { getMaterialWithdrawalsForMaterial } from '@/app/admin/batch-management/actions';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { cn } from '@/lib/utils';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import type { RawMaterial, RawMaterialBatch } from '@/types';
 
 const closingWeightSchema = z.object({
     closingWeight: z.coerce.number().min(0, "Il peso non può essere negativo."),
@@ -43,23 +47,68 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
     const { operator } = useAuth();
     const { toast } = useToast();
     const [isProcessing, setIsProcessing] = useState(false);
+    const [liveBatch, setLiveBatch] = useState<RawMaterialBatch | null>(null);
+    const [calculatedResidue, setCalculatedResidue] = useState<number | null>(null);
+    const [calculatedGrosExpected, setCalculatedGrosExpected] = useState<number | null>(null);
+    const [isLoadingLive, setIsLoadingLive] = useState(false);
 
     const form = useForm<ClosingWeightFormValues>({
         resolver: zodResolver(closingWeightSchema),
         defaultValues: { closingWeight: 0 },
     });
 
+    const fetchLiveBatch = useCallback(async () => {
+        setIsLoadingLive(true);
+        try {
+            // 1. Fetch fresh material data from Firestore
+            const matSnap = await getDoc(doc(db, "rawMaterials", session.materialId));
+            if (matSnap.exists()) {
+                const material = matSnap.data() as RawMaterial;
+                const batch = (material.batches || []).find(b => b.lotto === session.lotto);
+                
+                if (batch) {
+                    setLiveBatch(batch);
+                    
+                    // 2. Fetch all withdrawals for this specific lot (The SSoT Aggregation)
+                    const withdrawals = await getMaterialWithdrawalsForMaterial(session.materialId, session.lotto);
+                    
+                    // 3. Calculate total consumed based on UOM
+                    const totalConsumed = withdrawals.reduce((sum, w) => {
+                        return sum + (material.unitOfMeasure === 'kg' ? (w.consumedWeight || 0) : (w.consumedUnits || 0));
+                    }, 0);
+
+                    // 4. Determine real residue: Initial Load - Sum of Withdrawals
+                    const residue = Math.max(0, (batch.netQuantity || 0) - totalConsumed);
+                    const grossExpected = Number((residue + (batch.tareWeight || 0)).toFixed(3));
+                    
+                    setCalculatedResidue(residue);
+                    setCalculatedGrosExpected(grossExpected);
+                    
+                    // Reset form with the dynamic expected gross weight
+                    form.reset({ closingWeight: grossExpected });
+                }
+            }
+        } catch (e) {
+            console.error("Error fetching live batch data for closure:", e);
+        } finally {
+            setIsLoadingLive(false);
+        }
+    }, [session.materialId, session.lotto, form]);
+
     React.useEffect(() => {
         if (isOpen) {
-            form.reset({ closingWeight: session.grossOpeningWeight });
+            fetchLiveBatch();
         }
-    }, [isOpen, session, form]);
+    }, [isOpen, fetchLiveBatch]);
 
     const handleCloseSessionSubmit = async (values: ClosingWeightFormValues) => {
         if (!operator) return;
 
-        if (values.closingWeight > session.grossOpeningWeight + 0.01) {
-            form.setError("closingWeight", { type: "manual", message: "Il peso di chiusura non può essere maggiore di quello di apertura." });
+        // Safety check using the live calculated gross
+        const maxLordo = (calculatedGrosExpected || liveBatch?.grossWeight || session.grossOpeningWeight) + 0.01;
+
+        if (values.closingWeight > maxLordo) {
+            form.setError("closingWeight", { type: "manual", message: "Il peso di chiusura non può essere maggiore di quello attuale." });
             return;
         }
 
@@ -104,8 +153,32 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
         setIsProcessing(false);
     };
 
+    const handleAbortEmergency = async () => {
+        if (!confirm("ATTENZIONE: Questa azione forzerà l'annullamento della sessione SENZA scaricare magazzino. Usalo solo per sbloccare lotti incastrati. Procedere?")) return;
+        
+        setIsProcessing(true);
+        const result = await abortMaterialSession(session.id, session.materialId, session.lotto);
+        
+        toast({
+            title: result.success ? "Sessione Annullata" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+
+        if (result.success) {
+            onOpenChange(false);
+        }
+        setIsProcessing(false);
+    };
+
     const currentGrossOnScale = form.watch('closingWeight') || 0;
-    const netCalculated = Math.max(0, currentGrossOnScale - (session.tareWeight || 0));
+    const currentTara = liveBatch?.tareWeight ?? (session.tareWeight || 0);
+    const netCalculated = Math.max(0, currentGrossOnScale - currentTara);
+
+    const displayNetto = calculatedResidue ?? liveBatch?.netQuantity ?? session.netOpeningWeight;
+    const displayTara = liveBatch?.tareWeight ?? session.tareWeight;
+    const displayLordo = calculatedGrosExpected ?? liveBatch?.grossWeight ?? session.grossOpeningWeight;
+    const displayTaraName = liveBatch?.tareName || (session.packagingId === 'none' ? 'Inesistente' : 'Bobina');
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -130,15 +203,15 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
                         <div className="grid grid-cols-1 xs:grid-cols-3 gap-2">
                             <div className="text-center p-2 bg-background rounded-lg border border-primary/5">
                                 <p className="text-[8px] uppercase font-bold text-muted-foreground">Netto Residuo</p>
-                                <p className="text-sm font-black">{session.netOpeningWeight.toFixed(3)}</p>
+                                {isLoadingLive ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : <p className="text-sm font-black">{displayNetto.toFixed(3)}</p>}
                             </div>
                             <div className="text-center p-2 bg-background rounded-lg border border-primary/5">
-                                <p className="text-[8px] uppercase font-bold text-muted-foreground">Tara ({session.packagingId === 'none' ? 'Inesistente' : 'Bobina'})</p>
-                                <p className="text-sm font-black text-orange-600">{session.tareWeight?.toFixed(3) || "0.000"}</p>
+                                <p className="text-[8px] uppercase font-bold text-muted-foreground">Tara ({displayTaraName})</p>
+                                {isLoadingLive ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : <p className="text-sm font-black text-orange-600">{displayTara?.toFixed(3) || "0.000"}</p>}
                             </div>
                             <div className="text-center bg-primary/5 rounded-lg border border-primary/10 p-2">
                                 <p className="text-[8px] uppercase font-bold text-primary">Lordo Atteso</p>
-                                <p className="text-sm font-black text-primary">{session.grossOpeningWeight.toFixed(3)}</p>
+                                {isLoadingLive ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : <p className="text-sm font-black text-primary">{displayLordo.toFixed(3)}</p>}
                             </div>
                         </div>
                     </div>
@@ -194,6 +267,17 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
                                 >
                                     <X className="mr-2 h-5 w-5" />
                                     Materiale Finito
+                                </Button>
+
+                                <Button 
+                                    type="button" 
+                                    variant="ghost" 
+                                    className="w-full h-10 text-[9px] font-bold uppercase text-red-700 hover:text-red-500 mt-2"
+                                    onClick={handleAbortEmergency}
+                                    disabled={isProcessing}
+                                >
+                                    <AlertTriangle className="mr-1 h-3 w-3" /> 
+                                    Annulla Sessione (Emergenza)
                                 </Button>
                             </div>
                         </form>
