@@ -160,19 +160,26 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
 
             // 2. CALCULATIONS
             let consumedWeight = 0;
+            const batch = session.lotto ? (material.batches || []).find(b => b.lotto === session.lotto) : null;
+            const lotWithdrawals = session.lotto 
+                ? withdrawals.filter(w => w.lotto === session.lotto && w.status !== 'cancelled')
+                : [];
+            
+            const totalWithdrawnSoFar = lotWithdrawals.reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
+            const currentRealNet = Math.max(0, (batch?.netQuantity || 0) - totalWithdrawnSoFar);
+            const currentRealGross = currentRealNet + (batch?.tareWeight || 0);
+
             if (isFinished && session.lotto) {
-                const batch = (material.batches || []).find(b => b.lotto === session.lotto);
                 if (!batch) throw new Error("Lotto non trovato durante il saldo finale.");
-                
-                const withdrawn = withdrawals
-                    .filter(w => w.lotto === session.lotto && w.status !== 'cancelled')
-                    .reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
-                
-                const initialWeight = batch.grossWeight - batch.tareWeight;
-                consumedWeight = Math.max(0, initialWeight - withdrawn);
+                consumedWeight = currentRealNet; // Everything that was left is now consumed
             } else {
-                consumedWeight = session.grossOpeningWeight - closingGrossWeight;
-                if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
+                // SSoT VALIDATION: Compare input Gross vs Real-time Calculated Gross
+                consumedWeight = currentRealGross - closingGrossWeight;
+                
+                // Tolerance of 0.01 to allow for small scale fluctuations
+                if (consumedWeight < -0.01) {
+                    throw new Error(`Il peso di chiusura (${closingGrossWeight}) non può essere superiore al Lordo Atteso (${currentRealGross.toFixed(3)}).`);
+                }
             }
 
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
