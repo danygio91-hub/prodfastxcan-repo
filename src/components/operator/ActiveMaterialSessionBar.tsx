@@ -231,7 +231,8 @@ function AddJobDialog({ sessionId, isOpen, onOpenChange }: { sessionId: string; 
             const detector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128'] });
             const barcodes = await detector.detect(videoRef.current);
             if (barcodes.length > 0) {
-                const code = barcodes[0].rawValue.trim();
+                const rawCode = barcodes[0].rawValue.trim();
+                const code = rawCode.includes('@') ? rawCode.split('@')[0].trim() : rawCode;
                 if (code) {
                     if (stagingPFs.includes(code)) {
                         toast({ variant: 'destructive', title: "Già in lista", description: code });
@@ -459,7 +460,7 @@ export default function ActiveMaterialSessionBar() {
                                 return (
                                     <div key={session.id} className="p-4 border-2 rounded-2xl space-y-4 bg-slate-900 border-slate-800 shadow-xl shadow-slate-950/40 transition-all relative overflow-hidden group">
                                         {!isMine && (
-                                            <div className="absolute top-0 right-0 px-3 py-1 bg-primary/20 text-primary text-[8px] font-black uppercase rounded-bl-xl border-l border-b border-primary/30">
+                                            <div className="absolute top-0 right-0 px-3 py-1 bg-slate-700 text-slate-100 text-[8px] font-black uppercase rounded-bl-xl border-l border-b border-slate-600">
                                                 Officina
                                             </div>
                                         )}

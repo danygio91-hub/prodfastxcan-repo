@@ -741,12 +741,11 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 withdrawals
             );
 
-            const updates: any = {};
+            const updates: any = { batches: updatedBatches };
             if (isFinished && usedLotto) {
                 const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
                 if (bIdx !== -1) {
                     updatedBatches[bIdx].isExhausted = true;
-                    updates.batches = updatedBatches; 
                 }
             }
             
@@ -838,12 +837,11 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 withdrawals
             );
 
-            const updates: any = {};
+            const updates: any = { batches: updatedBatches };
             if (isFinished && usedLotto) {
                 const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
                 if (bIdx !== -1) {
                     updatedBatches[bIdx].isExhausted = true;
-                    updates.batches = updatedBatches;
                 }
             }
 

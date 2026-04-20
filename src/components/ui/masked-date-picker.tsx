@@ -52,10 +52,12 @@ export function MaskedDatePicker({
     if (val.length === 10) {
       const parsedDate = parse(val, "dd/MM/yyyy", new Date());
       if (isValid(parsedDate)) {
-        // Trigger external change only if it's a valid date
-        onChange(parsedDate);
+        // Only trigger onChange if the date is actually different from the current value
+        const currentRef = value ? format(value, "dd/MM/yyyy") : "";
+        if (val !== currentRef) {
+          onChange(parsedDate);
+        }
       } else {
-        // If the date is invalid (e.g. 31/02/2024), we pass null to the form controller
         onChange(null);
       }
     } 

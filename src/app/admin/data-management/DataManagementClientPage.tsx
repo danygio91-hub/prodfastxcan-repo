@@ -491,7 +491,13 @@ export default function DataManagementClientPage({
 
   const handleUpdateDateLocal = async (jobId: string, date: Date | undefined) => {
     if (date) {
-      await updateJobOrderDeliveryDate(jobId, format(date, 'yyyy-MM-dd'));
+      const job = [...plannedJobOrders, ...productionJobOrders, ...completedJobOrders].find(j => j.id === jobId);
+      const newDateStr = format(date, 'yyyy-MM-dd');
+      
+      // STOP Loop: update only if changed
+      if (job && job.dataConsegnaFinale === newDateStr) return;
+
+      await updateJobOrderDeliveryDate(jobId, newDateStr);
       toast({ title: "Data consegna aggiornata" });
       router.refresh();
     }
@@ -501,6 +507,10 @@ export default function DataManagementClientPage({
     if (date) {
       const job = [...plannedJobOrders, ...productionJobOrders, ...completedJobOrders].find(j => j.id === jobId);
       const newPrepStr = format(date, 'yyyy-MM-dd');
+
+      // STOP Loop: update only if changed
+      if (job && job.dataFinePreparazione === newPrepStr) return;
+
       if (job && job.dataConsegnaFinale && newPrepStr > job.dataConsegnaFinale) {
          toast({ variant: "destructive", title: "Validazione fallita", description: "La data preparazione non può superare la consegna." });
          return;

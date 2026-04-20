@@ -503,7 +503,7 @@ export default function ManualWithdrawalPage() {
 
                           <div className={cn(
                             "p-3 rounded-2xl border-2 flex flex-col items-center justify-center text-center transition-all shadow-sm",
-                            lotAvailability ? "bg-primary border-primary text-primary-foreground shadow-primary/20" : "bg-muted/50 border-dashed border-muted-foreground/30 opacity-70"
+                            lotAvailability ? "bg-muted border-slate-300 text-slate-900" : "bg-muted/50 border-dashed border-muted-foreground/30 opacity-70"
                           )}>
                             <Label className={cn("text-[8px] uppercase font-black mb-1", lotAvailability ? "text-primary-foreground/70" : "text-muted-foreground")}>In Uso (LOTTO)</Label>
                             {lotAvailability ? (
@@ -526,22 +526,14 @@ export default function ManualWithdrawalPage() {
                                     <span className="flex items-center gap-2"><Info className="h-3 w-3" /> Trasparenza Bilancia</span>
                                     <span>3 Decimali</span>
                                 </div>
-                                <div className="grid grid-cols-1 xs:grid-cols-3 gap-3 text-center">
-                                    <div className="space-y-1">
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase leading-none">Netto Ricalcolato</p>
-                                        <p className="text-md font-black">{effectiveNet.toFixed(3)}</p>
+                                <div className="grid grid-cols-1 gap-3 text-center">
+                                    <div className="bg-orange-500/10 rounded-2xl py-4 space-y-1 border border-orange-500/20">
+                                        <p className="text-[10px] font-black text-orange-800 uppercase leading-none">Lordo Attuale (Sulla Bilancia)</p>
+                                        <p className="text-2xl font-black text-orange-800">{(Number(form.watch('quantity')) || 0).toFixed(3)}</p>
                                     </div>
-                                    <div className="space-y-1">
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase leading-none">Tara ({packagingIdValue === 'none' ? '0' : 'Attiva'})</p>
-                                        <p className={cn("text-md font-black", isFixedTare ? "text-primary" : "text-orange-600")}>
-                                            {isFixedTare && <Lock className="inline-block h-3 w-3 mr-1 mb-1" />}
-                                            +{tareWeight.toFixed(3)}
-                                        </p>
-                                    </div>
-                                    <div className="bg-orange-500/10 rounded-xl py-2 space-y-1 border border-orange-500/20">
-                                        <p className="text-[9px] font-bold text-orange-800 uppercase leading-none">Lordo (Input)</p>
-                                        <p className="text-md font-black text-orange-800">{(Number(form.watch('quantity')) || 0).toFixed(3)}</p>
-                                    </div>
+                                    <p className="text-[8px] text-muted-foreground font-bold uppercase italic mt-1 text-center">
+                                        La tara verrà detratta automaticamente al termine del prelievo.
+                                    </p>
                                 </div>
 
                             </div>

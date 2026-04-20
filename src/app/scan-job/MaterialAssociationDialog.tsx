@@ -347,7 +347,7 @@ export default function MaterialAssociationDialog({
 
                             <div className={cn(
                                 "p-2 rounded-lg border flex flex-col items-center justify-center text-center transition-all shadow-sm",
-                                lotAvailability ? "bg-primary/10 border-primary/40" : "bg-muted border-dashed opacity-50"
+                                lotAvailability ? "bg-muted border-slate-300" : "bg-muted border-dashed opacity-50"
                             )}>
                                 <Label className="text-[8px] uppercase font-black text-muted-foreground mb-1">In Uso (Lotto)</Label>
                                 {lotAvailability ? (
