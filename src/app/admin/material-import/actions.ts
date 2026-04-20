@@ -117,10 +117,15 @@ export async function importCaricoFromFile(
             lotto
         );
 
+        const year = parsedDate.getFullYear();
+        const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+        const day = String(parsedDate.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+
         const newBatch: RawMaterialBatch = {
           id: `batch-import-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          date: parsedDate.toISOString(),
-          ddt: ddt || `IMPORT-${parsedDate.toISOString().split('T')[0]}`,
+          date: parsedDate.toISOString(), // ISO is fine for full timestamps if handled correctly, but ddt needs the visual date
+          ddt: ddt || `IMPORT-${dateStr}`,
           lotto,
           netQuantity: unitsToChange,
           tareWeight,

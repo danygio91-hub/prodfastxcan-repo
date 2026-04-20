@@ -242,23 +242,34 @@ export async function processAndValidateImport(data: any[]): Promise<{
 
         const normalizeDateStr = (raw: any): string => {
             if (!raw) return '';
-            if (raw instanceof Date) return raw.toISOString().split('T')[0];
-            if (typeof raw === 'number') {
-                const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-                return new Date(excelEpoch.getTime() + raw * 86400 * 1000).toISOString().split('T')[0];
-            }
-            const s = String(raw).trim();
-            if (s.includes('/')) {
-                const parts = s.split('/');
-                if (parts.length === 3) {
-                    const day = parts[0].padStart(2, '0');
-                    const month = parts[1].padStart(2, '0');
-                    let year = parts[2];
-                    if (year.length === 2) year = '20' + year;
-                    return `${year}-${month}-${day}`;
+            
+            let d: Date;
+            if (raw instanceof Date) {
+                d = raw;
+            } else if (typeof raw === 'number') {
+                // Excel numeric date: handling it locally to avoid UTC shifts
+                const excelEpoch = new Date(1899, 11, 30); // Local epoch
+                d = new Date(excelEpoch.getTime() + raw * 86400 * 1000);
+            } else {
+                const s = String(raw).trim();
+                if (s.includes('/')) {
+                    const parts = s.split('/');
+                    if (parts.length === 3) {
+                        const day = parts[0].padStart(2, '0');
+                        const month = parts[1].padStart(2, '0');
+                        let year = parts[2];
+                        if (year.length === 2) year = '20' + year;
+                        return `${year}-${month}-${day}`;
+                    }
                 }
+                return s;
             }
-            return s;
+
+            // EXTRACT LOCAL COMPONENTS: This is the FIX for the Day-Off bug
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         };
 
         // Identifichiamo tutti gli ID potenziali per caricarli in una volta (bulk existence check)
