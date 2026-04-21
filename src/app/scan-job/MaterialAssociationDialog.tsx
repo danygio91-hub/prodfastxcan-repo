@@ -472,15 +472,16 @@ export default function MaterialAssociationDialog({
                         </FormItem>
                     )}/>
 
-                    {availableBatches.length > 0 && (
+                    {availableBatches.filter(b => (b.quantity - (b.consumedQuantity || 0)) > 0).length > 0 && (
                         <div className="space-y-2">
                             <Label className="font-black text-[9px] uppercase text-muted-foreground flex items-center gap-2">
-                                <Boxes className="h-3 w-3" /> Lotti Disponibili ({availableBatches.length})
+                                <Boxes className="h-3 w-3" /> Lotti Disponibili ({availableBatches.filter(b => (b.quantity - (b.consumedQuantity || 0)) > 0).length})
                             </Label>
                             <ScrollArea className="h-28 border-2 rounded-xl p-1 bg-muted/30 border-muted">
                                 <div className="grid grid-cols-1 gap-1">
-                                    {availableBatches.map((b, idx) => {
-                                        const isOldest = idx === 0 && (b.netQuantity || 0) > 0;
+                                    {availableBatches.filter(b => (b.quantity - (b.consumedQuantity || 0)) > 0).map((b, idx) => {
+                                        const netQuantity = b.quantity - (b.consumedQuantity || 0);
+                                        const isOldest = idx === 0;
                                         const isSelected = lottoValue === b.lotto;
                                         return (
                                             <Button 
@@ -502,7 +503,7 @@ export default function MaterialAssociationDialog({
                                                     {isOldest && <Badge className="text-[7px] h-3 px-1 bg-green-500 font-black">FIFO</Badge>}
                                                 </div>
                                                 <div className="text-[10px] font-mono opacity-80">
-                                                    {formatDisplayStock(b.netQuantity, selectedMaterial.unitOfMeasure)}
+                                                    {formatDisplayStock(netQuantity, selectedMaterial?.unitOfMeasure || 'n')}
                                                 </div>
                                             </Button>
                                         );
