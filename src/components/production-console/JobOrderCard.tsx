@@ -218,7 +218,11 @@ export default function JobOrderCard({
                 }
             });
 
-            const uniqueOperators = Array.from((new Map(phaseOperators.map(op => [op.id, op])) as any).values());
+            const uniqueOperators = Array.from(
+                new Map<string, { id: string; name: string }>(
+                    phaseOperators.map(op => [op.id, op])
+                ).values()
+            );
 
             if (uniqueOperators.length > 0) {
                 if (!activePhasesMap.has(phase.id)) {
@@ -315,12 +319,12 @@ export default function JobOrderCard({
         <Card
             className={cn(
             "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
-            (jobOrder.isProblemReported || hasMaterialMissing) && "cursor-pointer border-destructive/50 hover:border-destructive",
+            (derivedStatus !== 'CHIUSO' && (jobOrder.isProblemReported || hasMaterialMissing)) && "cursor-pointer border-destructive/50 hover:border-destructive",
             isSelected && "border-primary ring-2 ring-primary/50",
             isPartOfGroup && "shadow-none border-border/70",
             isOverdue && 'border-destructive/30'
             )}
-            onClick={(jobOrder.isProblemReported || hasMaterialMissing) ? onProblemClick : undefined}
+            onClick={(derivedStatus !== 'CHIUSO' && (jobOrder.isProblemReported || hasMaterialMissing)) ? onProblemClick : undefined}
         >
           <div className="flex-grow">
             <CardHeader className="pb-4 space-y-2">
@@ -355,10 +359,11 @@ export default function JobOrderCard({
                     
                     </div>
                 </div>
-                        <Building className="h-4 w-4 text-muted-foreground" />
-                        {jobOrder.cliente}
-                    </CardDescription>
-                    <div className="flex items-center gap-1">
+                <CardDescription className="flex items-center gap-2 mt-1">
+                    <Building className="h-4 w-4 text-muted-foreground" />
+                    {jobOrder.cliente}
+                </CardDescription>
+                <div className="flex items-center gap-1">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -457,35 +462,32 @@ export default function JobOrderCard({
                                       <span>Forza Pausa Operatori</span>
                                   </DropdownMenuItem>
                                    {canForceFinish && (
-                                      <AlertDialog>
-                                          <AlertDialogTrigger asChild disabled={isPartOfGroup}>
-        <div className="w-full">
-            {isPartOfGroup ? (
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <div className="opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
-                                <FastForward className="mr-2 h-4 w-4" />
-                                <span>Forza a Finitura (In Gruppo)</span>
-                            </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <p>Gestito nel Gruppo.</p>
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
-            ) : (
-                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                    <FastForward className="mr-2 h-4 w-4" />
-                    <span>Forza a Finitura</span>
-                </DropdownMenuItem>
-            )}
-        </div>
-    </AlertDialogTrigger>
-                                          <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Forzare tutte le fasi di produzione a 'completata'?</AlertDialogDescription></AlertDialogHeader>
-                                          <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
-                                      </AlertDialog>
-                                  )}
+                                       <AlertDialog>
+                                           <AlertDialogTrigger asChild disabled={isPartOfGroup}>
+                                               {isPartOfGroup ? (
+                                                   <div className="w-full opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
+                                                       <FastForward className="mr-2 h-4 w-4" />
+                                                       <span>Forza a Finitura (In Gruppo)</span>
+                                                   </div>
+                                               ) : (
+                                                   <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                                       <FastForward className="mr-2 h-4 w-4" />
+                                                       <span>Forza a Finitura</span>
+                                                   </DropdownMenuItem>
+                                               )}
+                                           </AlertDialogTrigger>
+                                           <AlertDialogContent>
+                                               <AlertDialogHeader>
+                                                   <AlertDialogTitle>Conferma Azione</AlertDialogTitle>
+                                                   <AlertDialogDescription>Forzare tutte le fasi di produzione a 'completata'?</AlertDialogDescription>
+                                               </AlertDialogHeader>
+                                               <AlertDialogFooter>
+                                                   <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                   <AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction>
+                                               </AlertDialogFooter>
+                                           </AlertDialogContent>
+                                       </AlertDialog>
+                                   )}
                                    {isForcedToFinish && (
                                       <AlertDialog>
                                           <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-700"><Undo2 className="mr-2 h-4 w-4" />Annulla Forzatura</DropdownMenuItem></AlertDialogTrigger>
@@ -495,29 +497,18 @@ export default function JobOrderCard({
                                   {canForceComplete && (
                                       <AlertDialog>
                                           <AlertDialogTrigger asChild disabled={isPartOfGroup}>
-        <div className="w-full">
-            {isPartOfGroup ? (
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <div className="opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
-                                <PowerOff className="mr-2 h-4 w-4" />
-                                <span>Forza Chiusura Commessa (In Gruppo)</span>
-                            </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <p>Gestito nel Gruppo.</p>
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
-            ) : (
-                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                    <PowerOff className="mr-2 h-4 w-4" />
-                    <span>Forza Chiusura Commessa</span>
-                </DropdownMenuItem>
-            )}
-        </div>
-    </AlertDialogTrigger>
+                                              {isPartOfGroup ? (
+                                                  <div className="w-full opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
+                                                      <PowerOff className="mr-2 h-4 w-4" />
+                                                      <span>Forza Chiusura Commessa (In Gruppo)</span>
+                                                  </div>
+                                              ) : (
+                                                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                                      <PowerOff className="mr-2 h-4 w-4" />
+                                                      <span>Forza Chiusura Commessa</span>
+                                                  </DropdownMenuItem>
+                                              )}
+                                          </AlertDialogTrigger>
                                           <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Stai per impostare manualmente questa commessa come 'Completata'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                       </AlertDialog>
                                   )}
@@ -545,29 +536,18 @@ export default function JobOrderCard({
                                    )}
                                    <DropdownMenuSeparator />
                                    <AlertDialog>
-        <AlertDialogTrigger asChild disabled={isPartOfGroup}>
-            <div className="w-full">
-                {isPartOfGroup ? (
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <div className="opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
-                                    <PowerOff className="mr-2 h-4 w-4" />
-                                    <span>Forza Chiusura (In Gruppo)</span>
-                                </div>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>Gestito nel Gruppo.</p>
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                ) : (
-                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={overallStatus === 'CHIUSO'}>
-                        <PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura
-                    </DropdownMenuItem>
-                )}
-            </div>
-        </AlertDialogTrigger>
+                                       <AlertDialogTrigger asChild disabled={isPartOfGroup}>
+                                           {isPartOfGroup ? (
+                                               <div className="w-full opacity-50 cursor-not-allowed flex items-center px-2 py-1.5 text-sm">
+                                                   <PowerOff className="mr-2 h-4 w-4" />
+                                                   <span>Reset Commessa (In Gruppo)</span>
+                                               </div>
+                                           ) : (
+                                               <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={overallStatus === 'CHIUSO'}>
+                                                   <PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura (Reset)
+                                               </DropdownMenuItem>
+                                           )}
+                                       </AlertDialogTrigger>
                                        <AlertDialogContent>
                                        <AlertDialogHeader>
                                            <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
@@ -585,14 +565,13 @@ export default function JobOrderCard({
                            </DropdownMenu>
                          )}
                      </div>
-                 </div>
 
-                 {(jobOrder.isProblemReported || hasMaterialMissing) && (
-                     <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-                         <ShieldAlert className="mr-2 h-4 w-4" /> 
-                         {jobOrder.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}
-                     </p>
-                 )}
+                  {derivedStatus !== 'CHIUSO' && (jobOrder.isProblemReported || hasMaterialMissing) && (
+                      <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
+                          <ShieldAlert className="mr-2 h-4 w-4" /> 
+                          {jobOrder.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}
+                      </p>
+                  )}
              </CardHeader>
              <CardContent className="pt-0 pb-4 px-6 space-y-4">
                  <div className="flex justify-between items-start gap-4">

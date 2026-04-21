@@ -13,6 +13,7 @@ import { updateJob, updateWorkGroup, updateOperatorStatus } from '@/app/scan-job
 import { Play, Pause, Check, Activity } from 'lucide-react';
 import type { JobOrder, JobPhase, WorkGroup } from '@/types';
 import { cn } from '@/lib/utils';
+import { getDerivedJobStatus } from '@/lib/job-status';
 
 export default function ActiveJobStatusBar() {
   const { activeJob, isLoading, isStatusBarHighlighted } = useActiveJob();
@@ -101,7 +102,7 @@ export default function ActiveJobStatusBar() {
     handleUpdateJobOrGroup(jobToUpdate);
   };
 
-  if (isLoading || !activeJob || activeJob.status === 'completed' || activeJob.status === 'planned' || !operator) {
+  if (isLoading || !activeJob || getDerivedJobStatus(activeJob) === 'CHIUSO' || getDerivedJobStatus(activeJob) === 'DA_INIZIARE' || !operator) {
     return null;
   }
   

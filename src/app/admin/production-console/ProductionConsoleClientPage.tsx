@@ -190,7 +190,7 @@ export default function ProductionConsoleClientPage() {
     const deliveryDateString = item.dataConsegnaFinale;
     if (!deliveryDateString || !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)) return false;
     const deliveryDate = parseISO(deliveryDateString);
-    return isPast(deliveryDate) && getOverallStatus(item) !== 'CHIUSO';
+    return isPast(deliveryDate) && getDerivedJobStatus(item) !== 'CHIUSO';
   };
 
   const loadAllData = useCallback(async (isManualRefresh = false) => {
@@ -285,9 +285,9 @@ export default function ProductionConsoleClientPage() {
              if (activeFilter === 'LIVE') f = f.filter(isJobLive);
              else if (activeFilter === 'ACTIVE') {
                  const activeStatuses = ['DA INIZIARE', 'IN PREP.', 'PRONTO PROD.', 'IN PROD.', 'FINE PROD.', 'QLTY & PACK'];
-                 f = f.filter(i => activeStatuses.includes(getOverallStatus(i)));
+                 f = f.filter(i => activeStatuses.includes(getDerivedJobStatus(i)));
              }
-             else f = f.filter(i => getOverallStatus(i) === activeFilter);
+             else f = f.filter(i => getDerivedJobStatus(i) === activeFilter);
           }
       }
       if (showOnlyOverdue) f = f.filter(isOverdueItem);

@@ -18,6 +18,7 @@ import {
 import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getOverallStatus } from '@/lib/types';
+import { getDerivedJobStatus } from '@/lib/job-status';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -220,7 +221,7 @@ export default function ResourcePlanningClientPage() {
         const depts = [...coreDepts, {id: 'PREP'}, {id: 'PACK'}];
         
         boardData.jobOrders.forEach(job => {
-            const displayStatus = getOverallStatus(job);
+            const displayStatus = getDerivedJobStatus(job);
             const isClosed = displayStatus === 'CHIUSO';
             
             let refDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' 
@@ -417,7 +418,7 @@ export default function ResourcePlanningClientPage() {
         const nextWeekDate = addWeeks(currentDate, 1);
         
         const filteredJobs = boardData.jobOrders.filter(job => {
-            const displayStatus = getOverallStatus(job);
+            const displayStatus = getDerivedJobStatus(job);
             const isClosed = displayStatus === 'CHIUSO';
             
             let referenceDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' 

@@ -36,6 +36,7 @@ import { it } from 'date-fns/locale';
 import type { JobOrder, Article, WorkPhaseTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { getDerivedJobStatus } from '@/lib/job-status';
 
 interface BacklogDrawerProps {
     isOpen: boolean;
@@ -235,7 +236,7 @@ export default function BacklogDrawer({
                                                 )}
                                             >
                                                 {/* Indicatore Stato Verticale */}
-                                                <div className={cn("absolute left-0 top-0 bottom-0 w-1", statusColors[job.status] || 'bg-slate-300')} />
+                                                <div className={cn("absolute left-0 top-0 bottom-0 w-1", statusColors[getDerivedJobStatus(job)] || 'bg-slate-300')} />
 
                                                 {matched && (
                                                     <div className="absolute top-0 right-0 p-1">
@@ -244,9 +245,9 @@ export default function BacklogDrawer({
                                                 )}
 
                                                 <div className="flex items-center w-full gap-2 pl-1">
-                                                    {/* Badge Stato Testuale */}
+                                                    {/* Badge Stato Testuale SSoT */}
                                                     <div className="px-1 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 rounded text-[7px] font-black uppercase shrink-0">
-                                                        {job.status?.replace('_', ' ')}
+                                                        {getDerivedJobStatus(job).replace('_', ' ')}
                                                     </div>
 
                                                     {/* ODL & Articolo */}

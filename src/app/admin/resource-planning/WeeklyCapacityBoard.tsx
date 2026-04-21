@@ -852,6 +852,9 @@ function JobCompactCard(props: {
         'status-green': 'COMPLETATA'
     };
 
+    const derivedStatus = getDerivedJobStatus(job);
+    const isActuallyClosed = derivedStatus === 'CHIUSO';
+
     const isClosed = semaphoreStatus === 'status-green' && macroArea === 'PACK';
 
     return (
@@ -872,7 +875,7 @@ function JobCompactCard(props: {
                 <div 
                     className={cn(
                         "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0",
-                        isClosed ? "bg-emerald-500 text-white" : "bg-slate-900 text-slate-400 border border-slate-800",
+                        (isActuallyClosed || isClosed) ? "bg-emerald-500 text-white" : "bg-slate-900 text-slate-400 border border-slate-800",
                         job.workGroupId && "bg-indigo-600 text-white border-none cursor-help"
                     )}
                     onClick={(e) => {
@@ -882,16 +885,16 @@ function JobCompactCard(props: {
                         }
                     }}
                 >
-                    {job.workGroupId ? "IN GRUPPO" : statusLabels[semaphoreStatus]}
+                    {job.workGroupId ? "IN GRUPPO" : (isActuallyClosed ? "CHIUSO" : statusLabels[semaphoreStatus])}
                 </div>
 
-                {job.hasMaterialShortage && (
+                {!isActuallyClosed && job.hasMaterialShortage && (
                     <div className="bg-destructive text-destructive-foreground px-1 py-0.5 rounded flex items-center gap-1 shrink-0" title="Manca Materiale">
                         <AlertTriangle className="h-3 w-3" />
                     </div>
                 )}
                 
-                {job.isSuspended && !job.hasMaterialShortage && (
+                {!isActuallyClosed && job.isSuspended && !job.hasMaterialShortage && (
                     <div className="bg-yellow-500 text-white px-1 py-0.5 rounded flex items-center gap-1 shrink-0" title="Sospesa">
                         <Pause className="h-3 w-3 fill-white" />
                     </div>

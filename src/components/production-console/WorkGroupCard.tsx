@@ -4,6 +4,7 @@ import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, OverallStatu
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
+import { getDerivedJobStatus } from '@/lib/job-status';
 import { Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, ClipboardList, Calendar, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,8 @@ export default function WorkGroupCard({
   const [isBOMDialogOpen, setIsBOMDialogOpen] = useState(false);
   const [selectedOperators, setSelectedOperators] = useState<string[]>([]);
   const hasMatMissing = group.phases.some(p => p.materialStatus === 'missing');
+  const derivedGroupStatus = getDerivedJobStatus(group);
+  const isActuallyClosed = derivedGroupStatus === 'CHIUSO';
 
   const syntheticJob: JobOrder = useMemo(() => {
     const firstJob = jobsInGroup[0];
@@ -111,7 +114,7 @@ export default function WorkGroupCard({
   return (
     <>
     <Collapsible asChild>
-      <Card className={cn("relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-teal-500/70", (group.isProblemReported || hasMatMissing) && "border-destructive/50", isSelected && "ring-2 ring-primary/50")}>
+      <Card className={cn("relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-teal-500/70", (!isActuallyClosed && (group.isProblemReported || hasMatMissing)) && "border-destructive/50", isSelected && "ring-2 ring-primary/50")}>
         <div className="flex-grow">
             <CardHeader className="pb-3 space-y-2">
                 <div className="flex justify-between items-center gap-4">

@@ -109,11 +109,12 @@ const JobTableRows = ({
     <>
       {data.map(j => {
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
-        const isPlanned = ['planned', 'IN_ATTESA', 'IN_PIANIFICAZIONE', 'In Pianificazione'].includes(j.status as any);
+        const derivedStatus = getDerivedJobStatus(j);
+        const isPlanned = derivedStatus === 'DA_INIZIARE';
         const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
         const effectivePrepDate = j.dataFinePreparazione;
         const displayPrepDateText = effectivePrepDate ? format(parseISO(effectivePrepDate), "dd/MM/yyyy") : "Scegli...";
-        const isInProductionGrouping = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'Da Iniziare', 'In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Manca Materiale', 'Pronto per Finitura', 'Problema', 'PRODUCTION'].includes(j.status as any);
+        const isInProductionGrouping = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK'].includes(derivedStatus);
         const isReadyBody = isInProductionGrouping && isJobReadyForProduction(j);
 
 

@@ -14,6 +14,7 @@ import { useMasterData } from '@/contexts/MasterDataProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { getOverallStatus } from '@/lib/types';
+import { getDerivedJobStatus } from '@/lib/job-status';
 import { convertTimestampsToDates } from '@/lib/utils';
 import { 
   forceFinishProduction, 
@@ -158,8 +159,8 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
                                 allOperators={cachedOperators}
                                 isSelected={false}
                                 onSelect={() => {}}
-                                overallStatus={getOverallStatus(workGroup!)}
-                                getOverallStatus={getOverallStatus}
+                                overallStatus={getDerivedJobStatus(workGroup!)}
+                                getOverallStatus={getDerivedJobStatus}
                                 onProblemClick={() => handleAction(() => resolveJobProblem(workGroup!.id, user!.uid))}
                                 onForceFinishClick={(id) => handleAction(() => forceFinishProduction(id, user?.uid))}
                                 onForcePauseClick={(id, ops) => handleAction(() => forcePauseOperators(id, ops, user?.uid, 'Pausa Admin'))}
@@ -179,7 +180,7 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
                                 allOperators={cachedOperators}
                                 isSelected={false}
                                 onSelect={() => {}}
-                                overallStatus={getOverallStatus(job!)}
+                                overallStatus={getDerivedJobStatus(job!)}
                                 analysisData={analysisDataMap.get(job!.id)}
                                 isAnalysisLoading={isAnalysisLoading.has(job!.id)}
                                 onFetchAnalysis={() => handleFetchAnalysis(job!)}
