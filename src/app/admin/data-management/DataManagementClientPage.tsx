@@ -38,6 +38,7 @@ import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cn, formatDisplayStock, isJobReadyForProduction } from '@/lib/utils';
+import { getDerivedJobStatus } from '@/lib/job-status';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { calculateMRPTimelines, MRPTimelineEntry } from '@/lib/mrp-utils';
 import { GlobalSettings } from '@/lib/settings-types';
@@ -377,16 +378,39 @@ export default function DataManagementClientPage({
   }, [initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments]);
 
 
+  const allJobsUnfiltered = useMemo(() => {
+    return [...plannedJobOrders, ...productionJobOrders, ...completedJobOrders];
+  }, [plannedJobOrders, productionJobOrders, completedJobOrders]);
+
+  const { sSotPlanned, sSotProduction, sSotCompleted } = useMemo(() => {
+    const planned: JobOrder[] = [];
+    const prod: JobOrder[] = [];
+    const comp: JobOrder[] = [];
+    
+    allJobsUnfiltered.forEach(j => {
+      const status = getDerivedJobStatus(j);
+      if (status === 'CHIUSO') {
+        comp.push(j);
+      } else if (['planned', 'IN_ATTESA', 'In Pianificazione', 'IN_PIANIFICAZIONE'].includes(j.status as any)) {
+        planned.push(j);
+      } else {
+        prod.push(j);
+      }
+    });
+    
+    return { sSotPlanned: planned, sSotProduction: prod, sSotCompleted: comp };
+  }, [allJobsUnfiltered]);
+
   const mrpTimelines = useMemo(() => {
     return calculateMRPTimelines(
-      [...plannedJobOrders, ...productionJobOrders],
+      [...sSotPlanned, ...sSotProduction],
       rawMaterials,
       purchaseOrders,
       manualCommitments,
       articles,
       globalSettings
     );
-  }, [plannedJobOrders, productionJobOrders, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings]);
+  }, [sSotPlanned, sSotProduction, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings]);
 
   const filteredDepartmentsForManualCreate = useMemo(() => {
     return departments.filter(d => 
@@ -442,9 +466,9 @@ export default function DataManagementClientPage({
     return filtered;
   }, [sortConfig, departments]);
 
-  const filteredPlanned = useMemo(() => processData(plannedJobOrders, plannedSearchTerm), [plannedJobOrders, plannedSearchTerm, processData]);
-  const filteredProduction = useMemo(() => processData(productionJobOrders, productionSearchTerm), [productionJobOrders, productionSearchTerm, processData]);
-  const filteredCompleted = useMemo(() => processData(completedJobOrders, completedSearchTerm), [completedJobOrders, completedSearchTerm, processData]);
+  const filteredPlanned = useMemo(() => processData(sSotPlanned, plannedSearchTerm), [sSotPlanned, plannedSearchTerm, processData]);
+  const filteredProduction = useMemo(() => processData(sSotProduction, productionSearchTerm), [sSotProduction, productionSearchTerm, processData]);
+  const filteredCompleted = useMemo(() => processData(sSotCompleted, completedSearchTerm), [sSotCompleted, completedSearchTerm, processData]);
 
 
   const handleRefreshMRP = () => {
@@ -620,9 +644,9 @@ export default function DataManagementClientPage({
 
       <Tabs defaultValue="planned">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({plannedJobOrders.length})</TabsTrigger>
-          <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({productionJobOrders.length})</TabsTrigger>
-          <TabsTrigger value="completed"><CheckCircle2 className="mr-2 h-4 w-4" />Conclusi ({completedJobOrders.length})</TabsTrigger>
+          <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({sSotPlanned.length})</TabsTrigger>
+          <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({sSotProduction.length})</TabsTrigger>
+          <TabsTrigger value="completed"><CheckCircle2 className="mr-2 h-4 w-4" />Conclusi ({sSotCompleted.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="planned">

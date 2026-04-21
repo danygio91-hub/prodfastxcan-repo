@@ -1,4 +1,5 @@
 import type { JobOrder, JobPhase, Operator, OverallStatus } from '@/types';
+import { getDerivedJobStatus } from '@/lib/job-status';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -177,6 +178,7 @@ export default function JobOrderCard({
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
   const hasMaterialMissing = jobOrder.phases.some(p => p.materialStatus === 'missing');
   const [remainingTime, setRemainingTime] = useState<string | null>(null);
+  const derivedStatus = getDerivedJobStatus(jobOrder);
 
    const updateRemainingTime = React.useCallback(() => {
     if (!analysisData || !analysisData.isTimeCalculationReliable) {
@@ -216,7 +218,7 @@ export default function JobOrderCard({
                 }
             });
 
-            const uniqueOperators = Array.from(new Map(phaseOperators.map(op => [op.id, op])).values());
+            const uniqueOperators = Array.from((new Map(phaseOperators.map(op => [op.id, op])) as any).values());
 
             if (uniqueOperators.length > 0) {
                 if (!activePhasesMap.has(phase.id)) {
@@ -342,7 +344,7 @@ export default function JobOrderCard({
                     
                     </div>
                     <div className="flex items-center gap-2">
-                        <StatusBadge status={overallStatus} />
+                        <StatusBadge status={derivedStatus} />
                         
                         {isPartOfGroup && (
                             <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200 flex items-center gap-1.5 py-0.5">
@@ -353,8 +355,6 @@ export default function JobOrderCard({
                     
                     </div>
                 </div>
-                <div className="flex justify-between items-center gap-4">
-                    <CardDescription className="flex items-center gap-2">
                         <Building className="h-4 w-4 text-muted-foreground" />
                         {jobOrder.cliente}
                     </CardDescription>

@@ -98,6 +98,7 @@ import {
 } from '@/app/admin/production-console/actions';
 import { getProductionSettings } from '@/app/admin/production-settings/actions';
 import { getOverallStatus } from '@/lib/types';
+import { getDerivedJobStatus } from '@/lib/job-status';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -276,10 +277,10 @@ export default function ProductionConsoleClientPage() {
   const applyFilters = <T extends JobOrder | WorkGroup>(items: T[]): T[] => {
       let f = items;
       if (showCompleted) {
-          f = f.filter(i => getOverallStatus(i) === 'CHIUSO');
+          f = f.filter(i => getDerivedJobStatus(i) === 'CHIUSO');
           if (isDateFilterActive && completedDateFilter) f = f.filter(i => i.overallEndTime && isSameDay(new Date(i.overallEndTime), completedDateFilter));
       } else {
-          f = f.filter(i => getOverallStatus(i) !== 'CHIUSO');
+          f = f.filter(i => getDerivedJobStatus(i) !== 'CHIUSO');
           if (activeFilter !== 'all') {
              if (activeFilter === 'LIVE') f = f.filter(isJobLive);
              else if (activeFilter === 'ACTIVE') {

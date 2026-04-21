@@ -30,6 +30,7 @@ import { toggleExcludeFromPackingList } from './actions';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { getOverallStatus } from '@/lib/types';
+import { getDerivedJobStatus } from '@/lib/job-status';
 
 interface WeeklyCapacityBoardProps {
     jobOrders: JobOrder[];
@@ -107,7 +108,11 @@ export default function WeeklyCapacityBoard({
 
     // Sanificazione Backlog: Escludiamo categoricamente stati IN_PIANIFICAZIONE o planned
     const sanitizedUnassigned = useMemo(() => {
-        return unassignedJobs.filter(job => PRODUCTION_STATUS_WHITELIST.includes(job.status));
+        return unassignedJobs.filter(job => {
+            const derived = getDerivedJobStatus(job);
+            if (derived === 'CHIUSO') return false;
+            return PRODUCTION_STATUS_WHITELIST.includes(job.status);
+        });
     }, [unassignedJobs]);
 
     // Logica di Matching per la Ricerca Globale
@@ -490,10 +495,8 @@ export default function WeeklyCapacityBoard({
                                 <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter leading-none mb-1">In Produzione</span>
                                 <Badge className="bg-blue-600/20 text-blue-400 border border-blue-500/30 font-black text-xs px-2.5 h-6">
                                     {[...jobOrders, ...sanitizedUnassigned].filter(j => {
-                                        // Utilizziamo le whitelist ufficiali per il conteggio "In Produzione"
+                                        const isClosed = getDerivedJobStatus(j) === 'CHIUSO';
                                         const isProd = PRODUCTION_STATUS_WHITELIST.includes(j.status);
-                                        const isClosed = COMPLETED_STATUS_WHITELIST.includes(j.status);
-                                        
                                         return isProd && !isClosed;
                                     }).length}
                                 </Badge>
@@ -505,9 +508,7 @@ export default function WeeklyCapacityBoard({
                                         <div className="flex flex-col items-center cursor-help">
                                             <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter leading-none mb-1">Chiuse Visibili</span>
                                             <Badge variant="outline" className="bg-slate-900 border-slate-700 text-slate-500 font-bold text-xs px-2.5 h-6">
-                                                {jobOrders.filter(j => 
-                                                    COMPLETED_STATUS_WHITELIST.some(s => s.toLowerCase() === (j.status || '').toLowerCase())
-                                                ).length}
+                                                {jobOrders.filter(j => getDerivedJobStatus(j) === 'CHIUSO').length}
                                             </Badge>
                                         </div>
                                     </TooltipTrigger>
