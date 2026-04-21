@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
+import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
 import type {
     RawMaterial,
     RawMaterialBatch,
@@ -836,9 +837,14 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
     const mSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
     if (!mSnap.exists) return [];
     
-    const mat = mSnap.data() as RawMaterial;
+    const matData = mSnap.data() as RawMaterial;
     
-    // Regola 1 SSoT: No more Live Aggregation. Read netQuantity directly.
+    // Fetch withdrawals for hydration (SSoT)
+    const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
+    const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    const mat = hydrateMaterialWithWithdrawals(matData, withdrawals);
+    
+    // Process hydrated batches
     const activeBatches = (mat.batches || []).filter(b => !b.isExhausted && (b.netQuantity || 0) > 0.001);
 
     const bByLotto = activeBatches.reduce((acc, b) => { 

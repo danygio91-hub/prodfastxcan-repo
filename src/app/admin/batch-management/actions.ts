@@ -4,6 +4,7 @@
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { RawMaterial, RawMaterialBatch, MaterialWithdrawal } from '@/types';
+import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
 
 export type EnrichedBatch = RawMaterialBatch & {
     materialId: string;
@@ -76,9 +77,12 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
 
     const allGroupedBatches: GroupedBatches[] = [];
 
-    materials.forEach(material => {
-        const materialWithdrawals = withdrawalsByMaterial[material.id] || [];
+    materials.forEach(rawMaterial => {
+        const materialWithdrawals = withdrawalsByMaterial[rawMaterial.id] || [];
         
+        // Hydrate the material with live residual quantities (SSoT Logic)
+        const material = hydrateMaterialWithWithdrawals(rawMaterial, materialWithdrawals);
+
         const withdrawalsByLotto = materialWithdrawals.reduce((acc, w) => {
             const l = w.lotto || 'SENZA_LOTTO';
             acc[l] = (acc[l] || 0) + (w.consumedUnits || 0);
@@ -93,15 +97,31 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
         }, {} as Record<string, EnrichedBatch[]>);
 
         const lots: LotInfo[] = Object.entries(batchesByLotto).map(([lotto, batchesInLot]) => {
-            const totalLoaded = batchesInLot.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+            const totalLoadedForLot = batchesInLot.reduce((sum, b) => {
+                // IMPORTANT: Since we hydrated the material, netQuantity might be 0 already.
+                // But Admin logic "totalLoaded" should probably represent the initial load of currently active batches?
+                // Actually, to keep it simple and match Admin's previous logic, we can still use the hydrated netQuantity.
+                return sum + (b.netQuantity || 0);
+            }, 0);
+            
+            // Wait, if I use the hydrated material, totalLoaded - totalWithdrawn would double-subtract.
+            // I should either:
+            // a) Use the hydrated netQuantity as the "Available".
+            // b) Use the original quantities for loaded/withdrawn display but hydrated for batches.
+            
+            // Admin's goal here is to show "Available", "Total Loaded", "Total Withdrawn".
+            const initialLoadForLot = (rawMaterial.batches || [])
+                .filter(b => (b.lotto || 'SENZA_LOTTO') === lotto)
+                .reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+            
             const totalWithdrawn = withdrawalsByLotto[lotto] || 0;
-            const available = totalLoaded - totalWithdrawn;
+            const available = initialLoadForLot - totalWithdrawn;
             
             const firstLoadDate = batchesInLot.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.date;
 
             return {
                 lotto,
-                totalLoaded,
+                totalLoaded: initialLoadForLot,
                 totalWithdrawn,
                 available,
                 batches: batchesInLot,
@@ -109,17 +129,6 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
             };
         });
         
-        const totalUnits = lots.reduce((sum, lot) => sum + lot.available, 0);
-        const finalUnits = material.unitOfMeasure === 'n' ? Math.round(totalUnits) : totalUnits;
-        
-        let totalWeightKg = 0;
-        if (material.unitOfMeasure === 'kg') {
-            totalWeightKg = finalUnits;
-        } else {
-            const factor = (material.unitOfMeasure === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 1;
-            totalWeightKg = finalUnits * factor;
-        }
-
         allGroupedBatches.push({
             materialId: material.id,
             materialCode: material.code,
@@ -127,8 +136,8 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
             unitOfMeasure: material.unitOfMeasure,
             conversionFactor: material.conversionFactor || undefined,
             rapportoKgMt: material.rapportoKgMt || undefined,
-            currentStockUnits: finalUnits,
-            currentWeightKg: totalWeightKg,
+            currentStockUnits: material.currentStockUnits,
+            currentWeightKg: material.currentWeightKg,
             lots: lots.sort((a, b) => new Date(b.firstLoadDate).getTime() - new Date(a.firstLoadDate).getTime()),
         });
     });

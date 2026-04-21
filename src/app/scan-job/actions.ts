@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
+import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
 
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord, JobBillOfMaterialsItem } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
@@ -187,8 +188,14 @@ export async function getRawMaterialByCode(code: string | undefined): Promise<Ra
   if (!trimmed) return { error: `Il codice inserito è vuoto.`, title: 'Codice Vuoto' };
   const snap = await adminDb.collection("rawMaterials").where("code_normalized", "==", trimmed.toLowerCase()).get();
   if (snap.empty) return { error: `Materia prima "${trimmed}" non trovata a sistema.`, title: 'Materiale non Trovato' };
-  const material = { ...snap.docs[0].data(), id: snap.docs[0].id } as RawMaterial;
-  return JSON.parse(JSON.stringify(material));
+  const materialData = { ...snap.docs[0].data(), id: snap.docs[0].id } as RawMaterial;
+  
+  // Fetch withdrawals for hydration (SSoT)
+  const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialData.id).get();
+  const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+  const hydratedMaterial = hydrateMaterialWithWithdrawals(materialData, withdrawals);
+  
+  return JSON.parse(JSON.stringify(hydratedMaterial));
 }
 
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
@@ -909,8 +916,15 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         const rec = records[0];
         const mSnap = await adminDb.collection("rawMaterials").doc(rec.materialId).get();
         if (mSnap.exists) {
+            const materialData = { ...mSnap.data(), id: mSnap.id } as RawMaterial;
+            
+            // Fetch withdrawals for hydration (SSoT)
+            const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialData.id).get();
+            const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+            const hydratedMaterial = hydrateMaterialWithWithdrawals(materialData, withdrawals);
+
             return { 
-                material: { ...mSnap.data(), id: mSnap.id }, 
+                material: JSON.parse(JSON.stringify(hydratedMaterial)), 
                 netWeight: rec.netWeight, 
                 packagingId: rec.packagingId || 'none',
                 tareWeight: rec.tareWeight || 0,
@@ -925,8 +939,13 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto && !b.isExhausted);
         if (matchingBatch) {
             const netWeight = matchingBatch.netQuantity || (matchingBatch.grossWeight - (matchingBatch.tareWeight || 0));
+            // Fetch withdrawals for hydration (SSoT)
+            const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", mDoc.id).get();
+            const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+            const hydratedMaterial = hydrateMaterialWithWithdrawals(mData, withdrawals);
+
             return {
-                material: { ...mData, id: mDoc.id },
+                material: JSON.parse(JSON.stringify(hydratedMaterial)),
                 netWeight: netWeight,
                 packagingId: matchingBatch.packagingId || 'none',
                 tareWeight: matchingBatch.tareWeight || 0,
