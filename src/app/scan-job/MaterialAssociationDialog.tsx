@@ -69,7 +69,6 @@ export default function MaterialAssociationDialog({
   const [scanType, setScanType] = useState<ScanType>(null);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
-  const [availableBatches, setAvailableBatches] = useState<any[]>([]);
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -115,6 +114,13 @@ export default function MaterialAssociationDialog({
 
   const isKgMode = selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
   const effectiveNet = (calculatedNet > 0) ? calculatedNet : (lotAvailability?.available || 0);
+
+  const fifoBatches = useMemo(() => {
+    if (!selectedMaterial?.batches) return [];
+    return [...selectedMaterial.batches]
+      .filter(b => !b.isExhausted && (b.netQuantity || 0) > 0.001)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [selectedMaterial?.batches]);
 
   // Split-Picking Pre-fill Logic (Non-KG Mode)
   useEffect(() => {
@@ -472,15 +478,15 @@ export default function MaterialAssociationDialog({
                         </FormItem>
                     )}/>
 
-                    {availableBatches.filter(b => (b.quantity - (b.consumedQuantity || 0)) > 0).length > 0 && (
+                    {fifoBatches.length > 0 && (
                         <div className="space-y-2">
                             <Label className="font-black text-[9px] uppercase text-muted-foreground flex items-center gap-2">
-                                <Boxes className="h-3 w-3" /> Lotti Disponibili ({availableBatches.filter(b => (b.quantity - (b.consumedQuantity || 0)) > 0).length})
+                                <Boxes className="h-3 w-3" /> Lotti Disponibili ({fifoBatches.length})
                             </Label>
                             <ScrollArea className="h-28 border-2 rounded-xl p-1 bg-muted/30 border-muted">
                                 <div className="grid grid-cols-1 gap-1">
-                                    {availableBatches.filter(b => (b.quantity - (b.consumedQuantity || 0)) > 0).map((b, idx) => {
-                                        const netQuantity = b.quantity - (b.consumedQuantity || 0);
+                                    {fifoBatches.map((b, idx) => {
+                                        const netQuantity = b.netQuantity || 0;
                                         const isOldest = idx === 0;
                                         const isSelected = lottoValue === b.lotto;
                                         return (
@@ -595,7 +601,7 @@ export default function MaterialAssociationDialog({
                                         </FormControl>
                                         {isKgMode && (
                                             <p className="text-[10px] text-muted-foreground italic text-right font-bold uppercase">
-                                                L'app sottrarrà automaticamente {tare.toFixed(3)}kg di tara
+                                                L&apos;app sottrarrà automaticamente {tare.toFixed(3)}kg di tara
                                             </p>
                                         )}
                                         <FormMessage/>
