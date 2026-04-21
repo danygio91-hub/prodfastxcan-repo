@@ -288,7 +288,14 @@ export default function ODLPrintTemplate({
                                 if (col.field === 'numeroOdl') val = job.numeroODLInterno || '---';
 
                                 return (
-                                  <td key={col.id} style={{ ...styles.cell, borderLeft: idx === 0 ? 0 : `1px solid ${config.colors.border}`, borderRight: idx === activeHeaderCols.length - 1 ? 0 : `1px solid ${config.colors.border}`, borderBottom: 0, fontSize: `${col.fontSize || 11}pt`, backgroundColor: col.field === 'reparto' || col.field === 'ordinePf' || col.field === 'numeroOdl' ? config.colors.bgValueGreen : 'white' }}>
+                                  <td key={col.id} style={{ 
+                                    ...styles.cell, 
+                                    borderLeft: idx === 0 ? 0 : `1px solid ${config.colors.border}`, 
+                                    borderRight: idx === activeHeaderCols.length - 1 ? 0 : `1px solid ${config.colors.border}`, 
+                                    borderBottom: 0, 
+                                    fontSize: `${col.fontSize || 11}pt`, 
+                                    backgroundColor: col.isAuxiliary ? 'white' : (col.field === 'reparto' || col.field === 'ordinePf' || col.field === 'numeroOdl' ? config.colors.bgValueGreen : 'white') 
+                                  }}>
                                     <div style={getCellFlexStyles(col)}>{val}</div>
                                   </td>
                                 );
@@ -407,7 +414,7 @@ export default function ODLPrintTemplate({
                 <td style={{ ...styles.cell, backgroundColor: config.colors.headerBg, fontWeight: 'bold', fontSize: `${config.info.fontSize}pt` }}>
                     <div style={getCellFlexStyles()}>{row.label}</div>
                 </td>
-                <td style={{ ...styles.cell, backgroundColor: resolveColBg(row.colorKey), fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
+                <td style={{ ...styles.cell, backgroundColor: row.isAuxiliary ? 'white' : resolveColBg(row.colorKey), fontWeight: 'bold', fontSize: `${config.info.fontSize + 2}pt` }}>
                   <div style={getCellFlexStyles()}>{row.value}</div>
                 </td>
                 {idx === 0 && renderDrawingArea()}
@@ -541,7 +548,7 @@ export default function ODLPrintTemplate({
                   }
                   const displayValue = col.field === 'note' ? (data.note || '') : (data[col.field] ?? '---');
                   return (
-                    <td key={col.id} style={{ ...styles.cell, fontSize: `${cellFontSize}pt` }}>
+                    <td key={col.id} style={{ ...styles.cell, fontSize: `${cellFontSize}pt`, backgroundColor: col.isAuxiliary ? 'white' : undefined }}>
                       <div style={getCellFlexStyles(col)}>
                         {col.field === 'placeholder' ? (
                           <div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div>

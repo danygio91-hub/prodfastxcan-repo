@@ -5,6 +5,7 @@ export interface ColumnConfig {
   width: string;
   field: string;
   visible: boolean;
+  isAuxiliary?: boolean;
   textAlign?: 'left' | 'center' | 'right';
   verticalAlign?: 'top' | 'middle' | 'bottom';
   fontSize?: number;
@@ -20,6 +21,7 @@ interface ODLConfigColumn {
     label: string;
     width: string;
     visible: boolean;
+    isAuxiliary?: boolean;
 }
 
 export interface ODLConfig {
@@ -79,7 +81,7 @@ export interface ODLConfig {
     labelWidth: string;
     valueWidth: string;
     fontSize: number;
-    columns: { id: string; label: string; field: string; visible: boolean; colorKey?: string }[];
+    columns: { id: string; label: string; field: string; visible: boolean; isAuxiliary?: boolean; colorKey?: string }[];
   };
   columns: {
     treccia: ColumnConfig[];

@@ -293,11 +293,29 @@ export default function ODLDesignerPage() {
                       {config.header.columns?.map((col, idx) => (
                           <div key={col.id} className="p-3 border rounded-xl bg-white flex flex-col gap-3 shadow-sm hover:border-blue-300 transition-colors">
                               <div className="flex items-center gap-3">
-                                  <Switch checked={col.visible} onCheckedChange={(val) => {
-                                      const newCols = [...config.header.columns];
-                                      newCols[idx] = { ...newCols[idx], visible: val };
-                                      updateConfig('header.columns', newCols);
-                                  }} />
+                                  <div className="w-[120px] shrink-0">
+                                      <Select 
+                                          value={!col.visible ? 'hidden' : (col.isAuxiliary ? 'auxiliary' : 'standard')} 
+                                          onValueChange={(val) => {
+                                              const newCols = [...config.header.columns];
+                                              newCols[idx] = { 
+                                                  ...newCols[idx], 
+                                                  visible: val !== 'hidden', 
+                                                  isAuxiliary: val === 'auxiliary' 
+                                              };
+                                              updateConfig('header.columns', newCols);
+                                          }}
+                                      >
+                                          <SelectTrigger className="h-8 text-[10px] font-bold uppercase py-0 px-2 bg-gray-50 border-gray-200">
+                                              <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                              <SelectItem value="standard" className="text-[10px] font-bold">STANDARD</SelectItem>
+                                              <SelectItem value="auxiliary" className="text-[10px] font-bold">AUSILIARIO</SelectItem>
+                                              <SelectItem value="hidden" className="text-[10px] font-bold">NASCOSTO</SelectItem>
+                                          </SelectContent>
+                                      </Select>
+                                  </div>
                                   <Input className="h-8 text-xs font-medium flex-1 rounded-md" value={col.label} onChange={(e) => {
                                       const newCols = [...config.header.columns];
                                       newCols[idx] = { ...newCols[idx], label: e.target.value };
@@ -438,11 +456,29 @@ export default function ODLDesignerPage() {
                     <div className="space-y-2">
                         {config.info.columns.map((col, idx) => (
                             <div key={col.id} className="p-3 border rounded-xl bg-white flex items-center gap-3 shadow-sm hover:border-blue-300 transition-colors">
-                                <Switch checked={col.visible} onCheckedChange={(val) => {
-                                    const newCols = [...config.info.columns];
-                                    newCols[idx] = { ...newCols[idx], visible: val };
-                                    updateConfig('info.columns', newCols);
-                                }} />
+                                <div className="w-[120px] shrink-0">
+                                    <Select 
+                                        value={!col.visible ? 'hidden' : (col.isAuxiliary ? 'auxiliary' : 'standard')} 
+                                        onValueChange={(val) => {
+                                            const newCols = [...config.info.columns];
+                                            newCols[idx] = { 
+                                                ...newCols[idx], 
+                                                visible: val !== 'hidden', 
+                                                isAuxiliary: val === 'auxiliary' 
+                                            };
+                                            updateConfig('info.columns', newCols);
+                                        }}
+                                    >
+                                        <SelectTrigger className="h-8 text-[10px] font-bold uppercase py-0 px-2 bg-gray-50 border-gray-200">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="standard" className="text-[10px] font-bold">STANDARD</SelectItem>
+                                            <SelectItem value="auxiliary" className="text-[10px] font-bold">AUSILIARIO</SelectItem>
+                                            <SelectItem value="hidden" className="text-[10px] font-bold">NASCOSTO</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                                 <Input className="h-8 text-xs font-bold flex-1" value={col.label} onChange={(e) => {
                                     const newCols = [...config.info.columns];
                                     newCols[idx] = { ...newCols[idx], label: e.target.value };
@@ -553,7 +589,7 @@ export default function ODLDesignerPage() {
                     {(['treccia', 'tubi', 'guaina'] as const).map(cat => (
                         <TabsContent key={cat} value={`${cat}-cols`} className="space-y-3">
                             <div className="text-[9px] font-black text-gray-400 uppercase flex gap-2 px-2 items-center tracking-widest leading-none">
-                                <span className="w-8 shrink-0">VIS.</span>
+                                <span className="w-[120px] shrink-0">VISIBILITÀ</span>
                                 <span className="flex-1">ETICHETTA HEADER</span>
                                 <span className="w-24 shrink-0">SORGENTE DATO</span>
                                 <span className="w-12 shrink-0">W %</span>
@@ -562,14 +598,29 @@ export default function ODLDesignerPage() {
                             {config.columns?.[cat]?.map((col, idx) => (
                                 <div key={col.id} className="p-3 border rounded-2xl bg-white flex flex-col gap-3 shadow-md border-gray-100 hover:border-blue-400 transition-all hover:shadow-lg">
                                     <div className="flex items-center gap-3">
-                                        <Switch 
-                                            checked={col.visible} 
-                                            onCheckedChange={(val) => {
-                                                const newCols = [...config.columns[cat]];
-                                                newCols[idx] = { ...newCols[idx], visible: val };
-                                                updateConfig(`columns.${cat}`, newCols);
-                                            }}
-                                        />
+                                        <div className="w-[120px] shrink-0">
+                                            <Select 
+                                                value={!col.visible ? 'hidden' : (col.isAuxiliary ? 'auxiliary' : 'standard')} 
+                                                onValueChange={(val) => {
+                                                    const newCols = [...config.columns[cat]];
+                                                    newCols[idx] = { 
+                                                        ...newCols[idx], 
+                                                        visible: val !== 'hidden', 
+                                                        isAuxiliary: val === 'auxiliary' 
+                                                    };
+                                                    updateConfig(`columns.${cat}`, newCols);
+                                                }}
+                                            >
+                                                <SelectTrigger className="h-8 text-[10px] font-bold uppercase py-0 px-2 bg-gray-50 border-gray-200">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="standard" className="text-[10px] font-bold">STANDARD</SelectItem>
+                                                    <SelectItem value="auxiliary" className="text-[10px] font-bold">AUSILIARIO</SelectItem>
+                                                    <SelectItem value="hidden" className="text-[10px] font-bold">NASCOSTO</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
                                         <Input 
                                             className="h-8 text-xs font-bold text-blue-900 bg-blue-50/20 rounded-lg border-blue-100 flex-1" 
                                             value={col.label} 
