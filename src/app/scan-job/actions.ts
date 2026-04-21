@@ -192,10 +192,15 @@ export async function getRawMaterialByCode(code: string | undefined): Promise<Ra
   
   // Fetch withdrawals for hydration (SSoT)
   const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialData.id).get();
-  const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+  // Ensure timestamps are handled if any exist (safety)
+  const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
+  
   const hydratedMaterial = hydrateMaterialWithWithdrawals(materialData, withdrawals);
   
-  return JSON.parse(JSON.stringify(hydratedMaterial));
+  // TASSATIVO: Assicura che l'array batches sia espressamente popolato e serializzato
+  const finalPayload = JSON.parse(JSON.stringify(hydratedMaterial));
+  
+  return finalPayload;
 }
 
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
@@ -920,7 +925,7 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
             
             // Fetch withdrawals for hydration (SSoT)
             const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialData.id).get();
-            const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+            const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
             const hydratedMaterial = hydrateMaterialWithWithdrawals(materialData, withdrawals);
 
             return { 
@@ -935,13 +940,13 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
 
     const materialsSnap = await adminDb.collection("rawMaterials").get();
     for (const mDoc of materialsSnap.docs) {
-        const mData = mDoc.data() as RawMaterial;
+        const mData = { ...mDoc.data(), id: mDoc.id } as RawMaterial;
         const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto && !b.isExhausted);
         if (matchingBatch) {
             const netWeight = matchingBatch.netQuantity || (matchingBatch.grossWeight - (matchingBatch.tareWeight || 0));
             // Fetch withdrawals for hydration (SSoT)
             const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", mDoc.id).get();
-            const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+            const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
             const hydratedMaterial = hydrateMaterialWithWithdrawals(mData, withdrawals);
 
             return {

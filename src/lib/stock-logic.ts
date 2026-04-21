@@ -36,13 +36,12 @@ export function hydrateMaterialWithWithdrawals(material: RawMaterial, withdrawal
             const deduction = Math.min(initialLoad, remainingWithdrawal);
             
             // Apply deduction in memory
-            batch.netQuantity = Math.max(0, initialLoad - deduction);
-            remainingWithdrawal -= deduction;
+            batch.netQuantity = Number((initialLoad - deduction).toFixed(3));
+            remainingWithdrawal = Number((remainingWithdrawal - deduction).toFixed(3));
             
-            // Mark as exhausted if it reaches 0
-            if (batch.netQuantity <= 0.001) {
-                batch.isExhausted = true;
-            }
+            // TASSATIVO: Ricalcola l'estenuazione in base al residuo reale idratato
+            // Evita che un batch con stock positivo sia nascosto se il flag nel DB è stale
+            batch.isExhausted = batch.netQuantity <= 0.001;
         });
     });
 
