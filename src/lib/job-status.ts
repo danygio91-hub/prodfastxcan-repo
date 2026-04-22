@@ -70,8 +70,17 @@ export function getDerivedJobStatus(item: JobOrder | WorkGroup): OverallStatus {
       return 'IN_PREPARAZIONE';
     }
     
-    // Default
-    return 'DA_INIZIARE';
+    // 3. Fallback SSoT: Se non c'è attività sulle fasi (tutte pending o assenti),
+    // usiamo lo stato del Database per distinguere tra "Pianificata" e "In Preparazione" (Rilasciata).
+    const statusLowerRaw = (item.status || '').toLowerCase();
+    const isActuallyPlanned = ['planned', 'in_attesa', 'in pianificazione', 'in_pianificazione'].includes(statusLowerRaw);
+
+    if (allPhases.length === 0) {
+        return isActuallyPlanned ? 'DA_INIZIARE' : 'IN_PREPARAZIONE';
+    }
+    
+    // Default: se abbiamo fasi ma sono tutte 'pending', lo stato dipende dal rilascio DB
+    return isActuallyPlanned ? 'DA_INIZIARE' : 'IN_PREPARAZIONE';
 }
 
 /**
