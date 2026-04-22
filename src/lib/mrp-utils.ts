@@ -188,3 +188,73 @@ export function calculateMRPTimelines(
         return new Map(); // Restituisce mappa vuota per Graceful Degradation
     }
 }
+
+/**
+ * Aggrega i requisiti MRP per Codice Articolo prima della renderizzazione.
+ * Utile per evitare liste infinite se la BOM ha molte righe di taglio per lo stesso materiale.
+ */
+export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineEntry; item: any }[]): { entry: MRPTimelineEntry; item: any }[] {
+    if (!componentEntries || componentEntries.length === 0) return [];
+
+    const groups = new Map<string, { entries: MRPTimelineEntry[]; items: any[] }>();
+
+    componentEntries.forEach(ce => {
+        const code = ce.entry.materialCode.toUpperCase().trim();
+        if (!groups.has(code)) {
+            groups.set(code, { entries: [], items: [] });
+        }
+        groups.get(code)!.entries.push(ce.entry);
+        groups.get(code)!.items.push(ce.item);
+    });
+
+    const aggregated: { entry: MRPTimelineEntry; item: any }[] = [];
+
+    groups.forEach((group, code) => {
+        const totalQty = group.entries.reduce((sum, e) => sum + (e.requiredQty || 0), 0);
+        
+        // Priorità Stato: RED > LATE > AMBER > GREEN
+        let finalStatus: MRPTimelineEntry['status'] = 'GREEN';
+        if (group.entries.some(e => e.status === 'RED')) finalStatus = 'RED';
+        else if (group.entries.some(e => e.status === 'LATE')) finalStatus = 'LATE';
+        else if (group.entries.some(e => e.status === 'AMBER')) finalStatus = 'AMBER';
+
+        // Prendi il primo item e entry come rappresentativi per metadati (UOM, etc)
+        const repItem = group.items[0];
+        const repEntry = group.entries[0];
+
+        // Ricostruisci i dettagli aggregati
+        // Nota: Cerchiamo di mantenere lo stile originale dei messaggi in mrp-utils.ts
+        const unit = repItem.unitOfMeasure || '';
+        const newDetails: string[] = [];
+        newDetails.push(`Fabbisogno Totale: ${totalQty.toFixed(2)} ${unit}`);
+        
+        if (finalStatus === 'RED') {
+            newDetails.push("❌ MANCANTE: Stock insufficiente, nessun ordine futuro sufficiente.");
+            newDetails.push("ORDINARE IMMEDIATAMENTE.");
+        } else if (finalStatus === 'LATE') {
+            // Prendi la data del primo PO in ritardo trovato nel gruppo
+            const lateEntry = group.entries.find(e => e.status === 'LATE' && e.supplyArrivalDate);
+            newDetails.push(`🟠 IN RITARDO: In arrivo il ${lateEntry?.supplyArrivalDate || 'futuro'}`);
+            newDetails.push("Verificare se è possibile anticipare la consegna.");
+        } else if (finalStatus === 'AMBER') {
+            // Prendi la data del primo PO di copertura trovato nel gruppo
+            const amberEntry = group.entries.find(e => e.status === 'AMBER' && e.supplyArrivalDate);
+            newDetails.push(`🟡 COPERTO DA ORDINE: In arrivo il ${amberEntry?.supplyArrivalDate || 'N/D'}.`);
+            newDetails.push("Monitorare fornitore.");
+        } else {
+            newDetails.push("✅ DISPONIBILE (Stock fisico).");
+        }
+
+        aggregated.push({
+            entry: {
+                ...repEntry,
+                requiredQty: totalQty,
+                status: finalStatus,
+                details: newDetails
+            },
+            item: repItem
+        });
+    });
+
+    return aggregated;
+}

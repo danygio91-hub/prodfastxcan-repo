@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { formatDisplayStock, parseRobustDate } from '@/lib/utils';
-import { MRPTimelineEntry } from '@/lib/mrp-utils';
+import { MRPTimelineEntry, aggregateMRPRequirements } from '@/lib/mrp-utils';
 
 
 
@@ -819,7 +819,8 @@ function JobCompactCard(props: {
 
         const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
         const isAmber = !isRed && componentEntries.some(ce => ce.entry.status === 'AMBER');
-        const combinedDetails = componentEntries.flatMap(ce => {
+        const aggregatedEntries = aggregateMRPRequirements(componentEntries);
+        const combinedDetails = aggregatedEntries.flatMap(ce => {
             const prefix = ce.item.component;
             return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
         });

@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { cn, formatDisplayStock, parseRobustDate } from '@/lib/utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
-import { MRPTimelineEntry } from '@/lib/mrp-utils';
+import { MRPTimelineEntry, aggregateMRPRequirements } from '@/lib/mrp-utils';
 import { isBefore, startOfDay, isSameDay, format, parseISO, isPast } from 'date-fns';
 import { it } from 'date-fns/locale';
 import type { JobOrder, Article, WorkPhaseTemplate } from '@/types';
@@ -209,7 +209,8 @@ export default function BacklogDrawer({
                                             const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
                                             const isAmber = !isRed && componentEntries.some(ce => ce.entry.status === 'AMBER');
                                             
-                                            const combinedDetails = componentEntries.flatMap(ce => {
+                                            const aggregatedEntries = aggregateMRPRequirements(componentEntries);
+                                            const combinedDetails = aggregatedEntries.flatMap(ce => {
                                                 const prefix = ce.item.component;
                                                 return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
                                             });

@@ -40,7 +40,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn, formatDisplayStock, isJobReadyForProduction } from '@/lib/utils';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
-import { calculateMRPTimelines, MRPTimelineEntry } from '@/lib/mrp-utils';
+import { calculateMRPTimelines, MRPTimelineEntry, aggregateMRPRequirements } from '@/lib/mrp-utils';
 import { GlobalSettings } from '@/lib/settings-types';
 
 import { jsPDF } from "jspdf";
@@ -153,9 +153,10 @@ const JobTableRows = ({
           const isLate = !isRed && componentEntries.some(ce => ce.entry.status === 'LATE');
           const isAmber = !isRed && !isLate && componentEntries.some(ce => ce.entry.status === 'AMBER');
           
+          const aggregatedEntries = aggregateMRPRequirements(componentEntries);
           const combinedDetails = [
             ...withdrawnItems.map(i => `✅ ${i.component} - Prelevato`),
-            ...componentEntries.flatMap(ce => {
+            ...aggregatedEntries.flatMap(ce => {
                 const prefix = ce.item.component;
                 return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
             })
