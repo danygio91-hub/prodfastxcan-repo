@@ -35,29 +35,37 @@ export function hydrateMaterialWithWithdrawals(material: RawMaterial, withdrawal
             const initialLoad = batch.netQuantity || 0;
             const deduction = Math.min(initialLoad, remainingWithdrawal);
             
-            // Apply deduction in memory
-            batch.netQuantity = Number((initialLoad - deduction).toFixed(3));
+            // Popolamento campo dinamico "currentQuantity" (residuo vivo)
+            // netQuantity RESTA l'originale immutabile per lo storico
+            batch.currentQuantity = Number((initialLoad - deduction).toFixed(3));
             remainingWithdrawal = Number((remainingWithdrawal - deduction).toFixed(3));
             
+            // Calcolo proporzionale del peso residuo per il batch
+            if (hydratedMaterial.unitOfMeasure === 'kg') {
+                batch.currentWeightKg = batch.currentQuantity;
+            } else {
+                const batchFactor = (hydratedMaterial.unitOfMeasure === 'mt' ? hydratedMaterial.rapportoKgMt : hydratedMaterial.conversionFactor) || 1;
+                batch.currentWeightKg = Number((batch.currentQuantity * batchFactor).toFixed(3));
+            }
+
             // TASSATIVO: Ricalcola l'estenuazione in base al residuo reale idratato
             // Evita che un batch con stock positivo sia nascosto se il flag nel DB è stale
-            batch.isExhausted = batch.netQuantity <= 0.001;
+            batch.isExhausted = batch.currentQuantity <= 0.001;
         });
     });
 
     // 4. Final consistency check: Recalculate total currentStockUnits
     const finalTotal = (hydratedMaterial.batches || [])
-        .filter(b => !b.isExhausted)
-        .reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+        .reduce((sum, b) => sum + (b.currentQuantity || 0), 0);
     
-    hydratedMaterial.currentStockUnits = hydratedMaterial.unitOfMeasure === 'n' ? Math.round(finalTotal) : finalTotal;
+    hydratedMaterial.currentStockUnits = hydratedMaterial.unitOfMeasure === 'n' ? Math.round(finalTotal) : Number(finalTotal.toFixed(3));
     
     // Calculate totalWeightKg based on currentStockUnits and conversion factors
     if (hydratedMaterial.unitOfMeasure === 'kg') {
         hydratedMaterial.currentWeightKg = hydratedMaterial.currentStockUnits;
     } else {
         const factor = (hydratedMaterial.unitOfMeasure === 'mt' ? hydratedMaterial.rapportoKgMt : hydratedMaterial.conversionFactor) || 1;
-        hydratedMaterial.currentWeightKg = hydratedMaterial.currentStockUnits * factor;
+        hydratedMaterial.currentWeightKg = Number((hydratedMaterial.currentStockUnits * factor).toFixed(3));
     }
 
     return hydratedMaterial;

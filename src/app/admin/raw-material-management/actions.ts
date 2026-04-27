@@ -723,17 +723,8 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
                 if (!m) throw new Error("Materia prima non trovata.");
                 let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
                 
-                // --- UPDATE BATCH QUANTITY (DIRECT DEDUCTION) ---
-                const batches = [...(updatedBatchesMap.get(s.materialId) || m.batches || [])];
-                const bIdx = batches.findIndex(b => b.lotto === s.lotto);
-                if (bIdx !== -1) {
-                    batches[bIdx].netQuantity = Math.max(0, batches[bIdx].netQuantity - s.consumed);
-                    batches[bIdx].grossWeight = Math.max(batches[bIdx].tareWeight || 0, batches[bIdx].grossWeight - w);
-                }
-                updatedBatchesMap.set(s.materialId, batches);
-                // ATOMIC STOCK UPDATE
+                // ATOMIC STOCK UPDATE (SSoT: Only aggregators, batches are immutable)
                 t.update(adminDb.collection("rawMaterials").doc(s.materialId), { 
-                    batches,
                     stock: admin.firestore.FieldValue.increment(-s.consumed),
                     currentStockUnits: admin.firestore.FieldValue.increment(-s.consumed),
                     currentWeightKg: admin.firestore.FieldValue.increment(-w)
@@ -776,17 +767,8 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
                 const w = wd.data() as MaterialWithdrawal;
                 const m = mMap.get(w.materialId);
                 if (m) {
-                    const batches = [...(updatedBatchesMap.get(w.materialId) || m.batches || [])];
-                    const bIdx = batches.findIndex(b => b.lotto === w.lotto);
-                    if (bIdx !== -1) {
-                        batches[bIdx].netQuantity = (batches[bIdx].netQuantity || 0) + (w.consumedUnits || 0);
-                        batches[bIdx].grossWeight = (batches[bIdx].grossWeight || 0) + (w.consumedWeight || 0);
-                        if (batches[bIdx].netQuantity > 0.001) batches[bIdx].isExhausted = false;
-                    }
-                    updatedBatchesMap.set(w.materialId, batches);
-                    // ATOMIC STOCK RESTORE
+                    // ATOMIC STOCK RESTORE (SSoT: Only aggregators, batches are immutable)
                     t.update(adminDb.collection("rawMaterials").doc(w.materialId), { 
-                        batches,
                         stock: admin.firestore.FieldValue.increment(w.consumedUnits || 0),
                         currentStockUnits: admin.firestore.FieldValue.increment(w.consumedUnits || 0),
                         currentWeightKg: admin.firestore.FieldValue.increment(w.consumedWeight || 0)

@@ -91,14 +91,21 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
       const lotBatches = lotInfo ? lotInfo.batches : [];
       
       const combinedMovements: Movement[] = [
-        ...lotBatches.map((b): Movement => ({ 
-          type: 'Carico', 
-          date: b.date, 
-          description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, 
-          quantity: b.netQuantity, 
-          unit: material.unitOfMeasure.toUpperCase(), 
-          id: b.id 
-        })),
+        ...lotBatches.map((b): Movement => {
+          const calculatedOriginalNet = (material.unitOfMeasure === 'kg' && b.grossWeight && b.tareWeight) 
+            ? Number((b.grossWeight - b.tareWeight).toFixed(3)) 
+            : b.netQuantity;
+          const displayOriginal = Math.max(b.netQuantity, calculatedOriginalNet);
+
+          return { 
+            type: 'Carico', 
+            date: b.date, 
+            description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, 
+            quantity: displayOriginal, 
+            unit: material.unitOfMeasure.toUpperCase(), 
+            id: b.id 
+          };
+        }),
         ...withdrawals.map((w): Movement => {
               const quantity = w.consumedUnits || w.consumedWeight;
               const unit = w.consumedUnits ? material.unitOfMeasure.toUpperCase() : 'KG';
@@ -239,37 +246,55 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                     <History className="mr-2 h-4 w-4" />Storico Lotto
                                   </Button>
                                 </div>
-                                <Table>
+                                  <Table>
                                   <TableHeader>
                                     <TableRow>
                                       <TableHead>Data Carico</TableHead>
                                       <TableHead>Origine/DDT</TableHead>
-                                      <TableHead>Qtà ({group.unitOfMeasure.toUpperCase()})</TableHead>
+                                      <TableHead>Carico Originale</TableHead>
+                                      <TableHead>Residuo Vivo</TableHead>
                                       <TableHead>Lordo (KG)</TableHead>
                                       <TableHead>Tara (KG)</TableHead>
-                                      <TableHead>Netto (KG)</TableHead>
                                       <TableHead className="text-right">Azioni</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
-                                    {lotInfo.batches.map(batch => (
-                                      <TableRow key={batch.id}>
-                                        <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                                        <TableCell className="text-xs truncate max-w-[120px]">{batch.ddt}</TableCell>
-                                        <TableCell className="font-mono font-bold">{formatDisplayStock(batch.netQuantity, group.unitOfMeasure)}</TableCell>
-                                        <TableCell className="text-xs">{batch.grossWeight ? `${batch.grossWeight.toFixed(3)}` : '-'}</TableCell>
-                                        <TableCell className="text-xs text-muted-foreground">{batch.tareWeight ? `${batch.tareWeight.toFixed(3)} (${batch.tareName || 'Tara'})` : '-'}</TableCell>
-                                        <TableCell className="text-xs font-semibold">{(batch.grossWeight && batch.tareWeight) ? (batch.grossWeight - batch.tareWeight).toFixed(3) : (group.unitOfMeasure === 'kg' ? batch.netQuantity.toFixed(3) : '-')}</TableCell>
-                                        <TableCell className="text-right space-x-2">
-                                          <Button variant="outline" size="icon" onClick={() => setEditingBatchInfo({material: group, batch: batch})}>
-                                            <Edit className="h-4 w-4" />
-                                          </Button>
-                                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setBatchToDelete({ materialId: group.materialId, batchId: batch.id })}>
-                                            <Trash2 className="h-4 w-4" />
-                                          </Button>
-                                        </TableCell>
-                                      </TableRow>
-                                    ))}
+                                    {lotInfo.batches.map(batch => {
+                                      // HEAL LOGIC: Se è KG e il netto calcolato dai pesi è > del netQuantity salvato, 
+                                      // significa che netQuantity era stato corrotto con il residuo.
+                                      const calculatedOriginalNet = (group.unitOfMeasure === 'kg' && batch.grossWeight && batch.tareWeight) 
+                                        ? Number((batch.grossWeight - batch.tareWeight).toFixed(3)) 
+                                        : batch.netQuantity;
+                                      
+                                      const displayOriginal = Math.max(batch.netQuantity, calculatedOriginalNet);
+                                      const isHealed = displayOriginal > batch.netQuantity + 0.001;
+
+                                      return (
+                                        <TableRow key={batch.id} className={cn(batch.isExhausted && "opacity-60 bg-muted/30")}>
+                                          <TableCell className="text-xs">{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                          <TableCell className="text-[10px] truncate max-w-[100px]" title={batch.ddt}>{batch.ddt}</TableCell>
+                                          <TableCell className="font-mono font-bold">
+                                            {formatDisplayStock(displayOriginal, group.unitOfMeasure)}
+                                            {isHealed && <Badge variant="outline" className="ml-1 h-3 px-1 text-[7px] border-orange-500 text-orange-600">HEALED</Badge>}
+                                          </TableCell>
+                                          <TableCell>
+                                            <Badge variant={batch.isExhausted ? "secondary" : "outline"} className={cn("font-mono", !batch.isExhausted && "text-primary border-primary/30 bg-primary/5")}>
+                                              {formatDisplayStock(batch.currentQuantity ?? 0, group.unitOfMeasure)}
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell className="text-xs">{batch.grossWeight ? `${batch.grossWeight.toFixed(3)}` : '-'}</TableCell>
+                                          <TableCell className="text-[10px] text-muted-foreground">{batch.tareWeight ? `${batch.tareWeight.toFixed(3)}` : '-'}</TableCell>
+                                          <TableCell className="text-right space-x-1">
+                                            <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setEditingBatchInfo({material: group, batch: batch})}>
+                                              <Edit className="h-3 w-3" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setBatchToDelete({ materialId: group.materialId, batchId: batch.id })}>
+                                              <Trash2 className="h-3 w-3" />
+                                            </Button>
+                                          </TableCell>
+                                        </TableRow>
+                                      );
+                                    })}
                                   </TableBody>
                                 </Table>
                               </div>

@@ -192,8 +192,8 @@ export interface RawMaterialBatch {
   inventoryRecordId?: string;
   date: string;
   ddt: string;
-  netQuantity: number;
-  grossWeight: number;
+  netQuantity: number; // Original Load (Immutable)
+  grossWeight: number; // Original Gross (Immutable)
   tareWeight: number;
   tareName?: string;
   packagingId?: string;
@@ -201,6 +201,8 @@ export interface RawMaterialBatch {
   purchaseOrderId?: string;
   isExhausted?: boolean;
   activeSessionId?: string | null;
+  currentQuantity?: number; // Live Residual (Hydrated in memory)
+  currentWeightKg?: number; // Live Residual Weight (Hydrated in memory)
 }
 
 export interface RawMaterial {

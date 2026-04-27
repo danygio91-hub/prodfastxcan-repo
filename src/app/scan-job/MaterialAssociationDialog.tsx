@@ -118,7 +118,7 @@ export default function MaterialAssociationDialog({
   const fifoBatches = useMemo(() => {
     if (!selectedMaterial?.batches) return [];
     return [...selectedMaterial.batches]
-      .filter(b => !b.isExhausted && (b.netQuantity || 0) > 0.001)
+      .filter(b => !b.isExhausted && (b.currentQuantity || 0) > 0.001)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [selectedMaterial?.batches]);
 
@@ -486,7 +486,7 @@ export default function MaterialAssociationDialog({
                             <ScrollArea className="h-28 border-2 rounded-xl p-1 bg-muted/30 border-muted">
                                 <div className="grid grid-cols-1 gap-1">
                                     {fifoBatches.map((b, idx) => {
-                                        const netQuantity = b.netQuantity || 0;
+                                        const availableQty = b.currentQuantity || 0;
                                         const isOldest = idx === 0;
                                         const isSelected = lottoValue === b.lotto;
                                         return (
@@ -509,7 +509,7 @@ export default function MaterialAssociationDialog({
                                                     {isOldest && <Badge className="text-[7px] h-3 px-1 bg-green-500 font-black">FIFO</Badge>}
                                                 </div>
                                                 <div className="text-[10px] font-mono opacity-80">
-                                                    {formatDisplayStock(netQuantity, selectedMaterial?.unitOfMeasure || 'n')}
+                                                    {formatDisplayStock(availableQty, selectedMaterial?.unitOfMeasure || 'n')}
                                                 </div>
                                             </Button>
                                         );

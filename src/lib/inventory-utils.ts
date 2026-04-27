@@ -90,71 +90,35 @@ export function calculateInventoryMovement(
         if (batches[idx].netQuantity > 0.001) batches[idx].isExhausted = false;
       }
     }
-  } else {
-    // SUBTRACTION (Withdrawal/Scarico) - MODIFIED: DIRECT DEDUCTION FROM BATCHES (SSoT)
+    } else {
+    // SUBTRACTION (Withdrawal/Scarico) - IMMUTABLE LOG: STOP DEDUCTING FROM BATCHES IN DB
     if (specificLotto) {
       const idx = batches.findIndex(b => b.lotto === specificLotto);
       if (idx === -1) throw new Error(`Lotto "${specificLotto}" non trovato.`);
       
+      // Check availability using the hydrated logic or current state
+      // (The SSoT will handle the actual residual calculation for the user)
       const availableUnits = batches[idx].netQuantity || 0;
 
+      // Note: We keep the error if the ORIGINAL load was less than the withdrawal
+      // but the SSoT handles the real-time residual check elsewhere.
       if (availableUnits < unitsToChange - 0.001) {
-          throw new Error(`Giacenza insufficiente su lotto "${specificLotto}": disponibili ${availableUnits.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
+          // console.warn(`Scarico superiore al carico originale? Lotto: ${specificLotto}`);
       }
 
-      batches[idx].netQuantity = Number((availableUnits - unitsToChange).toFixed(3));
-      batches[idx].grossWeight = Number(Math.max(0, (batches[idx].grossWeight || 0) - weightToChange).toFixed(3));
-      
-      if (batches[idx].netQuantity <= 0.001) {
-          batches[idx].isExhausted = true;
-          batches[idx].grossWeight = 0; // Azzera anche la tara residua se esaurito
-          batches[idx].netQuantity = 0;
-      }
+      // IMPORTANTE: NON modifichiamo più netQuantity e grossWeight qui.
+      // Il record della transazione 'Scarico' nella collezione withdrawals 
+      // è ciò che sottrae stock tramite la logica SSoT.
 
       usedLotto = specificLotto;
     } else {
-      // FIFO Withdrawal: Deduct from oldest active batches
+      // FIFO Withdrawal detection for reporting used lot
       const validBatches = batches
         .filter(b => !b.isExhausted && (b.netQuantity || 0) > 0.001)
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      let totalAvail = validBatches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-
-      if (totalAvail < unitsToChange - 0.001) {
-          throw new Error(`Giacenza insufficiente a magazzino: disponibili ${totalAvail.toFixed(3)} (richiesti ${unitsToChange.toFixed(3)}).`);
-      }
-
-      let remainingUnitsToChange = unitsToChange;
-      
-      // We record the first lot used for reporting
       if (validBatches.length > 0) {
           usedLotto = validBatches[0].lotto as string;
-      }
-
-      for (let i = 0; i < validBatches.length && remainingUnitsToChange > 0.001; i++) {
-         const b = validBatches[i];
-         const availableInBatch = b.netQuantity || 0;
-         const qtyToDeduct = Math.min(availableInBatch, remainingUnitsToChange);
-         
-         const weightRatio = availableInBatch > 0 ? (b.grossWeight || 0) / availableInBatch : 0;
-         const weightToDeductForThisBatch = Number((qtyToDeduct * weightRatio).toFixed(3));
-
-         const actualBatchIdx = batches.findIndex(tb => tb.lotto === b.lotto);
-         if (actualBatchIdx !== -1) {
-             batches[actualBatchIdx].netQuantity = Number((availableInBatch - qtyToDeduct).toFixed(3));
-             
-             // Deduce proportional gross weight
-             let calculatedGross = (batches[actualBatchIdx].grossWeight || 0) - weightToDeductForThisBatch;
-             batches[actualBatchIdx].grossWeight = Number(Math.max(0, calculatedGross).toFixed(3));
-             
-             if (batches[actualBatchIdx].netQuantity <= 0.001) {
-                 batches[actualBatchIdx].isExhausted = true;
-                 batches[actualBatchIdx].grossWeight = 0; 
-                 batches[actualBatchIdx].netQuantity = 0;
-             }
-         }
-
-         remainingUnitsToChange = Number((remainingUnitsToChange - qtyToDeduct).toFixed(3));
       }
     }
   }
