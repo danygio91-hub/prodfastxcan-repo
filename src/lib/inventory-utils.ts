@@ -96,14 +96,12 @@ export function calculateInventoryMovement(
       const idx = batches.findIndex(b => b.lotto === specificLotto);
       if (idx === -1) throw new Error(`Lotto "${specificLotto}" non trovato.`);
       
-      // Check availability using the hydrated logic or current state
-      // (The SSoT will handle the actual residual calculation for the user)
-      const availableUnits = batches[idx].netQuantity || 0;
+      // SSoT VALIDATION: Calculate live residual availability instead of using the original load
+      const liveAvailableUnits = getLotAvailable(specificLotto, batches[idx].netQuantity || 0);
 
-      // Note: We keep the error if the ORIGINAL load was less than the withdrawal
-      // but the SSoT handles the real-time residual check elsewhere.
-      if (availableUnits < unitsToChange - 0.001) {
-          // console.warn(`Scarico superiore al carico originale? Lotto: ${specificLotto}`);
+      // HARD BLOCK: Se lo scarico eccede la giacenza VIVA, la riga fallisce.
+      if (liveAvailableUnits < unitsToChange - 0.001) {
+          throw new Error(`Giacenza insufficiente sul lotto ${specificLotto}. Richiesti: ${Number(unitsToChange.toFixed(3))}, Disponibili: ${Number(liveAvailableUnits.toFixed(3))}`);
       }
 
       // IMPORTANTE: NON modifichiamo più netQuantity e grossWeight qui.
