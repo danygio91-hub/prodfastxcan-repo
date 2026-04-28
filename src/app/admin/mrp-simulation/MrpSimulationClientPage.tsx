@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import { Article, RawMaterial, JobOrder, PurchaseOrder, ManualCommitment, DraftJ
 import { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, aggregateMRPRequirements, MRPTimelineEntry } from '@/lib/mrp-utils';
 import { saveDraft, getDrafts, deleteDraft, convertDraftToJobOrder } from './actions';
+import { getArticles } from '../article-management/actions';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
@@ -35,7 +36,7 @@ interface SimulationRow {
 }
 
 export default function MrpSimulationClientPage({
-    initialArticles,
+    initialArticles, // Ora passato come [] da page.tsx per ottimizzazione letture
     initialMaterials,
     allJobs,
     purchaseOrders,
@@ -48,6 +49,13 @@ export default function MrpSimulationClientPage({
     // Rapid Input State
     const [rows, setRows] = useState<SimulationRow[]>([{ id: crypto.randomUUID(), articleCode: '', quantity: '', deliveryDate: '' }]);
     
+    // Async Search State
+    const [downloadedArticles, setDownloadedArticles] = useState<Article[]>([]);
+    const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
+    const [suggestions, setSuggestions] = useState<Article[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
     // Drafts State
     const [drafts, setDrafts] = useState<DraftJobOrder[]>(initialDrafts);
     const [isSaving, setIsSaving] = useState(false);
@@ -58,12 +66,12 @@ export default function MrpSimulationClientPage({
     const [customJobId, setCustomJobId] = useState<string>('');
     const [isConverting, setIsConverting] = useState(false);
 
-    // Filter valid articles
+    // Filter valid articles from downloaded (Async)
     const validArticles = useMemo(() => {
-        return initialArticles
+        return downloadedArticles
             .filter(a => a.code && a.billOfMaterials && a.billOfMaterials.length > 0)
             .sort((a, b) => a.code.localeCompare(b.code));
-    }, [initialArticles]);
+    }, [downloadedArticles]);
 
     const addRow = () => {
         setRows([...rows, { id: crypto.randomUUID(), articleCode: '', quantity: '', deliveryDate: '' }]);
@@ -75,6 +83,36 @@ export default function MrpSimulationClientPage({
 
     const updateRow = (id: string, field: keyof SimulationRow, value: string | number) => {
         setRows(rows.map(r => r.id === id ? { ...r, [field]: value } : r));
+    };
+
+    const handleSearchArticle = (rowId: string, term: string) => {
+        updateRow(rowId, 'articleCode', term.toUpperCase());
+        
+        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+        
+        if (term.length < 3) {
+            setSuggestions([]);
+            setIsSearching(false);
+            return;
+        }
+        
+        setIsSearching(true);
+        searchTimeoutRef.current = setTimeout(async () => {
+            try {
+                // Fetch max 15 articles to optimize reads
+                const res = await getArticles(term, undefined, 15);
+                setDownloadedArticles(prev => {
+                    const newMap = new Map(prev.map(a => [a.code, a]));
+                    res.forEach(a => newMap.set(a.code, a));
+                    return Array.from(newMap.values());
+                });
+                setSuggestions(res);
+            } catch(e) {
+                console.error("Error searching articles:", e);
+            } finally {
+                setIsSearching(false);
+            }
+        }, 400); // Debounce 400ms
     };
 
     // Volatile MRP Calculation
@@ -108,7 +146,7 @@ export default function MrpSimulationClientPage({
         });
 
         const jobsWithSimulation = [...allJobs, ...volatileJobs];
-        const timelines = calculateMRPTimelines(jobsWithSimulation, initialMaterials, purchaseOrders, manualCommitments, initialArticles, globalSettings);
+        const timelines = calculateMRPTimelines(jobsWithSimulation, initialMaterials, purchaseOrders, manualCommitments, downloadedArticles, globalSettings);
         
         validRows.forEach((row, index) => {
              const article = validArticles.find(a => a.code === row.articleCode);
@@ -139,7 +177,7 @@ export default function MrpSimulationClientPage({
         });
 
         return aggregateMRPRequirements(componentEntries);
-    }, [rows, validArticles, allJobs, initialMaterials, purchaseOrders, manualCommitments, initialArticles, globalSettings]);
+    }, [rows, validArticles, allJobs, initialMaterials, purchaseOrders, manualCommitments, downloadedArticles, globalSettings]);
 
     const handleSaveDraft = async () => {
         const validRows = rows.filter(r => r.articleCode && validArticles.some(a => a.code === r.articleCode) && r.quantity && Number(r.quantity) > 0 && r.deliveryDate);
@@ -240,28 +278,62 @@ export default function MrpSimulationClientPage({
                     </CardHeader>
                     <CardContent className="p-6 space-y-6">
                         
-                        <datalist id="articles-list">
-                            {validArticles.map(a => (
-                                <option key={a.code} value={a.code} />
-                            ))}
-                        </datalist>
-
                         <div className="space-y-3">
                             {rows.map((row, index) => {
                                 const isValid = validArticles.some(a => a.code === row.articleCode);
                                 return (
-                                    <div key={row.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-accent/20 p-3 rounded-md border border-border/50">
+                                    <div key={row.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-accent/20 p-3 rounded-md border border-border/50 relative">
                                         <div className="space-y-1 md:col-span-5 relative">
                                             {index === 0 && <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Codice Articolo</Label>}
                                             <div className="relative">
                                                 <Input 
-                                                    list="articles-list"
-                                                    placeholder="Digita codice..." 
+                                                    placeholder="Digita min. 3 car..." 
                                                     value={row.articleCode} 
-                                                    onChange={(e) => updateRow(row.id, 'articleCode', e.target.value.toUpperCase())}
+                                                    onChange={(e) => handleSearchArticle(row.id, e.target.value)}
+                                                    onFocus={() => {
+                                                        setFocusedRowId(row.id);
+                                                        if (row.articleCode.length >= 3) {
+                                                            handleSearchArticle(row.id, row.articleCode);
+                                                        }
+                                                    }}
+                                                    onBlur={() => setFocusedRowId(null)}
                                                     className={isValid ? 'border-green-500 ring-green-500 focus-visible:ring-green-500 font-mono pr-10' : 'font-mono'}
+                                                    autoComplete="off"
                                                 />
                                                 {isValid && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />}
+                                                
+                                                {/* ASYNC DROPDOWN */}
+                                                {focusedRowId === row.id && row.articleCode.length >= 3 && !isValid && (
+                                                    <div className="absolute top-full left-0 w-full mt-1 bg-popover text-popover-foreground border rounded-md shadow-md z-50 max-h-60 overflow-y-auto">
+                                                        {isSearching ? (
+                                                            <div className="p-3 text-center text-muted-foreground text-sm flex items-center justify-center gap-2">
+                                                                <Loader2 className="h-4 w-4 animate-spin" /> Ricerca...
+                                                            </div>
+                                                        ) : suggestions.length > 0 ? (
+                                                            <ul className="py-1">
+                                                                {suggestions.map(s => (
+                                                                    <li 
+                                                                        key={s.id} 
+                                                                        className="px-3 py-2 hover:bg-accent cursor-pointer text-sm font-mono"
+                                                                        onMouseDown={(e) => {
+                                                                            e.preventDefault(); // Impedisce a Input di perdere il focus prima del click
+                                                                            updateRow(row.id, 'articleCode', s.code);
+                                                                            setSuggestions([]);
+                                                                            setFocusedRowId(null);
+                                                                        }}
+                                                                    >
+                                                                        {s.code}
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <div className="p-3 text-center text-muted-foreground text-sm">
+                                                                Nessun risultato.
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
                                             </div>
                                         </div>
                                         <div className="space-y-1 md:col-span-3">

@@ -13,14 +13,11 @@ import { Article, RawMaterial } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
-async function fetchAllArticlesAndMaterials() {
-    const articlesSnap = await adminDb.collection("articles").get();
-    const articles = articlesSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Article));
-    
+async function fetchAllMaterials() {
     const materialsSnap = await adminDb.collection("rawMaterials").get();
     const materials = materialsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as RawMaterial));
     
-    return { articles, materials };
+    return { materials };
 }
 
 export default async function AdminMrpSimulationPage() {
@@ -36,8 +33,8 @@ export default async function AdminMrpSimulationPage() {
     const globalSettings = await getGlobalSettings();
     const drafts = await getDrafts();
 
-    // In MRP simulation we want to be able to select ANY article, so we fetch them all.
-    const { articles, materials } = await fetchAllArticlesAndMaterials();
+    // Ottimizzazione: non scarichiamo più l'intera anagrafica articoli al caricamento
+    const { materials } = await fetchAllMaterials();
 
     return (
         <AdminAuthGuard>
@@ -49,7 +46,7 @@ export default async function AdminMrpSimulationPage() {
                     </div>
                 }>
                     <MrpSimulationClientPage
-                        initialArticles={articles}
+                        initialArticles={[]}
                         initialMaterials={materials}
                         allJobs={allJobs}
                         purchaseOrders={purchaseOrders}
