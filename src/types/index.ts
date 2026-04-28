@@ -528,3 +528,14 @@ export interface ProductionTimeData {
     remainingMinutes: number;
     isIpothesis: boolean;
 }
+
+export interface DraftJobOrder {
+  id: string;
+  articleCode: string;
+  quantity: number;
+  deliveryDate: string; // ISO String
+  jobOrderNumber?: string; // Optional user-provided number
+  status: 'draft';
+  createdAt: any;
+  createdBy?: string;
+}
