@@ -4,7 +4,7 @@
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Loader2, Bell, Activity } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Loader2, Bell, Activity, Calculator } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import { checkAttendanceDeclared } from '../attendance-calendar/actions';
 import { DailyAttendanceModal } from '@/components/dashboard/DailyAttendanceModal';
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
 const navItems = [
+  { href: '/admin/mrp-simulation', label: 'Simulatore MRP e Bozze', description: 'Simula i fabbisogni e salva le bozze per la produzione.', icon: Calculator },
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Gestisci l\'anagrafica e gli impegni delle materie prime.', icon: Boxes },
   { href: '/admin/reorder-alerts', label: 'Alert Riordino Scorte', description: 'Visualizza i suggerimenti di ordine basati sulla produzione.', icon: Bell },

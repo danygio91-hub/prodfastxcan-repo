@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, ArrowRightLeft, ShieldCheck } from 'lucide-react';
+import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, ArrowRightLeft, ShieldCheck, Calculator } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 
 const adminNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/mrp-simulation', label: 'Simulatore MRP', icon: Calculator },
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
   { href: '/admin/reorder-alerts', label: 'Alert Riordino', icon: Bell },
