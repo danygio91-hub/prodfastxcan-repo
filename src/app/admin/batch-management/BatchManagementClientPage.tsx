@@ -251,8 +251,8 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                     <TableRow>
                                       <TableHead>Data Carico</TableHead>
                                       <TableHead>Origine/DDT</TableHead>
-                                      <TableHead>Carico Originale</TableHead>
-                                      <TableHead>Residuo Vivo</TableHead>
+                                      <TableHead>Carico Netto ({group.unitOfMeasure.toUpperCase()})</TableHead>
+                                      <TableHead>Giacenza ({group.unitOfMeasure.toUpperCase()})</TableHead>
                                       <TableHead>Lordo (KG)</TableHead>
                                       <TableHead>Tara (KG)</TableHead>
                                       <TableHead className="text-right">Azioni</TableHead>
