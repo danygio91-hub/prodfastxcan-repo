@@ -30,7 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL,
   createMultipleODLs, cancelODL, updateJobOrderCycle, saveManualJobOrder, markJobAsPrinted,
-  updateJobOrderDeliveryDate, updateJobOrderPrepDate
+  updateJobOrderDeliveryDate, updateJobOrderPrepDate, updateJobOrderOdlNumber
 } from './actions';
 import { emergencyRestoreStagingArea } from '../data-healing/actions';
 import { getArticles } from '../article-management/actions';
@@ -86,7 +86,7 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sor
 
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
-  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onDownloadPdf, onAction, isDownloadingPdf, globalSettings, allowLink
+  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onDownloadPdf, onAction, isDownloadingPdf, globalSettings, allowLink
 }: {
   data: JobOrder[];
   departments: Department[];
@@ -99,6 +99,7 @@ const JobTableRows = ({
   onUpdateCycle: (id: string, cycleId: string) => void;
   onUpdateDate: (id: string, date: Date | undefined) => void;
   onUpdatePrepDate: (id: string, date: Date | undefined) => void;
+  onUpdateOdlNumber: (id: string, newOdl: string) => Promise<void>;
   onDownloadPdf: (job: JobOrder) => void;
   onAction: (id: string, type: 'start' | 'cancel') => void;
   isDownloadingPdf: string | null;
@@ -245,7 +246,27 @@ const JobTableRows = ({
                 </div>
               ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
             </TableCell>
-            <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
+            <TableCell className="font-mono text-xs">
+              {isPlanned ? (
+                 <Input 
+                    defaultValue={j.numeroODLInterno || ''}
+                    onBlur={(e) => {
+                       if (e.target.value !== (j.numeroODLInterno || '')) {
+                           onUpdateOdlNumber(j.id, e.target.value);
+                       }
+                    }}
+                    onKeyDown={(e) => {
+                       if (e.key === 'Enter') {
+                          e.currentTarget.blur();
+                       }
+                    }}
+                    className="h-8 text-xs w-[120px]"
+                    placeholder="Es. 185/PF"
+                 />
+              ) : (
+                 j.numeroODLInterno || '-'
+              )}
+            </TableCell>
             <TableCell>
               <MaskedDatePicker 
                 value={effectivePrepDate ? parseISO(effectivePrepDate) : null} 
@@ -553,6 +574,12 @@ export default function DataManagementClientPage({
     router.refresh();
   };
 
+  const handleUpdateOdlLocal = async (jobId: string, newOdl: string) => {
+    const res = await updateJobOrderOdlNumber(jobId, newOdl);
+    toast({ title: res.message, variant: res.success ? 'default' : 'destructive' });
+    if (res.success) router.refresh();
+  };
+
   const handleDownloadTemplate = () => {
     const templateData = [
       {
@@ -694,6 +721,7 @@ export default function DataManagementClientPage({
                     onUpdateCycle={handleUpdateCycleLocal}
                     onUpdateDate={handleUpdateDateLocal}
                     onUpdatePrepDate={handleUpdatePrepDateLocal}
+                    onUpdateOdlNumber={handleUpdateOdlLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
@@ -742,6 +770,7 @@ export default function DataManagementClientPage({
                     onUpdateCycle={handleUpdateCycleLocal}
                     onUpdateDate={handleUpdateDateLocal}
                     onUpdatePrepDate={handleUpdatePrepDateLocal}
+                    onUpdateOdlNumber={handleUpdateOdlLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}
@@ -790,6 +819,7 @@ export default function DataManagementClientPage({
                     onUpdateCycle={handleUpdateCycleLocal}
                     onUpdateDate={handleUpdateDateLocal}
                     onUpdatePrepDate={handleUpdatePrepDateLocal}
+                    onUpdateOdlNumber={handleUpdateOdlLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
                     isDownloadingPdf={isDownloadingPdf}

@@ -553,3 +553,15 @@ export async function markJobAsPrinted(jobId: string) {
     return { success: true, message: 'Commessa segnata come stampata.' };
   } catch (error) { return { success: false, message: "Errore." }; }
 }
+
+export async function updateJobOrderOdlNumber(jobId: string, newOdl: string) {
+    try {
+        await adminDb.collection("jobOrders").doc(jobId).update({ numeroODLInterno: newOdl });
+        revalidatePath('/admin/data-management');
+        return { success: true, message: 'N° ODL aggiornato.' };
+    } catch (error) {
+        console.error("Error updating ODL:", error);
+        return { success: false, message: "Errore durante l'aggiornamento dell'ODL." };
+    }
+}
+

@@ -8,9 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Calculator, Save, Trash2, ArrowRightLeft, FileSpreadsheet, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { Loader2, Calculator, Save, Trash2, ArrowRightLeft, FileSpreadsheet, AlertTriangle, CheckCircle2, Clock, Plus, Search } from 'lucide-react';
 import { Article, RawMaterial, JobOrder, PurchaseOrder, ManualCommitment, DraftJobOrder } from '@/types';
 import { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, aggregateMRPRequirements, MRPTimelineEntry } from '@/lib/mrp-utils';
@@ -28,6 +27,13 @@ interface MrpSimulationClientPageProps {
     initialDrafts: DraftJobOrder[];
 }
 
+interface SimulationRow {
+    id: string;
+    articleCode: string;
+    quantity: number | '';
+    deliveryDate: string;
+}
+
 export default function MrpSimulationClientPage({
     initialArticles,
     initialMaterials,
@@ -40,13 +46,12 @@ export default function MrpSimulationClientPage({
     const { toast } = useToast();
     
     // Rapid Input State
-    const [selectedArticleCode, setSelectedArticleCode] = useState<string>('');
-    const [quantity, setQuantity] = useState<number | ''>('');
-    const [deliveryDate, setDeliveryDate] = useState<string>('');
+    const [rows, setRows] = useState<SimulationRow[]>([{ id: crypto.randomUUID(), articleCode: '', quantity: '', deliveryDate: '' }]);
     
     // Drafts State
     const [drafts, setDrafts] = useState<DraftJobOrder[]>(initialDrafts);
     const [isSaving, setIsSaving] = useState(false);
+    const [draftSearchTerm, setDraftSearchTerm] = useState('');
     
     // Conversion State
     const [draftToConvert, setDraftToConvert] = useState<DraftJobOrder | null>(null);
@@ -60,92 +65,106 @@ export default function MrpSimulationClientPage({
             .sort((a, b) => a.code.localeCompare(b.code));
     }, [initialArticles]);
 
-    const selectedArticle = useMemo(() => {
-        return initialArticles.find(a => a.code === selectedArticleCode);
-    }, [selectedArticleCode, initialArticles]);
+    const addRow = () => {
+        setRows([...rows, { id: crypto.randomUUID(), articleCode: '', quantity: '', deliveryDate: '' }]);
+    };
+
+    const removeRow = (id: string) => {
+        setRows(rows.filter(r => r.id !== id));
+    };
+
+    const updateRow = (id: string, field: keyof SimulationRow, value: string | number) => {
+        setRows(rows.map(r => r.id === id ? { ...r, [field]: value } : r));
+    };
 
     // Volatile MRP Calculation
     const simulatedBOM = useMemo(() => {
-        if (!selectedArticle || !quantity || quantity <= 0 || !deliveryDate) return null;
+        const validRows = rows.filter(r => r.articleCode && validArticles.some(a => a.code === r.articleCode) && r.quantity && Number(r.quantity) > 0 && r.deliveryDate);
+        if (validRows.length === 0) return null;
 
-        // Create a volatile job order
-        const volatileJobId = 'VOLATILE-SIMULATION-JOB';
-        const volatileJob: JobOrder = {
-            id: volatileJobId,
-            status: 'planned',
-            cliente: 'SIMULAZIONE',
-            qta: Number(quantity),
-            department: 'N/D',
-            details: selectedArticle.code,
-            ordinePF: volatileJobId,
-            numeroODL: 'SIM-001',
-            dataConsegnaFinale: deliveryDate,
-            dataFinePreparazione: deliveryDate,
-            postazioneLavoro: 'N/D',
-            phases: [],
-            billOfMaterials: selectedArticle.billOfMaterials.map(b => ({ ...b, status: 'pending', isFromTemplate: true }))
-        };
+        const volatileJobs: JobOrder[] = [];
+        const componentEntries: { entry: MRPTimelineEntry; item: any }[] = [];
 
-        // Combine with all other jobs
-        // The user asked to IGNORE drafts from allJobs. They are already ignored since they are in a different collection.
-        const jobsWithSimulation = [...allJobs, volatileJob];
+        validRows.forEach((row, index) => {
+            const article = validArticles.find(a => a.code === row.articleCode);
+            if (!article) return;
 
+            const volatileJobId = `VOLATILE-SIMULATION-JOB-${index}`;
+            volatileJobs.push({
+                id: volatileJobId,
+                status: 'planned',
+                cliente: 'SIMULAZIONE',
+                qta: Number(row.quantity),
+                department: 'N/D',
+                details: article.code,
+                ordinePF: volatileJobId,
+                numeroODL: `SIM-${index}`,
+                dataConsegnaFinale: row.deliveryDate,
+                dataFinePreparazione: row.deliveryDate,
+                postazioneLavoro: 'N/D',
+                phases: [],
+                billOfMaterials: article.billOfMaterials.map(b => ({ ...b, status: 'pending', isFromTemplate: true }))
+            });
+        });
+
+        const jobsWithSimulation = [...allJobs, ...volatileJobs];
         const timelines = calculateMRPTimelines(jobsWithSimulation, initialMaterials, purchaseOrders, manualCommitments, initialArticles, globalSettings);
         
-        // Extract only the timeline entries belonging to our volatile job
-        const componentEntries: { entry: MRPTimelineEntry; item: any }[] = [];
-        
-        selectedArticle.billOfMaterials.forEach(item => {
-            const matCode = item.component.toUpperCase().trim();
-            const matTimeline = timelines.get(matCode) || [];
-            // Find the entry that corresponds to our volatile job
-            const entryForSim = matTimeline.find(t => t.jobId === volatileJobId);
-            
-            if (entryForSim) {
-                componentEntries.push({ entry: entryForSim, item });
-            } else {
-                // If not found in timeline, it might mean the material is not in rawMaterials or has no demand. 
-                // We fallback to a generic missing state.
-                componentEntries.push({
-                    entry: {
-                        jobId: volatileJobId,
-                        materialCode: matCode,
-                        requiredQty: 0,
-                        status: 'RED',
-                        projectedBalance: 0,
-                        details: ['Materiale non trovato in anagrafica.']
-                    },
-                    item
-                });
-            }
+        validRows.forEach((row, index) => {
+             const article = validArticles.find(a => a.code === row.articleCode);
+             if (!article) return;
+             const volatileJobId = `VOLATILE-SIMULATION-JOB-${index}`;
+
+             article.billOfMaterials.forEach(item => {
+                const matCode = item.component.toUpperCase().trim();
+                const matTimeline = timelines.get(matCode) || [];
+                const entryForSim = matTimeline.find(t => t.jobId === volatileJobId);
+                
+                if (entryForSim) {
+                    componentEntries.push({ entry: entryForSim, item });
+                } else {
+                    componentEntries.push({
+                        entry: {
+                            jobId: volatileJobId,
+                            materialCode: matCode,
+                            requiredQty: 0,
+                            status: 'RED',
+                            projectedBalance: 0,
+                            details: ['Materiale non trovato in anagrafica.']
+                        },
+                        item
+                    });
+                }
+            });
         });
 
         return aggregateMRPRequirements(componentEntries);
-    }, [selectedArticle, quantity, deliveryDate, allJobs, initialMaterials, purchaseOrders, manualCommitments, initialArticles, globalSettings]);
+    }, [rows, validArticles, allJobs, initialMaterials, purchaseOrders, manualCommitments, initialArticles, globalSettings]);
 
     const handleSaveDraft = async () => {
-        if (!selectedArticleCode || !quantity || !deliveryDate) return;
+        const validRows = rows.filter(r => r.articleCode && validArticles.some(a => a.code === r.articleCode) && r.quantity && Number(r.quantity) > 0 && r.deliveryDate);
+        if (validRows.length === 0) return;
+        
         setIsSaving(true);
         try {
-            const res = await saveDraft({
-                articleCode: selectedArticleCode,
-                quantity: Number(quantity),
-                deliveryDate: deliveryDate
-            });
-            if (res.success) {
-                toast({ title: 'Successo', description: res.message });
-                // Reset form
-                setSelectedArticleCode('');
-                setQuantity('');
-                setDeliveryDate('');
-                // Refresh drafts
+            let successCount = 0;
+            for (const row of validRows) {
+                const res = await saveDraft({
+                    articleCode: row.articleCode,
+                    quantity: Number(row.quantity),
+                    deliveryDate: row.deliveryDate
+                });
+                if (res.success) successCount++;
+            }
+            
+            if (successCount > 0) {
+                toast({ title: 'Successo', description: `Salvate ${successCount} bozze con successo.` });
+                setRows([{ id: crypto.randomUUID(), articleCode: '', quantity: '', deliveryDate: '' }]);
                 const freshDrafts = await getDrafts();
                 setDrafts(freshDrafts);
-            } else {
-                toast({ variant: 'destructive', title: 'Errore', description: res.message });
             }
         } catch (e) {
-            toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile salvare la bozza.' });
+            toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile salvare alcune bozze.' });
         } finally {
             setIsSaving(false);
         }
@@ -182,6 +201,12 @@ export default function MrpSimulationClientPage({
         }
     };
 
+    const filteredDrafts = useMemo(() => {
+        if (!draftSearchTerm) return drafts;
+        const lowerSearch = draftSearchTerm.toLowerCase();
+        return drafts.filter(d => d.articleCode.toLowerCase().includes(lowerSearch));
+    }, [drafts, draftSearchTerm]);
+
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'RED': return <AlertTriangle className="h-5 w-5 text-destructive" />;
@@ -189,16 +214,6 @@ export default function MrpSimulationClientPage({
             case 'AMBER': return <CheckCircle2 className="h-5 w-5 text-yellow-500" />;
             case 'GREEN': return <CheckCircle2 className="h-5 w-5 text-green-500" />;
             default: return null;
-        }
-    };
-
-    const getStatusBadge = (status: string) => {
-        switch (status) {
-            case 'RED': return <Badge variant="destructive">Mancante</Badge>;
-            case 'LATE': return <Badge variant="outline" className="border-orange-500 text-orange-600">In Ritardo</Badge>;
-            case 'AMBER': return <Badge variant="outline" className="border-yellow-500 text-yellow-600">Coperto (In Arrivo)</Badge>;
-            case 'GREEN': return <Badge className="bg-green-500 hover:bg-green-600">Disponibile</Badge>;
-            default: return <Badge variant="secondary">Sconosciuto</Badge>;
         }
     };
 
@@ -210,7 +225,7 @@ export default function MrpSimulationClientPage({
                     Simulatore MRP e Bozze
                 </h1>
                 <p className="text-muted-foreground">
-                    Verifica rapidamente la fattibilità di un articolo prima di inserirlo in produzione, e salvalo come bozza.
+                    Verifica rapidamente la fattibilità di uno o più articoli prima di inserirli in produzione, e salvali come bozze.
                 </p>
             </header>
 
@@ -219,53 +234,75 @@ export default function MrpSimulationClientPage({
                 <Card className="lg:col-span-2 shadow-sm">
                     <CardHeader className="bg-muted/30 border-b">
                         <CardTitle className="flex items-center gap-2">
-                            <FileSpreadsheet className="h-5 w-5" /> Inserimento Rapido
+                            <FileSpreadsheet className="h-5 w-5" /> Inserimento Rapido Multi-Riga
                         </CardTitle>
-                        <CardDescription>Seleziona un articolo, indica quantità e data per simulare il fabbisogno materiali.</CardDescription>
+                        <CardDescription>Inserisci i codici articolo, le quantità e le date per simulare il fabbisogno materiali globale.</CardDescription>
                     </CardHeader>
                     <CardContent className="p-6 space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="article">Codice Articolo</Label>
-                                <Select value={selectedArticleCode} onValueChange={setSelectedArticleCode}>
-                                    <SelectTrigger id="article" className="font-mono">
-                                        <SelectValue placeholder="Seleziona..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {validArticles.map(a => (
-                                            <SelectItem key={a.code} value={a.code} className="font-mono">
-                                                {a.code}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="quantity">Quantità</Label>
-                                <Input 
-                                    id="quantity" 
-                                    type="number" 
-                                    min="1" 
-                                    placeholder="Es. 5000" 
-                                    value={quantity} 
-                                    onChange={(e) => setQuantity(e.target.value ? Number(e.target.value) : '')} 
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="date">Data Consegna Prevista</Label>
-                                <Input 
-                                    id="date" 
-                                    type="date" 
-                                    value={deliveryDate} 
-                                    onChange={(e) => setDeliveryDate(e.target.value)} 
-                                />
-                            </div>
+                        
+                        <datalist id="articles-list">
+                            {validArticles.map(a => (
+                                <option key={a.code} value={a.code} />
+                            ))}
+                        </datalist>
+
+                        <div className="space-y-3">
+                            {rows.map((row, index) => {
+                                const isValid = validArticles.some(a => a.code === row.articleCode);
+                                return (
+                                    <div key={row.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-accent/20 p-3 rounded-md border border-border/50">
+                                        <div className="space-y-1 md:col-span-5 relative">
+                                            {index === 0 && <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Codice Articolo</Label>}
+                                            <div className="relative">
+                                                <Input 
+                                                    list="articles-list"
+                                                    placeholder="Digita codice..." 
+                                                    value={row.articleCode} 
+                                                    onChange={(e) => updateRow(row.id, 'articleCode', e.target.value.toUpperCase())}
+                                                    className={isValid ? 'border-green-500 ring-green-500 focus-visible:ring-green-500 font-mono pr-10' : 'font-mono'}
+                                                />
+                                                {isValid && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />}
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1 md:col-span-3">
+                                            {index === 0 && <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Quantità</Label>}
+                                            <Input 
+                                                type="number" 
+                                                min="1" 
+                                                placeholder="Es. 5000" 
+                                                value={row.quantity} 
+                                                onChange={(e) => updateRow(row.id, 'quantity', e.target.value ? Number(e.target.value) : '')} 
+                                            />
+                                        </div>
+                                        <div className="space-y-1 md:col-span-3">
+                                            {index === 0 && <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Consegna Prevista</Label>}
+                                            <Input 
+                                                type="date" 
+                                                value={row.deliveryDate} 
+                                                onChange={(e) => updateRow(row.id, 'deliveryDate', e.target.value)} 
+                                            />
+                                        </div>
+                                        <div className="md:col-span-1 pb-1 flex justify-center">
+                                            {rows.length > 1 ? (
+                                                <Button variant="ghost" size="icon" onClick={() => removeRow(row.id)} className="text-destructive h-9 w-9" title="Rimuovi Riga">
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            ) : (
+                                                <div className="h-9 w-9"></div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            <Button variant="outline" size="sm" onClick={addRow} className="gap-2 mt-2 w-full md:w-auto border-dashed">
+                                <Plus className="h-4 w-4" /> Aggiungi Riga
+                            </Button>
                         </div>
 
                         {simulatedBOM && simulatedBOM.length > 0 && (
                             <div className="mt-8 border rounded-md overflow-hidden shadow-sm">
                                 <div className="bg-accent/50 p-3 font-semibold text-sm border-b">
-                                    Analisi di Fattibilità (Distinta Base)
+                                    Analisi di Fattibilità Globale (Distinta Base Aggregata)
                                 </div>
                                 <Table>
                                     <TableHeader>
@@ -324,15 +361,24 @@ export default function MrpSimulationClientPage({
 
                 {/* Pannello Bozze Salvate (1/3 larghezza su lg) */}
                 <Card className="shadow-sm">
-                    <CardHeader className="bg-muted/30 border-b">
+                    <CardHeader className="bg-muted/30 border-b flex flex-col gap-4">
                         <CardTitle className="flex items-center gap-2 text-lg">
                             <Save className="h-5 w-5" /> Bozze Salvate ({drafts.length})
                         </CardTitle>
+                        <div className="relative w-full">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input 
+                                placeholder="Cerca codice articolo..." 
+                                className="pl-8 h-9 text-sm" 
+                                value={draftSearchTerm}
+                                onChange={(e) => setDraftSearchTerm(e.target.value)}
+                            />
+                        </div>
                     </CardHeader>
                     <CardContent className="p-0">
-                        {drafts.length > 0 ? (
-                            <div className="divide-y">
-                                {drafts.map(draft => (
+                        {filteredDrafts.length > 0 ? (
+                            <div className="divide-y max-h-[600px] overflow-y-auto">
+                                {filteredDrafts.map(draft => (
                                     <div key={draft.id} className="p-4 flex flex-col gap-3 hover:bg-accent/30 transition-colors">
                                         <div className="flex justify-between items-start">
                                             <div>
@@ -355,7 +401,7 @@ export default function MrpSimulationClientPage({
                             </div>
                         ) : (
                             <div className="p-8 text-center text-muted-foreground">
-                                Nessuna bozza salvata al momento.
+                                {drafts.length === 0 ? 'Nessuna bozza salvata al momento.' : 'Nessuna bozza corrisponde alla ricerca.'}
                             </div>
                         )}
                     </CardContent>
@@ -374,10 +420,10 @@ export default function MrpSimulationClientPage({
                     
                     <div className="space-y-4 py-4">
                         <div className="space-y-2">
-                            <Label htmlFor="customJobId">Numero Commessa / ODL (Opzionale)</Label>
+                            <Label htmlFor="customJobId">Numero Commessa (Ordine PF)</Label>
                             <Input 
                                 id="customJobId" 
-                                placeholder="Es. 185/PF o lascia vuoto..." 
+                                placeholder="Es. 185/PF o lascia vuoto per autogenerare..." 
                                 value={customJobId} 
                                 onChange={(e) => setCustomJobId(e.target.value)} 
                             />
