@@ -28,164 +28,220 @@ export function calculateMRPTimelines(
     try {
         const timelines = new Map<string, MRPTimelineEntry[]>();
         
-        // 1. Raccolta Demand (Richieste)
-        const demands: { 
-            materialCode: string, 
-            qty: number, 
-            date: string, 
-            jobId: string, 
-            odl: string,
-            type: 'JOB' | 'COMMITMENT'
-        }[] = [];
+        // Data di oggi per normalizzazione Overdue
+        const now = new Date();
+        const today08 = new Date(now);
+        today08.setUTCHours(8, 0, 0, 0);
+        const today08ISO = today08.toISOString();
 
-        allJobs.forEach(job => {
-            (job.billOfMaterials || []).forEach(item => {
-                if (item.status !== 'withdrawn') {
-                    const mat = rawMaterials.find(m => (m.code || '').toUpperCase().trim() === (item.component || '').toUpperCase().trim());
-                    if (mat) {
-                        const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-                        const req = calculateBOMRequirement(job.qta, item, mat, config as any);
-                        
-                        // SSoT: Fallback data contestuale per MRP (Data fine prep o consegna)
-                        const demandDate = job.dataFinePreparazione || job.dataConsegnaFinale || '9999-12-31';
-
-                        demands.push({
-                            materialCode: mat.code.toUpperCase().trim(),
-                            qty: req.totalInBaseUnits,
-                            date: demandDate,
-                            jobId: job.id,
-                            odl: job.numeroODLInterno || job.ordinePF || '',
-                            type: 'JOB'
-                        });
-                    }
-                }
-            });
-        });
-
-        manualCommitments.filter(c => c && c.status === 'pending').forEach(c => {
-            const art = articles.find(a => a && a.code.toUpperCase() === (c.articleCode || '').toUpperCase());
-            if (art) {
-                (art.billOfMaterials || []).forEach(item => {
-                    const mat = rawMaterials.find(m => (m.code || '').toUpperCase().trim() === (item.component || '').toUpperCase().trim());
-                    if (mat) {
-                        const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-                        const req = calculateBOMRequirement(c.quantity, item, mat, config as any);
-                        demands.push({
-                            materialCode: mat.code.toUpperCase().trim(),
-                            qty: req.totalInBaseUnits,
-                            date: c.deliveryDate || '9999-12-31',
-                            jobId: c.id,
-                            odl: `COMMIT-${c.id.substring(0, 5)}`,
-                            type: 'COMMITMENT'
-                        });
-                    }
-                });
-            }
-        });
-
-        // 2. Raccolta Supply (Forniture)
-        const supplies = purchaseOrders
-            .filter(po => po && (po.status === 'pending' || po.status === 'partially_received'))
-            .map(po => ({
-                materialCode: (po.materialCode || '').toUpperCase().trim(),
-                qty: (po.quantity || 0) - (po.receivedQuantity || 0),
-                date: po.expectedDeliveryDate || '9999-12-31',
-                id: po.id
-            }));
-
-        // 3. Calcolo Timeline per Materiale
         rawMaterials.forEach(mat => {
             if (!mat || !mat.code) return;
-            const code = (mat.code || '').toUpperCase().trim();
-            let currentBalance = mat.currentStockUnits || 0;
-            const initialStock = currentBalance;
+            const matCode = (mat.code || '').toUpperCase().trim();
+            const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
             
-            const matDemands = demands.filter(d => d.materialCode === code);
-            const matSupplies = supplies.filter(s => s.materialCode === code);
+            // 1. Inizializzazione Balance con Fallback Legacy Stock (In-Memory)
+            const batchesSum = (mat.batches || []).reduce((sum, b) => sum + Number(b.currentQuantity || 0), 0);
+            let startingStock = Number(mat.currentStockUnits || 0);
+            
+            // Fallback se CSU=0 ma esiste stock legacy
+            if (batchesSum <= 0.001 && Number(mat.stock || 0) > 0) {
+                startingStock = Number(mat.stock || 0);
+            }
 
-            // Sorting richieste: Data -> Numero ODL
-            matDemands.sort((a, b) => {
-                const dateComp = (a.date || '').localeCompare(b.date || '');
-                if (dateComp !== 0) return dateComp;
-                return (a.odl || '').localeCompare(b.odl || '');
-            });
+            const initialPhysicalStock = startingStock;
 
-            // Sorting forniture: Per data
-            matSupplies.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+            // 2. Creazione Timeline Eventi per questo materiale
+            const events: {
+                date: string;
+                qty: number; // Positivo per PO, Negativo per Demand
+                type: 'PO' | 'DEMAND';
+                id: string;
+                odl?: string;
+            }[] = [];
 
-            const materialEntries: MRPTimelineEntry[] = [];
-            let cumulativeDemands = 0;
+            // A. PO (Supply) - Solo Pendenti
+            const matchedPOs = purchaseOrders
+                .filter(po => {
+                    if (!po) return false;
+                    const status = (po.status as string || '').toLowerCase();
+                    if (status === 'completed' || status === 'cancelled') return false;
+                    
+                    const poMaterialCode = (po.materialCode || '').toUpperCase().trim();
+                    const matIdMatch = (po as any).materialId && (po as any).materialId === mat.id;
+                    const matCodeMatch = poMaterialCode === matCode;
+                    
+                    return matIdMatch || matCodeMatch;
+                });
 
-            matDemands.forEach(demand => {
-                cumulativeDemands += demand.qty;
-                
-                // PA = Stock Attuale + PO in arrivo entro la data richiesta - Totale richieste fino a questa
-                const relevantSupplies = matSupplies.filter(s => s.date <= demand.date);
-                const totalSuppliesUntilNow = relevantSupplies.reduce((sum, s) => sum + s.qty, 0);
-                
-                // Tutti i PO per questo materiale, anche quelli futurissimi
-                const totalSuppliesEver = matSupplies.reduce((sum, s) => sum + s.qty, 0);
-                
-                const projectedAvailability = initialStock + totalSuppliesUntilNow - cumulativeDemands;
-                const balanceWithoutPOs = initialStock - cumulativeDemands;
-                const absoluteFutureBalance = initialStock + totalSuppliesEver - cumulativeDemands;
+            if (matCode === '50X005X33FR' && matchedPOs.length === 0) {
+                console.warn(`MRP WARNING [50X005X33FR] - Nessun PO pendente trovato per questo materiale! Verificare stati PO e codici materiale.`);
+            }
 
-                let status: 'GREEN' | 'AMBER' | 'LATE' | 'RED' = 'GREEN';
-                let supplyArrivalDate: string | undefined = undefined;
-                const details: string[] = [];
-
-                if (projectedAvailability < -0.001) {
-                    // Verifichiamo se almeno con i PO futuri arriviamo a coprire
-                    if (absoluteFutureBalance >= -0.001) {
-                        status = 'LATE';
-                        const firstLatePO = matSupplies.find(s => s.date > demand.date);
-                        supplyArrivalDate = firstLatePO?.date;
-                        details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
-                        details.push(`🟠 IN RITARDO: In arrivo il ${supplyArrivalDate || 'futuro'}`);
-                        details.push("Verificare se è possibile anticipare la consegna.");
+            matchedPOs.forEach(po => {
+                    // Parsing robusto della data (gestisce String, Timestamp o Date)
+                    let poDateRaw = po.expectedDeliveryDate;
+                    let poDate: Date;
+                    
+                    if (poDateRaw && typeof poDateRaw === 'object' && poDateRaw !== null && 'toDate' in (poDateRaw as any)) {
+                        poDate = (poDateRaw as any).toDate();
+                    } else if (poDateRaw) {
+                        poDate = new Date(poDateRaw);
                     } else {
-                        status = 'RED';
-                        details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
-                        details.push("❌ MANCANTE: Stock insufficiente, nessun ordine futuro sufficiente.");
-                        details.push("ORDINARE IMMEDIATAMENTE.");
+                        poDate = new Date();
+                        poDate.setDate(poDate.getDate() + 30);
                     }
-                } else if (balanceWithoutPOs < -0.001) {
-                    // Coperto grazie ai PO in tempo
-                    status = 'AMBER';
-                    const firstCoveringPO = relevantSupplies.find((s, idx) => {
-                        const sumBefore = initialStock + relevantSupplies.slice(0, idx).reduce((acc, rs) => acc + rs.qty, 0) - cumulativeDemands;
-                        const sumAfter = sumBefore + s.qty;
-                        return sumBefore < 0 && sumAfter >= 0;
-                    }) || relevantSupplies[relevantSupplies.length - 1];
 
-                    supplyArrivalDate = firstCoveringPO?.date;
-                    details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
-                    details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate}.`);
-                    details.push("Monitorare fornitore.");
-                } else {
-                    status = 'GREEN';
-                    details.push(`Fabbisogno: ${demand.qty.toFixed(2)} ${mat.unitOfMeasure}`);
-                    details.push("✅ DISPONIBILE (Stock fisico).");
-                }
+                    // REGOLA OVERDUE ASSOLUTA: Se data < oggi (mezzanotte), FORZA a oggi ore 08:00
+                    const todayMidnight = new Date(now);
+                    todayMidnight.setUTCHours(0, 0, 0, 0);
+                    
+                    let finalDateISO: string;
+                    if (poDate < todayMidnight || isNaN(poDate.getTime())) {
+                        finalDateISO = today08ISO;
+                    } else {
+                        // Forza comunque l'orario alle 08:00 per coerenza intraday
+                        const d = new Date(poDate);
+                        d.setUTCHours(8, 0, 0, 0);
+                        finalDateISO = d.toISOString();
+                    }
+                    
+                    events.push({
+                        date: finalDateISO,
+                        qty: Number(po.quantity || 0) - Number(po.receivedQuantity || 0),
+                        type: 'PO',
+                        id: po.id
+                    });
+                });
 
-                materialEntries.push({
-                    jobId: demand.jobId,
-                    materialCode: code,
-                    requiredQty: demand.qty,
-                    status,
-                    projectedBalance: projectedAvailability,
-                    supplyArrivalDate,
-                    details
+            // B. Commesse (Demand)
+            allJobs.forEach(job => {
+                (job.billOfMaterials || []).forEach(item => {
+                    if (item.status !== 'withdrawn' && (item.component || '').toUpperCase().trim() === matCode) {
+                        const req = calculateBOMRequirement(job.qta, item, mat, config as any);
+                        const demandDate = job.dataFinePreparazione || job.dataConsegnaFinale || '9999-12-31';
+                        
+                        // PRIORITÀ INTRADAY: Forza DEMAND alle 16:00 UTC
+                        const dWithTime = new Date(demandDate);
+                        dWithTime.setUTCHours(16, 0, 0, 0);
+
+                        events.push({
+                            date: dWithTime.toISOString(),
+                            qty: -Number(req.totalInBaseUnits),
+                            type: 'DEMAND',
+                            id: job.id,
+                            odl: job.numeroODLInterno || job.ordinePF || ''
+                        });
+                    }
                 });
             });
 
-            timelines.set(code, materialEntries);
+            // C. Manual Commitments (Demand)
+            manualCommitments.filter(c => c && c.status === 'pending').forEach(c => {
+                const art = articles.find(a => a && a.code.toUpperCase() === (c.articleCode || '').toUpperCase());
+                if (art) {
+                    (art.billOfMaterials || []).forEach(item => {
+                        if ((item.component || '').toUpperCase().trim() === matCode) {
+                            const req = calculateBOMRequirement(c.quantity, item, mat, config as any);
+                            const demandDate = c.deliveryDate || '9999-12-31';
+                            
+                            // PRIORITÀ INTRADAY: Forza DEMAND alle 16:00 UTC
+                            const dWithTime = new Date(demandDate);
+                            dWithTime.setUTCHours(16, 0, 0, 0);
+
+                            events.push({
+                                date: dWithTime.toISOString(),
+                                qty: -Number(req.totalInBaseUnits),
+                                type: 'DEMAND',
+                                id: c.id,
+                                odl: `COMMIT-${c.id.substring(0, 5)}`
+                            });
+                        }
+                    });
+                }
+            });
+
+            // 3. Ordinamento Cronologico Rigoroso
+            events.sort((a, b) => a.date.localeCompare(b.date));
+
+            if (matCode === '50X005X33FR') {
+                console.log(`MRP DEBUG [50X005X33FR] - Sorted Events:`, events.map(e => `${e.date} | ${e.type} | ${e.qty}`));
+            }
+
+            // 4. Loop di Calcolo (VERO Running Balance)
+            const materialEntries: MRPTimelineEntry[] = [];
+            const totalSuppliesOnTimeline = events.filter(e => e.type === 'PO').reduce((sum, e) => sum + e.qty, 0);
+            
+            let runningBalance = initialPhysicalStock;
+            let cumulativeDemands = 0;
+
+            events.forEach(event => {
+                if (event.type === 'PO') {
+                    runningBalance += Number(event.qty);
+                } else {
+                    const requiredQty = Math.abs(Number(event.qty));
+                    cumulativeDemands += requiredQty;
+                    runningBalance -= requiredQty;
+
+                    const currentBalanceAtDemand = runningBalance;
+                    const balanceAtEndOfTime = initialPhysicalStock + totalSuppliesOnTimeline - cumulativeDemands;
+
+                    let status: MRPTimelineEntry['status'] = 'RED';
+                    let supplyArrivalDate: string | undefined = undefined;
+                    const details: string[] = [];
+
+                    // 5. Assegnazione Stato Finale
+                    if (currentBalanceAtDemand >= -0.001) {
+                        // COPERTO (Green o Amber)
+                        if (initialPhysicalStock - cumulativeDemands >= -0.001) {
+                            status = 'GREEN';
+                            details.push(`Fabbisogno: ${requiredQty.toFixed(2)} ${mat.unitOfMeasure}`);
+                            details.push("✅ DISPONIBILE (Stock fisico).");
+                        } else {
+                            status = 'AMBER';
+                            // Cerchiamo l'ultimo PO che ha contribuito alla copertura (già sommato al runningBalance)
+                            const lastPO = [...events].filter(e => e.type === 'PO' && e.date <= event.date).pop();
+                            supplyArrivalDate = lastPO?.date;
+                            details.push(`Fabbisogno: ${requiredQty.toFixed(2)} ${mat.unitOfMeasure}`);
+                            details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT') : 'N/D'}.`);
+                        }
+                    } else {
+                        // NON COPERTO (Late o Red)
+                        if (balanceAtEndOfTime >= -0.001) {
+                            status = 'LATE';
+                            const nextPO = events.find(e => e.type === 'PO' && e.date > event.date);
+                            supplyArrivalDate = nextPO?.date;
+                            details.push(`Fabbisogno: ${requiredQty.toFixed(2)} ${mat.unitOfMeasure}`);
+                            details.push(`🟠 IN RITARDO: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT') : 'futuro'}`);
+                        } else {
+                            status = 'RED';
+                            details.push(`Fabbisogno: ${requiredQty.toFixed(2)} ${mat.unitOfMeasure}`);
+                            details.push("❌ MANCANTE: Stock insufficiente e coperture totali non bastano.");
+                        }
+                    }
+
+                    materialEntries.push({
+                        jobId: event.id,
+                        materialCode: matCode,
+                        requiredQty,
+                        status,
+                        projectedBalance: currentBalanceAtDemand,
+                        supplyArrivalDate,
+                        details
+                    });
+
+                    if (matCode === '50X005X33FR') {
+                        console.log(`MRP DEBUG [50X005X33FR] - Status Assigned: ${status} for Job: ${event.id} (ODL: ${event.odl}) - Balance: ${currentBalanceAtDemand.toFixed(2)} FinalBalance: ${balanceAtEndOfTime.toFixed(2)}`);
+                    }
+                }
+            });
+
+            timelines.set(matCode, materialEntries);
         });
 
         return timelines;
     } catch (error) {
-        console.error("ERRORE CRITICO CALCOLO MRP (calculateMRPTimelines):", error);
-        return new Map(); // Restituisce mappa vuota per Graceful Degradation
+        console.error("ERRORE CRITICO CALCOLO MRP:", error);
+        return new Map();
     }
 }
 
@@ -229,8 +285,8 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
         newDetails.push(`Fabbisogno Totale: ${totalQty.toFixed(2)} ${unit}`);
         
         if (finalStatus === 'RED') {
-            newDetails.push("❌ MANCANTE: Stock insufficiente, nessun ordine futuro sufficiente.");
-            newDetails.push("ORDINARE IMMEDIATAMENTE.");
+            newDetails.push("❌ MANCANTE: Stock e ordini totali insufficienti.");
+            newDetails.push("VERIFICARE PIANO ACQUISTI.");
         } else if (finalStatus === 'LATE') {
             // Prendi la data del primo PO in ritardo trovato nel gruppo
             const lateEntry = group.entries.find(e => e.status === 'LATE' && e.supplyArrivalDate);

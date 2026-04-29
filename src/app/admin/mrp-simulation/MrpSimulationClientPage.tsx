@@ -17,6 +17,7 @@ import { saveDraft, getDrafts, deleteDraft, convertDraftToJobOrder } from './act
 import { getArticles } from '../article-management/actions';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
+import { syncJobBOMItems } from '@/lib/inventory-utils';
 
 interface MrpSimulationClientPageProps {
     initialArticles: Article[];
@@ -127,25 +128,43 @@ export default function MrpSimulationClientPage({
             const article = validArticles.find(a => a.code === row.articleCode);
             if (!article) return;
 
+            // Fix Data / Timezone: Converti in Date, fissa a mezzogiorno e poi ISO string
+            const deliveryDateObj = new Date(row.deliveryDate);
+            deliveryDateObj.setHours(12, 0, 0, 0);
+            const isoDeliveryDate = deliveryDateObj.toISOString();
             const volatileJobId = `VOLATILE-SIMULATION-JOB-${index}`;
+
+            const jobQta = Number(row.quantity);
+            const jobBOM = syncJobBOMItems(
+                jobQta,
+                [], // No existing BOM
+                article.billOfMaterials,
+                initialMaterials,
+                globalSettings
+            );
+
             volatileJobs.push({
                 id: volatileJobId,
                 status: 'planned',
                 cliente: 'SIMULAZIONE',
-                qta: Number(row.quantity),
+                qta: jobQta,
                 department: 'N/D',
                 details: article.code,
                 ordinePF: volatileJobId,
                 numeroODL: `SIM-${index}`,
-                dataConsegnaFinale: row.deliveryDate,
-                dataFinePreparazione: row.deliveryDate,
+                dataConsegnaFinale: isoDeliveryDate,
+                dataFinePreparazione: isoDeliveryDate,
                 postazioneLavoro: 'N/D',
                 phases: [],
-                billOfMaterials: article.billOfMaterials.map(b => ({ ...b, status: 'pending', isFromTemplate: true }))
+                billOfMaterials: jobBOM
             });
         });
 
         const jobsWithSimulation = [...allJobs, ...volatileJobs];
+        
+        console.log("MRP DEBUG - jobsWithSimulation dates:", jobsWithSimulation.map(j => ({ id: j.id, date: j.dataFinePreparazione || j.dataConsegnaFinale })));
+        console.log("MRP DEBUG - purchaseOrders dates:", purchaseOrders.map(p => ({ id: p.id, date: p.expectedDeliveryDate })));
+
         const timelines = calculateMRPTimelines(jobsWithSimulation, initialMaterials, purchaseOrders, manualCommitments, downloadedArticles, globalSettings);
         
         validRows.forEach((row, index) => {

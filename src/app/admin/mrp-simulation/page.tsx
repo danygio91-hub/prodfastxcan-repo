@@ -5,17 +5,21 @@ import { Loader2 } from 'lucide-react';
 import MrpSimulationClientPage from './MrpSimulationClientPage';
 import { getPlannedJobOrders, getProductionJobOrders, getCompletedJobOrders, getRequiredDataForJobs } from '../data-management/actions';
 import { getManualCommitments } from '../raw-material-management/actions';
-import { getPurchaseOrders } from '../purchase-orders/actions';
+import { getPurchaseOrders, getAllPendingPurchaseOrders } from '../purchase-orders/actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { getDrafts } from './actions';
 import { adminDb } from '@/lib/firebase-admin';
 import { Article, RawMaterial } from '@/types';
+import { convertTimestampsToDates } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-async function fetchAllMaterials() {
+async function fetchAllHydratedMaterials() {
     const materialsSnap = await adminDb.collection("rawMaterials").get();
-    const materials = materialsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as RawMaterial));
+    const materials = materialsSnap.docs.map(doc => ({ 
+        ...convertTimestampsToDates(doc.data()), 
+        id: doc.id 
+    } as RawMaterial));
     
     return { materials };
 }
@@ -29,12 +33,12 @@ export default async function AdminMrpSimulationPage() {
     const allJobs = [...planned, ...production, ...completed];
 
     const manualCommitments = await getManualCommitments();
-    const purchaseOrders = await getPurchaseOrders();
+    const purchaseOrders = await getAllPendingPurchaseOrders();
     const globalSettings = await getGlobalSettings();
     const drafts = await getDrafts();
 
-    // Ottimizzazione: non scarichiamo più l'intera anagrafica articoli al caricamento
-    const { materials } = await fetchAllMaterials();
+    // Ottimizzazione: scarichiamo l'anagrafica materiali idratata (SSoT)
+    const { materials } = await fetchAllHydratedMaterials();
 
     return (
         <AdminAuthGuard>

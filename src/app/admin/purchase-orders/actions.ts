@@ -29,6 +29,18 @@ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
   });
 }
 
+export async function getAllPendingPurchaseOrders(): Promise<PurchaseOrder[]> {
+    const snapshot = await adminDb.collection("purchaseOrders").where("status", "not-in", ["cancelled", "completed", "received"]).get();
+    const list = snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
+    return list.sort((a,b) => {
+        const valA = a.expectedDeliveryDate as any;
+        const valB = b.expectedDeliveryDate as any;
+        const dateA = valA instanceof Date ? valA.toISOString() : String(valA || "");
+        const dateB = valB instanceof Date ? valB.toISOString() : String(valB || "");
+        return dateA.localeCompare(dateB);
+    });
+}
+
 
 
 export async function closePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
