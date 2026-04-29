@@ -217,8 +217,8 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             ]);
             
             if (!docSnap.exists) throw new Error('Materia prima non trovata.');
-            const material = docSnap.data() as RawMaterial;
-            const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
+            const material = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
+            const withdrawals = withdrawalsSnap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
             
             const batches = [...(material.batches || [])];
             const idx = batches.findIndex(b => b.id === batchId);
@@ -236,19 +236,14 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 hasConversion: false
             } as any;
 
-            // Use centralized logic to determine impact
-            // Note: In admin modification, we assume input is in KG if it matches the UOM or if it's the weight field.
-            // But for absolute consistency, we derive everything from the central utility.
             const { unitsToChange: finalUnits, weightToChange: finalNetWeightKg } = calculateInventoryMovement(
                 material,
                 config,
                 newQty,
-                material.unitOfMeasure as any, // In Admin Form, Qty is always in Base UOM
-                true // isAddition (to calculate equivalent weight)
+                material.unitOfMeasure as any,
+                true
             );
             
-            // However, the user directive for "KG = KG" and "Lordo = Netto + Tara" is paramount.
-            // If the user manually edited Gross/Tare, the Netto (KG) is Gross - Tare.
             const weightFromGross = (newGross > 0) ? (newGross - newTare) : finalNetWeightKg;
 
             batches[idx] = { 
@@ -263,20 +258,17 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 packagingId: (rawData.packagingId as string) || old.packagingId
             };
 
-            const diffU = finalUnits - old.netQuantity;
-            const oldNetWeight = (old.grossWeight || 0) - (old.tareWeight || 0);
-            const diffW = weightFromGross - oldNetWeight;
-
-            transaction.update(materialRef, { 
-                batches, 
-                stock: admin.firestore.FieldValue.increment(diffU),
-                currentStockUnits: admin.firestore.FieldValue.increment(diffU),
-                currentWeightKg: admin.firestore.FieldValue.increment(diffW)
-            });
+            transaction.update(materialRef, { batches });
+            
+            // SSoT SYNC
+            await recalculateMaterialStock(materialId, transaction);
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiornato.' };
-    } catch (e) { return { success: false, message: "Errore." }; }
+    } catch (e) { 
+        console.error("Errore in updateBatchInRawMaterial:", e);
+        return { success: false, message: "Errore durante l'aggiornamento." }; 
+    }
 }
 
 export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
@@ -287,14 +279,10 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     const globalSettings = await getGlobalSettings();
     try {
         await adminDb.runTransaction(async (transaction) => {
-            const [docSnap, withdrawalsSnap] = await Promise.all([
-                transaction.get(materialRef),
-                adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get()
-            ]);
+            const mSnap = await transaction.get(materialRef);
+            if (!mSnap.exists) throw new Error('Materia prima non trovata.');
+            const material = { ...mSnap.data(), id: mSnap.id } as RawMaterial;
             
-            if (!docSnap.exists) throw new Error('Non trovata.');
-            const material = docSnap.data() as RawMaterial;
-            const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
             const netQty = Number(rawData.netQuantity);
             const grossWeight = Number(rawData.grossWeight || 0);
             const tareWeight = Number(rawData.tareWeight || 0);
@@ -312,10 +300,9 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
                 config,
                 netQty,
                 material.unitOfMeasure as any,
-                true // isAddition
+                true
             );
 
-            // Sacred rules: Lordo = Netto + Tara. Netto (KG) = Gross - Tare if provided.
             const weightFromGross = (grossWeight > 0) ? (grossWeight - tareWeight) : finalNetWeightKg;
             
             const newBatch: RawMaterialBatch = { 
@@ -330,17 +317,20 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
                 packagingId: (rawData.packagingId as string) || undefined
             };
             const updatedBatches = [...(material.batches || []), newBatch];
-            transaction.update(materialRef, { 
-                batches: updatedBatches, 
-                stock: admin.firestore.FieldValue.increment(finalUnits),
-                currentStockUnits: admin.firestore.FieldValue.increment(finalUnits),
-                currentWeightKg: admin.firestore.FieldValue.increment(weightFromGross)
-            });
+            
+            transaction.update(materialRef, { batches: updatedBatches });
+
+            // SSoT SYNC
+            await recalculateMaterialStock(materialId, transaction);
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiunto.' };
-    } catch (error) { return { success: false, message: "Errore." }; }
+    } catch (error) { 
+        console.error("Errore in addBatchToRawMaterial:", error);
+        return { success: false, message: "Errore durante il carico." }; 
+    }
 }
+
 
 export async function returnMaterialToBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
     await ensureAdmin();
@@ -354,7 +344,7 @@ export async function returnMaterialToBatch(formData: FormData): Promise<{ succe
         await adminDb.runTransaction(async (transaction) => {
             const docSnap = await transaction.get(materialRef);
             if (!docSnap.exists) throw new Error('Materiale non trovato.');
-            const material = docSnap.data() as RawMaterial;
+            const material = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
             
             const batches = [...(material.batches || [])];
             const idx = batches.findIndex(b => b.id === batchId);
@@ -374,20 +364,19 @@ export async function returnMaterialToBatch(formData: FormData): Promise<{ succe
                 config,
                 returnedQty,
                 material.unitOfMeasure as any,
-                true // isAddition
+                true
             );
             
             batches[idx].netQuantity = (batches[idx].netQuantity || 0) + finalUnits;
             batches[idx].grossWeight = (batches[idx].grossWeight || 0) + finalWeightKg;
             if (batches[idx].netQuantity > 0.001) batches[idx].isExhausted = false;
 
-            transaction.update(materialRef, { 
-                batches, 
-                stock: admin.firestore.FieldValue.increment(finalUnits),
-                currentStockUnits: admin.firestore.FieldValue.increment(finalUnits),
-                currentWeightKg: admin.firestore.FieldValue.increment(finalWeightKg)
-            });
+            transaction.update(materialRef, { batches });
+
+            // SSoT SYNC
+            await recalculateMaterialStock(materialId, transaction);
         });
+
         
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Reso registrato sul lotto originale.' };
@@ -415,27 +404,21 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
     const materialRef = adminDb.collection("rawMaterials").doc(materialId);
     try {
         await adminDb.runTransaction(async (t) => {
-            const [docSnap, withdrawalsSnap] = await Promise.all([
-                t.get(materialRef),
-                adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get()
-            ]);
-            
+            const docSnap = await t.get(materialRef);
             if (!docSnap.exists) throw new Error("Materia prima non trovata.");
-            const material = docSnap.data() as RawMaterial;
-            const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
+            const material = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
             
             const batch = (material.batches || []).find(b => b.id === batchId);
             if (!batch) throw new Error("Lotto non trovato.");
 
             const updatedBatches = material.batches.filter(b => b.id !== batchId);
-            const oldNetWeight = (batch.grossWeight || 0) - (batch.tareWeight || 0);
-            t.update(materialRef, { 
-                batches: updatedBatches,
-                stock: admin.firestore.FieldValue.increment(-batch.netQuantity),
-                currentStockUnits: admin.firestore.FieldValue.increment(-batch.netQuantity),
-                currentWeightKg: admin.firestore.FieldValue.increment(-oldNetWeight)
-            });
+            
+            t.update(materialRef, { batches: updatedBatches });
+
+            // SSoT SYNC
+            await recalculateMaterialStock(materialId, t);
         });
+
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto eliminato.' };
     } catch (e) { return { success: false, message: "Errore." }; }
@@ -446,6 +429,28 @@ export async function deleteRawMaterial(id: string): Promise<{ success: boolean;
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Materia prima eliminata.' };
 }
+
+export async function healAllMaterialsStock(): Promise<{ success: boolean; message: string }> {
+    try {
+        await ensureAdmin();
+        const snapshot = await adminDb.collection("rawMaterials").get();
+        console.log(`Starting healing for ${snapshot.size} materials...`);
+        
+        let count = 0;
+        for (const doc of snapshot.docs) {
+            await recalculateMaterialStock(doc.id);
+            count++;
+            if (count % 10 === 0) console.log(`Processed ${count}/${snapshot.size}...`);
+        }
+        
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: `Sincronizzazione completata per ${count} materiali.` };
+    } catch (e) {
+        console.error("Errore in healAllMaterialsStock:", e);
+        return { success: false, message: "Errore durante la sincronizzazione massiva." };
+    }
+}
+
 
 export async function getMaterialWithdrawalsForMaterial(materialId: string): Promise<MaterialWithdrawal[]> {
     const snap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
@@ -564,11 +569,14 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         const m = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
         const normCode = m.code.toLowerCase().trim();
         
-        // --- DEFINTIVE SWITCH: READ THE DB FIELD, DON'T RE-CALCULATE ---
-        const liveStockUnits = m.currentStockUnits || 0;
-
+        // --- LIVE CALCULATION FOR UI TRUTH ---
+        const matWithdrawals = withdrawals.filter(w => w.materialId === m.id);
+        const hydrated = hydrateMaterialWithWithdrawals(m, matWithdrawals);
+        
+        const liveStockUnits = hydrated.currentStockUnits;
         const imp = impMap.get(normCode) || 0;
         const ord = ordMap.get(normCode) || 0;
+
         return { 
             id: m.id, 
             code: m.code, 
@@ -580,6 +588,7 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
             unitOfMeasure: m.unitOfMeasure 
         };
     });
+
 }
 
 export type CommitmentDetail = { jobId: string; type: 'PRODUZIONE' | 'MANUALE'; quantity: number; deliveryDate: string; client: string; articleCode: string; };
@@ -723,20 +732,18 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
                 if (!m) throw new Error("Materia prima non trovata.");
                 let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
                 
-                // ATOMIC STOCK UPDATE (SSoT: Only aggregators, batches are immutable)
-                t.update(adminDb.collection("rawMaterials").doc(s.materialId), { 
-                    stock: admin.firestore.FieldValue.increment(-s.consumed),
-                    currentStockUnits: admin.firestore.FieldValue.increment(-s.consumed),
-                    currentWeightKg: admin.firestore.FieldValue.increment(-w)
-                });
-                // ------------------------------------------------
-
                 const wRef = adminDb.collection("materialWithdrawals").doc();
                 t.set(wRef, { jobOrderPFs: [c.jobOrderCode], jobIds: [], materialId: s.materialId, materialCode: s.componentCode, consumedWeight: w, consumedUnits: s.consumed, operatorId: uid, operatorName: opData?.nome || 'Admin', withdrawalDate: admin.firestore.Timestamp.now(), lotto: s.lotto, commitmentId: id });
             }
             if (scrap > 0) t.set(adminDb.collection("scrapRecords").doc(), { commitmentId: id, jobOrderCode: c.jobOrderCode, articleCode: c.articleCode, scrappedQuantity: scrap, declaredAt: admin.firestore.Timestamp.now(), operatorId: uid, operatorName: opData?.nome || 'Admin' });
             t.update(cRef, { status: 'fulfilled', fulfilledAt: admin.firestore.Timestamp.now(), fulfilledBy: uid });
+
+            // SSoT SYNC FOR ALL IMPACTED MATERIALS
+            for (const mid of uniqueMaterialIds) {
+                await recalculateMaterialStock(mid, t);
+            }
         });
+
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: "Evasione registrata." };
     } catch (e) { return { success: false, message: "Errore." }; }
@@ -765,20 +772,17 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
 
             for (const wd of ws.docs) {
                 const w = wd.data() as MaterialWithdrawal;
-                const m = mMap.get(w.materialId);
-                if (m) {
-                    // ATOMIC STOCK RESTORE (SSoT: Only aggregators, batches are immutable)
-                    t.update(adminDb.collection("rawMaterials").doc(w.materialId), { 
-                        stock: admin.firestore.FieldValue.increment(w.consumedUnits || 0),
-                        currentStockUnits: admin.firestore.FieldValue.increment(w.consumedUnits || 0),
-                        currentWeightKg: admin.firestore.FieldValue.increment(w.consumedWeight || 0)
-                    });
-                }
                 t.delete(wd.ref);
             }
             ss.forEach(d => t.delete(d.ref));
             t.update(adminDb.collection("manualCommitments").doc(id), { status: 'pending', fulfilledAt: admin.firestore.FieldValue.delete(), fulfilledBy: admin.firestore.FieldValue.delete() });
+
+            // SSoT SYNC FOR ALL IMPACTED MATERIALS
+            for (const mid of mIds) {
+                await recalculateMaterialStock(mid, t);
+            }
         });
+
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: "Annullato." };
     } catch (e) { return { success: false, message: "Errore." }; }
@@ -846,33 +850,124 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
 
 export async function adjustRawMaterialStock(materialId: string, newStockUnits: number) {
     const materialRef = adminDb.collection("rawMaterials").doc(materialId);
-    const mSnap = await materialRef.get();
-    if (!mSnap.exists) return { success: false, message: "Materiale non trovato." };
-    const material = mSnap.data() as RawMaterial;
+    
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const [mSnap, wSnap] = await Promise.all([
+                transaction.get(materialRef),
+                adminDb.collection('materialWithdrawals').where('materialId', '==', materialId).get()
+            ]);
 
-    let newWeightKg = 0;
-    if (material.unitOfMeasure === 'kg') {
-        newWeightKg = newStockUnits;
-    } else if (material.unitOfMeasure === 'mt') {
-        newWeightKg = newStockUnits * (material.rapportoKgMt || 0);
-    } else {
-        newWeightKg = newStockUnits * (material.conversionFactor || 0);
+            if (!mSnap.exists) throw new Error("Materiale non trovato.");
+            const material = { ...mSnap.data(), id: mSnap.id } as RawMaterial;
+            const withdrawals = wSnap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialWithdrawal));
+
+            // 1. Calculate current SSoT Stock
+            const hydrated = hydrateMaterialWithWithdrawals(material, withdrawals);
+            const currentUnits = hydrated.currentStockUnits;
+            let delta = newStockUnits - currentUnits;
+
+            if (Math.abs(delta) < 0.001) return; // No significant change
+
+            const factor = (material.unitOfMeasure === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 1;
+            const now = admin.firestore.Timestamp.now();
+
+            if (delta < 0) {
+                // --- DECREASE: FIFO ---
+                let remainingToSubtract = Math.abs(delta);
+                // Sort batches by date (oldest first)
+                const sortedBatches = (hydrated.batches || [])
+                    .filter(b => (b.currentQuantity || 0) > 0.001)
+                    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+                for (const b of sortedBatches) {
+                    if (remainingToSubtract <= 0.001) break;
+                    const available = b.currentQuantity || 0;
+                    const toSubtract = Math.min(available, remainingToSubtract);
+                    
+                    const wRef = adminDb.collection('materialWithdrawals').doc();
+                    transaction.set(wRef, {
+                        materialId,
+                        materialCode: material.code,
+                        consumedUnits: toSubtract,
+                        consumedWeight: material.unitOfMeasure === 'kg' ? toSubtract : Number((toSubtract * factor).toFixed(3)),
+                        withdrawalDate: now,
+                        lotto: b.lotto || null,
+                        source: 'adjustment',
+                        notes: 'Rettifica manuale stock (Diminuzione)',
+                        status: 'completed'
+                    });
+                    remainingToSubtract -= toSubtract;
+                }
+            } else {
+                // --- INCREASE: CAPPED LIFO ---
+                let remainingToAdd = delta;
+                // Sort batches by date (newest first for LIFO)
+                const sortedBatches = (hydrated.batches || [])
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                for (const b of sortedBatches) {
+                    if (remainingToAdd <= 0.001) break;
+                    const room = Math.max(0, (b.netQuantity || 0) - (b.currentQuantity || 0));
+                    const toAdd = Math.min(room, remainingToAdd);
+                    
+                    if (toAdd > 0.001) {
+                        const wRef = adminDb.collection('materialWithdrawals').doc();
+                        transaction.set(wRef, {
+                            materialId,
+                            materialCode: material.code,
+                            consumedUnits: -toAdd, // Negative = Restore
+                            consumedWeight: material.unitOfMeasure === 'kg' ? -toAdd : Number((-toAdd * factor).toFixed(3)),
+                            withdrawalDate: now,
+                            lotto: b.lotto || null,
+                            source: 'adjustment',
+                            notes: 'Rettifica manuale stock (Aumento)',
+                            status: 'completed'
+                        });
+                        remainingToAdd -= toAdd;
+                    }
+                }
+
+                // --- FALLBACK: Excess goes to newest batch ---
+                if (remainingToAdd > 0.001) {
+                    const batches = [...(material.batches || [])];
+                    if (batches.length > 0) {
+                        batches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                        const newest = batches[0];
+                        newest.netQuantity = Number(((newest.netQuantity || 0) + remainingToAdd).toFixed(3));
+                        
+                        const addedWeight = material.unitOfMeasure === 'kg' ? remainingToAdd : remainingToAdd * factor;
+                        newest.grossWeight = Number(((newest.grossWeight || 0) + addedWeight).toFixed(3));
+                        
+                        transaction.update(materialRef, { batches });
+                    } else {
+                        // Emergency: Create first batch if none exist
+                        const newBatch: RawMaterialBatch = {
+                            id: `batch-${Date.now()}`,
+                            date: new Date().toISOString(),
+                            ddt: 'RETTIFICA INIZIALE',
+                            netQuantity: remainingToAdd,
+                            grossWeight: material.unitOfMeasure === 'kg' ? remainingToAdd : Number((remainingToAdd * factor).toFixed(3)),
+                            tareWeight: 0,
+                            lotto: 'INIZIALE'
+                        };
+                        transaction.update(materialRef, { batches: [newBatch] });
+                    }
+                }
+            }
+
+            // 4. Atomic Sync
+            await recalculateMaterialStock(materialId, transaction);
+        });
+
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: 'Stock rettificato con logica Capped FIFO/LIFO.' };
+    } catch (e) {
+        console.error("Error in adjustRawMaterialStock:", e);
+        return { success: false, message: e instanceof Error ? e.message : "Errore durante la rettifica." };
     }
-
-    const updateData: any = {
-        currentStockUnits: newStockUnits,
-        currentWeightKg: newWeightKg
-    };
-
-    // If resetting to 0, clear the batches to ensure consistency
-    if (newStockUnits === 0) {
-        updateData.batches = [];
-    }
-
-    await materialRef.update(updateData);
-    revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Stock aggiornato con successo.' };
 }
+
 
 
 export type ReorderAlert = {

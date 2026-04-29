@@ -18,7 +18,8 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
-  const snapshot = await adminDb.collection("purchaseOrders").orderBy("createdAt", "desc").limit(200).get();
+  // FIX 3: Rimozione Limite 200 per garantire visibilità totale
+  const snapshot = await adminDb.collection("purchaseOrders").orderBy("createdAt", "desc").get();
   const list = snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
   return list.sort((a,b) => {
     const valA = a.expectedDeliveryDate as any;
@@ -30,9 +31,20 @@ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
 }
 
 export async function getAllPendingPurchaseOrders(): Promise<PurchaseOrder[]> {
-    const snapshot = await adminDb.collection("purchaseOrders").where("status", "not-in", ["cancelled", "completed", "received"]).get();
+    // FIX 3: Rimozione Totale Limiti (no .limit())
+    const snapshot = await adminDb.collection("purchaseOrders").get();
     const list = snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
-    return list.sort((a,b) => {
+    
+    // FIX 1: Filtro Stato Lasco (In-memory bypass string mismatch)
+    const filtered = list.filter(po => {
+        const status = (po.status || '').toLowerCase();
+        // Includiamo tutto ciò che non è esplicitamente chiuso o cancellato
+        return status !== 'completed' && status !== 'cancelled' && status !== 'received';
+    });
+
+    console.log(`[MRP-FETCH] PO Scaricati: ${list.length}, Pendenti filtrati: ${filtered.length}`);
+
+    return filtered.sort((a,b) => {
         const valA = a.expectedDeliveryDate as any;
         const valB = b.expectedDeliveryDate as any;
         const dateA = valA instanceof Date ? valA.toISOString() : String(valA || "");

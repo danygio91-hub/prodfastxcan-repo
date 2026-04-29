@@ -14,12 +14,23 @@ import { convertTimestampsToDates } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-async function fetchAllHydratedMaterials() {
+async function getAllRawMaterialsForSimulation() {
+    console.log("[MRP-FETCH] Inizio scaricamento globale anagrafica materiali...");
     const materialsSnap = await adminDb.collection("rawMaterials").get();
-    const materials = materialsSnap.docs.map(doc => ({ 
-        ...convertTimestampsToDates(doc.data()), 
-        id: doc.id 
-    } as RawMaterial));
+    console.log(`[MRP-FETCH] Scaricati ${materialsSnap.size} materiali.`);
+    
+    const materials = materialsSnap.docs.map(doc => {
+        try {
+            return { 
+                ...convertTimestampsToDates(doc.data()), 
+                id: doc.id 
+            } as RawMaterial;
+        } catch (err) {
+            console.error(`[MRP-FETCH] ERRORE idratazione materiale ${doc.id}:`, err);
+            // Fallback per evitare di droppare il materiale dall'array
+            return { id: doc.id, code: 'ERROR', currentStockUnits: 0 } as any as RawMaterial;
+        }
+    });
     
     return { materials };
 }
@@ -38,7 +49,7 @@ export default async function AdminMrpSimulationPage() {
     const drafts = await getDrafts();
 
     // Ottimizzazione: scarichiamo l'anagrafica materiali idratata (SSoT)
-    const { materials } = await fetchAllHydratedMaterials();
+    const { materials } = await getAllRawMaterialsForSimulation();
 
     return (
         <AdminAuthGuard>
