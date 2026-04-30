@@ -50,7 +50,7 @@ export function calculateMRPTimelines(
             const events: {
                 date: string;
                 qty: number; // Positivo per PO, Negativo per Demand
-                type: 'PO' | 'DEMAND';
+                type: 'PO' | 'DEMAND' | 'COMMITMENT';
                 id: string;
                 odl?: string;
             }[] = [];
@@ -239,7 +239,7 @@ export function calculateMRPTimelines(
             
             // Calcolo Totali Distinti (Supply, Real Demand [Jobs + Commitments], Simulated Demand)
             const totalPO = events.filter(e => e.type === 'PO').reduce((sum, e) => sum + Number(e.qty), 0);
-            const totalRealJobDemand = events.filter(e => !e.id.startsWith('VOLATILE') && (e.type === 'DEMAND' || e.type === 'COMMITMENT' || (e as any).type === 'COMMITMENT')).reduce((sum, e) => sum + Math.abs(Number(e.qty)), 0);
+            const totalRealJobDemand = events.filter(e => !e.id.startsWith('VOLATILE') && (e.type === 'DEMAND' || e.type === 'COMMITMENT')).reduce((sum, e) => sum + Math.abs(Number(e.qty)), 0);
             const totalSimQtyDemand = events.filter(e => e.id.startsWith('VOLATILE')).reduce((sum, e) => sum + Math.abs(Number(e.qty)), 0);
             const totalDemand = totalRealJobDemand + totalSimQtyDemand;
 
