@@ -81,11 +81,13 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 hasConversion: false
             } as any;
 
+            // FIX: Always use the calculated netWeight from the record for stock movement.
+            // For KG materials, the operator inputs Gross weight, so we must use the already-subtracted netWeight.
             const { unitsToChange, weightToChange } = calculateInventoryMovement(
                 material,
                 config,
-                record.inputQuantity,
-                record.inputUnit,
+                record.netWeight,
+                'kg', // netWeight is always in KG
                 true, // Addition (Carico da inventario)
                 record.lotto
             );
@@ -102,8 +104,8 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 date: dateStr, 
                 ddt: `Inventario`, 
                 netQuantity: unitsToChange, 
-                grossWeight: weightToChange + record.tareWeight, 
-                tareWeight: record.tareWeight, 
+                grossWeight: record.grossWeight, // Truth: Use recorded gross weight
+                tareWeight: record.tareWeight,   // Truth: Use recorded tare
                 lotto: record.lotto 
             };
             

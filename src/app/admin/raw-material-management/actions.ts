@@ -478,15 +478,23 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
         "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
         "Manca Materiale", "Problema", "Sospesa", "planned", "In Pianificazione", "IN_PIANIFICAZIONE", "IN_ATTESA",
-        "PRODUCTION", "PAUSED", "SUSPENDED"
+        "PRODUCTION", "PAUSED", "SUSPENDED", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO",
+        "PREP", "ATTIVO", "ACTIVE", "IN_PROGRESS", "IN_LAVORAZIONE", "CONFIRMED"
     ];
-    const [jobsSnap, materialsSnap, commitmentsSnap, posSnap, settings] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", activeStatuses as any[]).get(),
+    // FIRESTORE LIMIT: 'in' queries support max 30 values.
+    const chunk1 = activeStatuses.slice(0, 30);
+    const chunk2 = activeStatuses.slice(30);
+
+    const [jobsSnap1, jobsSnap2, materialsSnap, commitmentsSnap, posSnap, settings] = await Promise.all([
+        adminDb.collection("jobOrders").where("status", "in", chunk1 as any[]).get(),
+        chunk2.length > 0 ? adminDb.collection("jobOrders").where("status", "in", chunk2 as any[]).get() : Promise.resolve({ docs: [] }),
         mq.get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get(),
         getGlobalSettings()
     ]);
+
+    const jobsSnap = { docs: [...jobsSnap1.docs, ...jobsSnap2.docs] };
 
     const mIds = materialsSnap.docs.map(doc => doc.id);
     const withdrawalsByMaterial: Record<string, number> = {};
@@ -516,7 +524,7 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         artResults.forEach(a => articlesMap.set(a.code.toLowerCase().trim(), a));
     }
     const impMap = new Map<string, number>();
-    jobsSnap.forEach(d => {
+    jobsSnap.docs.forEach(d => {
         const job = d.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
             if (item.status !== 'withdrawn') {
@@ -600,21 +608,29 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
         "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
         "Manca Materiale", "Problema", "Sospesa", "planned", "In Pianificazione", "IN_PIANIFICAZIONE", "IN_ATTESA",
-        "PRODUCTION", "PAUSED", "SUSPENDED"
+        "PRODUCTION", "PAUSED", "SUSPENDED", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO",
+        "PREP", "ATTIVO", "ACTIVE", "IN_PROGRESS", "IN_LAVORAZIONE", "CONFIRMED"
     ];
-    const [jobsSnap, commitmentsSnap, articlesSnap, materialsSnap, settings] = await Promise.all([
-        adminDb.collection("jobOrders").where("status", "in", activeStatuses as any[]).get(),
+    // FIRESTORE LIMIT: 'in' queries support max 30 values.
+    const chunk1 = activeStatuses.slice(0, 30);
+    const chunk2 = activeStatuses.slice(30);
+
+    const [jobsSnap1, jobsSnap2, commitmentsSnap, articlesSnap, materialsSnap, settings] = await Promise.all([
+        adminDb.collection("jobOrders").where("status", "in", chunk1 as any[]).get(),
+        chunk2.length > 0 ? adminDb.collection("jobOrders").where("status", "in", chunk2 as any[]).get() : Promise.resolve({ docs: [] }),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('articles').get(),
         adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get(),
         getGlobalSettings()
     ]);
+    
+    const jobsSnap = { docs: [...jobsSnap1.docs, ...jobsSnap2.docs] };
     const mat = materialsSnap.docs[0]?.data() as RawMaterial;
     if (!mat) return [];
     const articlesMap = new Map();
     articlesSnap.forEach(d => articlesMap.set(d.data().code.toLowerCase().trim(), d.data()));
     const details: CommitmentDetail[] = [];
-    jobsSnap.forEach(d => {
+    jobsSnap.docs.forEach(d => {
         const job = d.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
             if (item.component.toLowerCase().trim() === norm && item.status !== 'withdrawn') {
@@ -1010,7 +1026,7 @@ export async function getReorderAlerts(): Promise<ReorderAlert[]> {
         type ConsumptionEvent = { date: Date; qty: number; source: string };
         const events: ConsumptionEvent[] = [];
 
-        jobsSnap.forEach(d => {
+        jobsSnap.docs.forEach(d => {
             const job = d.data() as JobOrder;
             (job.billOfMaterials || []).forEach(item => {
                 if (item.component.toLowerCase().trim() === normCode && item.status !== 'withdrawn') {

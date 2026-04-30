@@ -39,15 +39,11 @@ export function calculateMRPTimelines(
             const matCode = (mat.code || '').toUpperCase().trim();
             const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
             
-            // 1. Inizializzazione Balance con Fallback Legacy Stock (In-Memory)
-            const batchesSum = (mat.batches || []).reduce((sum, b) => sum + Number(b.currentQuantity || 0), 0);
+            // 1. Inizializzazione Balance (SSoT: Deve usare currentStockUnits idratato)
             let startingStock = Number(mat.currentStockUnits || 0);
             
-            // Fallback se CSU=0 ma esiste stock legacy
-            if (batchesSum <= 0.001 && Number(mat.stock || 0) > 0) {
-                startingStock = Number(mat.stock || 0);
-            }
-
+            // TASSATIVO (BUG 1): Rimuovi fallback su campo legacy 'stock' per evitare stock allucinati.
+            // Se le batches idratate dicono 0, allora è 0.
             const initialPhysicalStock = startingStock;
 
             // 2. Creazione Timeline Eventi per questo materiale
@@ -124,32 +120,42 @@ export function calculateMRPTimelines(
                 });
 
             // B. Commesse (Demand)
+            // SSoT Active Statuses (Deve matchare Magazzino Live e includere varianti)
+            const MRP_ACTIVE_STATUSES = [
+                "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
+                "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+                "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
+                "Manca Materiale", "Problema", "Sospesa", "planned", "In Pianificazione", "IN_PIANIFICAZIONE", "IN_ATTESA",
+                "PRODUCTION", "PAUSED", "SUSPENDED", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO",
+                "PREP", "ATTIVO", "ACTIVE", "IN_PROGRESS", "IN_LAVORAZIONE", "CONFIRMED"
+            ].map(s => s.trim().toUpperCase());
+
             allJobs.forEach(job => {
+                if (!job.status) return;
+                const status = job.status.trim().toUpperCase();
+                const isVolatile = job.id.startsWith('VOLATILE');
+                
+                // BUG 2 Fix: In-memory Case-Insensitive Filter (SSoT Whitelist)
+                if (!isVolatile && !MRP_ACTIVE_STATUSES.includes(status)) {
+                    return;
+                }
+
                 (job.billOfMaterials || []).forEach(item => {
                     if (item.status !== 'withdrawn' && (item.component || '').toUpperCase().trim() === matCode) {
-                        // ALIGNMENT (Live Warehouse Logic): Usa il campo pre-calcolato se presente, 
-                        // altrimenti calcola al volo usando la stessa logica del Magazzino Live.
-                        let demandQtyBase = item.fabbisognoTotale;
+                        // [MRP SSoT CALCULATION] Use the shared utility to match Warehouse UI logic exactly
+                        const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
+                        const req = calculateBOMRequirement(job.qta, item, mat, config as any);
                         
-                        if (demandQtyBase === undefined || demandQtyBase === null) {
-                            const req = calculateBOMRequirement(job.qta, item, mat, config as any);
-                            
-                            // FORCE UOM INTEGRITY: Se il materiale ha un rapporto KG/X o l'unità base è KG, 
-                            // il fabbisogno REALE per il magazzino (Impegnato) deve essere espresso in KG.
-                            if (mat.unitOfMeasure === 'kg' || mat.rapportoKgMt) {
-                                demandQtyBase = req.weightKg;
-                            } else {
-                                demandQtyBase = req.totalInBaseUnits;
-                            }
-                            
-                            if (matCode === '20X1L31R' || matCode === '100X020TUBFR') {
-                                console.log(`MRP UOM DEBUG [${matCode}] - Job Qta: ${job.qta}, Item Qty: ${item.quantity}, LengthMm: ${item.lunghezzaTaglioMm}, BaseUnit: ${config.defaultUnit}, Result: ${demandQtyBase} (Forced KG: ${mat.unitOfMeasure === 'kg' || !!mat.rapportoKgMt})`);
-                            }
-                        }
+                        // Priorità 1: Valore pre-calcolato se presente (SSoT Sync)
+                        // Priorità 2: Calcolo real-time tramite utility ufficiale
+                        let finalQty = (item.fabbisognoTotale !== undefined && item.fabbisognoTotale !== null) 
+                            ? Number(item.fabbisognoTotale) 
+                            : req.totalInBaseUnits;
 
+                        const demandQtyBase = finalQty;
                         const demandDate = job.dataFinePreparazione || job.dataConsegnaFinale || '9999-12-31';
                         
-                        // PRIORITÀ INTRADAY: Forza DEMAND alle 16:00 UTC
+                        // PRIORITÀ INTRADAY: Forza DEMAND alle 16:00 UTC (dopo i PO delle 08:00)
                         const dWithTime = new Date(demandDate);
                         dWithTime.setUTCHours(16, 0, 0, 0);
 
@@ -178,9 +184,12 @@ export function calculateMRPTimelines(
                             const dWithTime = new Date(demandDate);
                             dWithTime.setUTCHours(16, 0, 0, 0);
 
-                            // FORCE UOM INTEGRITY: Anche per impegni manuali, se gestito a peso, usa weightKg
+                            // [MRP CONVERSION FIX] Blinded logic for manual commitments
+                            const ratio = (mat as any).conversionRatio || (mat as any).rapportoKgMt || (mat as any).pesoMetro || (mat as any).kgMtRatio || (mat as any).conversionFactor || 0;
+                            const matUnit = (mat.unitOfMeasure || '').toLowerCase();
+                            
                             let demandQtyBase = req.totalInBaseUnits;
-                            if (mat.unitOfMeasure === 'kg' || mat.rapportoKgMt) {
+                            if (matUnit === 'kg' || ratio > 0) {
                                 demandQtyBase = req.weightKg;
                             }
 
@@ -211,8 +220,15 @@ export function calculateMRPTimelines(
                 }
             });
 
-            // 3. Ordinamento Cronologico Rigoroso
-            events.sort((a, b) => a.date.localeCompare(b.date));
+            // 3. Ordinamento Cronologico Rigoroso (Stabilità garantita da ID e Tipo)
+            events.sort((a, b) => {
+                const dateCompare = a.date.localeCompare(b.date);
+                if (dateCompare !== 0) return dateCompare;
+                // A parità di data: Supply (PO) prima di Demand
+                if (a.type === 'PO' && b.type !== 'PO') return -1;
+                if (a.type !== 'PO' && b.type === 'PO') return 1;
+                return a.id.localeCompare(b.id);
+            });
 
             if (matCode === '50X005X33FR') {
                 console.log(`MRP DEBUG [50X005X33FR] - Sorted Events:`, events.map(e => `${e.date} | ${e.type} | ${e.qty}`));
@@ -221,9 +237,11 @@ export function calculateMRPTimelines(
             // 4. Loop di Calcolo (LOGICA PURA & GLASS-BOX DEBUG)
             const materialEntries: MRPTimelineEntry[] = [];
             
-            // Calcolo Totali Assoluti (Supply e Demand reali/non simulate)
+            // Calcolo Totali Distinti (Supply, Real Demand [Jobs + Commitments], Simulated Demand)
             const totalPO = events.filter(e => e.type === 'PO').reduce((sum, e) => sum + Number(e.qty), 0);
-            const totalDemand = events.filter(e => e.type === 'DEMAND').reduce((sum, e) => sum + Math.abs(Number(e.qty)), 0);
+            const totalRealJobDemand = events.filter(e => !e.id.startsWith('VOLATILE') && (e.type === 'DEMAND' || e.type === 'COMMITMENT' || (e as any).type === 'COMMITMENT')).reduce((sum, e) => sum + Math.abs(Number(e.qty)), 0);
+            const totalSimQtyDemand = events.filter(e => e.id.startsWith('VOLATILE')).reduce((sum, e) => sum + Math.abs(Number(e.qty)), 0);
+            const totalDemand = totalRealJobDemand + totalSimQtyDemand;
 
             // Per ogni evento DEMAND (commessa), simuliamo il fabbisogno specifico
             events.forEach((currentEvent) => {
@@ -238,24 +256,24 @@ export function calculateMRPTimelines(
                 let runningBalance = initialPhysicalStock;
                 let currentBalanceAtSim = 0;
                 let coveringPODate: string | null = null;
-                let foundSim = false;
+                let foundThisEvent = false;
 
                 // Loop Cronologico per determinare stato al momento del bisogno e PO di recupero
                 for (let ev of events) {
                     runningBalance += Number(ev.qty);
                     
                     // Se l'evento è quello che stiamo analizzando (stesso ID e data)
-                    if (ev.id === currentEvent.id && ev.date === currentEvent.date && !foundSim) {
+                    if (ev.id === currentEvent.id && ev.date === currentEvent.date && !foundThisEvent) {
                         currentBalanceAtSim = runningBalance;
-                        foundSim = true;
-                    } else if (foundSim && ev.type === 'PO' && ev.date > currentEvent.date) {
+                        foundThisEvent = true;
+                    } else if (foundThisEvent && ev.type === 'PO' && ev.date > currentEvent.date) {
                         // Se siamo già passati dal bisogno ed è un PO futuro, è un potenziale recupero
                         if (!coveringPODate) coveringPODate = ev.date;
                     }
                 }
 
-                // Glass-Box Debug String
-                const dbg = ` [DBG: Stk=${initialPhysicalStock.toFixed(1)}, PO=${totalPO.toFixed(1)}, Job=${totalDemand.toFixed(1)}, Cur=${currentBalanceAtSim.toFixed(1)}, Fin=${absoluteFinalBalance.toFixed(1)}]`;
+                // Glass-Box Debug String (Updated: Explicitly show SimQty)
+                const dbg = ` [DBG: Stk=${initialPhysicalStock.toFixed(2)}, PO=${totalPO.toFixed(2)}, Job=${totalRealJobDemand.toFixed(2)}, Sim=${totalSimQtyDemand.toFixed(2)}, Cur=${currentBalanceAtSim.toFixed(2)}, Fin=${absoluteFinalBalance.toFixed(2)}]`;
 
                 let status: MRPTimelineEntry['status'] = 'RED';
                 let supplyArrivalDate: string | undefined = undefined;

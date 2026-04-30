@@ -15,33 +15,53 @@ import { convertTimestampsToDates } from '@/lib/utils';
 export const dynamic = 'force-dynamic';
 
 async function getAllRawMaterialsForSimulation() {
-    console.log("[MRP-FETCH] Inizio scaricamento globale anagrafica materiali...");
-    const materialsSnap = await adminDb.collection("rawMaterials").get();
-    console.log(`[MRP-FETCH] Scaricati ${materialsSnap.size} materiali.`);
+    console.log("[MRP-FETCH] Inizio scaricamento globale anagrafica materiali con idratazione SSoT...");
+    
+    // FETCH SSoT: Materials + Withdrawals for perfect stock parity
+    const [materialsSnap, withdrawalsSnap] = await Promise.all([
+        adminDb.collection("rawMaterials").get(),
+        adminDb.collection("materialWithdrawals").get()
+    ]);
+    
+    // Group withdrawals by materialId
+    const withdrawalsByMaterial = new Map<string, any[]>();
+    withdrawalsSnap.docs.forEach(doc => {
+        const data = doc.data();
+        const mid = data.materialId;
+        if (!mid) return;
+        if (!withdrawalsByMaterial.has(mid)) withdrawalsByMaterial.set(mid, []);
+        withdrawalsByMaterial.get(mid)!.push({ ...convertTimestampsToDates(data), id: doc.id });
+    });
+
+    // Dynamically import hydration logic to keep page clean
+    const { hydrateMaterialWithWithdrawals } = await import('@/lib/stock-logic');
     
     const materials = materialsSnap.docs.map(doc => {
         try {
-            return { 
+            const rawMat = { 
                 ...convertTimestampsToDates(doc.data()), 
                 id: doc.id 
             } as RawMaterial;
+            
+            const matWithdrawals = withdrawalsByMaterial.get(doc.id) || [];
+            
+            // HYDRATION: Apply SSoT logic to recalculate currentQuantity per batch and totalStock
+            return hydrateMaterialWithWithdrawals(rawMat, matWithdrawals);
         } catch (err) {
             console.error(`[MRP-FETCH] ERRORE idratazione materiale ${doc.id}:`, err);
-            // Fallback per evitare di droppare il materiale dall'array
-            return { id: doc.id, code: 'ERROR', currentStockUnits: 0 } as any as RawMaterial;
+            return { id: doc.id, code: 'ERROR', currentStockUnits: 0, batches: [] } as any as RawMaterial;
         }
     });
     
+    console.log(`[MRP-FETCH] Scaricati e idratati ${materials.length} materiali.`);
     return { materials };
 }
 
 export default async function AdminMrpSimulationPage() {
     const planned = await getPlannedJobOrders();
     const production = await getProductionJobOrders();
-    // We don't really need completed jobs for MRP, they are already closed, 
-    // but we can include them if mrp-utils uses them. Actually mrp-utils looks at pending BOM items.
-    const completed = await getCompletedJobOrders();
-    const allJobs = [...planned, ...production, ...completed];
+    // SOURCE OF TRUTH (SSoT): Escludiamo i completati che non impegnano più stock
+    const allJobs = [...planned, ...production];
 
     const manualCommitments = await getManualCommitments();
     const purchaseOrders = await getAllPendingPurchaseOrders();

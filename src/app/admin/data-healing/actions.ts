@@ -2,11 +2,11 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { RawMaterial, InventoryRecord, MaterialWithdrawal, JobOrder, Operator, JobPhase, Article } from '@/types';
+import { RawMaterial, InventoryRecord, MaterialWithdrawal, JobOrder, Operator, JobPhase, Article, RawMaterialBatch } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { ensureAdmin } from '@/lib/server-auth';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
-import { syncJobBOMItems } from '@/lib/inventory-utils';
+import { syncJobBOMItems, calculateInventoryMovement } from '@/lib/inventory-utils';
 import { revalidatePath } from 'next/cache';
 
 export async function emergencyRestoreStagingArea(): Promise<{ success: boolean; message: string; count: number; completedCount: number }> {
@@ -1570,6 +1570,124 @@ export async function runMassiveStockRecalculation(uid: string): Promise<{ succe
     } catch (e: any) {
         console.error("Massive recalculation error:", e);
         return { success: false, message: e.message, processed: 0 };
+    }
+}
+
+/**
+ * DATA HEALING: Inventory Batch Fix
+ * Identifies and fixes inventory batches that were created with incorrect mappings (Gross instead of Net).
+ * It reads the original inventoryRecord to get the correct weights and re-runs the movement calculation.
+ */
+export async function healCorruptedInventoryBatches(uid: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await ensureAdmin(uid);
+        const startTime = Date.now();
+        const globalSettings = await getGlobalSettings();
+        
+        // 1. Fetch all materials and inventory records
+        const [materialsSnap, inventoryRecordsSnap] = await Promise.all([
+            adminDb.collection("rawMaterials").get(),
+            adminDb.collection("inventoryRecords").get()
+        ]);
+
+        const inventoryRecordsMap = new Map<string, InventoryRecord>();
+        inventoryRecordsSnap.docs.forEach(d => {
+            inventoryRecordsMap.set(d.id, { id: d.id, ...d.data() } as InventoryRecord);
+        });
+
+        let healedLotsCount = 0;
+        const modifiedMaterialIds: string[] = [];
+        let currentBatch = adminDb.batch();
+        let opsInBatch = 0;
+
+        for (const mDoc of materialsSnap.docs) {
+            const material = mDoc.data() as RawMaterial;
+            if (!material.batches || material.batches.length === 0) continue;
+
+            const updatedBatches = JSON.parse(JSON.stringify(material.batches)) as RawMaterialBatch[];
+            let materialModified = false;
+
+            const config = globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) || {
+                id: material.type,
+                label: material.type,
+                defaultUnit: material.unitOfMeasure,
+                hasConversion: false
+            } as any;
+
+            for (const batch of updatedBatches) {
+                // Target lotti created from inventory ('Inventario')
+                if (batch.ddt === 'Inventario' && batch.inventoryRecordId) {
+                    const record = inventoryRecordsMap.get(batch.inventoryRecordId);
+                    if (!record) continue;
+
+                    // Re-calculate correct net quantity in Base UOM using the recorded netWeight (KG)
+                    const { unitsToChange } = calculateInventoryMovement(
+                        material,
+                        config,
+                        record.netWeight,
+                        'kg', // record.netWeight is the source of truth in KG
+                        true,
+                        record.lotto
+                    );
+
+                    // Check for discrepancies against the current corrupted batch data
+                    const isNetQtyWrong = Math.abs((batch.netQuantity || 0) - unitsToChange) > 0.001;
+                    const isGrossWrong = Math.abs((batch.grossWeight || 0) - (record.grossWeight || 0)) > 0.001;
+                    const isTareWrong = Math.abs((batch.tareWeight || 0) - (record.tareWeight || 0)) > 0.001;
+
+                    if (isNetQtyWrong || isGrossWrong || isTareWrong) {
+                        batch.netQuantity = unitsToChange;
+                        batch.grossWeight = record.grossWeight;
+                        batch.tareWeight = record.tareWeight;
+                        materialModified = true;
+                        healedLotsCount++;
+                    }
+                }
+            }
+
+            if (materialModified) {
+                currentBatch.update(mDoc.ref, { batches: updatedBatches });
+                modifiedMaterialIds.push(mDoc.id);
+                opsInBatch++;
+
+                if (opsInBatch >= 400) {
+                    await currentBatch.commit();
+                    currentBatch = adminDb.batch();
+                    opsInBatch = 0;
+                }
+            }
+        }
+
+        if (opsInBatch > 0) {
+            await currentBatch.commit();
+        }
+
+        // 2. SSoT Recalculation: Physically sync master stock for all affected materials
+        for (const mid of modifiedMaterialIds) {
+            await recalculateMaterialStock(mid);
+        }
+
+        // 3. Logging
+        await adminDb.collection("system_maintenance_logs").add({
+            action: 'HEAL_INVENTORY_BATCH_MAPPING',
+            executedBy: uid,
+            timestamp: new Date(),
+            totalHealedLots: healedLotsCount,
+            totalMaterialsUpdated: modifiedMaterialIds.length,
+            durationMs: Date.now() - startTime,
+            summary: `Sanatoria Mapping Inventario: Corretti ${healedLotsCount} lotti in ${modifiedMaterialIds.length} materiali.`
+        });
+
+        revalidatePath('/admin/raw-material-management');
+        revalidatePath('/admin/inventory-management');
+
+        return { 
+            success: true, 
+            message: `Sanatoria completata: ${healedLotsCount} lotti corretti e stock ricalcolato per ${modifiedMaterialIds.length} materiali.` 
+        };
+    } catch (error) {
+        console.error("Heal Inventory Batches Error:", error);
+        return { success: false, message: error instanceof Error ? error.message : "Errore durante la sanatoria." };
     }
 }
 

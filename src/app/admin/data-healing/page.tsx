@@ -25,6 +25,7 @@ import {
     alignBOMFromWithdrawalHistory,
     surgicalBOMSync,
     runMassiveStockRecalculation,
+    healCorruptedInventoryBatches,
     type GhostCommitmentAnomaly
 } from './actions';
 import { Button } from '@/components/ui/button';
@@ -137,6 +138,11 @@ export default function AdministrationDataHealingPage() {
     const [reconcileExecuting, setReconcileExecuting] = useState<string | null>(null); // Stores ID of being processed item
     const [ghostAnomalies, setGhostAnomalies] = useState<GhostCommitmentAnomaly[]>([]);
     const [reconcileStockAnomalies, setReconcileStockAnomalies] = useState<StockSyncAnomaly[]>([]);
+    
+    // New Inventory Mapping Healing State
+    const [invMapExecuting, setInvMapExecuting] = useState(false);
+    const [isInvMapModalOpen, setIsInvMapModalOpen] = useState(false);
+    const [invMapConfirmText, setInvMapConfirmText] = useState("");
 
     // --- INVENTORY LOGIC ---
     async function handleAudit() {
@@ -546,6 +552,25 @@ export default function AdministrationDataHealingPage() {
         }
     }
 
+    async function handleExecuteInventoryMappingHealing() {
+        if (!operator?.id) return;
+        setInvMapExecuting(true);
+        setIsInvMapModalOpen(false);
+        try {
+            const res = await healCorruptedInventoryBatches(operator.id);
+            if (res.success) {
+                toast({ title: "Sanatoria Mapping Completata", description: res.message });
+            } else {
+                toast({ title: "Errore Sanatoria", description: res.message, variant: "destructive" });
+            }
+        } catch (e) {
+            toast({ title: "Errore di Sistema", description: "Impossibile completare la sanatoria del mapping.", variant: "destructive" });
+        } finally {
+            setInvMapExecuting(false);
+            setInvMapConfirmText("");
+        }
+    }
+
     return (
         <AdminAuthGuard>
             <AppShell>
@@ -615,8 +640,40 @@ export default function AdministrationDataHealingPage() {
                                             Esegui Correzione Pesi
                                         </Button>
                                     )}
+
+                                    <Button 
+                                        variant="outline" 
+                                        className="border-red-600 text-red-600 hover:bg-red-50" 
+                                        onClick={() => setIsInvMapModalOpen(true)} 
+                                        disabled={loading || executing || resyncExecuting || resyncLoading || invMapExecuting}
+                                    >
+                                        {invMapExecuting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Activity className="mr-2 h-4 w-4" />}
+                                        Sanatoria Mapping Inventario (BUG FIX)
+                                    </Button>
                                 </div>
                             </div>
+
+                            <Dialog open={isInvMapModalOpen} onOpenChange={setIsInvMapModalOpen}>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle className="flex items-center text-red-600">
+                                            <AlertCircle className="mr-2 h-5 w-5" /> Sanatoria Mapping Inventario
+                                        </DialogTitle>
+                                        <DialogDescription className="py-4">
+                                            Questa azione corregge i lotti di inventario approvati con il mapping errato (Lordo salvato come Netto). 
+                                            Verranno ricalcolati i pesi corretti basandosi sui record di inventario originali.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-4">
+                                        <p className="text-sm text-muted-foreground">Digitare <span className="font-mono font-bold">FIX MAPPING</span> per procedere:</p>
+                                        <Input placeholder="FIX MAPPING" value={invMapConfirmText} onChange={(e) => setInvMapConfirmText(e.target.value)} className="uppercase font-bold" />
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="ghost" onClick={() => setIsInvMapModalOpen(false)}>Annulla</Button>
+                                        <Button variant="destructive" disabled={invMapConfirmText !== "FIX MAPPING"} onClick={handleExecuteInventoryMappingHealing}>ESEGUI FIX</Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
 
                             <Dialog open={isHealModalOpen} onOpenChange={setIsHealModalOpen}>
                                 <DialogContent className="sm:max-w-[425px]">

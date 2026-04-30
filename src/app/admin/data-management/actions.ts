@@ -43,7 +43,7 @@ async function createPhasesFromCycle(cycleId: string, templatesMap?: Map<string,
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
   const snap = await adminDb.collection("jobOrders")
-    .where("status", "in", ["planned", "IN_ATTESA", "In Pianificazione", "IN_PIANIFICAZIONE"] as any[])
+    .where("status", "in", ["planned", "IN_ATTESA", "In Pianificazione", "IN_PIANIFICAZIONE", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO", "PREP", "CONFIRMED"] as any[])
     .get();
   return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
 }
@@ -54,7 +54,8 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
             "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
             "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
             "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
-            "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED"
+            "Manca Materiale", "Problema", "Sospesa", "PRODUCTION", "PAUSED", "SUSPENDED",
+            "ATTIVO", "ACTIVE", "IN_PROGRESS", "IN_LAVORAZIONE"
         ])
         .get();
     return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
