@@ -213,7 +213,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
         await adminDb.runTransaction(async (transaction) => {
             const [docSnap, withdrawalsSnap] = await Promise.all([
                 transaction.get(materialRef),
-                adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get()
+                transaction.get(adminDb.collection("materialWithdrawals").where("materialId", "==", materialId))
             ]);
             
             if (!docSnap.exists) throw new Error('Materia prima non trovata.');
@@ -260,8 +260,11 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
 
             transaction.update(materialRef, { batches });
             
-            // SSoT SYNC
-            await recalculateMaterialStock(materialId, transaction);
+            // SSoT SYNC using prefetched data
+            await recalculateMaterialStock(materialId, transaction, {
+                material: { ...material, batches },
+                withdrawals
+            });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiornato.' };
@@ -279,9 +282,13 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     const globalSettings = await getGlobalSettings();
     try {
         await adminDb.runTransaction(async (transaction) => {
-            const mSnap = await transaction.get(materialRef);
+            const [mSnap, wSnap] = await Promise.all([
+                transaction.get(materialRef),
+                transaction.get(adminDb.collection("materialWithdrawals").where("materialId", "==", materialId))
+            ]);
             if (!mSnap.exists) throw new Error('Materia prima non trovata.');
             const material = { ...mSnap.data(), id: mSnap.id } as RawMaterial;
+            const withdrawals = wSnap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialWithdrawal));
             
             const netQty = Number(rawData.netQuantity);
             const grossWeight = Number(rawData.grossWeight || 0);
@@ -320,8 +327,11 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             
             transaction.update(materialRef, { batches: updatedBatches });
 
-            // SSoT SYNC
-            await recalculateMaterialStock(materialId, transaction);
+            // SSoT SYNC using prefetched data
+            await recalculateMaterialStock(materialId, transaction, {
+                material: { ...material, batches: updatedBatches },
+                withdrawals
+            });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiunto.' };
@@ -342,9 +352,13 @@ export async function returnMaterialToBatch(formData: FormData): Promise<{ succe
     
     try {
         await adminDb.runTransaction(async (transaction) => {
-            const docSnap = await transaction.get(materialRef);
+            const [docSnap, withdrawalsSnap] = await Promise.all([
+                transaction.get(materialRef),
+                transaction.get(adminDb.collection("materialWithdrawals").where("materialId", "==", materialId))
+            ]);
             if (!docSnap.exists) throw new Error('Materiale non trovato.');
             const material = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
+            const withdrawals = withdrawalsSnap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialWithdrawal));
             
             const batches = [...(material.batches || [])];
             const idx = batches.findIndex(b => b.id === batchId);
@@ -373,8 +387,11 @@ export async function returnMaterialToBatch(formData: FormData): Promise<{ succe
 
             transaction.update(materialRef, { batches });
 
-            // SSoT SYNC
-            await recalculateMaterialStock(materialId, transaction);
+            // SSoT SYNC using prefetched data
+            await recalculateMaterialStock(materialId, transaction, {
+                material: { ...material, batches },
+                withdrawals
+            });
         });
 
         
@@ -404,9 +421,13 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
     const materialRef = adminDb.collection("rawMaterials").doc(materialId);
     try {
         await adminDb.runTransaction(async (t) => {
-            const docSnap = await t.get(materialRef);
+            const [docSnap, withdrawalsSnap] = await Promise.all([
+                t.get(materialRef),
+                t.get(adminDb.collection("materialWithdrawals").where("materialId", "==", materialId))
+            ]);
             if (!docSnap.exists) throw new Error("Materia prima non trovata.");
             const material = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
+            const withdrawals = withdrawalsSnap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialWithdrawal));
             
             const batch = (material.batches || []).find(b => b.id === batchId);
             if (!batch) throw new Error("Lotto non trovato.");
@@ -415,8 +436,11 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             
             t.update(materialRef, { batches: updatedBatches });
 
-            // SSoT SYNC
-            await recalculateMaterialStock(materialId, t);
+            // SSoT SYNC using prefetched data
+            await recalculateMaterialStock(materialId, t, {
+                material: { ...material, batches: updatedBatches },
+                withdrawals
+            });
         });
 
         revalidatePath('/admin/raw-material-management');
@@ -724,13 +748,13 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
             const cRef = adminDb.collection("manualCommitments").doc(id);
             const uniqueMaterialIds = [...new Set(sels.map(s => s.materialId))];
             const mRefs = uniqueMaterialIds.map(mid => adminDb.collection("rawMaterials").doc(mid));
-            const withdrawalsQueries = uniqueMaterialIds.map(mid => adminDb.collection("materialWithdrawals").where("materialId", "==", mid).get());
-
+            
+            // PHASE 1: READS (using transaction.get for everything)
             const [opSnap, cSnap, mSnaps, wSnaps] = await Promise.all([
                 t.get(opRef),
                 t.get(cRef),
                 Promise.all(mRefs.map(ref => t.get(ref))),
-                Promise.all(withdrawalsQueries)
+                Promise.all(uniqueMaterialIds.map(mid => t.get(adminDb.collection("materialWithdrawals").where("materialId", "==", mid))))
             ]);
 
             if (!cSnap.exists) throw new Error("Impegno non trovato.");
@@ -738,25 +762,50 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
             const opData = opSnap.exists ? opSnap.data() as Operator : null;
 
             const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists ? snap.data() as RawMaterial : null]));
-            const wDataMap = new Map(wSnaps.map((snap, i) => [uniqueMaterialIds[i], snap.docs.map(d => d.data())]));
+            const wDataMap = new Map(wSnaps.map((snap, i) => [uniqueMaterialIds[i], snap.docs.map(d => ({ ...d.data(), id: d.id }))]));
 
-            // Keep track of updated batches in memory to pass to RMS
-            const updatedBatchesMap = new Map<string, any[]>();
+            const newWithdrawalsByMaterial = new Map<string, any[]>();
 
+            // PHASE 2: CALCULATIONS & WRITES (Collect writes)
             for (const s of sels) {
                 const m = mDataMap.get(s.materialId);
                 if (!m) throw new Error("Materia prima non trovata.");
                 let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
                 
+                const withdrawalData = { 
+                    jobOrderPFs: [c.jobOrderCode], 
+                    jobIds: [], 
+                    materialId: s.materialId, 
+                    materialCode: s.componentCode, 
+                    consumedWeight: w, 
+                    consumedUnits: s.consumed, 
+                    operatorId: uid, 
+                    operatorName: opData?.nome || 'Admin', 
+                    withdrawalDate: admin.firestore.Timestamp.now(), 
+                    lotto: s.lotto, 
+                    commitmentId: id 
+                };
+                
                 const wRef = adminDb.collection("materialWithdrawals").doc();
-                t.set(wRef, { jobOrderPFs: [c.jobOrderCode], jobIds: [], materialId: s.materialId, materialCode: s.componentCode, consumedWeight: w, consumedUnits: s.consumed, operatorId: uid, operatorName: opData?.nome || 'Admin', withdrawalDate: admin.firestore.Timestamp.now(), lotto: s.lotto, commitmentId: id });
+                t.set(wRef, withdrawalData);
+
+                if (!newWithdrawalsByMaterial.has(s.materialId)) newWithdrawalsByMaterial.set(s.materialId, []);
+                newWithdrawalsByMaterial.get(s.materialId)?.push(withdrawalData);
             }
+
             if (scrap > 0) t.set(adminDb.collection("scrapRecords").doc(), { commitmentId: id, jobOrderCode: c.jobOrderCode, articleCode: c.articleCode, scrappedQuantity: scrap, declaredAt: admin.firestore.Timestamp.now(), operatorId: uid, operatorName: opData?.nome || 'Admin' });
             t.update(cRef, { status: 'fulfilled', fulfilledAt: admin.firestore.Timestamp.now(), fulfilledBy: uid });
 
-            // SSoT SYNC FOR ALL IMPACTED MATERIALS
+            // SSoT SYNC FOR ALL IMPACTED MATERIALS (using prefetched/updated data)
             for (const mid of uniqueMaterialIds) {
-                await recalculateMaterialStock(mid, t);
+                const m = mDataMap.get(mid);
+                const originalWithdrawals = wDataMap.get(mid) || [];
+                const newWithdrawals = newWithdrawalsByMaterial.get(mid) || [];
+                
+                await recalculateMaterialStock(mid, t, {
+                    material: m as RawMaterial,
+                    withdrawals: [...originalWithdrawals, ...newWithdrawals] as MaterialWithdrawal[]
+                });
             }
         });
 
@@ -773,29 +822,36 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
         await adminDb.runTransaction(async (t) => {
             const mIds = [...new Set(ws.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
             const mRefs = mIds.map(mid => adminDb.collection("rawMaterials").doc(mid));
-            const wQueries = mIds.map(mid => adminDb.collection("materialWithdrawals").where("materialId", "==", mid).get());
-
+            
+            // PHASE 1: READS
             const [mSnaps, wSnaps] = await Promise.all([
                 Promise.all(mRefs.map(ref => t.get(ref))),
-                Promise.all(wQueries)
+                Promise.all(mIds.map(mid => t.get(adminDb.collection("materialWithdrawals").where("materialId", "==", mid))))
             ]);
 
             const mMap = new Map(mSnaps.map(s => [s.id, s.exists ? s.data() as RawMaterial : null]));
-            const wMap = new Map(wSnaps.map((s, i) => [mIds[i], s.docs.map(d => d.data())]));
+            const wMap = new Map(wSnaps.map((s, i) => [mIds[i], s.docs.map(d => ({ ...d.data(), id: d.id }))]));
             
-            // Track updated batches in memory
-            const updatedBatchesMap = new Map<string, any[]>();
+            // PHASE 2: WRITES
+            const withdrawalIdsToRemove = new Set(ws.docs.map(d => d.id));
 
             for (const wd of ws.docs) {
-                const w = wd.data() as MaterialWithdrawal;
                 t.delete(wd.ref);
             }
             ss.forEach(d => t.delete(d.ref));
             t.update(adminDb.collection("manualCommitments").doc(id), { status: 'pending', fulfilledAt: admin.firestore.FieldValue.delete(), fulfilledBy: admin.firestore.FieldValue.delete() });
 
-            // SSoT SYNC FOR ALL IMPACTED MATERIALS
+            // SSoT SYNC FOR ALL IMPACTED MATERIALS (using prefetched data minus the deleted ones)
             for (const mid of mIds) {
-                await recalculateMaterialStock(mid, t);
+                const m = mMap.get(mid);
+                const currentWithdrawals = wMap.get(mid) || [];
+                // Filter out the withdrawals we are currently deleting in the transaction
+                const remainingWithdrawals = currentWithdrawals.filter(w => !withdrawalIdsToRemove.has(w.id));
+                
+                await recalculateMaterialStock(mid, t, {
+                    material: m as RawMaterial,
+                    withdrawals: remainingWithdrawals as MaterialWithdrawal[]
+                });
             }
         });
 
@@ -869,16 +925,17 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
     
     try {
         await adminDb.runTransaction(async (transaction) => {
+            // FASE 1: SOLO LETTURE
             const [mSnap, wSnap] = await Promise.all([
                 transaction.get(materialRef),
-                adminDb.collection('materialWithdrawals').where('materialId', '==', materialId).get()
+                transaction.get(adminDb.collection('materialWithdrawals').where('materialId', '==', materialId))
             ]);
 
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = { ...mSnap.data(), id: mSnap.id } as RawMaterial;
             const withdrawals = wSnap.docs.map(d => ({ ...d.data(), id: d.id } as MaterialWithdrawal));
 
-            // 1. Calculate current SSoT Stock
+            // LOGICA DI CALCOLO IN MEMORIA
             const hydrated = hydrateMaterialWithWithdrawals(material, withdrawals);
             const currentUnits = hydrated.currentStockUnits;
             let delta = newStockUnits - currentUnits;
@@ -887,6 +944,9 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
 
             const factor = (material.unitOfMeasure === 'mt' ? material.rapportoKgMt : material.conversionFactor) || 1;
             const now = admin.firestore.Timestamp.now();
+
+            const newWithdrawalDocs: any[] = [];
+            let updatedBatches = [...(material.batches || [])];
 
             if (delta < 0) {
                 // --- DECREASE: FIFO ---
@@ -901,8 +961,7 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
                     const available = b.currentQuantity || 0;
                     const toSubtract = Math.min(available, remainingToSubtract);
                     
-                    const wRef = adminDb.collection('materialWithdrawals').doc();
-                    transaction.set(wRef, {
+                    newWithdrawalDocs.push({
                         materialId,
                         materialCode: material.code,
                         consumedUnits: toSubtract,
@@ -928,8 +987,7 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
                     const toAdd = Math.min(room, remainingToAdd);
                     
                     if (toAdd > 0.001) {
-                        const wRef = adminDb.collection('materialWithdrawals').doc();
-                        transaction.set(wRef, {
+                        newWithdrawalDocs.push({
                             materialId,
                             materialCode: material.code,
                             consumedUnits: -toAdd, // Negative = Restore
@@ -946,16 +1004,17 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
 
                 // --- FALLBACK: Excess goes to newest batch ---
                 if (remainingToAdd > 0.001) {
-                    const batches = [...(material.batches || [])];
-                    if (batches.length > 0) {
-                        batches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                        const newest = batches[0];
+                    if (updatedBatches.length > 0) {
+                        updatedBatches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                        const newest = { ...updatedBatches[0] };
                         newest.netQuantity = Number(((newest.netQuantity || 0) + remainingToAdd).toFixed(3));
                         
                         const addedWeight = material.unitOfMeasure === 'kg' ? remainingToAdd : remainingToAdd * factor;
                         newest.grossWeight = Number(((newest.grossWeight || 0) + addedWeight).toFixed(3));
                         
-                        transaction.update(materialRef, { batches });
+                        // Replace the newest batch in our memory-updated list
+                        const newestIdx = updatedBatches.findIndex(b => b.id === newest.id);
+                        updatedBatches[newestIdx] = newest;
                     } else {
                         // Emergency: Create first batch if none exist
                         const newBatch: RawMaterialBatch = {
@@ -967,13 +1026,28 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
                             tareWeight: 0,
                             lotto: 'INIZIALE'
                         };
-                        transaction.update(materialRef, { batches: [newBatch] });
+                        updatedBatches = [newBatch];
                     }
                 }
             }
 
-            // 4. Atomic Sync
-            await recalculateMaterialStock(materialId, transaction);
+            // FASE 2: SOLO SCRITTURE
+            for (const docData of newWithdrawalDocs) {
+                const wRef = adminDb.collection('materialWithdrawals').doc();
+                transaction.set(wRef, docData);
+            }
+
+            if (updatedBatches !== material.batches) {
+                transaction.update(materialRef, { batches: updatedBatches });
+            }
+
+            // 4. Atomic Sync (using prefetched/calculated data to avoid reads-after-writes)
+            const finalWithdrawals = [...withdrawals, ...newWithdrawalDocs];
+            const finalMaterial = { ...material, batches: updatedBatches };
+            await recalculateMaterialStock(materialId, transaction, {
+                material: finalMaterial,
+                withdrawals: finalWithdrawals as MaterialWithdrawal[]
+            });
         });
 
         revalidatePath('/admin/raw-material-management');
