@@ -69,7 +69,24 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     });
 
     const groupSnap = await groupRef.get();
+    
+    // TROVA TUTTE le commesse orfane che puntano ancora a questo gruppo
+    const orphanedJobsSnap = await adminDb.collection('jobOrders').where('workGroupId', '==', groupId).get();
+    const orphanedJobs = orphanedJobsSnap.docs;
+
     if (!groupSnap.exists) {
+        // Se il gruppo non esiste più, ma ci sono commesse orfane, le puliamo
+        if (orphanedJobs.length > 0) {
+            const batch = adminDb.batch();
+            orphanedJobs.forEach(docSnap => {
+                batch.update(docSnap.ref, {
+                    workGroupId: admin.firestore.FieldValue.delete(),
+                    isGrouped: false
+                });
+            });
+            await batch.commit();
+            return { success: true, message: "Gruppo non trovato, ma commesse orfane ripristinate con successo." };
+        }
         return { success: false, message: "Gruppo di lavoro non trovato." };
     }
     const gDataRaw = groupSnap.data() as WorkGroup;
@@ -95,7 +112,9 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     if (gDataRaw?.overallEndTime?.toDate) gDataRaw.overallEndTime = gDataRaw.overallEndTime.toDate();
     
     const gData = gDataRaw;
-    const jobOrderIds = gData.jobOrderIds || [];
+    
+    // Uniamo gli ID nel documento con eventuali orfani trovati da query
+    const jobOrderIds = Array.from(new Set([...(gData.jobOrderIds || []), ...orphanedJobs.map(d => d.id)]));
 
     if (jobOrderIds.length === 0) {
         await groupRef.delete();
@@ -233,6 +252,7 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
             
             transaction.update(job.ref, cleanUndefined({ 
                 workGroupId: admin.firestore.FieldValue.delete(),
+                isGrouped: false,
                 phases: finalJobPhases,
                 status: finalJobStatus,
                 overallStartTime: gTx.overallStartTime || job.overallStartTime || null,

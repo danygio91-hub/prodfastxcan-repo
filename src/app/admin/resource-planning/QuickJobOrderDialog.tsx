@@ -78,10 +78,21 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
                 const jobsSnap = await getDocs(jobsQuery);
                 const jobs = jobsSnap.docs.map(d => convertTimestampsToDates(d.data()) as JobOrder);
                 setJobsInGroup(jobs);
+            } else {
+                // FALLBACK: Se il gruppo non esiste più, ignora l'errore e comportati come se fosse una commessa singola.
+                // Aggiorniamo localJob togliendo il riferimento orfano per permettere il rendering normale
+                console.warn(`Gruppo ${groupId} non trovato. Commessa considerata singola.`);
+                setWorkGroup(null);
+                setJobsInGroup([]);
+                setLocalJob(prev => prev ? { ...prev, workGroupId: null, isGrouped: false } : null);
+                toast({ title: "Scollegamento rilevato", description: "Il gruppo originale non esiste più. La commessa è ora gestibile singolarmente.", variant: "default" });
             }
         } catch (error) {
             console.error("Error loading group data:", error);
-            toast({ variant: "destructive", title: "Errore", description: "Impossibile caricare i dati del gruppo." });
+            // In caso di vero errore di rete/permessi, proviamo comunque a sbloccare
+            setWorkGroup(null);
+            setLocalJob(prev => prev ? { ...prev, workGroupId: null, isGrouped: false } : null);
+            toast({ variant: "destructive", title: "Attenzione", description: "Impossibile caricare i dati del gruppo. Modalità singola forzata." });
         } finally {
             setIsLoading(false);
         }
