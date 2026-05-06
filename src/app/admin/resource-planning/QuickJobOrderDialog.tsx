@@ -55,8 +55,15 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
     const [analysisDataMap, setAnalysisDataMap] = useState<Map<string, ProductionTimeData | null>>(new Map());
     const [isAnalysisLoading, setIsAnalysisLoading] = useState<Set<string>>(new Set());
 
+    // BUG 2 FIX: Manteniamo uno stato locale per forzare il re-render istantaneo delle singole commesse
+    const [localJob, setLocalJob] = useState<JobOrder | null>(null);
+
     // Fasi modificabili (per PhaseManager)
     const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
+
+    useEffect(() => {
+        setLocalJob(job);
+    }, [job]);
 
     const loadGroupData = useCallback(async (groupId: string) => {
         setIsLoading(true);
@@ -96,8 +103,21 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
         if (res.success) {
             toast({ title: "Successo", description: res.message });
             if (onActionSuccess) onActionSuccess();
+            
             // Aggiorna dati locali se gruppo
-            if (job?.workGroupId) loadGroupData(job.workGroupId);
+            if (localJob?.workGroupId) {
+                loadGroupData(localJob.workGroupId);
+            } else if (localJob?.id) {
+                // Aggiorna dati locali per commessa singola per rimuovere alert visivi
+                try {
+                    const jobDoc = await getDoc(doc(db, "jobOrders", localJob.id));
+                    if (jobDoc.exists()) {
+                        setLocalJob(convertTimestampsToDates(jobDoc.data()) as JobOrder);
+                    }
+                } catch (e) {
+                    console.error("Errore aggiornamento commessa:", e);
+                }
+            }
         } else {
             toast({ variant: "destructive", title: "Errore", description: res.message });
         }
@@ -116,17 +136,17 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
         }
     };
 
-    if (!job && !isLoading) return null;
+    if (!localJob && !isLoading) return null;
 
-    const isGroupMode = !!job?.workGroupId && !!workGroup;
-    const currentItem = isGroupMode ? workGroup! : job!;
+    const isGroupMode = !!localJob?.workGroupId && !!workGroup;
+    const currentItem = isGroupMode ? workGroup! : localJob!;
 
     return (
         <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-slate-950 border-slate-800 text-slate-100">
                 <DialogHeader className="flex flex-row items-center justify-between border-b border-slate-800 pb-4 mb-4">
                     <DialogTitle className="text-xl font-black uppercase tracking-tighter">
-                        {isGroupMode ? `Console Gruppo: ${workGroup?.id}` : `Console Commessa: ${job?.ordinePF}`}
+                        {isGroupMode ? `Console Gruppo: ${workGroup?.id}` : `Console Commessa: ${localJob?.ordinePF}`}
                     </DialogTitle>
                     <Button 
                         variant="outline" 
@@ -135,7 +155,7 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
                         onClick={() => {
                             const url = isGroupMode 
                                 ? `/admin/production-console?groupId=${workGroup?.id}` 
-                                : `/admin/production-console?ordinePF=${job?.ordinePF}&status=all`;
+                                : `/admin/production-console?ordinePF=${localJob?.ordinePF}&status=all`;
                             router.push(url);
                             onClose();
                         }}
@@ -176,15 +196,15 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
                             />
                         ) : (
                             <JobOrderCard 
-                                jobOrder={job!} 
+                                jobOrder={localJob!} 
                                 allOperators={cachedOperators}
                                 isSelected={false}
                                 onSelect={() => {}}
-                                overallStatus={getDerivedJobStatus(job!)}
-                                analysisData={analysisDataMap.get(job!.id)}
-                                isAnalysisLoading={isAnalysisLoading.has(job!.id)}
-                                onFetchAnalysis={() => handleFetchAnalysis(job!)}
-                                onProblemClick={() => handleAction(() => resolveJobProblem(job!.id, user!.uid))}
+                                overallStatus={getDerivedJobStatus(localJob!)}
+                                analysisData={analysisDataMap.get(localJob!.id)}
+                                isAnalysisLoading={isAnalysisLoading.has(localJob!.id)}
+                                onFetchAnalysis={() => handleFetchAnalysis(localJob!)}
+                                onProblemClick={() => handleAction(() => resolveJobProblem(localJob!.id, user!.uid))}
                                 onForceFinishClick={(id) => handleAction(() => forceFinishProduction(id, user?.uid))}
                                 onRevertForceFinishClick={(id) => handleAction(() => revertForceFinish(id, user?.uid))}
                                 onToggleGuainaClick={(id, pid, state) => handleAction(() => toggleGuainaPhasePosition(id, pid, state))}

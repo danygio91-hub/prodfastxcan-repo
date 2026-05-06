@@ -559,7 +559,34 @@ export default function WeeklyCapacityBoard({
                                         // 1. DATA DI RIFERIMENTO DINAMICA (effectiveBoardDate)
                                         let referenceDate: Date | null = null;
 
-                                        if (isClosed) {
+                                        // BUG 1 FIX: Se siamo nel tab PREPARAZIONE e la preparazione è COMPLETATA, ancoriamo alla data effettiva
+                                        if (dept.id === 'PREP' && isMacroAreaCompleted(job, 'preparation')) {
+                                            let prepCompleteTime: Date | null = null;
+                                            const prepPhases = job.phases?.filter(p => p.type === 'preparation') || [];
+                                            for (const p of prepPhases) {
+                                                for (const wp of (p.workPeriods || [])) {
+                                                    if (wp.end) {
+                                                        const d = (wp.end && typeof wp.end === 'object' && 'seconds' in wp.end)
+                                                            ? new Date(wp.end.seconds * 1000)
+                                                            : new Date(wp.end);
+                                                        if (!prepCompleteTime || d > prepCompleteTime) {
+                                                            prepCompleteTime = d;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            if (prepCompleteTime) {
+                                                referenceDate = prepCompleteTime;
+                                            } else if (isClosed && job.overallEndTime) {
+                                                const rawEnd = job.overallEndTime;
+                                                referenceDate = (rawEnd && typeof rawEnd === 'object' && 'seconds' in rawEnd)
+                                                    ? new Date(rawEnd.seconds * 1000)
+                                                    : new Date(rawEnd);
+                                            } else if (job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D') {
+                                                referenceDate = parseRobustDate(job.dataConsegnaFinale);
+                                            }
+                                        } else if (isClosed) {
                                             if (job.overallEndTime) {
                                                 const rawEnd = job.overallEndTime;
                                                 referenceDate = (rawEnd && typeof rawEnd === 'object' && 'seconds' in rawEnd)
