@@ -167,32 +167,23 @@ export default function MrpSimulationClientPage({
 
         const timelines = calculateMRPTimelines(jobsWithSimulation, initialMaterials, purchaseOrders, manualCommitments, downloadedArticles, globalSettings);
         
-        validRows.forEach((row, index) => {
-             const article = validArticles.find(a => a.code === row.articleCode);
-             if (!article) return;
-             const volatileJobId = `VOLATILE-SIMULATION-JOB-${index}`;
+        // Aggregazione finale per la UI: Raccogliamo tutte le entries dei materiali coinvolti nella simulazione
+        timelines.forEach((matTimeline, matCode) => {
+            const volatileEntries = matTimeline.filter(t => t.jobId.startsWith('VOLATILE'));
+            if (volatileEntries.length > 0) {
+                // Recupera un item BOM rappresentativo per metadati (UoM)
+                // Cerchiamo negli articoli scaricati quello che usa questo materiale
+                const repItem = downloadedArticles
+                    .flatMap(a => a.billOfMaterials || [])
+                    .find(i => i.component.toUpperCase().trim() === matCode);
 
-             article.billOfMaterials.forEach(item => {
-                const matCode = item.component.toUpperCase().trim();
-                const matTimeline = timelines.get(matCode) || [];
-                const entryForSim = matTimeline.find(t => t.jobId === volatileJobId);
-                
-                if (entryForSim) {
-                    componentEntries.push({ entry: entryForSim, item });
-                } else {
-                    componentEntries.push({
-                        entry: {
-                            jobId: volatileJobId,
-                            materialCode: matCode,
-                            requiredQty: 0,
-                            status: 'RED',
-                            projectedBalance: 0,
-                            details: ['Materiale non trovato in anagrafica.']
-                        },
-                        item
+                volatileEntries.forEach(entry => {
+                    componentEntries.push({ 
+                        entry, 
+                        item: repItem || { component: matCode, unit: '?' } 
                     });
-                }
-            });
+                });
+            }
         });
 
         return aggregateMRPRequirements(componentEntries);

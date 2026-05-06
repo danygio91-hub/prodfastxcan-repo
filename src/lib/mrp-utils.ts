@@ -11,6 +11,8 @@ export interface MRPTimelineEntry {
     projectedBalance: number;
     supplyArrivalDate?: string; 
     details: string[]; 
+    totalSimQty?: number; // SSoT: Fabbisogno Totale Simulato (Engine Source)
+    totalPO?: number;     // SSoT: Totale Ordini d'Acquisto Pendenti
 }
 
 /**
@@ -283,33 +285,29 @@ export function calculateMRPTimelines(
 
                 if (currentBalanceAtSim >= -0.001) {
                     // COPERTO (Green o Amber)
-                    if (initialPhysicalStock - (totalDemand - runningBalance + currentBalanceAtSim) >= simQty - 0.001) {
-                        // Nota: La logica semplificata dell'utente dice "physicalStock >= simQty" 
-                        // ma dobbiamo considerare anche le demand precedenti cronologicamente.
-                        // Usiamo comunque la versione pura dell'utente per aderenza alla richiesta.
-                        if (initialPhysicalStock >= simQty) {
-                            status = 'GREEN';
-                            details.push("✅ DISPONIBILE (Stock fisico)." + dbg);
-                        } else {
-                            status = 'AMBER';
-                            const lastPO = [...events].filter(e => e.type === 'PO' && e.date <= currentEvent.date).pop();
-                            supplyArrivalDate = lastPO?.date;
-                            details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT') : 'N/D'}.` + dbg);
-                        }
-                    } else {
-                        // Fallback AMBER se coperto cronologicamente ma non da stock iniziale
+                    const demandAlreadyMet = totalDemand - runningBalance + currentBalanceAtSim;
+                    if (initialPhysicalStock - demandAlreadyMet >= simQty - 0.001) {
+                        status = 'GREEN';
+                        details.push("✅ DISPONIBILE (Stock fisico)." + dbg);
+                    } else if (totalPO > 0.001) {
+                        // AMBER solo se esiste effettivamente un PO a copertura
                         status = 'AMBER';
                         const lastPO = [...events].filter(e => e.type === 'PO' && e.date <= currentEvent.date).pop();
                         supplyArrivalDate = lastPO?.date;
-                        details.push(`🟡 COPERTO DA ORDINE: In arrivo prima del fabbisogno.` + dbg);
+                        details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT') : 'N/D'}.` + dbg);
+                    } else {
+                        // BUG 2 Fix: Se non ci sono PO e lo stock iniziale non basta, è MANCANTE
+                        status = 'RED';
+                        details.push("❌ MANCANTE: Stock fisico insufficiente e nessun ordine pendente." + dbg);
                     }
                 } else {
-                    // È negativo al momento del bisogno. Il bilancio finale assoluto lo salva?
-                    if (absoluteFinalBalance >= -0.001) {
+                    // È negativo al momento del bisogno.
+                    if (absoluteFinalBalance >= -0.001 && totalPO > 0.001) {
                          status = 'LATE';
                          supplyArrivalDate = coveringPODate || undefined;
                          details.push(`🟠 IN RITARDO: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT') : 'futuro'}.` + dbg);
                     } else {
+                         // Se non ci sono PO o il bilancio finale è comunque negativo
                          status = 'RED';
                          details.push("❌ MANCANTE: Stock e ordini totali insufficienti." + dbg);
                     }
@@ -322,7 +320,9 @@ export function calculateMRPTimelines(
                     status,
                     projectedBalance: currentBalanceAtSim,
                     supplyArrivalDate,
-                    details
+                    details,
+                    totalSimQty: totalSimQtyDemand,
+                    totalPO: totalPO
                 });
 
                 if (matCode === '50X005X33FR' || matCode === '100X020TUBFR') {
@@ -376,10 +376,16 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
         // Estrazione Glass-Box Debug dall'entry rappresentativa (se presente)
         const debugString = repEntry.details.find(d => d.includes('[DBG:'))?.match(/\[DBG:[^\]]+\]/)?.[0] || '';
 
+        // BUG 1 Fix: Usa direttamente totalSimQty se disponibile (Single Source of Truth dall'Engine)
+        // Se non disponibile (es. righe non simulate), usa la somma calcolata
+        const displayQty = (repEntry.totalSimQty !== undefined && repEntry.jobId.startsWith('VOLATILE')) 
+            ? repEntry.totalSimQty 
+            : totalQty;
+
         // Ricostruisci i dettagli aggregati
         const unit = repItem.unitOfMeasure || '';
         const newDetails: string[] = [];
-        newDetails.push(`Fabbisogno Totale: ${totalQty.toFixed(2)} ${unit}`);
+        newDetails.push(`Fabbisogno Totale: ${displayQty.toFixed(2)} ${unit}`);
         
         if (finalStatus === 'RED') {
             newDetails.push(`❌ MANCANTE: Stock e ordini totali insufficienti. ${debugString}`);
