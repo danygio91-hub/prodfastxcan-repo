@@ -186,7 +186,24 @@ export default function MrpSimulationClientPage({
             }
         });
 
-        return aggregateMRPRequirements(componentEntries);
+        const aggregated = aggregateMRPRequirements(componentEntries);
+
+        // UI ENHANCEMENT: Smart Sorting (RED > LATE/AMBER > GREEN)
+        const statusWeight: Record<string, number> = { RED: 1, LATE: 2, AMBER: 2, GREEN: 3 };
+        
+        aggregated.sort((a, b) => {
+            const weightA = statusWeight[a.entry.status] || 99;
+            const weightB = statusWeight[b.entry.status] || 99;
+            
+            if (weightA !== weightB) {
+                return weightA - weightB; // Ordina per criticità decrescente (1 è più critico)
+            }
+            
+            // Fallback: Ordine Alfabetico per Codice Materiale
+            return (a.entry.materialCode || '').localeCompare(b.entry.materialCode || '');
+        });
+
+        return aggregated;
     }, [rows, validArticles, allJobs, initialMaterials, purchaseOrders, manualCommitments, downloadedArticles, globalSettings]);
 
     const handleSaveDraft = async () => {
