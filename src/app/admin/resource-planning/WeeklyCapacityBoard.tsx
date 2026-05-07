@@ -230,36 +230,8 @@ export default function WeeklyCapacityBoard({
     ];
 
     const getJobLoadInDept = (job: JobOrder, deptId: string) => {
-        const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
-        if (!article) return 0;
-
-        const phaseTimes = article.phaseTimes || {};
-        const activeTemplates = phaseTemplates.filter(t => phaseTimes[t.id]?.enabled !== false && (phaseTimes[t.id]?.expectedMinutesPerPiece || 0) > 0);
-
-        let relevantTemplates = [];
-        if (deptId === 'PREP') {
-            relevantTemplates = activeTemplates.filter(t => t.type === 'preparation');
-        } else if (deptId === 'PACK') {
-            relevantTemplates = activeTemplates.filter(t => t.type === 'quality' || t.type === 'packaging');
-        } else {
-            relevantTemplates = activeTemplates.filter(t => t.type === 'production');
-            
-            const jobDept = job.department?.toUpperCase() || '';
-            const targetDept = departments.find(d => d.id === deptId);
-            const dCode = targetDept?.code?.toUpperCase() || '';
-            const dName = targetDept?.name?.toUpperCase() || '';
-            const dId = deptId.toUpperCase();
-            
-            const isMatchingDept = jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
-            if (!isMatchingDept) return 0;
-        }
-
-        const totalMins = relevantTemplates.reduce((acc, t) => {
-            const time = phaseTimes[t.id].expectedMinutesPerPiece || 0;
-            return acc + (time * job.qta);
-        }, 0);
-
-        return totalMins / 60;
+        const macroArea = deptId === 'PREP' ? 'PREP' : deptId === 'PACK' ? 'PACK' : 'CORE';
+        return getJobMRPData(job, deptId, macroArea, articles, phaseTemplates).expected;
     };
 
     const isMacroAreaCompleted = (job: JobOrder, type: 'preparation' | 'production' | 'quality_pack') => {
@@ -665,7 +637,10 @@ export default function WeeklyCapacityBoard({
                                         return jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
                                     });
 
-                                    const totalLoad = weekJobs.reduce((acc, job) => acc + getJobRemainingLoadInDept(job, dept.id, articles, phaseTemplates), 0);
+                                    const totalLoad = weekJobs.reduce((acc, job) => {
+                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
+                                        return acc + getJobMRPData(job, dept.id, macroArea, articles, phaseTemplates).residual;
+                                    }, 0);
                                     const isOverloaded = capacityHours > 0 && totalLoad > capacityHours;
 
                                     return (
@@ -729,6 +704,9 @@ export default function WeeklyCapacityBoard({
                                                     const isA = isMatch(job);
                                                     const isActive = isA && matchingJobs[activeResultIndex]?.id === job.id;
                                                     
+                                                    const cardMacroArea = dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE');
+                                                    const mrpData = getJobMRPData(job, dept.id, cardMacroArea, articles, phaseTemplates);
+
                                                     return (
                                                         <div 
                                                             key={job.id}
@@ -741,8 +719,9 @@ export default function WeeklyCapacityBoard({
                                                         >
                                                             <JobCompactCard 
                                                                 job={job} 
-                                                                load={getJobRemainingLoadInDept(job, dept.id, articles, phaseTemplates)}
-                                                                totalLoad={getJobLoadInDept(job, dept.id)}
+                                                                load={mrpData.residual}
+                                                                fatte={mrpData.done}
+                                                                totalLoad={mrpData.expected}
                                                                 onAdvance={() => onStatusAdvance(job.id)}
                                                                 onToggleExclude={async (val) => {
                                                                     const res = await toggleExcludeFromPackingList(job.id, val);
@@ -774,46 +753,125 @@ export default function WeeklyCapacityBoard({
     );
 }
 
-function getJobRemainingLoadInDept(job: JobOrder, deptId: string, articles: Article[], phaseTemplates: WorkPhaseTemplate[]) {
-    const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
-    if (!article) return 0;
+export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' | 'CORE' | 'PACK', articles: Article[], phaseTemplates: WorkPhaseTemplate[]) {
+    const article = articles.find(a => a.code?.trim().toUpperCase() === job.details?.trim().toUpperCase());
+    if (!article) return { residual: 0, done: 0, expected: 0 };
     
     const phaseTimes = article.phaseTimes || {};
-    const deptPhases = phaseTemplates.filter(t => t.departmentCodes.includes(deptId));
     
-    const remainingMins = deptPhases.reduce((acc, t) => {
-        const pt = phaseTimes[t.id];
-        const jobPhase = (job.phases || []).find(p => p.name === t.name);
-        const isCompleted = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
-        
-        if (isCompleted || pt?.enabled === false || !(pt?.expectedMinutesPerPiece > 0)) {
-            return acc;
+    let deptPhases = phaseTemplates.filter(t => t.departmentCodes.includes(deptId));
+    if (macroArea === 'PREP') {
+        deptPhases = phaseTemplates.filter(t => t.type === 'preparation');
+    } else if (macroArea === 'PACK') {
+        deptPhases = phaseTemplates.filter(t => t.type === 'quality' || t.type === 'packaging');
+    } else {
+        deptPhases = phaseTemplates.filter(t => t.type === 'production' && t.departmentCodes.includes(deptId));
+    }
+
+    let totalExpected = 0;
+    let totalDone = 0;
+    let totalResidual = 0;
+
+    const jobStatus = job.status?.toUpperCase() || '';
+    const derivedStatus = getDerivedJobStatus(job) || '';
+    const isActuallyClosed = derivedStatus === 'CHIUSO' || jobStatus === 'CHIUSO' || jobStatus === 'COMPLETATA';
+
+    const isInPrep = ['IN_PREPARAZIONE', 'IN PREPARAZIONE', 'IN PREP.', 'IN PREP'].includes(jobStatus);
+    const isProntoProd = ['PRONTO_PROD', 'PRONTO PROD', 'PRONTO PROD.', 'PRONTO PER PRODUZIONE'].includes(jobStatus);
+    const isInProd = ['IN_PRODUZIONE', 'IN PRODUZIONE', 'IN PROD.', 'LAVORAZIONE', 'IN LAVORAZIONE', 'PRODUCTION'].includes(jobStatus);
+    const isFinal = ['FINE_PRODUZIONE', 'FINE PRODUZIONE', 'FINE PROD.', 'QLTY_PACK', 'QLTY PACK', 'QLTY & PACK', 'PRONTO PER FINITURA', 'PRONTO'].includes(jobStatus) || isActuallyClosed;
+
+    let logicalState = 'A'; 
+    if (isInPrep) logicalState = 'B';
+    else if (isProntoProd) logicalState = 'C';
+    else if (isInProd) logicalState = 'D';
+    else if (isFinal) logicalState = 'E';
+
+    deptPhases.forEach(t => {
+        const pt = phaseTimes[t.id] || phaseTimes[t.name];
+        if (!pt || pt.enabled === false || !(pt.expectedMinutesPerPiece > 0)) {
+            return;
         }
 
-        const targetTotalMins = pt.expectedMinutesPerPiece * job.qta;
+        const safeTarget = pt.expectedMinutesPerPiece || 0;
+        const expectedMins = safeTarget * (job.qta || 0);
+        totalExpected += expectedMins;
 
-        if (jobPhase && (jobPhase.status === 'in-progress' || jobPhase.status === 'paused')) {
-            const realTimeMs = (jobPhase.workPeriods || []).reduce((sum, wp) => {
+        const jobPhase = (job.phases || []).find(p => p.name === t.name);
+        let realTimeMins = 0;
+
+        if (jobPhase && jobPhase.workPeriods) {
+            const realTimeMs = jobPhase.workPeriods.reduce((sum, wp) => {
                 if (!wp.start || !wp.end) return sum;
                 const start = (typeof wp.start === 'object' && 'seconds' in wp.start) ? new Date(wp.start.seconds * 1000) : new Date(wp.start as string);
                 const end = (typeof wp.end === 'object' && 'seconds' in wp.end) ? new Date(wp.end.seconds * 1000) : new Date(wp.end as string);
                 const diff = end.getTime() - start.getTime();
                 return diff > 0 ? sum + diff : sum;
             }, 0);
-            
-            const realTotalMins = realTimeMs / 60000;
-            return acc + Math.max(0, targetTotalMins - realTotalMins);
+            realTimeMins = realTimeMs / 60000;
         }
 
-        return acc + targetTotalMins;
-    }, 0);
+        if (logicalState === 'A') {
+            totalDone += 0;
+            totalResidual += expectedMins;
+        } 
+        else if (logicalState === 'B') {
+            if (macroArea === 'PREP') {
+                totalDone += realTimeMins;
+                totalResidual += Math.max(0, expectedMins - realTimeMins);
+            } else {
+                totalDone += 0;
+                totalResidual += expectedMins;
+            }
+        }
+        else if (logicalState === 'C') {
+            if (macroArea === 'PREP') {
+                totalDone += (realTimeMins > 0 ? realTimeMins : expectedMins);
+                totalResidual += 0;
+            } else {
+                totalDone += 0;
+                totalResidual += expectedMins;
+            }
+        }
+        else if (logicalState === 'D') {
+            if (macroArea === 'PREP') {
+                totalDone += (realTimeMins > 0 ? realTimeMins : expectedMins);
+                totalResidual += 0;
+            } else if (macroArea === 'CORE') {
+                totalDone += realTimeMins;
+                totalResidual += Math.max(0, expectedMins - realTimeMins);
+            } else {
+                totalDone += 0;
+                totalResidual += expectedMins;
+            }
+        }
+        else if (logicalState === 'E') {
+            if (macroArea === 'PREP' || macroArea === 'CORE') {
+                totalDone += (realTimeMins > 0 ? realTimeMins : expectedMins);
+                totalResidual += 0;
+            } else if (macroArea === 'PACK') {
+                if (isActuallyClosed || jobPhase?.status === 'completed') {
+                    totalDone += (realTimeMins > 0 ? realTimeMins : expectedMins);
+                    totalResidual += 0;
+                } else {
+                    totalDone += realTimeMins;
+                    totalResidual += Math.max(0, expectedMins - realTimeMins);
+                }
+            }
+        }
+    });
 
-    return remainingMins / 60;
+    return {
+        residual: isNaN(totalResidual) ? 0 : totalResidual / 60,
+        done: isNaN(totalDone) ? 0 : totalDone / 60,
+        expected: isNaN(totalExpected) ? 0 : totalExpected / 60
+    };
 }
 
 function JobCompactCard(props: { 
     job: JobOrder, 
     load: number, 
+    fatte: number,
     onAdvance: () => void, 
     onToggleExclude: (val: boolean) => void | Promise<void>,
     onQuickView: () => void,
@@ -828,7 +886,7 @@ function JobCompactCard(props: {
     globalSettings: any
 }) {
     const { 
-        job, load, onAdvance, onToggleExclude, onQuickView, onClick, 
+        job, load, fatte, onAdvance, onToggleExclude, onQuickView, onClick, 
         macroArea, semaphoreStatus, isTechnicalDelay, totalLoad, 
         linkedODLs = [], rawMaterials, mrpTimelines, globalSettings 
     } = props;
@@ -1032,14 +1090,18 @@ function JobCompactCard(props: {
                     {job.qta} PZ
                 </Badge>
 
-                <div className="flex items-center gap-1.5 px-2 h-7 bg-blue-600/10 border border-blue-500/20 rounded-lg shrink-0 min-w-[65px] justify-center">
-                    <Timer className="h-3 w-3 text-blue-400" />
-                    <span className="text-[10px] font-black text-blue-300">
-                        {load.toFixed(1)}h
-                        {totalLoad > load && (
-                             <span className="text-slate-500 ml-1 font-bold">/ {totalLoad.toFixed(1)}</span>
-                        )}
-                    </span>
+                <div className="flex flex-col items-end justify-center px-2 py-1 bg-blue-600/10 border border-blue-500/20 rounded-lg shrink-0 min-w-[90px]">
+                    <div className="flex items-center gap-1.5">
+                        <Timer className="h-3 w-3 text-blue-400" />
+                        <span className="text-[10px] font-black text-blue-300 uppercase tracking-tight">
+                            Residuo: {load.toFixed(1)}h
+                        </span>
+                    </div>
+                    {totalLoad > 0 && (
+                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter mt-0.5">
+                            Fatte: {fatte.toFixed(1)}h / Prev: {totalLoad.toFixed(1)}h
+                        </span>
+                    )}
                 </div>
 
                 <Button 
