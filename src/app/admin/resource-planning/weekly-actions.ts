@@ -355,7 +355,7 @@ export async function getWeeklyBoardData(year: number, week: number) {
 export async function getPlanningWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
     try {
         const snapshot = await adminDb.collection('workPhaseTemplates').get();
-        const templates = snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
+        const templates = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as WorkPhaseTemplate));
         return JSON.parse(JSON.stringify(templates));
     } catch (error) {
         console.error("Error fetching phase templates:", error);

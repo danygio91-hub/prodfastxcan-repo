@@ -176,10 +176,24 @@ export default function ResourcePlanningClientPage() {
             const jobPhase = (job.phases || []).find((p: any) => p.name === t.name);
             const isDone = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
             
-            if (!isDone) {
-                return acc + (pt.expectedMinutesPerPiece * job.qta);
+            if (isDone) return acc;
+
+            const targetTotalMins = pt.expectedMinutesPerPiece * job.qta;
+
+            if (jobPhase && (jobPhase.status === 'in-progress' || jobPhase.status === 'paused')) {
+                const realTimeMs = (jobPhase.workPeriods || []).reduce((sum: number, wp: any) => {
+                    if (!wp.start || !wp.end) return sum;
+                    const start = (typeof wp.start === 'object' && 'seconds' in wp.start) ? new Date(wp.start.seconds * 1000) : new Date(wp.start);
+                    const end = (typeof wp.end === 'object' && 'seconds' in wp.end) ? new Date(wp.end.seconds * 1000) : new Date(wp.end);
+                    const diff = end.getTime() - start.getTime();
+                    return diff > 0 ? sum + diff : sum;
+                }, 0);
+                
+                const realTotalMins = realTimeMs / 60000;
+                return acc + Math.max(0, targetTotalMins - realTotalMins);
             }
-            return acc;
+            
+            return acc + targetTotalMins;
         }, 0) / 60;
     };
 

@@ -786,10 +786,26 @@ function getJobRemainingLoadInDept(job: JobOrder, deptId: string, articles: Arti
         const jobPhase = (job.phases || []).find(p => p.name === t.name);
         const isCompleted = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
         
-        if (!isCompleted && pt?.enabled !== false && (pt?.expectedMinutesPerPiece || 0) > 0) {
-            return acc + (pt.expectedMinutesPerPiece * job.qta);
+        if (isCompleted || pt?.enabled === false || !(pt?.expectedMinutesPerPiece > 0)) {
+            return acc;
         }
-        return acc;
+
+        const targetTotalMins = pt.expectedMinutesPerPiece * job.qta;
+
+        if (jobPhase && (jobPhase.status === 'in-progress' || jobPhase.status === 'paused')) {
+            const realTimeMs = (jobPhase.workPeriods || []).reduce((sum, wp) => {
+                if (!wp.start || !wp.end) return sum;
+                const start = (typeof wp.start === 'object' && 'seconds' in wp.start) ? new Date(wp.start.seconds * 1000) : new Date(wp.start as string);
+                const end = (typeof wp.end === 'object' && 'seconds' in wp.end) ? new Date(wp.end.seconds * 1000) : new Date(wp.end as string);
+                const diff = end.getTime() - start.getTime();
+                return diff > 0 ? sum + diff : sum;
+            }, 0);
+            
+            const realTotalMins = realTimeMs / 60000;
+            return acc + Math.max(0, targetTotalMins - realTotalMins);
+        }
+
+        return acc + targetTotalMins;
     }, 0);
 
     return remainingMins / 60;

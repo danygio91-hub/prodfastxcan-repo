@@ -61,18 +61,21 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
             }
         }
 
-        const phaseData: { [phaseKey: string]: { originalName: string, totalMinutes: number, totalQuantity: number, type: PhaseType } } = {};
+        const phaseData: { [phaseKey: string]: { originalName: string, records: { min: number, qta: number }[], type: PhaseType } } = {};
 
-        const calculateMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => {
-            if (!wp.start || !wp.end) return acc;
-            const start = parseRobustDate(wp.start);
-            const end = parseRobustDate(wp.end);
-            if (start && end) {
-                const diff = end.getTime() - start.getTime();
-                return diff > 0 ? acc + diff : acc;
-            }
-            return acc;
-        }, 0);
+        const calculateMs = (p: JobPhase) => {
+            if (p.forced) return 0; // Exclude forced closures
+            return (p.workPeriods || []).reduce((acc, wp) => {
+                if (!wp.start || !wp.end) return acc;
+                const start = parseRobustDate(wp.start);
+                const end = parseRobustDate(wp.end);
+                if (start && end) {
+                    const diff = end.getTime() - start.getTime();
+                    return diff > 0 ? acc + diff : acc;
+                }
+                return acc;
+            }, 0);
+        };
 
         for (const job of jobs) {
             if (job.qta <= 0) continue;
@@ -90,8 +93,6 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
             }
 
             phasesWithDetails.forEach(p => {
-                // IMPORTANT: We trust the phase name and time, not just the tracksTime flag 
-                // because old data might have tracksTime=false but actual periods.
                 const normalizedName = String(p.phase.name || '').trim().toUpperCase();
                 if (!normalizedName) return;
 
@@ -101,22 +102,36 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
                     if (!phaseData[normalizedName]) {
                         phaseData[normalizedName] = { 
                             originalName: p.phase.name,
-                            totalMinutes: 0, 
-                            totalQuantity: 0, 
+                            records: [], 
                             type: typeMap!.get(normalizedName) || 'production' 
                         };
                     }
-                    phaseData[normalizedName].totalMinutes += min;
-                    phaseData[normalizedName].totalQuantity += job.qta;
+                    phaseData[normalizedName].records.push({ min, qta: job.qta });
                 }
             });
         }
 
-        const averagePhaseTimes = Object.entries(phaseData).map(([key, d]) => ({
-            name: d.originalName,
-            averageMinutesPerPiece: d.totalQuantity > 0 ? d.totalMinutes / d.totalQuantity : 0,
-            type: d.type
-        })).sort((a, b) => a.name.localeCompare(b.name));
+        const averagePhaseTimes = Object.entries(phaseData).map(([key, d]) => {
+            let validRecords = d.records;
+            
+            // Outlier Filter (300% tolleranza) solo se N >= 5
+            if (validRecords.length >= 5) {
+                const minPerPieceArr = validRecords.map(r => r.min / r.qta).sort((a, b) => a - b);
+                const median = minPerPieceArr[Math.floor(minPerPieceArr.length / 2)];
+                const maxAllowed = median * 4; // > 300% tolleranza (media + 300%)
+                
+                validRecords = validRecords.filter(r => (r.min / r.qta) <= maxAllowed);
+            }
+
+            const totalMinutes = validRecords.reduce((sum, r) => sum + r.min, 0);
+            const totalQuantity = validRecords.reduce((sum, r) => sum + r.qta, 0);
+
+            return {
+                name: d.originalName,
+                averageMinutesPerPiece: totalQuantity > 0 ? totalMinutes / totalQuantity : 0,
+                type: d.type
+            };
+        }).sort((a, b) => a.name.localeCompare(b.name));
 
         const averageMinutesPerPiece = averagePhaseTimes.reduce((acc, p) => acc + p.averageMinutesPerPiece, 0);
 
