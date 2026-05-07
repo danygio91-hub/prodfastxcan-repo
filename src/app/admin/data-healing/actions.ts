@@ -2,7 +2,7 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { RawMaterial, InventoryRecord, MaterialWithdrawal, JobOrder, Operator, JobPhase, Article, RawMaterialBatch } from '@/types';
+import { RawMaterial, InventoryRecord, MaterialWithdrawal, JobOrder, Operator, JobPhase, Article, RawMaterialBatch, PhaseType } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { ensureAdmin } from '@/lib/server-auth';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
