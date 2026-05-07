@@ -31,8 +31,8 @@ const workPhaseSchema = z.object({
 
 export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
   const snapshot = await adminDb.collection('workPhaseTemplates').orderBy("name").get();
-  const list = snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
-  return list;
+  const list = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as WorkPhaseTemplate));
+  return JSON.parse(JSON.stringify(list));
 }
 
 export async function getDepartments(): Promise<Department[]> {

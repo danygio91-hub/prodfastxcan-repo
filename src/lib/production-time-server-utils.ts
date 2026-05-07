@@ -1,0 +1,165 @@
+
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
+import type { JobOrder, WorkGroup, JobPhase, WorkPhaseTemplate, Article, PhaseType } from '@/types';
+import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
+
+export async function updateArticleHistoricalTimes(articleCode: string, cachedData?: { templates?: Map<string, PhaseType>, minMs?: number }) {
+    if (!articleCode) return;
+    const trimmedCode = articleCode.trim();
+
+    try {
+        // 1. Fetch Article
+        const articleSnap = await adminDb.collection("articles").where("code", "==", trimmedCode).limit(1).get();
+        if (articleSnap.empty) return;
+        const articleDoc = articleSnap.docs[0];
+        const articleData = articleDoc.data() as Article;
+
+        // 2. Fetch last 500 jobs for this article (Increased from 50)
+        const jobsSnap = await adminDb.collection("jobOrders")
+            .where("details", "==", trimmedCode)
+            .orderBy("ordinePF", "desc") // Get most recent
+            .limit(500)
+            .get();
+
+        if (jobsSnap.empty) {
+            await articleDoc.ref.update({
+                timesStatus: 'RED',
+                historicalTimes: admin.firestore.FieldValue.delete()
+            });
+            return;
+        }
+
+        const jobs = jobsSnap.docs.map(doc => doc.data() as JobOrder);
+
+        // 3. Setup settings and templates (Use cache if provided)
+        let MIN_MS = cachedData?.minMs;
+        if (MIN_MS === undefined) {
+            const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
+            const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
+            MIN_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
+        }
+        
+        let typeMap = cachedData?.templates;
+        if (!typeMap) {
+            const tSnap = await adminDb.collection("workPhaseTemplates").get();
+            typeMap = new Map<string, PhaseType>();
+            tSnap.forEach(d => {
+                const name = String(d.data().name || '').trim().toUpperCase();
+                if (name) typeMap!.set(name, d.data().type);
+            });
+        }
+        
+        // 4. Fetch WorkGroups if any
+        const workGroupIds = [...new Set(jobs.map(j => j.workGroupId).filter(Boolean))] as string[];
+        const groupsMap = new Map<string, WorkGroup>();
+        if (workGroupIds.length > 0) {
+            for (let i = 0; i < workGroupIds.length; i += 30) {
+                const chunk = workGroupIds.slice(i, i + 30);
+                const snap = await adminDb.collection("workGroups").where(admin.firestore.FieldPath.documentId(), "in", chunk).get();
+                snap.forEach(d => groupsMap.set(d.id, d.data() as WorkGroup));
+            }
+        }
+
+        const phaseData: { [phaseKey: string]: { originalName: string, totalMinutes: number, totalQuantity: number, type: PhaseType } } = {};
+
+        const calculateMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => {
+            if (!wp.start || !wp.end) return acc;
+            const start = parseRobustDate(wp.start);
+            const end = parseRobustDate(wp.end);
+            if (start && end) {
+                const diff = end.getTime() - start.getTime();
+                return diff > 0 ? acc + diff : acc;
+            }
+            return acc;
+        }, 0);
+
+        for (const job of jobs) {
+            if (job.qta <= 0) continue;
+
+            let phasesWithDetails: Array<{ phase: JobPhase, timeMs: number }> = [];
+
+            if (job.workGroupId && groupsMap.has(job.workGroupId)) {
+                const group = groupsMap.get(job.workGroupId)!;
+                phasesWithDetails = (group.phases || []).map(gp => ({ 
+                    phase: gp, 
+                    timeMs: (group.totalQuantity > 0 ? (calculateMs(gp) / group.totalQuantity) * job.qta : 0) 
+                }));
+            } else {
+                phasesWithDetails = (job.phases || []).map(p => ({ phase: p, timeMs: calculateMs(p) }));
+            }
+
+            phasesWithDetails.forEach(p => {
+                // IMPORTANT: We trust the phase name and time, not just the tracksTime flag 
+                // because old data might have tracksTime=false but actual periods.
+                const normalizedName = String(p.phase.name || '').trim().toUpperCase();
+                if (!normalizedName) return;
+
+                const min = p.timeMs / 60000;
+                
+                if (p.timeMs >= MIN_MS!) {
+                    if (!phaseData[normalizedName]) {
+                        phaseData[normalizedName] = { 
+                            originalName: p.phase.name,
+                            totalMinutes: 0, 
+                            totalQuantity: 0, 
+                            type: typeMap!.get(normalizedName) || 'production' 
+                        };
+                    }
+                    phaseData[normalizedName].totalMinutes += min;
+                    phaseData[normalizedName].totalQuantity += job.qta;
+                }
+            });
+        }
+
+        const averagePhaseTimes = Object.entries(phaseData).map(([key, d]) => ({
+            name: d.originalName,
+            averageMinutesPerPiece: d.totalQuantity > 0 ? d.totalMinutes / d.totalQuantity : 0,
+            type: d.type
+        })).sort((a, b) => a.name.localeCompare(b.name));
+
+        const averageMinutesPerPiece = averagePhaseTimes.reduce((acc, p) => acc + p.averageMinutesPerPiece, 0);
+
+        // 5. Determine Status
+        let timesStatus: 'GREEN' | 'AMBER' | 'RED' = 'RED';
+        
+        if (averagePhaseTimes.length > 0) {
+            timesStatus = 'AMBER';
+            
+            if (articleData.workCycleId) {
+                const cycleSnap = await adminDb.collection("workCycles").doc(articleData.workCycleId).get();
+                if (cycleSnap.exists) {
+                    const cycleData = cycleSnap.data();
+                    const requiredPhaseIds = cycleData?.phaseTemplateIds || [];
+                    
+                    const templatesSnap = await adminDb.collection("workPhaseTemplates").get();
+                    const requiredPhaseNames = templatesSnap.docs
+                        .filter(d => requiredPhaseIds.includes(d.id) && d.data().tracksTime !== false)
+                        .map(d => String(d.data().name || '').trim().toUpperCase());
+                    
+                    const existingPhaseKeys = Object.keys(phaseData);
+                    const allPhasesPresent = requiredPhaseNames.every(name => existingPhaseKeys.includes(name));
+                    
+                    if (allPhasesPresent && requiredPhaseNames.length > 0) {
+                        timesStatus = 'GREEN';
+                    }
+                }
+            } else if (averageMinutesPerPiece > 0) {
+                timesStatus = 'AMBER';
+            }
+        }
+
+        // 6. Update Article
+        await articleDoc.ref.update({
+            historicalTimes: {
+                averageMinutesPerPiece,
+                averagePhaseTimes,
+                lastUpdate: admin.firestore.Timestamp.now()
+            },
+            timesStatus
+        });
+    } catch (err) {
+        console.error(`Error updating article ${articleCode}:`, err);
+        // Do not throw, just log to allow bulk migration to continue
+    }
+}

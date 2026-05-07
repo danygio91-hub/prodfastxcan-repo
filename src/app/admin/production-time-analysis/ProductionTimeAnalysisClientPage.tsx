@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Timer, Package, Download, ChevronRight, Search, BarChart, Copy, ClipboardList, PackagePlus, Workflow, TestTube } from 'lucide-react';
 import type { ProductionTimeAnalysisReport } from '../reports/actions';
 import { Badge } from '@/components/ui/badge';
+import { Circle, AlertCircle, CheckCircle2, Timer as TimerIcon } from 'lucide-react';
 import {
     Collapsible,
     CollapsibleContent,
@@ -184,13 +185,18 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                                     <TooltipProvider>
                                                         <Tooltip>
                                                             <TooltipTrigger>
-                                                                <div className="text-sm text-muted-foreground">
-                                                                    Tempo Medio/Pz
+                                                                <div className="text-sm text-muted-foreground flex items-center gap-1 justify-end">
+                                                                    {item.timesStatus === 'GREEN' && <CheckCircle2 className="h-3 w-3 text-green-500" />}
+                                                                    {item.timesStatus === 'AMBER' && <AlertCircle className="h-3 w-3 text-amber-500" />}
+                                                                    {item.timesStatus === 'RED' && <Circle className="h-3 w-3 text-red-500" />}
+                                                                    <span>Tempo Medio/Pz</span>
                                                                     <span className={cn(
-                                                                        "ml-1 font-semibold",
-                                                                        item.averageMinutesPerPiece > 0 ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500"
+                                                                        "font-semibold",
+                                                                        item.timesStatus === 'GREEN' ? "text-green-600 dark:text-green-500" : 
+                                                                        item.timesStatus === 'AMBER' ? "text-amber-600 dark:text-amber-500" : 
+                                                                        "text-red-600 dark:text-red-500"
                                                                     )}>
-                                                                        ({item.averageMinutesPerPiece > 0 ? 'Affidabile' : 'Parziale'})
+                                                                        ({item.timesStatus === 'GREEN' ? 'Completo' : item.timesStatus === 'AMBER' ? 'Parziale' : 'Nessun Dato'})
                                                                     </span>
                                                                 </div>
                                                             </TooltipTrigger>
@@ -243,56 +249,63 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                                     )}
                                                 </div>
 
-                                                <div>
-                                                    <div className="flex justify-between items-center mb-2">
-                                                        <h4 className="font-semibold text-base flex items-center gap-2">Dettaglio Commesse ({item.totalJobs})</h4>
-                                                        <Button variant="outline" size="sm" onClick={() => handleExport(item)}>
-                                                            <Download className="mr-2 h-4 w-4" />
-                                                            Esporta Dettaglio
-                                                        </Button>
-                                                    </div>
-                                                    <div className="space-y-4">
-                                                        {item.jobs.map(job => (
-                                                            <Collapsible key={job.id} className="border-t pt-4">
-                                                                <CollapsibleTrigger asChild>
-                                                                    <div className="flex justify-between items-center w-full cursor-pointer hover:bg-background/50 p-2 rounded-md group">
-                                                                        <div className="flex-1">
-                                                                            <div className="font-mono text-base font-semibold">{job.id} <Badge variant="secondary" className="ml-2">Cliente: {job.cliente}</Badge></div>
-                                                                            <div className="text-sm text-muted-foreground">Q.tà: {job.qta}</div>
-                                                                        </div>
-                                                                        <div className="text-right">
-                                                                            <div className={cn("font-semibold", job.isTimeCalculationReliable ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500")}>{job.minutesPerPiece.toFixed(4)} min/pz</div>
-                                                                            <div className="text-xs text-muted-foreground">Tot: {job.totalTimeMinutes.toFixed(2)} min</div>
-                                                                        </div>
-                                                                        <ChevronRight className="h-4 w-4 ml-2 transition-transform duration-200 group-data-[state=open]:rotate-90" />
-                                                                    </div>
-                                                                </CollapsibleTrigger>
-                                                                <CollapsibleContent>
-                                                                    <div className="pl-6 pt-2">
-                                                                        <Table>
-                                                                            <TableHeader>
-                                                                                <TableRow>
-                                                                                    <TableHead>Fase (con tempo tracciato)</TableHead>
-                                                                                    <TableHead className="text-right">Tempo Totale Fase</TableHead>
-                                                                                    <TableHead className="text-right">Minuti/Pezzo</TableHead>
-                                                                                </TableRow>
-                                                                            </TableHeader>
-                                                                            <TableBody>
-                                                                                {job.phases.map((phase, index) => (
-                                                                                    <TableRow key={index}>
-                                                                                        <TableCell>{phase.name}</TableCell>
-                                                                                        <TableCell className="text-right">{phase.totalTimeMinutes.toFixed(2)} min</TableCell>
-                                                                                        <TableCell className="text-right font-medium">{phase.minutesPerPiece.toFixed(4)} min</TableCell>
-                                                                                    </TableRow>
-                                                                                ))}
-                                                                            </TableBody>
-                                                                        </Table>
-                                                                    </div>
-                                                                </CollapsibleContent>
-                                                            </Collapsible>
-                                                        ))}
-                                                    </div>
-                                                </div>
+                                                    {item.jobs && item.jobs.length > 0 ? (
+                                                        <>
+                                                            <div className="flex justify-between items-center mb-2">
+                                                                <h4 className="font-semibold text-base flex items-center gap-2">Dettaglio Commesse ({item.totalJobs})</h4>
+                                                                <Button variant="outline" size="sm" onClick={() => handleExport(item)}>
+                                                                    <Download className="mr-2 h-4 w-4" />
+                                                                    Esporta Dettaglio
+                                                                </Button>
+                                                            </div>
+                                                            <div className="space-y-4">
+                                                                {item.jobs.map(job => (
+                                                                    // ... existing job collapsible code ...
+                                                                    <Collapsible key={job.id} className="border-t pt-4">
+                                                                        <CollapsibleTrigger asChild>
+                                                                            <div className="flex justify-between items-center w-full cursor-pointer hover:bg-background/50 p-2 rounded-md group">
+                                                                                <div className="flex-1">
+                                                                                    <div className="font-mono text-base font-semibold">{job.id} <Badge variant="secondary" className="ml-2">Cliente: {job.cliente}</Badge></div>
+                                                                                    <div className="text-sm text-muted-foreground">Q.tà: {job.qta}</div>
+                                                                                </div>
+                                                                                <div className="text-right">
+                                                                                    <div className={cn("font-semibold", job.isTimeCalculationReliable ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500")}>{job.minutesPerPiece.toFixed(4)} min/pz</div>
+                                                                                    <div className="text-xs text-muted-foreground">Tot: {job.totalTimeMinutes.toFixed(2)} min</div>
+                                                                                </div>
+                                                                                <ChevronRight className="h-4 w-4 ml-2 transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                                                                            </div>
+                                                                        </CollapsibleTrigger>
+                                                                        <CollapsibleContent>
+                                                                            <div className="pl-6 pt-2">
+                                                                                <Table>
+                                                                                    <TableHeader>
+                                                                                        <TableRow>
+                                                                                            <TableHead>Fase (con tempo tracciato)</TableHead>
+                                                                                            <TableHead className="text-right">Tempo Totale Fase</TableHead>
+                                                                                            <TableHead className="text-right">Minuti/Pezzo</TableHead>
+                                                                                        </TableRow>
+                                                                                    </TableHeader>
+                                                                                    <TableBody>
+                                                                                        {job.phases.map((phase, index) => (
+                                                                                            <TableRow key={index}>
+                                                                                                <TableCell>{phase.name}</TableCell>
+                                                                                                <TableCell className="text-right">{phase.totalTimeMinutes.toFixed(2)} min</TableCell>
+                                                                                                <TableCell className="text-right font-medium">{phase.minutesPerPiece.toFixed(4)} min</TableCell>
+                                                                                            </TableRow>
+                                                                                        ))}
+                                                                                    </TableBody>
+                                                                                </Table>
+                                                                            </div>
+                                                                        </CollapsibleContent>
+                                                                    </Collapsible>
+                                                                ))}
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="text-sm text-muted-foreground p-4 text-center border rounded-md">
+                                                            I dettagli delle singole commesse non sono disponibili in questa vista per ottimizzare le prestazioni.
+                                                        </div>
+                                                    )}
                                             </div>
                                         </AccordionContent>
                                     </AccordionItem>

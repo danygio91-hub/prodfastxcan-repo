@@ -9,6 +9,7 @@ import admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/types';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
+import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 
 export type ProductionTimeData = {
     averageMinutesPerPiece: number;
@@ -57,6 +58,11 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
         transaction.update(jobRef, { phases: finalPhases });
     });
+
+    const snap = await adminDb.collection('jobOrders').doc(jobId).get();
+    if (snap.data()?.details) {
+        await updateArticleHistoricalTimes(snap.data()?.details);
+    }
 
     revalidatePath('/admin/production-console');
     return { success: true, message: `Produzione forzata.` };
@@ -211,6 +217,12 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
   try {
     await ensureAdmin(uid);
     await adminDb.collection('jobOrders').doc(jobId).update({ status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true });
+    
+    const snap = await adminDb.collection('jobOrders').doc(jobId).get();
+    if (snap.data()?.details) {
+        await updateArticleHistoricalTimes(snap.data()?.details);
+    }
+
     revalidatePath('/admin/production-console');
     return { success: true, message: `Chiusa.` };
   } catch (e) { return { success: false, message: "Errore." }; }
@@ -329,6 +341,14 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
       batch.update(adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(id), { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true });
   });
   await batch.commit();
+
+  for (const id of jobIds) {
+      const snap = await adminDb.collection(id.startsWith('group-') ? 'workGroups' : 'jobOrders').doc(id).get();
+      if (snap.data()?.details) {
+          await updateArticleHistoricalTimes(snap.data()?.details);
+      }
+  }
+
   revalidatePath('/admin/production-console');
   return { success: true, message: 'Completato.' };
 }

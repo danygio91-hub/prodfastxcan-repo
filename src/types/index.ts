@@ -258,6 +258,12 @@ export interface Article {
   packingInstructions?: string;
   unitWeightKg?: number;
   packagingTareWeightKg?: number;
+  historicalTimes?: {
+    averageMinutesPerPiece: number;
+    averagePhaseTimes: Array<{ name: string; averageMinutesPerPiece: number; type: PhaseType }>;
+    lastUpdate: any;
+  };
+  timesStatus?: 'GREEN' | 'AMBER' | 'RED';
 }
 
 export interface WorkGroup {

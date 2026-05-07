@@ -56,15 +56,33 @@ export function isJobReadyForProduction(job: any, deptDependsOnPrep: boolean = t
  */
 export function parseRobustDate(dateInput: any): Date | null {
     if (!dateInput) return null;
+    
+    // Firestore Timestamp (Admin or Client SDK)
     if (typeof dateInput.toDate === 'function') return dateInput.toDate();
+    
+    // Firestore-like plain object (after JSON serialization)
+    if (typeof dateInput === 'object' && dateInput._seconds !== undefined) {
+        return new Date(dateInput._seconds * 1000 + (dateInput._nanoseconds || 0) / 1000000);
+    }
+    
+    // String (ISO or Italian)
     if (typeof dateInput === 'string') {
-        if (/^\d{4}-\d{2}-\d{2}/.test(dateInput)) return new Date(dateInput);
+        if (/^\d{4}-\d{2}-\d{2}/.test(dateInput)) {
+            const d = new Date(dateInput);
+            return isNaN(d.getTime()) ? null : d;
+        }
         const italianMatch = dateInput.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
         if (italianMatch) {
             return new Date(parseInt(italianMatch[3]), parseInt(italianMatch[2]) - 1, parseInt(italianMatch[1]));
         }
     }
+    
+    // Date object
     if (dateInput instanceof Date && !isNaN(dateInput.getTime())) return dateInput;
+    
+    // Fallback for numeric timestamp
+    if (typeof dateInput === 'number' && !isNaN(dateInput)) return new Date(dateInput);
+
     return null;
 }
 

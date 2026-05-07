@@ -47,7 +47,7 @@ export async function getArticles(searchTerm?: string, lastCode?: string, limitC
     }
     const articlesSnapshot = await q.get();
     const articles = articlesSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Article));
-    return articles;
+    return JSON.parse(JSON.stringify(articles));
 }
 
 export async function saveArticle(data: any): Promise<{ success: boolean; message: string; }> {

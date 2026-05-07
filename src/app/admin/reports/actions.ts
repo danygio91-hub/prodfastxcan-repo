@@ -2,13 +2,14 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, WorkPhaseTemplate, WorkGroup } from '@/types';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, WorkPhaseTemplate, WorkGroup, Article } from '@/types';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, format, getWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getOverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
 import { convertTimestampsToDates } from '@/lib/utils';
+import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 
 function formatDuration(ms: number): string {
   if (ms < 0) ms = 0;
@@ -346,6 +347,7 @@ export type ProductionTimeAnalysisReport = {
     articleCode: string; totalJobs: number; totalQuantity: number; averageMinutesPerPiece: number;
     averagePhaseTimes: Array<{ name: string; averageMinutesPerPiece: number; type: WorkPhaseTemplate['type']; }>;
     jobs: Array<{ id: string; cliente: string; qta: number; totalTimeMinutes: number; minutesPerPiece: number; isTimeCalculationReliable: boolean; phases: Array<{ name: string; totalTimeMinutes: number; minutesPerPiece: number; }> }>;
+    timesStatus?: 'GREEN' | 'AMBER' | 'RED';
 };
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
@@ -455,4 +457,24 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     });
 
     return Object.values(analysis).sort((a:any, b:any) => a.articleCode.localeCompare(b.articleCode));
+}
+
+export async function getSimplifiedProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
+    const articlesSnap = await adminDb.collection("articles").get();
+
+    const results = articlesSnap.docs.map(doc => {
+        const data = doc.data() as Article;
+        const code = data.code || doc.id;
+        return {
+            articleCode: code,
+            totalJobs: 0,
+            totalQuantity: 0,
+            averageMinutesPerPiece: data.historicalTimes?.averageMinutesPerPiece || 0,
+            averagePhaseTimes: data.historicalTimes?.averagePhaseTimes || [],
+            timesStatus: data.timesStatus || 'RED',
+            jobs: []
+        };
+    }).filter((a) => a.articleCode).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
+
+    return JSON.parse(JSON.stringify(results));
 }

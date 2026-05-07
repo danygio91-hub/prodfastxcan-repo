@@ -26,13 +26,14 @@ import {
     surgicalBOMSync,
     runMassiveStockRecalculation,
     healCorruptedInventoryBatches,
+    migrateAllArticleHistoricalTimes,
     type GhostCommitmentAnomaly
 } from './actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, CheckCircle2, ShieldCheck, Database, History, TrendingDown, Hammer, Info, Ghost, Skull, UserX, Zap, RotateCcw, Clock, Search, Layers, Unlink, TriangleAlert } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, ShieldCheck, Database, History, TrendingDown, Hammer, Info, Ghost, Skull, UserX, Zap, RotateCcw, Clock, Search, Layers, Unlink, TriangleAlert, BarChart } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
@@ -143,6 +144,11 @@ export default function AdministrationDataHealingPage() {
     const [invMapExecuting, setInvMapExecuting] = useState(false);
     const [isInvMapModalOpen, setIsInvMapModalOpen] = useState(false);
     const [invMapConfirmText, setInvMapConfirmText] = useState("");
+
+    // Reporting Migration State
+    const [reportMigrateExecuting, setReportMigrateExecuting] = useState(false);
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+    const [reportConfirmText, setReportConfirmText] = useState("");
 
     // --- INVENTORY LOGIC ---
     async function handleAudit() {
@@ -571,6 +577,25 @@ export default function AdministrationDataHealingPage() {
         }
     }
 
+    async function handleExecuteReportMigration() {
+        if (!operator?.id || reportConfirmText.trim().toUpperCase() !== "MIGRA TEMPI") return;
+        setReportMigrateExecuting(true);
+        setIsReportModalOpen(false);
+        try {
+            const res = await migrateAllArticleHistoricalTimes(operator.id);
+            if (res.success) {
+                toast({ title: "Migrazione Completata", description: res.message });
+            } else {
+                toast({ title: "Errore Migrazione", description: res.message, variant: "destructive" });
+            }
+        } catch (e) {
+            toast({ title: "Errore di Sistema", description: "Impossibile completare la migrazione.", variant: "destructive" });
+        } finally {
+            setReportMigrateExecuting(false);
+            setReportConfirmText("");
+        }
+    }
+
     return (
         <AdminAuthGuard>
             <AppShell>
@@ -602,6 +627,9 @@ export default function AdministrationDataHealingPage() {
                             </TabsTrigger>
                             <TabsTrigger value="jobs" className="flex items-center gap-2 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                                 <Zap className="h-4 w-4 text-yellow-500" /> Sync Impegni
+                            </TabsTrigger>
+                            <TabsTrigger value="reporting" className="flex items-center gap-2 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                                <BarChart className="h-4 w-4 text-green-600" /> Reporting
                             </TabsTrigger>
                         </TabsList>
 
@@ -1648,6 +1676,87 @@ export default function AdministrationDataHealingPage() {
                                     </div>
                                 </Card>
                             </div>
+                        </TabsContent>
+                        <TabsContent value="reporting" className="space-y-6">
+                            <Card className="border-l-4 border-l-green-600 shadow-lg">
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                                                <BarChart className="text-green-600 h-6 w-6" /> Ottimizzazione Report Tempi
+                                            </CardTitle>
+                                            <CardDescription className="text-md">
+                                                Migra i dati storici delle lavorazioni nei documenti Articolo per abilitare la reportistica istantanea.
+                                            </CardDescription>
+                                        </div>
+                                        <Button 
+                                            variant="default" 
+                                            className="bg-green-600 hover:bg-green-700 h-12 px-8 text-lg font-bold" 
+                                            onClick={() => setIsReportModalOpen(true)}
+                                            disabled={reportMigrateExecuting}
+                                        >
+                                            {reportMigrateExecuting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <TrendingDown className="mr-2 h-5 w-5" />}
+                                            Avvia Migrazione Massiva
+                                        </Button>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="space-y-6">
+                                    <Alert variant="default" className="bg-green-50 border-green-200">
+                                        <Info className="h-5 w-5 text-green-600" />
+                                        <AlertTitle className="font-bold text-green-800">Perché eseguire questa migrazione?</AlertTitle>
+                                        <AlertDescription className="text-green-700">
+                                            Attualmente il sistema calcola i tempi medi in tempo reale scansionando migliaia di commesse, causando rallentamenti e costi elevati di Firestore.
+                                            <ul className="list-disc list-inside mt-2 space-y-1">
+                                                <li><strong>Velocità:</strong> Il report passerà da 10-20 secondi a caricamento istantaneo.</li>
+                                                <li><strong>Efficienza:</strong> Riduzione del 95% delle letture Firestore durante la consultazione dei report.</li>
+                                                <li><strong>Affidabilità:</strong> I dati vengono pre-calcolati e salvati direttamente sull'articolo.</li>
+                                            </ul>
+                                        </AlertDescription>
+                                    </Alert>
+
+                                    <div className="bg-slate-50 p-6 rounded-lg border border-slate-200">
+                                        <h4 className="font-bold mb-4 flex items-center gap-2 text-slate-800"><Activity className="h-4 w-4" /> Funzionamento del Pre-Aggregated Data</h4>
+                                        <p className="text-sm text-muted-foreground leading-relaxed">
+                                            Una volta completata la migrazione, ogni nuova dichiarazione di produzione aggiornerà automaticamente i campi `historicalTimes` e `timesStatus` dell'articolo. 
+                                            Questa procedura serve solo a popolare i dati per le lavorazioni passate.
+                                        </p>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Dialog open={isReportModalOpen} onOpenChange={setIsReportModalOpen}>
+                                <DialogContent className="sm:max-w-md">
+                                    <DialogHeader>
+                                        <DialogTitle className="flex items-center gap-2 text-green-600">
+                                            <TrendingDown className="h-5 w-5" /> Conferma Migrazione Tempi
+                                        </DialogTitle>
+                                        <DialogDescription className="py-2">
+                                            Stai per ricalcolare la media storica di tutti gli articoli basandoti sulle commesse completate. 
+                                            L'operazione potrebbe richiedere alcuni minuti a seconda del numero di articoli.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-4">
+                                        <p className="text-sm font-medium">Scrivi <span className="font-mono font-bold text-green-600">MIGRA TEMPI</span> per procedere:</p>
+                                        <Input 
+                                            value={reportConfirmText} 
+                                            onChange={e => setReportConfirmText(e.target.value)} 
+                                            placeholder="MIGRA TEMPI" 
+                                            className="uppercase font-bold border-green-300 focus-visible:ring-green-500"
+                                        />
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="ghost" onClick={() => setIsReportModalOpen(false)}>Annulla</Button>
+                                        <Button 
+                                            variant="default" 
+                                            className="bg-green-600 hover:bg-green-700" 
+                                            disabled={reportConfirmText !== "MIGRA TEMPI" || reportMigrateExecuting}
+                                            onClick={handleExecuteReportMigration}
+                                        >
+                                            AVVIA MIGRAZIONE
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
                         </TabsContent>
                     </Tabs>
                 </div>

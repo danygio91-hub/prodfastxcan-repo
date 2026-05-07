@@ -1,7 +1,7 @@
 
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { getProductionTimeAnalysisReport } from '../reports/actions';
+import { getSimplifiedProductionTimeAnalysisReport } from '../reports/actions';
 import ProductionTimeAnalysisClientPage from './ProductionTimeAnalysisClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -9,7 +9,8 @@ import { Loader2 } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminProductionTimeAnalysisPage() {
-  const report = await getProductionTimeAnalysisReport();
+  const rawReport = await getSimplifiedProductionTimeAnalysisReport();
+  const report = JSON.parse(JSON.stringify(rawReport));
 
   return (
     <AdminAuthGuard>

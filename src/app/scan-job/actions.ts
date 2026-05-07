@@ -12,6 +12,7 @@ import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { ensureAdmin } from '@/lib/server-auth';
 import { getOverallStatus } from '@/lib/types';
+import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 
 export { dissolveWorkGroup };
 
@@ -534,6 +535,14 @@ export async function handlePhaseScanResult(
             }
         }
     });
+
+    if (isCompletion) {
+        const snap = await adminDb.collection(jobId.startsWith('group-') ? 'workGroups' : 'jobOrders').doc(jobId).get();
+        const details = snap.data()?.details;
+        if (details) {
+            await updateArticleHistoricalTimes(details);
+        }
+    }
 
     revalidatePath('/scan-job');
     revalidatePath('/admin/production-console');

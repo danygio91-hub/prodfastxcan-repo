@@ -8,6 +8,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { syncJobBOMItems, calculateInventoryMovement } from '@/lib/inventory-utils';
 import { revalidatePath } from 'next/cache';
+import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 
 export async function emergencyRestoreStagingArea(): Promise<{ success: boolean; message: string; count: number; completedCount: number }> {
     try {
@@ -711,7 +712,56 @@ export async function healDataCasing() {
         return { success: true, message: `Healing completato. Documenti aggiornati: ${count}` };
     } catch (error) {
         console.error("Heal data error:", error);
-        return { success: false, message: "Errore durante l'healing dei dati." };
+        return { success: false, message: "Errore durante lo sblocco del gruppo." };
+    }
+}
+
+export async function migrateAllArticleHistoricalTimes(uid: string): Promise<{ success: boolean; message: string; count: number }> {
+    try {
+        await ensureAdmin(uid);
+        const articlesSnap = await adminDb.collection("articles").get();
+        let count = 0;
+        let errorCount = 0;
+
+        // PRE-LOAD CACHE: Get settings and templates once
+        const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
+        const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
+        const minMs = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
+
+        const tSnap = await adminDb.collection("workPhaseTemplates").get();
+        const templates = new Map<string, PhaseType>();
+        tSnap.forEach(d => {
+            const name = String(d.data().name || '').trim().toUpperCase();
+            if (name) templates.set(name, d.data().type);
+        });
+
+        const cachedData = { templates, minMs };
+        
+        console.log(`Starting bulk migration for ${articlesSnap.size} articles...`);
+
+        // Sequential processing with error tolerance
+        for (const doc of articlesSnap.docs) {
+            const article = doc.data() as Article;
+            if (article.code) {
+                try {
+                    await updateArticleHistoricalTimes(article.code, cachedData);
+                    count++;
+                } catch (e) {
+                    console.error(`Migration failed for article ${article.code}:`, e);
+                    errorCount++;
+                }
+            }
+        }
+        
+        revalidatePath('/admin/production-time-analysis');
+        return { 
+            success: true, 
+            message: `Migrazione completata. Successi: ${count}, Errori: ${errorCount}.`, 
+            count 
+        };
+    } catch (error) {
+        console.error("Migration error:", error);
+        return { success: false, message: "Errore durante la migrazione dei tempi.", count: 0 };
     }
 }
 

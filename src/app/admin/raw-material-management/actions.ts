@@ -161,7 +161,8 @@ export async function getRawMaterials(searchTerm?: string, lastCode?: string): P
         const lower = searchTerm.toLowerCase().trim();
         snapshot = await materialsCol.where('code_normalized', '>=', lower).where('code_normalized', '<=', lower + '\uf8ff').limit(100).get();
     } else { return []; }
-    return snapshot.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id } as RawMaterial));
+    const results = snapshot.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id } as RawMaterial));
+    return JSON.parse(JSON.stringify(results));
 }
 
 export async function saveRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
@@ -597,7 +598,7 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         const rem = po.quantity - (po.receivedQuantity || 0);
         if (rem > 0) ordMap.set(code, (ordMap.get(code) || 0) + rem);
     });
-    return materialsSnap.docs.map(docSnap => {
+    const finalResults = materialsSnap.docs.map(docSnap => {
         const m = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
         const normCode = m.code.toLowerCase().trim();
         
@@ -621,6 +622,7 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         };
     });
 
+    return JSON.parse(JSON.stringify(finalResults));
 }
 
 export type CommitmentDetail = { jobId: string; type: 'PRODUZIONE' | 'MANUALE'; quantity: number; deliveryDate: string; client: string; articleCode: string; };
