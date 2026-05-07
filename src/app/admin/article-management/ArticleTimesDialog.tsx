@@ -14,11 +14,10 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Timer, RefreshCcw, Save, Loader2 } from 'lucide-react';
+import { Timer, RefreshCcw, Save, Loader2, Copy } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { Article, WorkPhaseTemplate, ArticlePhaseTime, WorkCycle } from '@/types';
-import { getProductionTimeAnalysisReport } from '../reports/actions';
-import { saveArticleStandardTimes } from './actions';
+import { saveArticleStandardTimes, refreshArticleHistoricalTimes } from './actions';
 import { getWorkCycles } from '../work-cycle-management/actions';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -55,11 +54,40 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                 setSecondaryCycleId(article.secondaryWorkCycleId || 'manual');
                 setExpectedTotalDefault(article.expectedMinutesDefault || 0);
                 setExpectedTotalSecondary(article.expectedMinutesSecondary || 0);
-                setLocalPhaseTimesDefault(article.phaseTimes || {});
-                setLocalPhaseTimesSecondary(article.phaseTimesSecondary || {});
+                
+                let initialDefault = article.phaseTimes || {};
+                let initialSecondary = article.phaseTimesSecondary || {};
+
+                // Auto-populate from historicalTimes
+                if (article.historicalTimes?.averagePhaseTimes) {
+                    const historicalUpdates: Record<string, number> = {};
+                    article.historicalTimes.averagePhaseTimes.forEach((rptPhase: any) => {
+                        const template = phaseTemplates.find(t => t.name.trim().toUpperCase() === rptPhase.name.trim().toUpperCase());
+                        if (template) {
+                            historicalUpdates[template.id] = rptPhase.averageMinutesPerPiece;
+                        }
+                    });
+
+                    const applyHistorical = (phaseTimesObj: Record<string, ArticlePhaseTime>) => {
+                        const newObj = { ...phaseTimesObj };
+                        Object.keys(historicalUpdates).forEach(templateId => {
+                            newObj[templateId] = {
+                                ...(newObj[templateId] || { expectedMinutesPerPiece: 0, enabled: true }),
+                                detectedMinutesPerPiece: historicalUpdates[templateId]
+                            };
+                        });
+                        return newObj;
+                    };
+
+                    initialDefault = applyHistorical(initialDefault);
+                    initialSecondary = applyHistorical(initialSecondary);
+                }
+
+                setLocalPhaseTimesDefault(initialDefault);
+                setLocalPhaseTimesSecondary(initialSecondary);
             }
         }
-    }, [isOpen, article]);
+    }, [isOpen, article, phaseTemplates]);
 
     const currentPhaseTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
 
@@ -92,17 +120,16 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         if (!article) return;
         setIsUpdating(true);
         try {
-            const report = await getProductionTimeAnalysisReport();
-            const articleReport = report.find(r => r.articleCode.toUpperCase() === article.code.toUpperCase());
-
-            if (!articleReport) {
-                toast({ variant: "destructive", title: "Nessun dato trovato", description: `Non ci sono rilevazioni per ${article.code}.` });
+            const result = await refreshArticleHistoricalTimes(article.code);
+            
+            if (!result.success || !result.historicalTimes || !result.historicalTimes.averagePhaseTimes || result.historicalTimes.averagePhaseTimes.length === 0) {
+                toast({ variant: "destructive", title: "Nessun dato trovato", description: `Non ci sono nuove rilevazioni calcolabili per ${article.code}.` });
                 return;
             }
 
             const newPhaseTimes = { ...currentPhaseTimes };
-            articleReport.averagePhaseTimes.forEach(rptPhase => {
-                const template = phaseTemplates.find(t => t.name.toLowerCase() === rptPhase.name.toLowerCase());
+            result.historicalTimes.averagePhaseTimes.forEach((rptPhase: any) => {
+                const template = phaseTemplates.find(t => t.name.trim().toUpperCase() === rptPhase.name.trim().toUpperCase());
                 if (template) {
                     newPhaseTimes[template.id] = {
                         ...(newPhaseTimes[template.id] || { expectedMinutesPerPiece: 0, enabled: true }),
@@ -114,11 +141,34 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
             if (activeView === 'default') setLocalPhaseTimesDefault(newPhaseTimes);
             else setLocalPhaseTimesSecondary(newPhaseTimes);
 
-            toast({ title: "Tempi Aggiornati", description: "Dati caricati dall'analisi." });
+            toast({ title: "Tempi Aggiornati", description: "Dati caricati dall'analisi in tempo reale." });
         } catch (e) {
             toast({ variant: "destructive", title: "Errore", description: "Impossibile caricare l'analisi." });
         } finally {
             setIsUpdating(false);
+        }
+    };
+
+    const handleCopyToTarget = () => {
+        const newPhaseTimes = { ...currentPhaseTimes };
+        let copied = 0;
+        Object.keys(newPhaseTimes).forEach(key => {
+            const data = newPhaseTimes[key];
+            if (data && data.enabled !== false && data.detectedMinutesPerPiece && data.detectedMinutesPerPiece > 0) {
+                newPhaseTimes[key] = {
+                    ...data,
+                    expectedMinutesPerPiece: data.detectedMinutesPerPiece
+                };
+                copied++;
+            }
+        });
+
+        if (copied > 0) {
+            if (activeView === 'default') setLocalPhaseTimesDefault(newPhaseTimes);
+            else setLocalPhaseTimesSecondary(newPhaseTimes);
+            toast({ title: "Copiato", description: `Copiati ${copied} valori storici nei target.` });
+        } else {
+            toast({ variant: "destructive", title: "Nessun dato", description: "Nessun valore storico valido da copiare." });
         }
     };
 
@@ -245,7 +295,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                         </div>
                     </Tabs>
 
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-2">
+                        <Button variant="secondary" size="sm" onClick={handleCopyToTarget}><Copy className="mr-2 h-4 w-4" />Copia in Target</Button>
                         <Button variant="outline" size="sm" onClick={handleUpdateTimes} disabled={isUpdating}><RefreshCcw className={cn("mr-2 h-4 w-4", isUpdating && "animate-spin")} />Carica Analisi</Button>
                     </div>
 

@@ -8,6 +8,7 @@ import type { Article, ArticlePhaseTime, WorkCycle, RawMaterial, JobOrder } from
 import * as z from 'zod';
 import { syncJobBOMItems } from '@/lib/inventory-utils';
 import { getGlobalSettings } from '@/lib/settings-actions';
+import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 
 const bomItemSchema = z.object({
     component: z.string().min(1, "Componente obbligatorio."),
@@ -153,6 +154,19 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
     } catch (error: any) {
         console.error('Error in saveArticle:', error);
         return { success: false, message: "Errore durante il salvataggio: " + (error.message || "Errore sconosciuto") };
+    }
+}
+
+export async function refreshArticleHistoricalTimes(articleCode: string) {
+    try {
+        await updateArticleHistoricalTimes(articleCode);
+        const doc = await adminDb.collection("articles").where("code", "==", articleCode.trim().toUpperCase()).limit(1).get();
+        if (doc.empty) return { success: false };
+        const data = doc.docs[0].data() as Article;
+        return { success: true, historicalTimes: JSON.parse(JSON.stringify(data.historicalTimes || null)) };
+    } catch (e) {
+        console.error('Error refreshing historical times:', e);
+        return { success: false };
     }
 }
 
