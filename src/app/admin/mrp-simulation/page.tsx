@@ -82,12 +82,12 @@ export default async function AdminMrpSimulationPage() {
                 }>
                     <MrpSimulationClientPage
                         initialArticles={[]}
-                        initialMaterials={materials}
-                        allJobs={allJobs}
-                        purchaseOrders={purchaseOrders}
-                        manualCommitments={manualCommitments}
-                        globalSettings={globalSettings}
-                        initialDrafts={drafts}
+                        initialMaterials={JSON.parse(JSON.stringify(materials))}
+                        allJobs={JSON.parse(JSON.stringify(allJobs))}
+                        purchaseOrders={JSON.parse(JSON.stringify(purchaseOrders))}
+                        manualCommitments={JSON.parse(JSON.stringify(manualCommitments))}
+                        globalSettings={JSON.parse(JSON.stringify(globalSettings))}
+                        initialDrafts={JSON.parse(JSON.stringify(drafts))}
                     />
                 </Suspense>
             </AppShell>
