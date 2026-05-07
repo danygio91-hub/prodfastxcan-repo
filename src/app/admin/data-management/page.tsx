@@ -38,15 +38,15 @@ export default async function AdminDataManagementCommessePage() {
              </div>
          }>
             <DataManagementClientPage 
-                initialPlanned={planned}
-                initialProduction={production}
-                initialCompleted={completed}
-                initialCycles={cycles}
-                initialArticles={articles}
-                initialDepartments={departments}
-                initialMaterials={rawMaterials}
-                initialPurchaseOrders={purchaseOrders}
-                initialManualCommitments={manualCommitments}
+                initialPlanned={JSON.parse(JSON.stringify(planned))}
+                initialProduction={JSON.parse(JSON.stringify(production))}
+                initialCompleted={JSON.parse(JSON.stringify(completed))}
+                initialCycles={JSON.parse(JSON.stringify(cycles))}
+                initialArticles={JSON.parse(JSON.stringify(articles))}
+                initialDepartments={JSON.parse(JSON.stringify(departments))}
+                initialMaterials={JSON.parse(JSON.stringify(rawMaterials))}
+                initialPurchaseOrders={JSON.parse(JSON.stringify(purchaseOrders))}
+                initialManualCommitments={JSON.parse(JSON.stringify(manualCommitments))}
             />
 
         </Suspense>
