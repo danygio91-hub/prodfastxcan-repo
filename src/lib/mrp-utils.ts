@@ -294,7 +294,7 @@ export function calculateMRPTimelines(
                         status = 'AMBER';
                         const lastPO = [...events].filter(e => e.type === 'PO' && e.date <= currentEvent.date).pop();
                         supplyArrivalDate = lastPO?.date;
-                        details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT') : 'N/D'}.` + dbg);
+                        details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}.` + dbg);
                     } else {
                         // BUG 2 Fix: Se non ci sono PO e lo stock iniziale non basta, è MANCANTE
                         status = 'RED';
@@ -305,7 +305,7 @@ export function calculateMRPTimelines(
                     if (absoluteFinalBalance >= -0.001 && totalPO > 0.001) {
                          status = 'LATE';
                          supplyArrivalDate = coveringPODate || undefined;
-                         details.push(`🟠 IN RITARDO: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT') : 'futuro'}.` + dbg);
+                         details.push(`🟠 IN RITARDO: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'futuro'}.` + dbg);
                     } else {
                          // Se non ci sono PO o il bilancio finale è comunque negativo
                          status = 'RED';
@@ -392,11 +392,11 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
             newDetails.push("VERIFICARE PIANO ACQUISTI.");
         } else if (finalStatus === 'LATE') {
             const lateEntry = group.entries.find(e => e.status === 'LATE' && e.supplyArrivalDate);
-            newDetails.push(`🟠 IN RITARDO: In arrivo il ${lateEntry?.supplyArrivalDate ? new Date(lateEntry.supplyArrivalDate).toLocaleDateString('it-IT') : 'futuro'}. ${debugString}`);
+            newDetails.push(`🟠 IN RITARDO: In arrivo il ${lateEntry?.supplyArrivalDate ? new Date(lateEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'futuro'}. ${debugString}`);
             newDetails.push("Verificare se è possibile anticipare la consegna.");
         } else if (finalStatus === 'AMBER') {
             const amberEntry = group.entries.find(e => e.status === 'AMBER' && e.supplyArrivalDate);
-            newDetails.push(`🟡 COPERTO DA ORDINE: In arrivo il ${amberEntry?.supplyArrivalDate ? new Date(amberEntry.supplyArrivalDate).toLocaleDateString('it-IT') : 'N/D'}. ${debugString}`);
+            newDetails.push(`🟡 COPERTO DA ORDINE: In arrivo il ${amberEntry?.supplyArrivalDate ? new Date(amberEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}. ${debugString}`);
             newDetails.push("Monitorare fornitore.");
         } else {
             newDetails.push(`✅ DISPONIBILE (Stock fisico). ${debugString}`);
