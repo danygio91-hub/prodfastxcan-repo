@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { format, addWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek, isSameDay, isBefore, getDay, isPast, startOfDay } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -53,6 +53,12 @@ interface WeeklyCapacityBoardProps {
     rawMaterials?: any[];
     mrpTimelines?: Map<string, MRPTimelineEntry[]>;
     globalSettings?: any;
+    isSimulationMode: boolean;
+    onSimulationModeChange: (val: boolean) => void;
+}
+
+export interface WeeklyCapacityBoardRef {
+    getExportJobs: (year: number, weekNum: number, deptId: string) => JobOrder[];
 }
 
 // Whitelists Ufficiali Dogana (Gestione Commesse) per Audit 1:1
@@ -70,7 +76,7 @@ const COMPLETED_STATUS_WHITELIST = [
     "Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "Chiuso", "Consegnata", "SPEDITA"
 ];
 
-export default function WeeklyCapacityBoard({
+const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoardProps>(({
     jobOrders,
     unassignedJobs = [],
     operators,
@@ -90,12 +96,25 @@ export default function WeeklyCapacityBoard({
     onQuickView,
     rawMaterials = [],
     mrpTimelines = new Map(),
-    globalSettings
-}: WeeklyCapacityBoardProps) {
+    globalSettings,
+    isSimulationMode,
+    onSimulationModeChange
+}, ref) => {
+    const computedJobsRef = useRef<Record<string, JobOrder[]>>({});
+
+    useImperativeHandle(ref, () => ({
+        getExportJobs: (year: number, weekNum: number, deptId: string) => {
+            return computedJobsRef.current[`${year}_${weekNum}_${deptId}`] || [];
+        }
+    }));
+    
+    // Pulizia all'avvio per evitare memory leaks
+    useEffect(() => {
+        computedJobsRef.current = {};
+    }, [jobOrders, currentDate]);
     const { toast } = useToast();
     const router = useRouter();
     const [viewMode, setViewMode] = useState<'1W' | '2W'>('2W');
-    const [isSimulationMode, setIsSimulationMode] = useState(false);
     const [activeResultIndex, setActiveResultIndex] = useState(0);
 
     const numWeeks = viewMode === '1W' ? 1 : 2;
@@ -499,7 +518,7 @@ export default function WeeklyCapacityBoard({
                             <Switch 
                                 id="simulation-mode"
                                 checked={isSimulationMode}
-                                onCheckedChange={setIsSimulationMode}
+                                onCheckedChange={onSimulationModeChange}
                                 className="data-[state=checked]:bg-blue-600"
                             />
                         </div>
@@ -525,8 +544,15 @@ export default function WeeklyCapacityBoard({
                                     const weekStartDateStr = format(week.start, 'yyyy-MM-dd');
                                     
                                     const weekJobs = jobOrders.filter(job => {
-                                        const displayStatus = getOverallStatus(job);
-                                        const isClosed = displayStatus === 'CHIUSO';
+                                        const derivedStatus = getDerivedJobStatus(job);
+                                        const isClosedGlobally = derivedStatus === 'CHIUSO';
+                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
+                                        
+                                        const cloneStatus = getCloneStatus(job, macroArea);
+                                        const isGreen = cloneStatus === 'status-green';
+                                        
+                                        // Filtro Assoluto SSoT: è chiusa globalmente o la card è VERDE per questo reparto?
+                                        const isFinishedForDept = isClosedGlobally || isGreen;
                                         
                                         // 1. DATA DI RIFERIMENTO DINAMICA (effectiveBoardDate)
                                         let referenceDate: Date | null = null;
@@ -550,7 +576,7 @@ export default function WeeklyCapacityBoard({
                                             
                                             if (prepCompleteTime) {
                                                 referenceDate = prepCompleteTime;
-                                            } else if (isClosed && job.overallEndTime) {
+                                            } else if (isClosedGlobally && job.overallEndTime) {
                                                 const rawEnd = job.overallEndTime;
                                                 referenceDate = (rawEnd && typeof rawEnd === 'object' && 'seconds' in rawEnd)
                                                     ? new Date(rawEnd.seconds * 1000)
@@ -558,7 +584,7 @@ export default function WeeklyCapacityBoard({
                                             } else if (job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D') {
                                                 referenceDate = parseRobustDate(job.dataConsegnaFinale);
                                             }
-                                        } else if (isClosed) {
+                                        } else if (isClosedGlobally) {
                                             if (job.overallEndTime) {
                                                 const rawEnd = job.overallEndTime;
                                                 referenceDate = (rawEnd && typeof rawEnd === 'object' && 'seconds' in rawEnd)
@@ -574,7 +600,7 @@ export default function WeeklyCapacityBoard({
                                         const currentBoardStart = startOfWeek(currentDate, { weekStartsOn: 1 });
 
                                         // 2. FALLBACK PER COMMESSE SENZA DATA (EVITA SPARIZIONI)
-                                        if ((!referenceDate || isNaN(referenceDate.getTime())) && !isClosed) {
+                                        if ((!referenceDate || isNaN(referenceDate.getTime())) && !isClosedGlobally) {
                                             referenceDate = currentBoardStart;
                                         }
 
@@ -582,13 +608,9 @@ export default function WeeklyCapacityBoard({
 
                                         // 3. LOGICA DI ASSEGNAZIONE COLONNA (Deduplicazione e Ritardi)
                                         const naturalWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
-                                        
-                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
-                                        const cloneStatus = getCloneStatus(job, macroArea);
-                                        const isGreen = cloneStatus === 'status-green';
 
-                                        // Il ritardo (overdue) si applica SOLO alle commesse aperte e ai cloni NON ancora finiti (non verdi)
-                                        const isOverdue = !isClosed && !isGreen && referenceDate < currentBoardStart;
+                                        // Il ritardo (overdue) si applica SOLO alle commesse aperte e ai cloni NON ancora finiti
+                                        const isOverdue = !isFinishedForDept && referenceDate < currentBoardStart;
 
                                         let assignedWeekStart: Date;
                                         if (isOverdue) {
@@ -604,7 +626,8 @@ export default function WeeklyCapacityBoard({
                                         // LOGICA SIMULAZIONE (Spazzaneve)
                                         if (isSimulationMode) {
                                             const isPastOrCurrentWeek = (assignedWeekStart < currentBoardStart) || isSameWeek(assignedWeekStart, currentBoardStart, { weekStartsOn: 1 });
-                                            const isArrearage = !isClosed && !isGreen && isPastOrCurrentWeek;
+                                            // IL RULLO COMPRESSORE NON TOCCA LE COMMESSE FINITE
+                                            const isArrearage = !isFinishedForDept && isPastOrCurrentWeek;
 
                                             if (isArrearage) {
                                                 const secondWeek = weeks[1];
@@ -637,11 +660,24 @@ export default function WeeklyCapacityBoard({
                                         return jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
                                     });
 
+                                    // Salva esattamente le commesse renderizzate per l'export SSoT
+                                    computedJobsRef.current[`${week.year}_${week.weekNum}_${dept.id}`] = weekJobs;
+
                                     const totalLoad = weekJobs.reduce((acc, job) => {
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
                                         return acc + getJobMRPData(job, dept.id, macroArea, articles, phaseTemplates).residual;
                                     }, 0);
                                     const isOverloaded = capacityHours > 0 && totalLoad > capacityHours;
+
+                                    const totalJobs = weekJobs.length;
+                                    const completedJobs = weekJobs.filter(job => {
+                                        const derivedStatus = getDerivedJobStatus(job);
+                                        const isClosedGlobally = derivedStatus === 'CHIUSO';
+                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
+                                        const cloneStatus = getCloneStatus(job, macroArea);
+                                        return isClosedGlobally || cloneStatus === 'status-green';
+                                    }).length;
+                                    const openJobs = totalJobs - completedJobs;
 
                                     return (
                                         <Card 
@@ -690,11 +726,19 @@ export default function WeeklyCapacityBoard({
                                                     </div>
                                                 </div>
                                                 <div className="flex flex-col items-end">
-                                                    <div className="flex items-center gap-2">
-                                                        {isOverloaded && <AlertTriangle className="h-3.5 w-3.5 text-red-600" />}
-                                                        <span className={cn("text-sm font-black italic tracking-tighter", isOverloaded ? "text-red-600 animate-pulse" : "text-blue-600")}>
-                                                            {totalLoad.toFixed(1)}h
-                                                        </span>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/50 rounded-md px-2 py-0.5" title={`${completedJobs} completate / ${openJobs} aperte`}>
+                                                            <Boxes className="h-3 w-3 text-slate-500" />
+                                                            <span className="text-[10px] font-black text-emerald-500">{completedJobs}</span>
+                                                            <span className="text-[10px] text-slate-600 font-black">/</span>
+                                                            <span className="text-[10px] font-black text-slate-400">{totalJobs}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            {isOverloaded && <AlertTriangle className="h-3.5 w-3.5 text-red-600" />}
+                                                            <span className={cn("text-sm font-black italic tracking-tighter", isOverloaded ? "text-red-600 animate-pulse" : "text-blue-600")}>
+                                                                {totalLoad.toFixed(1)}h
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                     <Progress value={capacityHours > 0 ? (totalLoad / capacityHours) * 100 : 0} className={cn("h-1.5 w-16 mt-1.5", isOverloaded ? "[&>div]:bg-red-500" : "[&>div]:bg-blue-600")} />
                                                 </div>
@@ -751,7 +795,9 @@ export default function WeeklyCapacityBoard({
             </Tabs>
         </div>
     );
-}
+});
+
+export default WeeklyCapacityBoard;
 
 export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' | 'CORE' | 'PACK', articles: Article[], phaseTemplates: WorkPhaseTemplate[]) {
     const article = articles.find(a => a.code?.trim().toUpperCase() === job.details?.trim().toUpperCase());

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { 
@@ -58,8 +58,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { calculateMRPTimelines } from '@/lib/mrp-utils';
 import { exportPlanningToExcel } from '@/lib/excel-export';
+import type { WeeklyCapacityBoardRef } from './WeeklyCapacityBoard';
 
-
+import type { JobOrder, Department } from '@/types';
 
 export default function ResourcePlanningClientPage() {
     const { toast } = useToast();
@@ -71,9 +72,12 @@ export default function ResourcePlanningClientPage() {
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [activeView, setActiveView] = useState<'board' | 'console'>('board');
+    const [isSimulationMode, setIsSimulationMode] = useState(false);
     const [isBacklogOpen, setIsBacklogOpen] = useState(false);
     const [quickViewJob, setQuickViewJob] = useState<any | null>(null);
     
+    const boardRef = useRef<WeeklyCapacityBoardRef>(null);
+
     const { 
         operators: cachedOperators, 
         articles: cachedArticles, 
@@ -429,82 +433,50 @@ export default function ResourcePlanningClientPage() {
     };
 
     const handleExport = (scope: 'current' | 'next' | 'both', deptIds: string[] | 'ALL') => {
+        const weekNumCurrent = currentWeek;
         const nextWeekDate = addWeeks(currentDate, 1);
+        const weekNumNext = getWeek(nextWeekDate, { weekStartsOn: 1 });
+
+        const deptsToProcess = deptIds === 'ALL' ? cachedDepartments.map(d => d.id) : deptIds;
+        const finalExportJobs: any[] = [];
         
-        const filteredJobs = boardData.jobOrders.filter(job => {
-            const displayStatus = getDerivedJobStatus(job);
-            const isClosed = displayStatus === 'CHIUSO';
-            
-            let referenceDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' 
-                ? parseISO(job.dataConsegnaFinale) 
-                : null;
-                
-            if (isClosed && job.overallEndTime) {
-                referenceDate = new Date(job.overallEndTime);
+        deptsToProcess.forEach(dId => {
+            if (scope === 'current' || scope === 'both') {
+                const jobs = boardRef.current?.getExportJobs(currentYear, weekNumCurrent, dId) || [];
+                finalExportJobs.push(...jobs);
             }
-
-            if ((!referenceDate || isNaN(referenceDate.getTime())) && !isClosed) {
-                referenceDate = currentDate;
+            if (scope === 'next' || scope === 'both') {
+                const yearNext = weekNumNext < weekNumCurrent ? currentYear + 1 : currentYear;
+                const jobs = boardRef.current?.getExportJobs(yearNext, weekNumNext, dId) || [];
+                finalExportJobs.push(...jobs);
             }
-
-            if (!referenceDate || isNaN(referenceDate.getTime())) return false;
-
-            const naturalWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
-            const currentBoardStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-            const isOverdue = !isClosed && referenceDate < currentBoardStart;
-
-            let assignedWeekStart: Date;
-            if (isOverdue) {
-                assignedWeekStart = currentBoardStart;
-            } else {
-                assignedWeekStart = naturalWeekStart;
-            }
-
-            const isInCurrent = isSameWeek(assignedWeekStart, currentDate, { weekStartsOn: 1 });
-            const isInNext = isSameWeek(assignedWeekStart, nextWeekDate, { weekStartsOn: 1 });
-            
-            let matchesWeek = false;
-            if (scope === 'current') matchesWeek = isInCurrent;
-            else if (scope === 'next') matchesWeek = isInNext;
-            else if (scope === 'both') matchesWeek = isInCurrent || isInNext;
-            
-            if (!matchesWeek) return false;
-            if (deptIds === 'ALL') return true;
-            
-            // Filtro Reparto/Macroarea
-            return deptIds.some(dId => {
-                const targetDept = cachedDepartments.find(d => d.id === dId);
-                const jobDept = job.department?.toUpperCase() || '';
-                const dCode = targetDept?.code?.toUpperCase() || '';
-                const dName = targetDept?.name?.toUpperCase() || '';
-                const dIdUpper = dId.toUpperCase();
-                
-                if (dId === 'PREP') {
-                    // Se esportiamo prep, mostriamo solo se il reparto core della commessa dipende dalla prep
-                    const jobCoreDept = cachedDepartments.find(d => d.id === job.department || d.code === job.department);
-                    return jobCoreDept?.dependsOnPreparation && (job.phases || []).some((p: any) => p.type === 'preparation');
-                }
-                if (dId === 'PACK') return true; 
-                
-                return jobDept === dIdUpper || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
-            });
         });
 
-        if (filteredJobs.length === 0) {
+        if (finalExportJobs.length === 0) {
             toast({ title: "Nessun dato", description: "Non ci sono commesse pianificate per i criteri selezionati.", variant: "destructive" });
             return;
         }
 
-        const macroAreaLabel = deptIds === 'ALL' ? 'Tutti' : (deptIds.length > 1 ? 'PRODUZIONE' : deptIds[0]);
-        const weekLabel = scope === 'current' ? `Sett_${currentWeek}` : (scope === 'next' ? `Sett_${getWeek(nextWeekDate, { weekStartsOn: 1 })}` : 'Sett_Combo');
+        let deptName = 'PRODUZIONE';
+        if (deptIds !== 'ALL' && deptIds.length === 1) {
+            if (deptIds[0] === 'PREP') deptName = 'PREPARAZIONE';
+            else if (deptIds[0] === 'PACK') deptName = 'QUALITÀ E IMBALLO';
+            else {
+                const targetDept = cachedDepartments.find(d => d.id === deptIds[0]);
+                if (targetDept) deptName = targetDept.name.toUpperCase();
+            }
+        }
+
+        const weekLabel = scope === 'current' ? `${currentWeek}` : (scope === 'next' ? `${weekNumNext}` : 'Multi');
 
         exportPlanningToExcel(
-            filteredJobs, 
+            finalExportJobs, 
             deptIds.includes('PREP') ? 'PREP' : (deptIds.includes('PACK') ? 'PACK' : 'CORE'),
-            weekLabel
+            weekLabel,
+            deptName
         );
         
-        toast({ title: "Report Generato", description: `Scaricamento del report per ${macroAreaLabel} in corso...` });
+        toast({ title: "Report Generato", description: `Scaricamento del report per ${deptName} in corso...` });
     };
 
     if (loading && !isRefreshing && !boardData.jobOrders.length && !boardData.unassignedJobs.length) return (
@@ -690,6 +662,7 @@ export default function ResourcePlanningClientPage() {
                 <div className="flex-1 overflow-auto p-4 md:p-6 pb-24">
                     {activeView === 'board' ? (
                         <WeeklyCapacityBoard 
+                            ref={boardRef}
                             jobOrders={boardData.jobOrders}
                             unassignedJobs={boardData.unassignedJobs}
                             operators={planningOperators}
@@ -713,6 +686,8 @@ export default function ResourcePlanningClientPage() {
                             rawMaterials={boardData.rawMaterials || []}
                             mrpTimelines={mrpTimelines}
                             globalSettings={boardData.globalSettings}
+                            isSimulationMode={isSimulationMode}
+                            onSimulationModeChange={setIsSimulationMode}
                         />
                     ) : (
                         <MasterConsole 

@@ -16,7 +16,8 @@ export interface ExportJobData {
 export async function exportPlanningToExcel(
     jobs: ExportJobData[],
     macroArea: 'PREP' | 'CORE' | 'PACK',
-    weekTitle: string
+    weekTitle: string,
+    deptName: string = 'PRODUZIONE'
 ) {
     // 1. Preparazione Dati e Sorting (Stessa logica di prima)
     const sortedJobs = [...jobs].sort((a, b) => {
@@ -72,33 +73,51 @@ export async function exportPlanningToExcel(
         { state: 'frozen', ySplit: 2 }
     ];
 
-    // 4. AGGIUNTA INTESTAZIONE SETTIMANA (MERGED CELL)
+    // 4. AGGIUNTA INTESTAZIONE SETTIMANA (MERGED CELL) E CONTATORE
     const weekNum = weekTitle.match(/\d+/)?.[0] || 'XX';
-    worksheet.insertRow(1, { cliente: `PIANO DI PRODUZIONE - SETTIMANA ${weekNum}` });
-    worksheet.mergeCells('A1:F1');
+    worksheet.insertRow(1, { cliente: `PIANO DI PRODUZIONE - ${deptName.toUpperCase()} - SETTIMANA ${weekNum}` });
+    worksheet.mergeCells('A1:D1');
+    worksheet.mergeCells('E1:F1');
+    
     const weekHeaderCell = worksheet.getCell('A1');
     weekHeaderCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF000000' } };
     weekHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    weekHeaderCell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF1F5F9' } // Light slate background
-    };
+    weekHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
     weekHeaderCell.border = {
         top: { style: 'thick', color: { argb: 'FF000000' } },
         left: { style: 'thick', color: { argb: 'FF000000' } },
         bottom: { style: 'thick', color: { argb: 'FF000000' } },
-        right: { style: 'thick', color: { argb: 'FF000000' } }
+        right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+    };
+
+    const counterCell = worksheet.getCell('E1');
+    counterCell.value = `Totale Commesse: ${sortedJobs.length}`;
+    counterCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF000000' } };
+    counterCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    counterCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    counterCell.border = {
+        top: { style: 'thick', color: { argb: 'FF000000' } },
+        right: { style: 'thick', color: { argb: 'FF000000' } },
+        bottom: { style: 'thick', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FFCCCCCC' } }
     };
     worksheet.getRow(1).height = 35;
 
-    // 5. Mappaggio Colore Macroarea
-    const macroAreaColors: Record<string, string> = {
-        'PREP': 'FFF59E0B', // Amber-500
-        'CORE': 'FF2563EB', // Blue-600
-        'PACK': 'FF10B981', // Emerald-500
-    };
-    const headerBgColor = macroAreaColors[macroArea] || 'FF6366F1';
+    // 5. Mappaggio Colore Macroarea e Reparto
+    let headerBgColor = 'FF6366F1'; // Indaco default
+    const upperDept = deptName.toUpperCase();
+    
+    if (upperDept.includes('PREPARAZIONE') || upperDept.includes('PREP')) {
+        headerBgColor = 'FFF59E0B'; // Arancione/Ocra (#F59E0B)
+    } else if (upperDept.includes('REPARTO BARRE') || upperDept.includes('BARRE')) {
+        headerBgColor = 'FF0EA5E9'; // Azzurro/Ciano (#0EA5E9)
+    } else if (upperDept.includes('CONNESSIONI GRANDI') || upperDept.includes('GRANDI')) {
+        headerBgColor = 'FF10B981'; // Verde Smeraldo (#10B981)
+    } else if (upperDept.includes('CONNESSIONI PICCOLE') || upperDept.includes('PICCOLE')) {
+        headerBgColor = 'FFEA580C'; // Arancione Scuro (#EA580C)
+    } else if (upperDept.includes('PACK') || upperDept.includes('QUALITÀ') || upperDept.includes('QUALITA')) {
+        headerBgColor = 'FF64748B'; // Grigio Scuro / Slate (#64748B)
+    }
 
     // 6. Stile Intestazione Colonne (Riga 2 ora)
     const headerRow = worksheet.getRow(2);
@@ -108,8 +127,7 @@ export async function exportPlanningToExcel(
             name: 'Arial',
             size: 11,
             bold: true, 
-            italic: true, 
-            color: { argb: 'FF000000' } // Nero
+            color: { argb: 'FFFFFFFF' } // Bianco
         };
         cell.fill = {
             type: 'pattern',
