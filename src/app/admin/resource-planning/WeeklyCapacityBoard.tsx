@@ -597,27 +597,37 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                             }
                                         }
 
-                                        const currentBoardStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+                                        const realTodayStart = startOfDay(startOfWeek(new Date(), { weekStartsOn: 1 }));
+                                        const currentBoardStart = startOfDay(startOfWeek(currentDate, { weekStartsOn: 1 }));
 
                                         // 2. FALLBACK PER COMMESSE SENZA DATA (EVITA SPARIZIONI)
                                         if ((!referenceDate || isNaN(referenceDate.getTime())) && !isClosedGlobally) {
-                                            referenceDate = currentBoardStart;
+                                            referenceDate = realTodayStart;
                                         }
 
                                         if (!referenceDate || isNaN(referenceDate.getTime())) return false;
 
-                                        // 3. LOGICA DI ASSEGNAZIONE COLONNA (Deduplicazione e Ritardi)
-                                        const naturalWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
+                                        // 3. LOGICA DI ASSEGNAZIONE COLONNA (Auto-Rollover e Ritardi)
+                                        const naturalWeekStart = startOfDay(startOfWeek(referenceDate, { weekStartsOn: 1 }));
 
-                                        // Il ritardo (overdue) si applica SOLO alle commesse aperte e ai cloni NON ancora finiti
-                                        const isOverdue = !isFinishedForDept && referenceDate < currentBoardStart;
+                                        // REGOLA DI BUSINESS: Il passato è solo storico.
+                                        // Le commesse non completate nel passato devono "rollare" verso il presente.
+                                        let effectivePlanningWeekStart = naturalWeekStart;
+                                        if (!isFinishedForDept && naturalWeekStart < realTodayStart) {
+                                            if (isSimulationMode) {
+                                                // Se Check-up Venerdì è ON, gli arretrati vanno alla settimana prossima
+                                                effectivePlanningWeekStart = addWeeks(realTodayStart, 1);
+                                            } else {
+                                                // Altrimenti vanno alla settimana corrente
+                                                effectivePlanningWeekStart = realTodayStart;
+                                            }
+                                        }
 
-                                        let assignedWeekStart: Date;
-                                        if (isOverdue) {
-                                            // PILASTRO 5: Clamping visivo alla prima settimana della board (Settimana Corrente)
+                                        // PILASTRO 5: Clamping visivo alla prima settimana della board (Settimana Corrente)
+                                        // Garantisce che i ritardi seguano l'utente se naviga verso il futuro
+                                        let assignedWeekStart = effectivePlanningWeekStart;
+                                        if (!isFinishedForDept && effectivePlanningWeekStart < currentBoardStart) {
                                             assignedWeekStart = currentBoardStart;
-                                        } else {
-                                            assignedWeekStart = naturalWeekStart;
                                         }
 
                                         // Infine verifichiamo se la colonna corrente è quella assegnata
@@ -954,7 +964,7 @@ function JobCompactCard(props: {
         
         const componentEntries: { entry: MRPTimelineEntry, item: any }[] = [];
         job.billOfMaterials.forEach(item => {
-            const matCode = item.component?.toUpperCase();
+            const matCode = (item.component || '').trim().toUpperCase();
             const timeline = mrpTimelines.get(matCode) || [];
             const entry = timeline.find(e => e.jobId === job.id);
             if (entry) componentEntries.push({ entry, item });

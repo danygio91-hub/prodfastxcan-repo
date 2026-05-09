@@ -5,7 +5,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment } from '@/types';
 import * as z from 'zod';
-import { convertTimestampsToDates } from '@/lib/utils';
+import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
 
 
@@ -176,8 +176,8 @@ export async function saveManualJobOrder(data: any) {
         qta: Number(qta),
         billOfMaterials: jobBOM,
         phases: phases,
-        dataConsegnaFinale: dataConsegnaFinale || '',
-        dataFinePreparazione: dataFinePreparazione || '',
+        dataConsegnaFinale: normalizeDateStr(dataConsegnaFinale) || '',
+        dataFinePreparazione: normalizeDateStr(dataFinePreparazione) || '',
         department: department || "N/D",
         workCycleId: workCycleId || '',
         createdAt: admin.firestore.Timestamp.now(),
@@ -187,6 +187,8 @@ export async function saveManualJobOrder(data: any) {
     try {
         await docRef.set(JSON.parse(JSON.stringify(newJob)));
         revalidatePath('/admin/data-management');
+        revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/production-console');
         return { success: true, message: 'Commessa creata con successo.' };
     } catch (error) {
         return { success: false, message: "Errore durante il salvataggio della commessa." };
@@ -418,24 +420,51 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
     return { success: true, message: 'Caricamento completato.' };
 }
 
-export async function updateJobOrderDeliveryDate(jobId: string, newDate: string) {
+export async function syncJobOrderDates(itemId: string, newDate: string, field: 'delivery' | 'prep', uid?: string) {
     try {
-        await adminDb.collection("jobOrders").doc(jobId).update({ dataConsegnaFinale: newDate });
+        const normalized = normalizeDateStr(newDate);
+        if (!normalized) throw new Error("Data non valida.");
+
+        const isGroup = itemId.startsWith('group-');
+        const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
+        const fieldName = field === 'delivery' ? 'dataConsegnaFinale' : 'dataFinePreparazione';
+
+        await adminDb.runTransaction(async (t) => {
+            const snap = await t.get(itemRef);
+            if (!snap.exists) throw new Error("Elemento non trovato.");
+            
+            const updatePayload = { 
+                [fieldName]: normalized,
+                updatedAt: admin.firestore.Timestamp.now()
+            };
+            
+            t.update(itemRef, updatePayload);
+
+            if (isGroup) {
+                const data = snap.data() as any;
+                (data.jobOrderIds || []).forEach((id: string) => {
+                    t.update(adminDb.collection('jobOrders').doc(id), updatePayload);
+                });
+            }
+        });
+
         revalidatePath('/admin/data-management');
-        return { success: true, message: 'Data consegna aggiornata.' };
+        revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/production-console');
+        
+        return { success: true, message: 'Data sincronizzata con successo.' };
     } catch (error) {
-        return { success: false, message: 'Errore durante l\'aggiornamento della data.' };
+        console.error("Error in syncJobOrderDates:", error);
+        return { success: false, message: error instanceof Error ? error.message : "Errore durante la sincronizzazione." };
     }
 }
 
+export async function updateJobOrderDeliveryDate(jobId: string, newDate: string) {
+    return syncJobOrderDates(jobId, newDate, 'delivery');
+}
+
 export async function updateJobOrderPrepDate(jobId: string, newDate: string) {
-    try {
-        await adminDb.collection("jobOrders").doc(jobId).update({ dataFinePreparazione: newDate });
-        revalidatePath('/admin/data-management');
-        return { success: true, message: 'Data preparazione aggiornata.' };
-    } catch (error) {
-        return { success: false, message: 'Errore durante l\'aggiornamento della data.' };
-    }
+    return syncJobOrderDates(jobId, newDate, 'prep');
 }
 
 export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string }> {

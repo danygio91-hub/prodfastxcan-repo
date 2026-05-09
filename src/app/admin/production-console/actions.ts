@@ -10,7 +10,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate, Article } from '@/types';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 import { pulseOperatorsForJob } from '@/lib/job-sync-server';
-import { convertTimestampsToDates } from '@/lib/utils';
+import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
 import { getOverallStatus } from '@/lib/types';
 
 
@@ -426,10 +426,11 @@ async function internalForceCompleteJob(transaction: admin.firestore.Transaction
 
     if (item.billOfMaterials && item.billOfMaterials.length > 0) {
         updates.billOfMaterials = item.billOfMaterials.map(bItem => {
+            const cleanComponent = (bItem.component || '').toUpperCase().trim();
             if (!bItem.withdrawn) {
-                return { ...bItem, status: 'withdrawn', withdrawn: true, forcedClosure: true };
+                return { ...bItem, component: cleanComponent, status: 'withdrawn', withdrawn: true, forcedClosure: true };
             }
-            return bItem;
+            return { ...bItem, component: cleanComponent };
         });
     }
 
@@ -695,18 +696,33 @@ export async function resolveMaterialMissing(itemId: string, phaseId: string, ui
 export async function updateJobDeliveryDate(itemId: string, newDate: string, uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
+    const normalized = normalizeDateStr(newDate);
+    if (!normalized) throw new Error("Data non valida.");
+
     const isGroup = itemId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
     await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
         const snap = await t.get(itemRef);
         if (!snap.exists) throw new Error("Non trovato.");
-        t.update(itemRef, { dataConsegnaFinale: newDate });
+        
+        const updatePayload = { 
+            dataConsegnaFinale: normalized,
+            updatedAt: admin.firestore.Timestamp.now()
+        };
+
+        t.update(itemRef, updatePayload);
         if (isGroup) {
             const data = snap.data() as WorkGroup;
-            (data.jobOrderIds || []).forEach(id => { t.update(adminDb.collection('jobOrders').doc(id), { dataConsegnaFinale: newDate }); });
+            (data.jobOrderIds || []).forEach(id => { 
+                t.update(adminDb.collection('jobOrders').doc(id), updatePayload); 
+            });
         }
     });
+    
     revalidatePath('/admin/production-console');
+    revalidatePath('/admin/resource-planning');
+    revalidatePath('/admin/data-management');
+    
     await pulseOperatorsForJob(itemId);
     return { success: true, message: "Data aggiornata." };
 
@@ -716,25 +732,39 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
 export async function updateJobPrepDate(itemId: string, newDate: string, uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
+    const normalized = normalizeDateStr(newDate);
+    if (!normalized) throw new Error("Data non valida.");
+
     const isGroup = itemId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
     await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
         const snap = await t.get(itemRef);
         if (!snap.exists) throw new Error("Non trovato.");
-        t.update(itemRef, { dataFinePreparazione: newDate });
+        
+        const updatePayload = { 
+            dataFinePreparazione: normalized,
+            updatedAt: admin.firestore.Timestamp.now()
+        };
+
+        t.update(itemRef, updatePayload);
         if (isGroup) {
             const data = snap.data() as WorkGroup;
             (data.jobOrderIds || []).forEach(id => { 
-                t.update(adminDb.collection('jobOrders').doc(id), { dataFinePreparazione: newDate }); 
+                t.update(adminDb.collection('jobOrders').doc(id), updatePayload); 
             });
         }
     });
+    
     revalidatePath('/admin/production-console');
+    revalidatePath('/admin/resource-planning');
+    revalidatePath('/admin/data-management');
+    
     await pulseOperatorsForJob(itemId);
-    return { success: true, message: "Data preparazione aggiornata." };
+    return { success: true, message: "Data aggiornata." };
 
   } catch (error) { return { success: false, message: "Errore." }; }
 }
+
 export async function bulkUpdateJobOrders(jobs: JobOrder[], uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);

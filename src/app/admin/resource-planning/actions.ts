@@ -8,7 +8,7 @@ import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Art
 
 import { startOfWeek, endOfWeek, format, parseISO, eachDayOfInterval } from 'date-fns';
 import { getProductionTimeAnalysisMap } from '../production-console/actions';
-import { convertTimestampsToDates } from '@/lib/utils';
+import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
 
 
@@ -478,11 +478,18 @@ export async function bulkUpdateJobSortOrder(updates: { id: string, sortIndex: n
  */
 export async function updateJobDeliveryDate(jobId: string, newDate: string, fieldName: string = 'dataConsegnaFinale', uid?: string) {
     try {
+        const normalized = normalizeDateStr(newDate);
+        if (!normalized) throw new Error("Data non valida.");
+
         await adminDb.collection("jobOrders").doc(jobId).update({
-            [fieldName]: newDate,
+            [fieldName]: normalized,
             updatedAt: admin.firestore.Timestamp.now()
         });
+        
         revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/production-console');
+        revalidatePath('/admin/data-management');
+        
         return { success: true };
     } catch (error) {
         return { success: false, message: `Errore nell'aggiornamento della data (${fieldName}).` };

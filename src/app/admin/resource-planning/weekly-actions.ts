@@ -175,10 +175,11 @@ export async function advanceJobStatus(jobId: string, nextStatus?: string, uid?:
 
         if (data.billOfMaterials && data.billOfMaterials.length > 0) {
             updates.billOfMaterials = data.billOfMaterials.map(item => {
+                const cleanComponent = (item.component || '').toUpperCase().trim();
                 if (!item.withdrawn) {
-                    return { ...item, status: 'withdrawn', withdrawn: true, forcedClosure: true };
+                    return { ...item, component: cleanComponent, status: 'withdrawn', withdrawn: true, forcedClosure: true };
                 }
-                return item;
+                return { ...item, component: cleanComponent };
             });
         }
 

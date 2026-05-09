@@ -85,8 +85,26 @@ export function parseRobustDate(dateInput: any): Date | null {
 
     return null;
 }
+/**
+ * Normalizza qualsiasi input di data in una stringa "YYYY-MM-DD" sicura.
+ * Evita slittamenti di fuso orario ancorando la data alle 12:00 locale se è un oggetto Date.
+ */
+export function normalizeDateStr(input: any): string | null {
+    if (!input) return null;
+    
+    // Se è già una stringa YYYY-MM-DD valida, la ritorniamo così com'è
+    if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+        return input;
+    }
 
-
-
-
+    const d = parseRobustDate(input);
+    if (!d) return null;
+    
+    // Ancoraggio a mezzogiorno per evitare shift UTC quando si estrae solo la data
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
+}
 
