@@ -93,7 +93,8 @@ export default function ResourcePlanningClientPage() {
         rawMaterials?: any[],
         purchaseOrders?: any[],
         manualCommitments?: any[],
-        globalSettings?: any
+        globalSettings?: any,
+        activeSessions?: any[]
     }>({ jobOrders: [], unassignedJobs: [], allocations: {} });
     const [phaseTemplates, setPhaseTemplates] = useState<any[]>([]);
 
@@ -209,7 +210,8 @@ export default function ResourcePlanningClientPage() {
             boardData.purchaseOrders || [],
             boardData.manualCommitments || [],
             cachedArticles,
-            boardData.globalSettings || null
+            boardData.globalSettings || null,
+            boardData.activeSessions || []
         );
     }, [boardData, cachedArticles]);
 

@@ -5,8 +5,10 @@ import AppShell from '@/components/layout/AppShell';
 import { getPlannedJobOrders, getProductionJobOrders, getCompletedJobOrders, getWorkCycles, getRequiredDataForJobs, getDepartments } from './actions';
 import { getManualCommitments } from '../raw-material-management/actions';
 import { getPurchaseOrders } from '../purchase-orders/actions';
+import { adminDb } from '@/lib/firebase-admin';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
+import { type QueryDocumentSnapshot } from 'firebase-admin/firestore';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,15 +20,16 @@ export default async function AdminDataManagementCommessePage() {
   const manualCommitments = await getManualCommitments();
   const purchaseOrders = await getPurchaseOrders();
 
-  const [cycles, departments, requiredData] = await Promise.all([
+  const [cycles, departments, requiredData, activeSessionsSnap] = await Promise.all([
     getWorkCycles(),
     getDepartments(),
-    getRequiredDataForJobs([...planned, ...production, ...completed], manualCommitments)
+    getRequiredDataForJobs([...planned, ...production, ...completed], manualCommitments),
+    adminDb.collection("independentMaterialSessions").where("status", "==", "open").get()
   ]);
 
-  
   const articles = requiredData.articles;
   const rawMaterials = requiredData.materials;
+  const activeSessions = activeSessionsSnap.docs.map((doc: QueryDocumentSnapshot) => ({ ...doc.data(), id: doc.id }));
 
   return (
     <AdminAuthGuard>
@@ -47,6 +50,7 @@ export default async function AdminDataManagementCommessePage() {
                 initialMaterials={JSON.parse(JSON.stringify(rawMaterials))}
                 initialPurchaseOrders={JSON.parse(JSON.stringify(purchaseOrders))}
                 initialManualCommitments={JSON.parse(JSON.stringify(manualCommitments))}
+                initialActiveSessions={JSON.parse(JSON.stringify(activeSessions))}
             />
 
         </Suspense>

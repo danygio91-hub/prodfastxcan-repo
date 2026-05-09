@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,7 +39,7 @@ import { Badge } from '@/components/ui/badge';
 import type { Article, RawMaterial, WorkPhaseTemplate } from '@/types';
 import ArticleFormDialog from './ArticleFormDialog';
 import ArticleTimesDialog from './ArticleTimesDialog';
-import { deleteArticle, validateArticlesImport, bulkSaveArticles, validateArticleSettingsImport, bulkUpdateArticleSettings, getArticles } from './actions';
+import { deleteArticle, validateArticlesImport, bulkSaveArticles, validateArticleSettingsImport, bulkUpdateArticleSettings, getArticles, syncAllHistoricalToTargets } from './actions';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 import { useDebounce } from '../../../hooks/use-debounce';
@@ -64,6 +65,9 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
   const [isImporting, setIsImporting] = useState(false);
   const [isImportingSettings, setIsImportingSettings] = useState(false);
   const [isSavingBulk, setIsSavingBulk] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const { operator } = useAuth();
+  const isAdmin = operator?.role === 'admin';
 
   const [importReport, setImportReport] = useState<{
     newArticles: Omit<Article, 'id'>[];
@@ -297,6 +301,26 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
     setIsSavingBulk(false);
   };
 
+  const handleMassiveSync = async () => {
+    if (!isAdmin) return;
+    setIsSyncing(true);
+    try {
+      const res = await syncAllHistoricalToTargets();
+      toast({
+        title: res.success ? "Sincronizzazione Completata" : "Errore",
+        description: res.message,
+        variant: res.success ? "default" : "destructive",
+      });
+      if (res.success) {
+        router.refresh();
+      }
+    } catch (e) {
+      toast({ variant: "destructive", title: "Errore", description: "Si è verificato un errore durante la sincronizzazione." });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <>
       <div className="space-y-6">
@@ -315,6 +339,33 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
             <Button onClick={handleDownloadSettingsTemplate} variant="outline" size="sm" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 h-9 px-3">
               <FileSpreadsheet className="mr-2 h-4 w-4" /> Template Impostazioni
             </Button>
+
+            {isAdmin && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={isSyncing} className="bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/50 text-emerald-700 dark:text-emerald-400 h-9 px-3">
+                    {isSyncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                    Sincronizza Target dallo Storico
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Conferma Sincronizzazione Massiva</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Questa azione sovrascriverà i tempi previsti (Target) di TUTTI gli articoli con le medie storiche reali calcolate, ove disponibili. 
+                      <br /><br />
+                      <strong className="text-destructive text-sm italic">L'operazione è massiva e non può essere annullata facilmente.</strong>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleMassiveSync} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                      Procedi con la Sincronizzazione
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
 
             <Button onClick={() => settingsInputRef.current?.click()} variant="outline" size="sm" disabled={isImportingSettings} className="bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/50 text-amber-700 dark:text-amber-400 h-9 px-3">
               {isImportingSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileEdit className="mr-2 h-4 w-4" />}

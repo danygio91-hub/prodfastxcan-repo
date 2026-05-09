@@ -31,6 +31,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { getOverallStatus } from '@/lib/types';
 import { getDerivedJobStatus } from '@/lib/job-status';
+import { MRPSemaphore } from '@/components/mrp/MRPSemaphore';
 
 interface WeeklyCapacityBoardProps {
     jobOrders: JobOrder[];
@@ -957,38 +958,6 @@ function JobCompactCard(props: {
     const contextualDate = parseRobustDate(rawContextualDateStr);
     const isOverdue = contextualDate && isPast(contextualDate) && !isSameDay(contextualDate, today) && !['CHIUSO', 'COMPLETATA'].includes(job.status?.toUpperCase() || '');
     
-    const stockStatus = (() => {
-        if (!job.billOfMaterials || job.billOfMaterials.length === 0) {
-            return { color: 'text-slate-500', icon: Info, label: 'Nessuna BOM definita' };
-        }
-        
-        const componentEntries: { entry: MRPTimelineEntry, item: any }[] = [];
-        job.billOfMaterials.forEach(item => {
-            const matCode = (item.component || '').trim().toUpperCase();
-            const timeline = mrpTimelines.get(matCode) || [];
-            const entry = timeline.find(e => e.jobId === job.id);
-            if (entry) componentEntries.push({ entry, item });
-        });
-
-        if (componentEntries.length === 0) {
-             return { color: 'text-red-500', icon: XCircle, label: 'Materiali non configurati', details: ['Controllare anagrafica materiali'] };
-        }
-
-        const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
-        const isAmber = !isRed && componentEntries.some(ce => ce.entry.status === 'AMBER');
-        const aggregatedEntries = aggregateMRPRequirements(componentEntries);
-        const combinedDetails = aggregatedEntries.flatMap(ce => {
-            const prefix = ce.item.component;
-            return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
-        });
-
-        if (isRed) return { color: 'text-red-500', icon: XCircle, label: 'MANCANZA MATERIALI', details: combinedDetails };
-        if (isAmber) return { color: 'text-amber-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
-        return { color: 'text-green-500', icon: CheckCircle2, label: 'TUTTO DISPONIBILE', details: combinedDetails };
-    })();
-
-    const StockIcon = stockStatus.icon;
-    
     const sColors: Record<string, string> = {
         'status-gray': 'bg-slate-750/30 border-slate-700/50 opacity-60 grayscale',
         'status-amber': 'bg-amber-950/20 border-amber-500/30 shadow-amber-900/5',
@@ -1087,30 +1056,13 @@ function JobCompactCard(props: {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0 px-1 border-l border-slate-800 ml-1">
-                    <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <div className={cn("cursor-help p-0.5 rounded-full hover:bg-slate-800 transition-colors", stockStatus.color)}>
-                                    <StockIcon className="h-4 w-4" />
-                                </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="bg-slate-900 border-slate-700 p-2 shadow-2xl">
-                                <div className="flex flex-col gap-1.5 min-w-[150px]">
-                                    <div className="flex items-center gap-2 border-b border-slate-800 pb-1.5">
-                                        <StockIcon className={cn("h-3.5 w-3.5", stockStatus.color)} />
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-200">{stockStatus.label}</span>
-                                    </div>
-                                    {stockStatus.details && (
-                                        <ul className="space-y-1">
-                                            {stockStatus.details.map((d, i) => (
-                                                <li key={i} className="text-[9px] font-bold text-slate-400 leading-tight">{d}</li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </div>
-                            </TooltipContent>
-                        </Tooltip>
+                    <MRPSemaphore 
+                        job={job} 
+                        mrpTimelines={mrpTimelines} 
+                        size="md"
+                    />
 
+                    <TooltipProvider delayDuration={100}>
                         {isOverdue && (
                             <Tooltip>
                                 <TooltipTrigger asChild>

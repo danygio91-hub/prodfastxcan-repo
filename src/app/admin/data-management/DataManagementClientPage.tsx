@@ -51,6 +51,7 @@ import { getGlobalSettings } from '@/lib/settings-actions';
 import { Calendar } from '@/components/ui/calendar';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { MRPSemaphore } from '@/components/mrp/MRPSemaphore';
 
 const manualCreateSchema = z.object({
   cliente: z.string().min(1, "Il cliente è obbligatorio."),
@@ -86,7 +87,7 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sor
 
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
-  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onDownloadPdf, onAction, isDownloadingPdf, globalSettings, allowLink
+  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onDownloadPdf, onAction, isDownloadingPdf, globalSettings, allowLink, activeSessions
 }: {
   data: JobOrder[];
   departments: Department[];
@@ -105,6 +106,7 @@ const JobTableRows = ({
   isDownloadingPdf: string | null;
   globalSettings: GlobalSettings | null;
   allowLink: boolean;
+  activeSessions?: any[];
 }) => {
   return (
     <>
@@ -121,61 +123,6 @@ const JobTableRows = ({
 
         const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
         const hasSecondaryCycle = article && (article.secondaryWorkCycleId && article.secondaryWorkCycleId !== 'manual');
-
-        // SSoT: Alert Materiali (Time-Phased MRP)
-        const stockStatus = (() => {
-          if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
-          
-          const withdrawnItems = j.billOfMaterials.filter(i => i.status === 'withdrawn');
-          const pendingItems = j.billOfMaterials.filter(i => i.status !== 'withdrawn');
-
-          if (pendingItems.length === 0) {
-            return { 
-                color: 'text-green-500', 
-                icon: CheckCircle2, 
-                label: 'MATERIALE PRELEVATO', 
-                details: withdrawnItems.map(i => `✅ ${i.component} - Prelevato`) 
-            };
-          }
-
-          const componentEntries: { entry: MRPTimelineEntry, item: any }[] = [];
-          pendingItems.forEach(item => {
-            const matCode = (item.component || '').toUpperCase().trim();
-            const timeline = mrpTimelines.get(matCode) || [];
-            const entry = timeline.find(e => e.jobId === j.id);
-            if (entry) componentEntries.push({ entry, item });
-          });
-
-          if (componentEntries.length === 0) {
-            return { color: 'text-red-500', icon: XCircle, label: 'Materiali non configurati', details: ['Controllare anagrafica'] };
-          }
-
-          const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
-          const isLate = !isRed && componentEntries.some(ce => ce.entry.status === 'LATE');
-          const isAmber = !isRed && !isLate && componentEntries.some(ce => ce.entry.status === 'AMBER');
-          
-          const aggregatedEntries = aggregateMRPRequirements(componentEntries);
-          const combinedDetails = [
-            ...withdrawnItems.map(i => `✅ ${i.component} - Prelevato`),
-            ...aggregatedEntries.flatMap(ce => {
-                const prefix = ce.item.component;
-                return ce.entry.details.map((d: string) => d.startsWith('Fabbisogno') ? `📦 ${prefix} - ${d}` : d);
-            })
-          ];
-
-          if (isRed) {
-              return { color: 'text-red-500', icon: XCircle, label: 'MANCANTE', details: combinedDetails };
-          }
-          if (isLate) {
-              return { color: 'text-orange-600', icon: AlertTriangle, label: 'IN RITARDO', details: combinedDetails };
-          }
-          if (isAmber) {
-              return { color: 'text-yellow-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
-          }
-          return { color: 'text-green-500', icon: CheckCircle2, label: 'DISPONIBILE', details: combinedDetails };
-        })();
-
-        const StockIcon = stockStatus.icon;
 
         return (
           <TableRow key={j.id}>
@@ -282,11 +229,7 @@ const JobTableRows = ({
               />
             </TableCell>
             <TableCell className="text-center">
-              <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
-                  <StockIcon className="h-5 w-5" />
-                </div>
-              </TooltipTrigger><TooltipContent className="max-w-[400px]"><p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p><ul className="text-xs space-y-1">{stockStatus.details.map((d, i) => <li key={i}>{d}</li>)}</ul></TooltipContent></Tooltip></TooltipProvider>
+              <MRPSemaphore job={j} mrpTimelines={mrpTimelines} activeSessions={activeSessions} size="lg" />
             </TableCell>
             <TableCell className="text-right space-x-1">
               <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => onDownloadPdf(j)} disabled={isDownloadingPdf === j.id}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
@@ -300,7 +243,7 @@ const JobTableRows = ({
 };
 
 export default function DataManagementClientPage({
-  initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments
+  initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments, initialActiveSessions = []
 }: {
   initialPlanned: JobOrder[];
   initialProduction: JobOrder[];
@@ -311,6 +254,7 @@ export default function DataManagementClientPage({
   initialMaterials: RawMaterial[];
   initialPurchaseOrders: PurchaseOrder[];
   initialManualCommitments: ManualCommitment[];
+  initialActiveSessions?: any[];
 }) {
   const router = useRouter();
   const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlanned);
@@ -323,6 +267,7 @@ export default function DataManagementClientPage({
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(initialMaterials);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(initialPurchaseOrders);
   const [manualCommitments, setManualCommitments] = useState<ManualCommitment[]>(initialManualCommitments);
+  const [activeSessions, setActiveSessions] = useState<any[]>(initialActiveSessions);
 
   const [isRefreshingMRP, setIsRefreshingMRP] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -398,7 +343,8 @@ export default function DataManagementClientPage({
     setRawMaterials(initialMaterials);
     setPurchaseOrders(initialPurchaseOrders);
     setManualCommitments(initialManualCommitments);
-  }, [initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments]);
+    setActiveSessions(initialActiveSessions);
+  }, [initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments, initialActiveSessions]);
 
 
   const allJobsUnfiltered = useMemo(() => {
@@ -431,7 +377,8 @@ export default function DataManagementClientPage({
       purchaseOrders,
       manualCommitments,
       articles,
-      globalSettings
+      globalSettings,
+      activeSessions
     );
   }, [sSotPlanned, sSotProduction, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings]);
 
@@ -727,6 +674,7 @@ export default function DataManagementClientPage({
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
                     allowLink={false}
+                    activeSessions={activeSessions}
                   />
                 </TableBody>
               </Table>
@@ -776,6 +724,7 @@ export default function DataManagementClientPage({
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
                     allowLink={true}
+                    activeSessions={activeSessions}
                   />
                 </TableBody>
               </Table>
@@ -825,6 +774,7 @@ export default function DataManagementClientPage({
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
                     allowLink={true}
+                    activeSessions={activeSessions}
                   />
                 </TableBody>
               </Table>

@@ -1,5 +1,6 @@
 
 import { JobOrder, Article, RawMaterial, PurchaseOrder, ManualCommitment } from '@/types';
+import { getDerivedJobStatus } from './job-status';
 import { GlobalSettings } from './settings-types';
 import { calculateBOMRequirement } from './inventory-utils';
 
@@ -13,6 +14,7 @@ export interface MRPTimelineEntry {
     details: string[]; 
     totalSimQty?: number; // SSoT: Fabbisogno Totale Simulato (Engine Source)
     totalPO?: number;     // SSoT: Totale Ordini d'Acquisto Pendenti
+    isFrozen?: boolean;   // Se l'impegno è congelato da una sessione officina attiva
 }
 
 /**
@@ -25,10 +27,20 @@ export function calculateMRPTimelines(
     purchaseOrders: PurchaseOrder[],
     manualCommitments: ManualCommitment[],
     articles: Article[],
-    globalSettings: GlobalSettings | null
+    globalSettings: GlobalSettings | null,
+    activeSessions: any[] = []
 ): Map<string, MRPTimelineEntry[]> {
     try {
         const timelines = new Map<string, MRPTimelineEntry[]>();
+
+        // Mappa delle sessioni attive per codice materiale (ottimizzazione)
+        const sessionsByMaterial = new Map<string, any[]>();
+        activeSessions.forEach(s => {
+            if (s.status !== 'open') return;
+            const code = (s.materialCode || '').toUpperCase().trim();
+            if (!sessionsByMaterial.has(code)) sessionsByMaterial.set(code, []);
+            sessionsByMaterial.get(code)!.push(s);
+        });
         
         // Data di oggi per normalizzazione Overdue
         const now = new Date();
@@ -55,6 +67,7 @@ export function calculateMRPTimelines(
                 type: 'PO' | 'DEMAND' | 'COMMITMENT';
                 id: string;
                 odl?: string;
+                isFrozen?: boolean;
             }[] = [];
 
             // A. PO (Supply) - Solo Pendenti
@@ -133,11 +146,33 @@ export function calculateMRPTimelines(
             ].map(s => s.trim().toUpperCase());
 
             allJobs.forEach(job => {
-                if (!job.status) return;
-                const status = job.status.trim().toUpperCase();
+                const status = (job.status || '').trim().toUpperCase();
                 const isVolatile = job.id.startsWith('VOLATILE');
+                const derivedStatus = getDerivedJobStatus(job);
                 
-                // BUG 2 Fix: In-memory Case-Insensitive Filter (SSoT Whitelist)
+                // [MRP COMMITMENT DROP] 
+                // Se la Preparazione è finita (PRONTO_PROD o successivi), l'IMPEGNO teorico decade a 0.
+                // Questo elimina i "Ghost Commitments" sulle commesse già avviate in produzione.
+                const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
+                const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) || 
+                                     ['PRONTO', 'PRONTO PROD', 'IN PROD', 'FINE PROD'].includes(status);
+
+                if (!isVolatile && isPrepFinished) {
+                    // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
+                    // Se la commessa è agganciata a una sessione officina aperta per questo materiale, 
+                    // l'impegno NON deve essere abbattuto (viene "congelato" fino a chiusura sessione).
+                    const matSessions = sessionsByMaterial.get(matCode) || [];
+                    const hasActiveSession = matSessions.some(s => 
+                        (s.linkedJobOrderIds || []).includes(job.id)
+                    );
+
+                    if (!hasActiveSession) {
+                        return;
+                    }
+                    // Se ha una sessione attiva, prosegue e aggiunge l'evento demand (impegno congelato)
+                }
+
+                // Fallback di sicurezza: se non è CHIUSA/PASSATA PREP, deve essere in uno degli stati attivi
                 if (!isVolatile && !MRP_ACTIVE_STATUSES.includes(status)) {
                     return;
                 }
@@ -157,6 +192,10 @@ export function calculateMRPTimelines(
                         const demandQtyBase = finalQty;
                         const demandDate = job.dataFinePreparazione || job.dataConsegnaFinale || '9999-12-31';
                         
+                        // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
+                        const matSessions = sessionsByMaterial.get(matCode) || [];
+                        const hasActiveSession = matSessions.some(s => (s.linkedJobOrderIds || []).includes(job.id));
+
                         // PRIORITÀ INTRADAY: Forza DEMAND alle 16:00 UTC (dopo i PO delle 08:00)
                         const dWithTime = new Date(demandDate);
                         dWithTime.setUTCHours(16, 0, 0, 0);
@@ -166,7 +205,8 @@ export function calculateMRPTimelines(
                             qty: -Number(demandQtyBase),
                             type: 'DEMAND',
                             id: job.id,
-                            odl: job.numeroODLInterno || job.ordinePF || ''
+                            odl: job.numeroODLInterno || job.ordinePF || '',
+                            isFrozen: hasActiveSession
                         });
                     }
                 });
@@ -281,6 +321,10 @@ export function calculateMRPTimelines(
                 let supplyArrivalDate: string | undefined = undefined;
                 const details: string[] = [];
 
+                if (currentEvent.isFrozen) {
+                    details.push("⏳ In attesa chiusura Sessione Officina");
+                }
+
                 details.push(`Fabbisogno: ${simQty.toFixed(2)} ${mat.unitOfMeasure}`);
 
                 if (currentBalanceAtSim >= -0.001) {
@@ -322,7 +366,8 @@ export function calculateMRPTimelines(
                     supplyArrivalDate,
                     details,
                     totalSimQty: totalSimQtyDemand,
-                    totalPO: totalPO
+                    totalPO: totalPO,
+                    isFrozen: currentEvent.isFrozen
                 });
 
                 if (matCode === '50X005X33FR' || matCode === '100X020TUBFR') {

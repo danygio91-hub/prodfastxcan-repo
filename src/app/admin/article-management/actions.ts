@@ -9,6 +9,7 @@ import * as z from 'zod';
 import { syncJobBOMItems } from '@/lib/inventory-utils';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
+import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 
 const bomItemSchema = z.object({
     component: z.string().min(1, "Componente obbligatorio."),
@@ -395,4 +396,74 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
 export async function getWorkCycles(): Promise<WorkCycle[]> {
     const snap = await adminDb.collection("workCycles").orderBy("name").get();
     return snap.docs.map(d => ({ ...d.data(), id: d.id } as WorkCycle));
+}
+
+export async function syncAllHistoricalToTargets(): Promise<{ success: boolean; message: string; updatedCount: number }> {
+    try {
+        const [articlesSnap, phases] = await Promise.all([
+            adminDb.collection('articles').get(),
+            getWorkPhaseTemplates()
+        ]);
+
+        const phaseMap = new Map(phases.map(p => [p.name.toUpperCase().trim(), p.id]));
+        
+        let currentBatch = adminDb.batch();
+        let batchCount = 0;
+        let totalUpdated = 0;
+
+        for (const doc of articlesSnap.docs) {
+            const article = doc.data() as Article;
+            if (!article.historicalTimes?.averagePhaseTimes || article.historicalTimes.averagePhaseTimes.length === 0) continue;
+
+            let articleModified = false;
+            // Clona la mappa esistente o creane una nuova
+            const phaseTimes = article.phaseTimes ? { ...article.phaseTimes } : {};
+
+            article.historicalTimes.averagePhaseTimes.forEach(hist => {
+                if (hist.averageMinutesPerPiece > 0) {
+                    const phaseId = phaseMap.get(hist.name.toUpperCase().trim());
+                    if (phaseId) {
+                        // Sovrascriviamo o popoliamo se mancante
+                        if (!phaseTimes[phaseId] || phaseTimes[phaseId].expectedMinutesPerPiece !== hist.averageMinutesPerPiece) {
+                            phaseTimes[phaseId] = {
+                                expectedMinutesPerPiece: hist.averageMinutesPerPiece,
+                                detectedMinutesPerPiece: phaseTimes[phaseId]?.detectedMinutesPerPiece || 0,
+                                enabled: phaseTimes[phaseId]?.enabled ?? true
+                            };
+                            articleModified = true;
+                        }
+                    }
+                }
+            });
+
+            if (articleModified) {
+                currentBatch.update(doc.ref, { phaseTimes });
+                batchCount++;
+                totalUpdated++;
+
+                if (batchCount === 500) {
+                    await currentBatch.commit();
+                    currentBatch = adminDb.batch();
+                    batchCount = 0;
+                }
+            }
+        }
+
+        if (batchCount > 0) {
+            await currentBatch.commit();
+        }
+
+        revalidatePath('/admin/article-management');
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-time-analysis');
+
+        return { 
+            success: true, 
+            message: `Sincronizzazione completata. Aggiornati ${totalUpdated} articoli.`,
+            updatedCount: totalUpdated
+        };
+    } catch (error: any) {
+        console.error('Error in syncAllHistoricalToTargets:', error);
+        return { success: false, message: "Errore durante la sincronizzazione: " + error.message, updatedCount: 0 };
+    }
 }

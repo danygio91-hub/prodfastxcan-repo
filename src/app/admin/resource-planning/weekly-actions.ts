@@ -173,16 +173,6 @@ export async function advanceJobStatus(jobId: string, nextStatus?: string, uid?:
             updatedAt: admin.firestore.Timestamp.now()
         };
 
-        if (data.billOfMaterials && data.billOfMaterials.length > 0) {
-            updates.billOfMaterials = data.billOfMaterials.map(item => {
-                const cleanComponent = (item.component || '').toUpperCase().trim();
-                if (!item.withdrawn) {
-                    return { ...item, component: cleanComponent, status: 'withdrawn', withdrawn: true, forcedClosure: true };
-                }
-                return { ...item, component: cleanComponent };
-            });
-        }
-
         await docRef.update(updates);
 
         revalidatePath('/admin/resource-planning');
@@ -278,19 +268,22 @@ export async function getWeeklyBoardData(year: number, week: number) {
         let purchaseOrders: any[] = [];
         let manualCommitments: any[] = [];
         let globalSettings: any = null;
+        let activeSessions: any[] = [];
 
         try {
-            const [rawMaterialsSnap, purchaseOrdersSnap, manualCommitmentsSnap, globalSettingsSnap] = await Promise.all([
+            const [rawMaterialsSnap, purchaseOrdersSnap, manualCommitmentsSnap, globalSettingsSnap, activeSessionsSnap] = await Promise.all([
                 adminDb.collection("rawMaterials").get(),
                 adminDb.collection("purchaseOrders").get(),
                 adminDb.collection("manualCommitments").get(),
-                adminDb.collection("settings").doc("global").get()
+                adminDb.collection("settings").doc("global").get(),
+                adminDb.collection("independentMaterialSessions").where("status", "==", "open").get()
             ]);
-
+            
             rawMaterials = rawMaterialsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             purchaseOrders = purchaseOrdersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             manualCommitments = manualCommitmentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
+            activeSessions = activeSessionsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
         } catch (mrpError) {
             console.error("ERRORE FETCHING DATI MRP (Power Planning):", mrpError);
             // Fallback: array vuoti già inizializzati, la board caricherà comunque i job
@@ -329,7 +322,8 @@ export async function getWeeklyBoardData(year: number, week: number) {
             rawMaterials,
             purchaseOrders,
             manualCommitments,
-            globalSettings
+            globalSettings,
+            activeSessions
         };
 
         // SANITIZZAZIONE TOTALE: Next.js richiede che i dati delle Server Actions siano serializzabili (no Date, no Map)
@@ -348,6 +342,7 @@ export async function getWeeklyBoardData(year: number, week: number) {
             purchaseOrders: [],
             manualCommitments: [],
             globalSettings: null,
+            activeSessions: [],
             error: error.message 
         };
     }

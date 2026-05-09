@@ -71,9 +71,20 @@ export function getDerivedJobStatus(item: JobOrder | WorkGroup): OverallStatus {
     }
     
     // 3. Fallback SSoT: Se non c'è attività sulle fasi (tutte pending o assenti),
-    // usiamo lo stato del Database per distinguere tra "Pianificata" e "In Preparazione" (Rilasciata).
-    const statusLowerRaw = (item.status || '').toLowerCase();
-    const isActuallyPlanned = ['planned', 'in_attesa', 'in pianificazione', 'in_pianificazione'].includes(statusLowerRaw);
+    // usiamo lo stato del Database per distinguere tra "Pianificata" e "In Preparazione" (Rilasciata) o "Pronta".
+    const statusLowerRaw = (item.status || '').toLowerCase().trim();
+    const isActuallyPlanned = ['planned', 'in_attesa', 'in pianificazione', 'in_pianificazione', 'pianificata', 'pianificato'].includes(statusLowerRaw);
+    
+    // Check per etichette che indicano Preparazione Finita
+    const isPrepFinishedByLabel = [
+        'pronto', 'pronto_prod', 'pronto prod.', 'pronto per produzione', 'pronto prod',
+        'in lavorazione', 'in_produzione', 'in prod.', 'in_prod', 'active', 'attivo', 
+        'fine produzione', 'fine_produzione', 'qlty_pack', 'completed', 'completata'
+    ].includes(statusLowerRaw);
+
+    if (isPrepFinishedByLabel) {
+        return 'PRONTO_PROD'; // Minimo garantito se l'etichetta dice così
+    }
 
     if (allPhases.length === 0) {
         return isActuallyPlanned ? 'DA_INIZIARE' : 'IN_PREPARAZIONE';

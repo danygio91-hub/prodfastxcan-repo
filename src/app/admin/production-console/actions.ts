@@ -424,16 +424,6 @@ async function internalForceCompleteJob(transaction: admin.firestore.Transaction
         phases: updatedPhases 
     };
 
-    if (item.billOfMaterials && item.billOfMaterials.length > 0) {
-        updates.billOfMaterials = item.billOfMaterials.map(bItem => {
-            const cleanComponent = (bItem.component || '').toUpperCase().trim();
-            if (!bItem.withdrawn) {
-                return { ...bItem, component: cleanComponent, status: 'withdrawn', withdrawn: true, forcedClosure: true };
-            }
-            return { ...bItem, component: cleanComponent };
-        });
-    }
-
     transaction.update(itemRef, updates);
     
     // Se è un gruppo, propaghiamo alle commesse figlie

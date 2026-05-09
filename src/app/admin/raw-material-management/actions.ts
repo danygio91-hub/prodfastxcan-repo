@@ -23,6 +23,7 @@ import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateBOMRequirement, calculateInventoryMovement } from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { fetchInChunks } from '@/lib/firestore-utils';
+import { getDerivedJobStatus } from '@/lib/job-status';
 
 export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -510,13 +511,14 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
     const chunk1 = activeStatuses.slice(0, 30);
     const chunk2 = activeStatuses.slice(30);
 
-    const [jobsSnap1, jobsSnap2, materialsSnap, commitmentsSnap, posSnap, settings] = await Promise.all([
+    const [jobsSnap1, jobsSnap2, materialsSnap, commitmentsSnap, posSnap, settings, activeSessionsSnap] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", chunk1 as any[]).get(),
         chunk2.length > 0 ? adminDb.collection("jobOrders").where("status", "in", chunk2 as any[]).get() : Promise.resolve({ docs: [] }),
         mq.get(),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get(),
-        getGlobalSettings()
+        getGlobalSettings(),
+        adminDb.collection("independentMaterialSessions").where("status", "==", "open").get()
     ]);
 
     const jobsSnap = { docs: [...jobsSnap1.docs, ...jobsSnap2.docs] };
@@ -548,24 +550,42 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         );
         artResults.forEach(a => articlesMap.set(a.code.toLowerCase().trim(), a));
     }
+    const activeSessions = activeSessionsSnap.docs.map(doc => ({ ...doc.data() as any, id: doc.id }));
+    const sessionsByMaterial = new Map<string, any[]>();
+    activeSessions.forEach(s => {
+        const code = (s.materialCode || '').toUpperCase().trim();
+        if (!sessionsByMaterial.has(code)) sessionsByMaterial.set(code, []);
+        sessionsByMaterial.get(code)!.push(s);
+    });
+
     const impMap = new Map<string, number>();
     jobsSnap.docs.forEach(d => {
         const job = d.data() as JobOrder;
+        const derivedStatus = getDerivedJobStatus(job);
+        
+        // [MRP COMMITMENT DROP] Drop commitment if Prep is finished
+        const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
+        const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) || 
+                             ['PRONTO', 'PRONTO PROD', 'IN PROD', 'FINE PROD'].includes((job.status || '').toUpperCase());
+
         (job.billOfMaterials || []).forEach(item => {
             if (item.status !== 'withdrawn') {
                 const code = item.component.toLowerCase().trim();
                 const mat = codeToMat.get(code);
                 if (mat) {
-                    // SE presente il campo pre-calcolato (fabbisognoTotale), lo usiamo direttamente
-                    // Questo garantisce che il Magazzino Live rifletta esattamente la sync effettuata.
+                    // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
+                    if (isPrepFinished) {
+                        const matSessions = sessionsByMaterial.get(code.toUpperCase()) || [];
+                        const hasActiveSession = matSessions.some(s => (s.linkedJobOrderIds || []).includes(job.id));
+                        if (!hasActiveSession) return;
+                    }
+
                     let qty = item.fabbisognoTotale;
-                    
                     if (qty === undefined || qty === null) {
                         const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
                         const req = calculateBOMRequirement(job.qta, item, mat, config as any);
                         qty = req.totalInBaseUnits;
                     }
-                    
                     impMap.set(code, (impMap.get(code) || 0) + qty);
                 }
             }
@@ -641,13 +661,14 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
     const chunk1 = activeStatuses.slice(0, 30);
     const chunk2 = activeStatuses.slice(30);
 
-    const [jobsSnap1, jobsSnap2, commitmentsSnap, articlesSnap, materialsSnap, settings] = await Promise.all([
+    const [jobsSnap1, jobsSnap2, commitmentsSnap, articlesSnap, materialsSnap, settings, activeSessionsSnap] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", chunk1 as any[]).get(),
         chunk2.length > 0 ? adminDb.collection("jobOrders").where("status", "in", chunk2 as any[]).get() : Promise.resolve({ docs: [] }),
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('articles').get(),
         adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get(),
-        getGlobalSettings()
+        getGlobalSettings(),
+        adminDb.collection("independentMaterialSessions").where("status", "==", "open").where("materialCode", "==", materialCode.toUpperCase()).get()
     ]);
     
     const jobsSnap = { docs: [...jobsSnap1.docs, ...jobsSnap2.docs] };
@@ -658,8 +679,24 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
     const details: CommitmentDetail[] = [];
     jobsSnap.docs.forEach(d => {
         const job = d.data() as JobOrder;
+        const derivedStatus = getDerivedJobStatus(job);
+        
+        // [MRP COMMITMENT DROP] Skip details if Prep is finished
+        const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
+        const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) || 
+                             ['PRONTO', 'PRONTO PROD', 'IN PROD', 'FINE PROD'].includes((job.status || '').toUpperCase());
+
         (job.billOfMaterials || []).forEach(item => {
             if (item.component.toLowerCase().trim() === norm && item.status !== 'withdrawn') {
+                // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
+                if (isPrepFinished) {
+                    const hasActiveSession = activeSessionsSnap.docs.some(doc => {
+                        const s = doc.data();
+                        return (s.linkedJobOrderIds || []).includes(job.id);
+                    });
+                    if (!hasActiveSession) return;
+                }
+
                 let qty = item.fabbisognoTotale;
                 if (qty === undefined || qty === null) {
                     const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
