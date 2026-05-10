@@ -24,7 +24,7 @@ export default async function AdminDataManagementCommessePage() {
     getWorkCycles(),
     getDepartments(),
     getRequiredDataForJobs([...planned, ...production, ...completed], manualCommitments),
-    adminDb.collection("independentMaterialSessions").where("status", "==", "open").get()
+    adminDb.collection("materialSessions").where("status", "==", "open").get()
   ]);
 
   const articles = requiredData.articles;

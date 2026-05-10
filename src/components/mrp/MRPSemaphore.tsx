@@ -131,8 +131,11 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
             return {
                 color: 'text-amber-500',
                 icon: Hourglass,
-                label: 'SESSIONE ATTIVA',
-                details: combinedDetails
+                label: 'PENDING SESSION',
+                details: [
+                    "⏳ In attesa chiusura Sessione Officina",
+                    ...combinedDetails
+                ]
             };
         }
 

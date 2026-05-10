@@ -276,7 +276,7 @@ export async function getWeeklyBoardData(year: number, week: number) {
                 adminDb.collection("purchaseOrders").get(),
                 adminDb.collection("manualCommitments").get(),
                 adminDb.collection("settings").doc("global").get(),
-                adminDb.collection("independentMaterialSessions").where("status", "==", "open").get()
+                adminDb.collection("materialSessions").where("status", "==", "open").get()
             ]);
             
             rawMaterials = rawMaterialsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
@@ -299,19 +299,11 @@ export async function getWeeklyBoardData(year: number, week: number) {
         // 3. Separa Commesse Assegnate da Backlog (Non Assegnate) rimuovendo ghosting logico
         const assignedJobs = allJobs.filter(j => 
             Boolean(j.dataConsegnaFinale) && 
-            j.dataConsegnaFinale !== 'N/D' && 
-            j.status !== 'CHIUSO' && 
-            j.status !== 'completed' && 
-            j.status !== 'shipped' && 
-            j.status !== 'closed'
+            j.dataConsegnaFinale !== 'N/D'
         );
         
         const unassignedJobs = allJobs.filter(j => 
-            (!j.dataConsegnaFinale || j.dataConsegnaFinale === 'N/D') && 
-            j.status !== 'CHIUSO' && 
-            j.status !== 'completed' && 
-            j.status !== 'shipped' && 
-            j.status !== 'closed'
+            (!j.dataConsegnaFinale || j.dataConsegnaFinale === 'N/D')
         );
 
         const payload = { 

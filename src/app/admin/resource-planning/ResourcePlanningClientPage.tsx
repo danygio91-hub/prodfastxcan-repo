@@ -15,14 +15,15 @@ import {
     Download,
     FileSpreadsheet
 } from 'lucide-react';
-import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek } from 'date-fns';
+import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, getWeek, parseISO, isSameWeek, startOfDay } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getOverallStatus } from '@/lib/types';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, normalizeDateStr, parseRobustDate } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { useMasterData } from '@/contexts/MasterDataProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -59,6 +60,7 @@ import {
 import { calculateMRPTimelines } from '@/lib/mrp-utils';
 import { exportPlanningToExcel } from '@/lib/excel-export';
 import type { WeeklyCapacityBoardRef } from './WeeklyCapacityBoard';
+import { processJobsSSoT } from './ssot-utils';
 
 import type { JobOrder, Department } from '@/types';
 
@@ -109,6 +111,8 @@ export default function ResourcePlanningClientPage() {
         dateField: string,
         dialogTitle: string
     } | null>(null);
+    
+
 
     const planningOperators = useMemo(() => {
         return cachedOperators.filter(op => op.role !== 'admin' && op.isReal !== false);
@@ -148,60 +152,6 @@ export default function ResourcePlanningClientPage() {
         }
     }, [uid]);
 
-    const [globalMetrics, setGlobalMetrics] = useState({ load: 0, capacity: 0 });
-
-    const getJobLoadLocal = (job: any, deptId: string) => {
-        const article = cachedArticles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
-        if (!article) return 0;
-        
-        const phaseTimes = article.phaseTimes || {};
-        const activeTemplates = phaseTemplates.filter(t => phaseTimes[t.id]?.enabled !== false && (phaseTimes[t.id]?.expectedMinutesPerPiece || 0) > 0);
-        
-        let relevantTemplates = [];
-        if (deptId === 'PREP') {
-            relevantTemplates = activeTemplates.filter(t => t.type === 'preparation');
-        } else if (deptId === 'PACK') {
-            relevantTemplates = activeTemplates.filter(t => t.type === 'quality' || t.type === 'packaging');
-        } else {
-            // Reparti Core
-            relevantTemplates = activeTemplates.filter(t => t.type === 'production');
-            
-            const jobDept = job.department?.toUpperCase() || '';
-            const targetDept = cachedDepartments.find(d => d.id === deptId);
-            const dCode = targetDept?.code?.toUpperCase() || '';
-            const dName = targetDept?.name?.toUpperCase() || '';
-            const dId = deptId.toUpperCase();
-            
-            const isMatchingDept = jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
-            if (!isMatchingDept) return 0;
-        }
-        
-        return relevantTemplates.reduce((acc, t) => {
-            const pt = phaseTimes[t.id];
-            const jobPhase = (job.phases || []).find((p: any) => p.name === t.name);
-            const isDone = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
-            
-            if (isDone) return acc;
-
-            const targetTotalMins = pt.expectedMinutesPerPiece * job.qta;
-
-            if (jobPhase && (jobPhase.status === 'in-progress' || jobPhase.status === 'paused')) {
-                const realTimeMs = (jobPhase.workPeriods || []).reduce((sum: number, wp: any) => {
-                    if (!wp.start || !wp.end) return sum;
-                    const start = (typeof wp.start === 'object' && 'seconds' in wp.start) ? new Date(wp.start.seconds * 1000) : new Date(wp.start);
-                    const end = (typeof wp.end === 'object' && 'seconds' in wp.end) ? new Date(wp.end.seconds * 1000) : new Date(wp.end);
-                    const diff = end.getTime() - start.getTime();
-                    return diff > 0 ? sum + diff : sum;
-                }, 0);
-                
-                const realTotalMins = realTimeMs / 60000;
-                return acc + Math.max(0, targetTotalMins - realTotalMins);
-            }
-            
-            return acc + targetTotalMins;
-        }, 0) / 60;
-    };
-
     const mrpTimelines = useMemo(() => {
         if (!boardData.rawMaterials) return new Map();
         return calculateMRPTimelines(
@@ -215,67 +165,74 @@ export default function ResourcePlanningClientPage() {
         );
     }, [boardData, cachedArticles]);
 
+    // --- SINGLE SOURCE OF TRUTH (SSoT) PIPELINE ---
+    const processedJobs = useMemo(() => {
+        return processJobsSSoT(
+            boardData.jobOrders,
+            currentDate,
+            isSimulationMode,
+            cachedDepartments,
+            cachedArticles,
+            phaseTemplates
+        );
+    }, [boardData.jobOrders, currentDate, isSimulationMode, cachedDepartments, cachedArticles, phaseTemplates]);
+
     useEffect(() => {
         loadData();
     }, [currentDate]);
 
-    useEffect(() => {
+    // --- UNIFIED SSoT CALCULATION FOR GLOBAL LOAD & CAPACITY ---
+    const globalMetrics = useMemo(() => {
         const year = currentYear;
         const wNum = currentWeek;
-        let cap = 0;
+        const currentWStart = startOfDay(startOfWeek(currentDate, { weekStartsOn: 1 }));
+
+        // 1. Calculate Total Capacity (Sum of all allocations for the week)
+        let totalCapacity = 0;
         Object.keys(boardData.allocations).forEach(k => {
             if (k.startsWith(`${year}_${wNum}_`)) {
-                cap += boardData.allocations[k].reduce((acc, a) => acc + a.hours, 0);
+                totalCapacity += boardData.allocations[k].reduce((acc, a) => acc + a.hours, 0);
             }
         });
 
-        let load = 0;
-        const currentWStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+        // 2. Calculate Total Load (Derived from SSoT Tabs Logic)
+        const coreDepts = displayDepts.filter(d => d.id !== 'PREP' && d.id !== 'PACK');
         
-        // Unifichiamo la logica di identificazione dei reparti con quella del tabellone
-        const coreDepts = cachedDepartments.filter(d => 
-            ['PICCOLE', 'GRANDI', 'BARRE'].includes(d.id.toUpperCase()) || 
-            ['PICCOLE', 'GRANDI', 'BARRE'].includes(d.code?.toUpperCase() || '') ||
-            d.macroAreas?.includes('PRODUZIONE')
-        );
-        const depts = [...coreDepts, {id: 'PREP'}, {id: 'PACK'}];
-        
-        boardData.jobOrders.forEach(job => {
-            const displayStatus = getDerivedJobStatus(job);
-            const isClosed = displayStatus === 'CHIUSO';
-            
-            let refDate = job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D' 
-                ? parseISO(job.dataConsegnaFinale) 
-                : null;
-                
-            if (isClosed && job.overallEndTime) {
-                refDate = new Date(job.overallEndTime);
+        const totalLoad = processedJobs.reduce((acc, pj) => {
+            if (!isSameWeek(pj.virtualWeek, currentWStart, { weekStartsOn: 1 })) return acc;
+
+            const job = pj.job;
+            let jobLoad = 0;
+
+            // A. PREPARAZIONE (Mirror tab filtering logic)
+            const jobCoreDept = cachedDepartments.find(d => d.id === job.department || (d as any).code === job.department);
+            const dependsOnPrep = jobCoreDept?.dependsOnPreparation ?? false;
+            const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
+            if (dependsOnPrep && hasPrepPhases) {
+                jobLoad += pj.computedResidual.PREP;
             }
 
-            if ((!refDate || isNaN(refDate.getTime())) && !isClosed) {
-                refDate = currentWStart;
+            // B. PRODUZIONE / CORE (Check if dept is in displayDepts)
+            const isCoreVisible = coreDepts.some(d => {
+                const jDept = job.department?.toUpperCase() || '';
+                const dId = d.id.toUpperCase();
+                const dCode = (d as any).code?.toUpperCase() || '';
+                const dName = (d as any).name?.toUpperCase() || '';
+                return jDept === dId || jDept === dCode || jDept === dName || dName.includes(jDept);
+            });
+            if (isCoreVisible) {
+                jobLoad += pj.computedResidual.CORE;
             }
 
-            if (!refDate || isNaN(refDate.getTime())) return;
+            // C. PACK & QLTY (Shows all jobs with pack residual)
+            jobLoad += pj.computedResidual.PACK;
 
-            const naturalWeekStart = startOfWeek(refDate, { weekStartsOn: 1 });
-            const isOverdue = !isClosed && refDate < currentWStart;
+            return acc + jobLoad;
+        }, 0);
 
-            let assignedWeekStart: Date;
-            if (isOverdue) {
-                assignedWeekStart = currentWStart;
-            } else {
-                assignedWeekStart = naturalWeekStart;
-            }
+        return { load: totalLoad, capacity: totalCapacity };
+    }, [currentDate, boardData.allocations, processedJobs, displayDepts, cachedDepartments, currentYear, currentWeek]);
 
-            if (isSameWeek(currentWStart, assignedWeekStart, { weekStartsOn: 1 })) {
-                depts.forEach(d => {
-                    load += getJobLoadLocal(job, d.id);
-                });
-            }
-        });
-        setGlobalMetrics({ load, capacity: cap });
-    }, [currentDate, boardData, cachedArticles, cachedDepartments]);
 
     async function loadData(force: boolean = false) {
         if (force) setIsRefreshing(true);
@@ -493,9 +450,6 @@ export default function ResourcePlanningClientPage() {
                 {/* Header Master */}
                 <div className="flex flex-col lg:flex-row justify-between items-center gap-4 bg-slate-900 px-6 py-3 border-b border-slate-800 shadow-xl z-10 shrink-0">
                     <div className="flex items-center gap-6">
-                        <div className="h-14 w-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-900/50">
-                            <Zap className="h-6 w-6" />
-                        </div>
                         <div>
                             <h1 className="text-2xl font-black tracking-tighter uppercase italic text-white flex items-center gap-3">
                                 Power-Planning V2
@@ -510,22 +464,30 @@ export default function ResourcePlanningClientPage() {
                     <div className="flex items-center gap-4">
                         <Button 
                             variant="ghost" 
-                            className="h-12 px-6 rounded-xl bg-slate-800 text-white hover:bg-blue-600 transition-all font-black text-[11px] uppercase tracking-widest gap-2 shadow-lg hover:shadow-blue-900/50 border border-slate-700"
+                            className="h-12 px-4 rounded-xl bg-slate-800 text-white hover:bg-blue-600 transition-all font-black text-[10px] uppercase tracking-widest gap-2 shadow-lg hover:shadow-blue-900/50 border border-slate-700"
                             onClick={() => setIsBacklogOpen(true)}
                         >
                             <LayoutGrid className="h-4 w-4" />
-                            Commesse da Assegnare
-                            <Badge className="bg-blue-500 text-white border-none ml-1.5 h-6 w-6 p-0 flex items-center justify-center rounded-full shadow-inner">{boardData.unassignedJobs.length}</Badge>
+                            DA ASSEGNARE
+                            <Badge className="bg-blue-500 text-white border-none ml-1 h-5 w-5 p-0 flex items-center justify-center rounded-full shadow-inner text-[9px]">{boardData.unassignedJobs.length}</Badge>
                         </Button>
 
-                        <Button 
-                            variant="ghost" 
-                            className="h-12 px-6 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-all font-black text-[11px] uppercase tracking-widest gap-2 shadow-lg hover:shadow-emerald-900/50 border border-emerald-500/30"
-                            onClick={() => setIsMassiveDialogOpen(true)}
-                        >
-                            <Zap className="h-4 w-4 fill-white" />
-                            Pianificazione Massiva
-                        </Button>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button 
+                                        variant="ghost" 
+                                        className="h-12 w-12 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-all flex items-center justify-center shadow-lg hover:shadow-emerald-900/50 border border-emerald-500/30"
+                                        onClick={() => setIsMassiveDialogOpen(true)}
+                                    >
+                                        <Zap className="h-5 w-5 fill-white" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="bg-emerald-900 border-emerald-700 text-white font-black uppercase text-[10px] tracking-widest">
+                                    Pianificazione Massiva
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
 
                         <div className="h-8 w-px bg-slate-800 mx-1 hidden lg:block" />
 
@@ -539,16 +501,18 @@ export default function ResourcePlanningClientPage() {
                                     </div>
                                     <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white" onClick={handleNextWeek}><ChevronRight className="h-5 w-5" /></Button>
                                 </div>
-                                <div className="flex flex-col gap-1 items-end pl-2 pr-4 border-l border-slate-800">
-                                    <div className="flex items-center gap-2 text-xs font-black uppercase tracking-tight">
-                                        <span className="text-slate-400">Carico Totale:</span>
-                                        <span className={cn(globalMetrics.capacity > 0 && globalMetrics.load > globalMetrics.capacity ? "text-red-500 animate-pulse" : "text-blue-400")}>
-                                            {globalMetrics.load.toFixed(1)}h
-                                        </span>
-                                        <span className="text-slate-600">/</span>
-                                        <span className="text-slate-400">Cap: {globalMetrics.capacity}h</span>
+                                <div className="flex flex-col gap-1 items-end pl-8 pr-8 border-l border-slate-800 ml-4 min-w-[240px]">
+                                    <div className="flex items-center gap-4 text-[11px] font-black uppercase tracking-tight w-full justify-between">
+                                        <span className="text-slate-500 whitespace-nowrap">Carico Totale:</span>
+                                        <div className="flex items-center gap-2">
+                                            <span className={cn("text-[16px]", globalMetrics.capacity > 0 && globalMetrics.load > globalMetrics.capacity ? "text-red-500 animate-pulse font-black" : "text-blue-400")}>
+                                                {globalMetrics.load.toFixed(1)}h
+                                            </span>
+                                            <span className="text-slate-600 font-normal">/</span>
+                                            <span className="text-slate-400 text-[11px]">Cap: {globalMetrics.capacity}h</span>
+                                        </div>
                                     </div>
-                                    <Progress value={globalMetrics.capacity > 0 ? (globalMetrics.load / globalMetrics.capacity)*100 : 0} className="h-1.5 w-32 bg-slate-800 [&>div]:bg-blue-500" />
+                                    <Progress value={globalMetrics.capacity > 0 ? (globalMetrics.load / globalMetrics.capacity)*100 : 0} className="h-2 w-full bg-slate-800 [&>div]:bg-blue-500 shadow-inner" />
                                 </div>
                             </div>
                         </div>
@@ -572,18 +536,20 @@ export default function ResourcePlanningClientPage() {
                             </Button>
                         </div>
 
-                        {/* EXPORT REPORT */}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button 
-                                    variant="outline" 
-                                    className="h-12 px-6 rounded-xl bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 transition-all font-black text-[11px] uppercase tracking-widest gap-2 shadow-lg border border-slate-700 shrink-0"
-                                >
-                                    <Download className="h-4 w-4" />
-                                    Esporta Report
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-64 bg-slate-900 border-slate-800 text-slate-200">
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button 
+                                                variant="outline" 
+                                                size="icon"
+                                                className="h-12 w-12 rounded-xl bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 transition-all shadow-lg border border-slate-700 shrink-0"
+                                            >
+                                                <Download className="h-5 w-5" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-64 bg-slate-900 border-slate-800 text-slate-200">
                                 <DropdownMenuLabel className="text-blue-400 uppercase tracking-tighter font-black">Scarica Report Excel</DropdownMenuLabel>
                                 <DropdownMenuSeparator className="bg-slate-800" />
                                 
@@ -647,6 +613,12 @@ export default function ResourcePlanningClientPage() {
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
+                                </TooltipTrigger>
+                                <TooltipContent className="bg-slate-900 border-slate-700 text-white font-black uppercase text-[10px] tracking-widest">
+                                    Esporta Report
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
 
                         <Button 
                             variant="outline" 
@@ -666,6 +638,7 @@ export default function ResourcePlanningClientPage() {
                         <WeeklyCapacityBoard 
                             ref={boardRef}
                             jobOrders={boardData.jobOrders}
+                            processedJobs={processedJobs}
                             unassignedJobs={boardData.unassignedJobs}
                             operators={planningOperators}
                             departments={cachedDepartments}

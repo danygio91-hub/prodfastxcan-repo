@@ -518,7 +518,7 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
         adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get(),
         getGlobalSettings(),
-        adminDb.collection("independentMaterialSessions").where("status", "==", "open").get()
+        adminDb.collection("materialSessions").where("status", "==", "open").get()
     ]);
 
     const jobsSnap = { docs: [...jobsSnap1.docs, ...jobsSnap2.docs] };
@@ -576,7 +576,13 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
                     // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
                     if (isPrepFinished) {
                         const matSessions = sessionsByMaterial.get(code.toUpperCase()) || [];
-                        const hasActiveSession = matSessions.some(s => (s.linkedJobOrderIds || []).includes(job.id));
+                        const hasActiveSession = matSessions.some(s => {
+                            const ids = s.linkedJobOrderIds || [];
+                            const pfs = s.linkedJobOrderPFs || [];
+                            return ids.includes(job.id) || 
+                                   (job.ordinePF && (ids.includes(job.ordinePF) || pfs.includes(job.ordinePF))) ||
+                                   (job.numeroODLInterno && ids.includes(job.numeroODLInterno));
+                        });
                         if (!hasActiveSession) return;
                     }
 
@@ -668,7 +674,7 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         adminDb.collection('articles').get(),
         adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get(),
         getGlobalSettings(),
-        adminDb.collection("independentMaterialSessions").where("status", "==", "open").where("materialCode", "==", materialCode.toUpperCase()).get()
+        adminDb.collection("materialSessions").where("status", "==", "open").where("materialCode", "==", materialCode.toUpperCase()).get()
     ]);
     
     const jobsSnap = { docs: [...jobsSnap1.docs, ...jobsSnap2.docs] };
@@ -692,7 +698,11 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
                 if (isPrepFinished) {
                     const hasActiveSession = activeSessionsSnap.docs.some(doc => {
                         const s = doc.data();
-                        return (s.linkedJobOrderIds || []).includes(job.id);
+                        const ids = s.linkedJobOrderIds || [];
+                        const pfs = s.linkedJobOrderPFs || [];
+                        return ids.includes(job.id) || 
+                               (job.ordinePF && (ids.includes(job.ordinePF) || pfs.includes(job.ordinePF))) ||
+                               (job.numeroODLInterno && ids.includes(job.numeroODLInterno));
                     });
                     if (!hasActiveSession) return;
                 }

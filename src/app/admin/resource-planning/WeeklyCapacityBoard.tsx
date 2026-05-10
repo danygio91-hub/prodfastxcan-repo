@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { 
     Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, 
     Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX, Search, XCircle,
-    Zap, CalendarCheck, ChevronDown, ChevronUp, Box, Pause
+    CalendarCheck, ChevronDown, ChevronUp, Box, Pause
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -32,9 +32,11 @@ import { useRouter } from 'next/navigation';
 import { getOverallStatus } from '@/lib/types';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { MRPSemaphore } from '@/components/mrp/MRPSemaphore';
+import { ProcessedJob } from './ssot-utils';
 
 interface WeeklyCapacityBoardProps {
     jobOrders: JobOrder[];
+    processedJobs: ProcessedJob[];
     unassignedJobs: JobOrder[];
     operators: Operator[];
     departments: Department[];
@@ -99,7 +101,8 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
     mrpTimelines = new Map(),
     globalSettings,
     isSimulationMode,
-    onSimulationModeChange
+    onSimulationModeChange,
+    processedJobs = []
 }, ref) => {
     const computedJobsRef = useRef<Record<string, JobOrder[]>>({});
 
@@ -150,7 +153,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
     const matchingJobs = useMemo(() => {
         if (!searchQuery || searchQuery.trim().length < 2) return [];
         
-        const allJobs = [...jobOrders, ...sanitizedUnassigned];
+        const allJobs = [...jobOrders, ...unassignedJobs];
         const matches = allJobs.filter(isMatch);
         
         // Ordiniamo cronologicamente: chiusi prima (storico), poi per data di consegna, poi quelli senza data (backlog)
@@ -159,7 +162,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
             const dateB = b.dataConsegnaFinale && b.dataConsegnaFinale !== 'N/D' ? b.dataConsegnaFinale : '9999-99-99';
             return dateA.localeCompare(dateB);
         });
-    }, [searchQuery, jobOrders, sanitizedUnassigned, isMatch]);
+    }, [searchQuery, jobOrders, unassignedJobs, isMatch]);
 
     const jumpToMatch = (index: number) => {
         const target = matchingJobs[index];
@@ -544,113 +547,14 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                     const capacityHours = weekAssignments.reduce((acc, a) => acc + a.hours, 0);
                                     const weekStartDateStr = format(week.start, 'yyyy-MM-dd');
                                     
-                                    const weekJobs = jobOrders.filter(job => {
-                                        const derivedStatus = getDerivedJobStatus(job);
-                                        const isClosedGlobally = derivedStatus === 'CHIUSO';
+                                    const weekJobs = processedJobs.filter(pj => {
+                                        // 1. Filtro Settimanale (SSoT Virtual Week)
+                                        if (!isSameWeek(week.start, pj.virtualWeek, { weekStartsOn: 1 })) return false;
+
+                                        const job = pj.job;
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
-                                        
-                                        const cloneStatus = getCloneStatus(job, macroArea);
-                                        const isGreen = cloneStatus === 'status-green';
-                                        
-                                        // Filtro Assoluto SSoT: è chiusa globalmente o la card è VERDE per questo reparto?
-                                        const isFinishedForDept = isClosedGlobally || isGreen;
-                                        
-                                        // 1. DATA DI RIFERIMENTO DINAMICA (effectiveBoardDate)
-                                        let referenceDate: Date | null = null;
 
-                                        // BUG 1 FIX: Se siamo nel tab PREPARAZIONE e la preparazione è COMPLETATA, ancoriamo alla data effettiva
-                                        if (dept.id === 'PREP' && isMacroAreaCompleted(job, 'preparation')) {
-                                            let prepCompleteTime: Date | null = null;
-                                            const prepPhases = job.phases?.filter(p => p.type === 'preparation') || [];
-                                            for (const p of prepPhases) {
-                                                for (const wp of (p.workPeriods || [])) {
-                                                    if (wp.end) {
-                                                        const d = (wp.end && typeof wp.end === 'object' && 'seconds' in wp.end)
-                                                            ? new Date(wp.end.seconds * 1000)
-                                                            : new Date(wp.end);
-                                                        if (!prepCompleteTime || d > prepCompleteTime) {
-                                                            prepCompleteTime = d;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            
-                                            if (prepCompleteTime) {
-                                                referenceDate = prepCompleteTime;
-                                            } else if (isClosedGlobally && job.overallEndTime) {
-                                                const rawEnd = job.overallEndTime;
-                                                referenceDate = (rawEnd && typeof rawEnd === 'object' && 'seconds' in rawEnd)
-                                                    ? new Date(rawEnd.seconds * 1000)
-                                                    : new Date(rawEnd);
-                                            } else if (job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D') {
-                                                referenceDate = parseRobustDate(job.dataConsegnaFinale);
-                                            }
-                                        } else if (isClosedGlobally) {
-                                            if (job.overallEndTime) {
-                                                const rawEnd = job.overallEndTime;
-                                                referenceDate = (rawEnd && typeof rawEnd === 'object' && 'seconds' in rawEnd)
-                                                    ? new Date(rawEnd.seconds * 1000)
-                                                    : new Date(rawEnd);
-                                            }
-                                        } else {
-                                            if (job.dataConsegnaFinale && job.dataConsegnaFinale !== 'N/D') {
-                                                referenceDate = parseRobustDate(job.dataConsegnaFinale);
-                                            }
-                                        }
-
-                                        const realTodayStart = startOfDay(startOfWeek(new Date(), { weekStartsOn: 1 }));
-                                        const currentBoardStart = startOfDay(startOfWeek(currentDate, { weekStartsOn: 1 }));
-
-                                        // 2. FALLBACK PER COMMESSE SENZA DATA (EVITA SPARIZIONI)
-                                        if ((!referenceDate || isNaN(referenceDate.getTime())) && !isClosedGlobally) {
-                                            referenceDate = realTodayStart;
-                                        }
-
-                                        if (!referenceDate || isNaN(referenceDate.getTime())) return false;
-
-                                        // 3. LOGICA DI ASSEGNAZIONE COLONNA (Auto-Rollover e Ritardi)
-                                        const naturalWeekStart = startOfDay(startOfWeek(referenceDate, { weekStartsOn: 1 }));
-
-                                        // REGOLA DI BUSINESS: Il passato è solo storico.
-                                        // Le commesse non completate nel passato devono "rollare" verso il presente.
-                                        let effectivePlanningWeekStart = naturalWeekStart;
-                                        if (!isFinishedForDept && naturalWeekStart < realTodayStart) {
-                                            if (isSimulationMode) {
-                                                // Se Check-up Venerdì è ON, gli arretrati vanno alla settimana prossima
-                                                effectivePlanningWeekStart = addWeeks(realTodayStart, 1);
-                                            } else {
-                                                // Altrimenti vanno alla settimana corrente
-                                                effectivePlanningWeekStart = realTodayStart;
-                                            }
-                                        }
-
-                                        // PILASTRO 5: Clamping visivo alla prima settimana della board (Settimana Corrente)
-                                        // Garantisce che i ritardi seguano l'utente se naviga verso il futuro
-                                        let assignedWeekStart = effectivePlanningWeekStart;
-                                        if (!isFinishedForDept && effectivePlanningWeekStart < currentBoardStart) {
-                                            assignedWeekStart = currentBoardStart;
-                                        }
-
-                                        // Infine verifichiamo se la colonna corrente è quella assegnata
-                                        const isAssignedToThisColumn = isSameWeek(week.start, assignedWeekStart, { weekStartsOn: 1 });
-
-                                        // LOGICA SIMULAZIONE (Spazzaneve)
-                                        if (isSimulationMode) {
-                                            const isPastOrCurrentWeek = (assignedWeekStart < currentBoardStart) || isSameWeek(assignedWeekStart, currentBoardStart, { weekStartsOn: 1 });
-                                            // IL RULLO COMPRESSORE NON TOCCA LE COMMESSE FINITE
-                                            const isArrearage = !isFinishedForDept && isPastOrCurrentWeek;
-
-                                            if (isArrearage) {
-                                                const secondWeek = weeks[1];
-                                                if (secondWeek && isSameWeek(week.start, secondWeek.start, { weekStartsOn: 1 })) {
-                                                    return true; 
-                                                }
-                                                return false; 
-                                            }
-                                        }
-
-                                        if (!isAssignedToThisColumn) return false;
-
+                                        // 2. Filtro Reparto/MacroArea
                                         if (isSatellite) {
                                             if (dept.id === 'PREP') {
                                                 const jobCoreDept = departments.find(d => d.id === job.department || d.code === job.department);
@@ -672,21 +576,18 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                     });
 
                                     // Salva esattamente le commesse renderizzate per l'export SSoT
-                                    computedJobsRef.current[`${week.year}_${week.weekNum}_${dept.id}`] = weekJobs;
+                                    computedJobsRef.current[`${week.year}_${week.weekNum}_${dept.id}`] = weekJobs.map(pj => pj.job);
 
-                                    const totalLoad = weekJobs.reduce((acc, job) => {
+                                    const totalLoad = weekJobs.reduce((acc, pj) => {
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
-                                        return acc + getJobMRPData(job, dept.id, macroArea, articles, phaseTemplates).residual;
+                                        return acc + pj.computedResidual[macroArea];
                                     }, 0);
                                     const isOverloaded = capacityHours > 0 && totalLoad > capacityHours;
 
                                     const totalJobs = weekJobs.length;
-                                    const completedJobs = weekJobs.filter(job => {
-                                        const derivedStatus = getDerivedJobStatus(job);
-                                        const isClosedGlobally = derivedStatus === 'CHIUSO';
+                                    const completedJobs = weekJobs.filter(pj => {
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
-                                        const cloneStatus = getCloneStatus(job, macroArea);
-                                        return isClosedGlobally || cloneStatus === 'status-green';
+                                        return pj.isFinished[macroArea];
                                     }).length;
                                     const openJobs = totalJobs - completedJobs;
 
@@ -755,11 +656,13 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                 </div>
                                             </CardHeader>
                                             <CardContent className="p-3 space-y-3 min-h-[250px] bg-transparent flex-1">
-                                                {weekJobs.map((job) => {
+                                                {weekJobs.map((pj) => {
+                                                    const job = pj.job;
                                                     const isA = isMatch(job);
                                                     const isActive = isA && matchingJobs[activeResultIndex]?.id === job.id;
                                                     
                                                     const cardMacroArea = dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE');
+                                                    // In produzione/live, comunque calcoliamo i dettagli per la card (fatte, ecc)
                                                     const mrpData = getJobMRPData(job, dept.id, cardMacroArea, articles, phaseTemplates);
 
                                                     return (
@@ -774,7 +677,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                         >
                                                             <JobCompactCard 
                                                                 job={job} 
-                                                                load={mrpData.residual}
+                                                                load={pj.computedResidual[cardMacroArea]}
                                                                 fatte={mrpData.done}
                                                                 totalLoad={mrpData.expected}
                                                                 onAdvance={() => onStatusAdvance(job.id)}
@@ -782,9 +685,9 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                                     const res = await toggleExcludeFromPackingList(job.id, val);
                                                                     if(res.success) toast({ title: "Aggiornato", description: res.message });
                                                                 }}
-                                                                onClick={() => onJobClick(job.id, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
-                                                                macroArea={dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE')}
-                                                                semaphoreStatus={getCloneStatus(job, dept.id === 'PREP' ? 'PREP' : (dept.id === 'PACK' ? 'PACK' : 'CORE'))}
+                                                                onClick={() => onJobClick(job.id, cardMacroArea)}
+                                                                macroArea={cardMacroArea}
+                                                                semaphoreStatus={getCloneStatus(job, cardMacroArea)}
                                                                 isTechnicalDelay={checkTechnicalFeasibility(job, dept.id, week)}
                                                                 onQuickView={() => onQuickView(job)}
                                                                 linkedODLs={job.workGroupId ? jobOrders.filter(j => j.workGroupId === job.workGroupId && j.id !== job.id).map(j => j.numeroODLInterno || j.ordinePF) : []}
@@ -1012,7 +915,7 @@ function JobCompactCard(props: {
                         }
                     }}
                 >
-                    {job.workGroupId ? "IN GRUPPO" : (isActuallyClosed ? "CHIUSO" : statusLabels[semaphoreStatus])}
+                    {job.workGroupId ? "IN GRUPPO" : (isActuallyClosed || semaphoreStatus === 'status-green' ? "COMPLETATA" : statusLabels[semaphoreStatus])}
                 </div>
 
                 {!isActuallyClosed && job.hasMaterialShortage && (

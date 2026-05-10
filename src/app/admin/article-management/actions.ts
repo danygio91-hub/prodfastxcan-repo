@@ -107,7 +107,10 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         // --- AUTO-SYNC JOBS LISTENER ---
         try {
             const [jobsSnap, rawMaterialsSnap, globalSettings] = await Promise.all([
-                adminDb.collection("jobOrders").where("details", "==", docId).where("status", "in", ["planned", "production", "suspended", "paused"] as any[]).get(),
+                adminDb.collection("jobOrders")
+                    .where("details", "==", docId)
+                    .where("status", "in", ["planned", "IN_ATTESA", "DA_INIZIARE"] as any[])
+                    .get(),
                 adminDb.collection("rawMaterials").get(),
                 getGlobalSettings()
             ]);
@@ -150,6 +153,8 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         revalidatePath('/admin/article-management');
         revalidatePath('/admin/raw-material-management');
         revalidatePath('/admin/data-management');
+        revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/production-console');
         
         return { success: true, message: 'Articolo salvato e impegni commesse sincronizzati.' };
     } catch (error: any) {
@@ -232,18 +237,60 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
 
 export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
     const batch = adminDb.batch();
-    articles.forEach(art => {
+    
+    for (const art of articles) {
         const id = art.code.toUpperCase().trim();
         // Ensure BOM components are uppercase
         const normalizedBOM = (art.billOfMaterials || []).map(item => ({
             ...item,
             component: item.component.toUpperCase().trim()
         }));
+        
         batch.set(adminDb.collection('articles').doc(id), { ...art, id, code: id, billOfMaterials: normalizedBOM }, { merge: true });
-    });
+
+        // --- CASCADING SYNC FOR BULK ---
+        const jobsSnap = await adminDb.collection("jobOrders")
+            .where("details", "==", id)
+            .where("status", "in", ["planned", "IN_ATTESA", "DA_INIZIARE"] as any[])
+            .get();
+
+        if (!jobsSnap.empty) {
+            const [rawMaterialsSnap, globalSettings] = await Promise.all([
+                adminDb.collection("rawMaterials").get(),
+                getGlobalSettings()
+            ]);
+            const rawMaterials = rawMaterialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
+
+            jobsSnap.docs.forEach(doc => {
+                const job = doc.data() as JobOrder;
+                const syncedBOMRaw = syncJobBOMItems(
+                    job.qta,
+                    job.billOfMaterials || [],
+                    normalizedBOM,
+                    rawMaterials,
+                    globalSettings
+                );
+
+                const syncedBOM = syncedBOMRaw.map(item => ({
+                    ...item,
+                    lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
+                    fabbisognoTotale: item.fabbisognoTotale ?? 0,
+                    pesoStimato: item.pesoStimato ?? 0,
+                    note: item.note ?? ""
+                }));
+
+                batch.update(doc.ref, { billOfMaterials: syncedBOM });
+            });
+        }
+    }
+
     await batch.commit();
     revalidatePath('/admin/article-management');
-    return { success: true, message: `${articles.length} articoli elaborati.` };
+    revalidatePath('/admin/raw-material-management');
+    revalidatePath('/admin/resource-planning');
+    revalidatePath('/admin/production-console');
+    revalidatePath('/admin/data-management');
+    return { success: true, message: `${articles.length} articoli elaborati e commesse dinamiche sincronizzate.` };
 }
 
 export async function validateArticleSettingsImport(rows: any[]) {

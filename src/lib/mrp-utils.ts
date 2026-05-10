@@ -162,9 +162,13 @@ export function calculateMRPTimelines(
                     // Se la commessa è agganciata a una sessione officina aperta per questo materiale, 
                     // l'impegno NON deve essere abbattuto (viene "congelato" fino a chiusura sessione).
                     const matSessions = sessionsByMaterial.get(matCode) || [];
-                    const hasActiveSession = matSessions.some(s => 
-                        (s.linkedJobOrderIds || []).includes(job.id)
-                    );
+                    const hasActiveSession = matSessions.some(s => {
+                        const ids = s.linkedJobOrderIds || [];
+                        const pfs = s.linkedJobOrderPFs || [];
+                        return ids.includes(job.id) || 
+                               (job.ordinePF && (ids.includes(job.ordinePF) || pfs.includes(job.ordinePF))) ||
+                               (job.numeroODLInterno && ids.includes(job.numeroODLInterno));
+                    });
 
                     if (!hasActiveSession) {
                         return;
@@ -194,7 +198,13 @@ export function calculateMRPTimelines(
                         
                         // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
                         const matSessions = sessionsByMaterial.get(matCode) || [];
-                        const hasActiveSession = matSessions.some(s => (s.linkedJobOrderIds || []).includes(job.id));
+                        const hasActiveSession = matSessions.some(s => {
+                            const ids = s.linkedJobOrderIds || [];
+                            const pfs = s.linkedJobOrderPFs || [];
+                            return ids.includes(job.id) || 
+                                   (job.ordinePF && (ids.includes(job.ordinePF) || pfs.includes(job.ordinePF))) ||
+                                   (job.numeroODLInterno && ids.includes(job.numeroODLInterno));
+                        });
 
                         // PRIORITÀ INTRADAY: Forza DEMAND alle 16:00 UTC (dopo i PO delle 08:00)
                         const dWithTime = new Date(demandDate);
