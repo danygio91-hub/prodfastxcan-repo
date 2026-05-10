@@ -36,7 +36,8 @@ export function processJobsSSoT(
 
     return jobs.map(job => {
         const derivedStatus = getDerivedJobStatus(job);
-        const isClosedGlobally = derivedStatus === 'CHIUSO';
+        const isClosedGlobally = derivedStatus === 'CHIUSO' || job.status?.toUpperCase() === 'CHIUSO' || job.status?.toUpperCase() === 'COMPLETATA';
+        const isCancelled = job.status?.toUpperCase() === 'ANNULLATO';
 
         // 1. DETERMINAZIONE STATI COMPLETAMENTO PER MACRO-AREA
         const phases = job.phases || [];
@@ -46,7 +47,16 @@ export function processJobsSSoT(
             PACK: isClosedGlobally || (phases.filter(p => p.type === 'quality' || p.type === 'packaging').length === 0 || phases.filter(p => p.type === 'quality' || p.type === 'packaging').every(p => p.status === 'completed' || p.status === 'skipped'))
         };
 
-        // 2. DETERMINAZIONE SETTIMANA VIRTUALE (CON ROLLOVER E SIMULAZIONE)
+        // 2. CALCOLO RESIDUO COMPUTATO (STATE MACHINE) - Spostato prima per determinare il rollover basato sul residuo fisico
+        const computedResidual = {
+            PREP: calculateAreaResidual(job, 'PREP', isFinished.PREP, articles, phaseTemplates),
+            CORE: calculateAreaResidual(job, 'CORE', isFinished.CORE, articles, phaseTemplates),
+            PACK: calculateAreaResidual(job, 'PACK', isFinished.PACK, articles, phaseTemplates)
+        };
+        
+        const totalResidual = computedResidual.PREP + computedResidual.CORE + computedResidual.PACK;
+
+        // 3. DETERMINAZIONE SETTIMANA VIRTUALE (CON ROLLOVER E SIMULAZIONE)
         let referenceDate: Date | null = null;
         if (isClosedGlobally && job.overallEndTime) {
             const rawEnd = job.overallEndTime;
@@ -63,22 +73,26 @@ export function processJobsSSoT(
 
         let virtualWeek = startOfDay(startOfWeek(referenceDate || realTodayStart, { weekStartsOn: 1 }));
 
-        // Se la commessa NON è chiusa PACK (area finale) e la data è nel passato, applica Rollover
-        if (!isFinished.PACK && virtualWeek < realTodayStart) {
-            virtualWeek = isSimulationMode ? addWeeks(realTodayStart, 1) : realTodayStart;
+        // NUOVA LOGICA ROLLOVER AGGRESSIVA (Richiesta Audit Cliente - REVERSION)
+        // Il rollover si basa ESCLUSIVAMENTE sullo stato globale per gestire articoli senza tempi target (residuo 0.0h)
+        const isJobOpen = !isClosedGlobally && !isCancelled;
+
+        if (isJobOpen) {
+            // A. Rollover Standard Arretrati -> Settimana Corrente
+            if (virtualWeek < realTodayStart) {
+                virtualWeek = realTodayStart;
+            }
+            
+            // B. Rollover Simulation (Check-up Friday): Arretrati e Settimana Corrente -> Settimana Successiva
+            if (isSimulationMode && virtualWeek <= realTodayStart) {
+                virtualWeek = addWeeks(realTodayStart, 1);
+            }
         }
 
         // Clamping visivo alla board corrente per gli arretrati non ancora "rollati" oltre
-        if (!isFinished.PACK && virtualWeek < currentBoardStart) {
+        if (isJobOpen && virtualWeek < currentBoardStart) {
             virtualWeek = currentBoardStart;
         }
-
-        // 3. CALCOLO RESIDUO COMPUTATO (STATE MACHINE)
-        const computedResidual = {
-            PREP: calculateAreaResidual(job, 'PREP', isFinished.PREP, articles, phaseTemplates),
-            CORE: calculateAreaResidual(job, 'CORE', isFinished.CORE, articles, phaseTemplates),
-            PACK: calculateAreaResidual(job, 'PACK', isFinished.PACK, articles, phaseTemplates)
-        };
 
         return {
             job,

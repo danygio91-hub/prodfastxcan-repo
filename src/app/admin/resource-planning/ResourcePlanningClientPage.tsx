@@ -195,21 +195,25 @@ export default function ResourcePlanningClientPage() {
             }
         });
 
-        // 2. Calculate Total Load (Derived from SSoT Tabs Logic)
+        // 2. Calculate Total Load (Direct SSoT Summation)
+        let prepLoad = 0;
+        let coreLoad = 0;
+        let packLoad = 0;
+
         const coreDepts = displayDepts.filter(d => d.id !== 'PREP' && d.id !== 'PACK');
         
-        const totalLoad = processedJobs.reduce((acc, pj) => {
-            if (!isSameWeek(pj.virtualWeek, currentWStart, { weekStartsOn: 1 })) return acc;
+        processedJobs.forEach(pj => {
+            // FONDAMENTALE: Se la settimana virtuale non è quella corrente, la commessa vale 0 per questo header
+            if (!isSameWeek(pj.virtualWeek, currentWStart, { weekStartsOn: 1 })) return;
 
             const job = pj.job;
-            let jobLoad = 0;
 
             // A. PREPARAZIONE (Mirror tab filtering logic)
             const jobCoreDept = cachedDepartments.find(d => d.id === job.department || (d as any).code === job.department);
             const dependsOnPrep = jobCoreDept?.dependsOnPreparation ?? false;
             const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
             if (dependsOnPrep && hasPrepPhases) {
-                jobLoad += pj.computedResidual.PREP;
+                prepLoad += pj.computedResidual.PREP;
             }
 
             // B. PRODUZIONE / CORE (Check if dept is in displayDepts)
@@ -221,17 +225,25 @@ export default function ResourcePlanningClientPage() {
                 return jDept === dId || jDept === dCode || jDept === dName || dName.includes(jDept);
             });
             if (isCoreVisible) {
-                jobLoad += pj.computedResidual.CORE;
+                coreLoad += pj.computedResidual.CORE;
             }
 
             // C. PACK & QLTY (Shows all jobs with pack residual)
-            jobLoad += pj.computedResidual.PACK;
+            packLoad += pj.computedResidual.PACK;
+        });
 
-            return acc + jobLoad;
-        }, 0);
+        const totalLoad = prepLoad + coreLoad + packLoad;
+        const debugString = `Prep (${prepLoad.toFixed(1)}h) + Prod (${coreLoad.toFixed(1)}h) + Pack (${packLoad.toFixed(1)}h) = ${totalLoad.toFixed(1)}h`;
 
-        return { load: totalLoad, capacity: totalCapacity };
-    }, [currentDate, boardData.allocations, processedJobs, displayDepts, cachedDepartments, currentYear, currentWeek]);
+        return { 
+            load: totalLoad, 
+            capacity: totalCapacity,
+            debugString,
+            prepLoad,
+            coreLoad,
+            packLoad
+        };
+    }, [currentDate, boardData.allocations, processedJobs, displayDepts, cachedDepartments, currentYear, currentWeek, isSimulationMode]);
 
 
     async function loadData(force: boolean = false) {
@@ -501,7 +513,7 @@ export default function ResourcePlanningClientPage() {
                                     </div>
                                     <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white" onClick={handleNextWeek}><ChevronRight className="h-5 w-5" /></Button>
                                 </div>
-                                <div className="flex flex-col gap-1 items-end pl-8 pr-8 border-l border-slate-800 ml-4 min-w-[240px]">
+                                <div className="flex flex-col gap-1 items-end pl-8 pr-8 border-l border-slate-800 ml-4 min-w-[240px]" title={globalMetrics.debugString}>
                                     <div className="flex items-center gap-4 text-[11px] font-black uppercase tracking-tight w-full justify-between">
                                         <span className="text-slate-500 whitespace-nowrap">Carico Totale:</span>
                                         <div className="flex items-center gap-2">
