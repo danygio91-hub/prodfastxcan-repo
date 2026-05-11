@@ -21,6 +21,14 @@ import { Label } from "@/components/ui/label";
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { formatDisplayStock, parseRobustDate } from '@/lib/utils';
 import { MRPTimelineEntry, aggregateMRPRequirements } from '@/lib/mrp-utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Filter } from 'lucide-react';
 
 
 
@@ -32,7 +40,7 @@ import { useRouter } from 'next/navigation';
 import { getOverallStatus } from '@/lib/types';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { MRPSemaphore } from '@/components/mrp/MRPSemaphore';
-import { ProcessedJob } from './ssot-utils';
+import { ProcessedJob, isPreparationPhase, isProductionPhase, isQualityPackagingPhase } from './ssot-utils';
 
 interface WeeklyCapacityBoardProps {
     jobOrders: JobOrder[];
@@ -120,6 +128,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
     const router = useRouter();
     const [viewMode, setViewMode] = useState<'1W' | '2W'>('2W');
     const [activeResultIndex, setActiveResultIndex] = useState(0);
+    const [statusFilter, setStatusFilter] = useState<string>('Tutte');
 
     const numWeeks = viewMode === '1W' ? 1 : 2;
     const settingsEfficiency = (globalSettings?.capacityBufferPercent || 85) / 100;
@@ -260,20 +269,50 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
     const isMacroAreaCompleted = (job: JobOrder, type: 'preparation' | 'production' | 'quality_pack') => {
         const phases = job.phases || [];
         let relevantPhases = [];
-        if (type === 'preparation') relevantPhases = phases.filter(p => p.type === 'preparation');
-        else if (type === 'production') relevantPhases = phases.filter(p => p.type === 'production');
-        else relevantPhases = phases.filter(p => p.type === 'quality' || p.type === 'packaging');
+        if (type === 'preparation') relevantPhases = phases.filter(p => isPreparationPhase(p.type));
+        else if (type === 'production') relevantPhases = phases.filter(p => isProductionPhase(p.type));
+        else relevantPhases = phases.filter(p => isQualityPackagingPhase(p.type));
 
         if (relevantPhases.length === 0) return true;
         return relevantPhases.every(p => p.status === 'completed' || p.status === 'skipped');
     };
 
+    const getMacroAreaCompletionDate = (job: JobOrder, type: 'PREP' | 'CORE' | 'PACK'): Date | null => {
+        const phases = job.phases || [];
+        let relevantPhases = [];
+        if (type === 'PREP') relevantPhases = phases.filter(p => isPreparationPhase(p.type));
+        else if (type === 'CORE') relevantPhases = phases.filter(p => isProductionPhase(p.type));
+        else relevantPhases = phases.filter(p => isQualityPackagingPhase(p.type));
+
+        if (relevantPhases.length === 0) return null;
+        if (!relevantPhases.every(p => p.status === 'completed' || p.status === 'skipped')) return null;
+
+        let latestDate: Date | null = null;
+        relevantPhases.forEach(p => {
+            if (p.status === 'completed' && p.workPeriods && p.workPeriods.length > 0) {
+                // Troviamo il periodo che finisce più tardi per questa fase
+                p.workPeriods.forEach(wp => {
+                    if (wp.end) {
+                        const d = wp.end instanceof Date 
+                            ? wp.end 
+                            : (typeof wp.end === 'object' && 'seconds' in (wp.end as any))
+                                ? new Date((wp.end as any).seconds * 1000)
+                                : new Date(wp.end as string);
+                        
+                        if (!latestDate || d > latestDate) latestDate = d;
+                    }
+                });
+            }
+        });
+        return latestDate;
+    };
+
     const isMacroAreaStarted = (job: JobOrder, type: 'preparation' | 'production' | 'quality_pack') => {
         const phases = job.phases || [];
         let relevantPhases = [];
-        if (type === 'preparation') relevantPhases = phases.filter(p => p.type === 'preparation');
-        else if (type === 'production') relevantPhases = phases.filter(p => p.type === 'production');
-        else relevantPhases = phases.filter(p => p.type === 'quality' || p.type === 'packaging');
+        if (type === 'preparation') relevantPhases = phases.filter(p => isPreparationPhase(p.type));
+        else if (type === 'production') relevantPhases = phases.filter(p => isProductionPhase(p.type));
+        else relevantPhases = phases.filter(p => isQualityPackagingPhase(p.type));
 
         return relevantPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
     };
@@ -291,7 +330,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
             
             // Ambra se Prep è finita (o non necessaria)
             const prepNeeded = departments.find(d => d.id === job.department || d.code === job.department)?.dependsOnPreparation;
-            const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
+            const hasPrepPhases = (job.phases || []).some(p => isPreparationPhase(p.type));
             
             if (prepNeeded && hasPrepPhases) {
                 if (isMacroAreaCompleted(job, 'preparation')) return 'status-amber';
@@ -377,7 +416,12 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                 const dName = (dept as any).name?.toUpperCase() || '';
                                 const dId = dept.id.toUpperCase();
                                 
-                                if (dept.id === 'PREP' && (j.phases || []).some(p => p.type === 'preparation')) return true;
+                                if (dept.id === 'PREP') {
+                                    const jobCoreDept = departments.find(d => d.id === j.department || d.code === j.department);
+                                    const dependsOnPrep = jobCoreDept?.dependsOnPreparation ?? false;
+                                    const hasPrepPhases = (j.phases || []).some((p: any) => isPreparationPhase(p.type));
+                                    if (dependsOnPrep || hasPrepPhases) return true;
+                                }
                                 if (dept.id === 'PACK') return true; 
 
                                 return jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
@@ -555,24 +599,78 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
 
                                         // 2. Filtro Reparto/MacroArea
+                                        let matchesDept = false;
                                         if (isSatellite) {
                                             if (dept.id === 'PREP') {
                                                 const jobCoreDept = departments.find(d => d.id === job.department || d.code === job.department);
                                                 const dependsOnPrep = jobCoreDept?.dependsOnPreparation ?? false;
-                                                const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
-                                                if (!dependsOnPrep || !hasPrepPhases) return false;
-                                                return true;
+                                                const hasPrepPhases = (job.phases || []).some(p => isPreparationPhase(p.type));
+                                                if (dependsOnPrep || hasPrepPhases) matchesDept = true;
+                                            } else if (dept.id === 'PACK') {
+                                                matchesDept = true;
                                             }
-                                            if (dept.id === 'PACK') return true; 
-                                            return false;
+                                        } else {
+                                            const jobDept = job.department?.toUpperCase() || '';
+                                            const dCode = (dept as any).code?.toUpperCase() || '';
+                                            const dName = (dept as any).name?.toUpperCase() || '';
+                                            const dId = dept.id.toUpperCase();
+                                            if (jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept)) {
+                                                matchesDept = true;
+                                            }
                                         }
-                                        
-                                        const jobDept = job.department?.toUpperCase() || '';
-                                        const dCode = (dept as any).code?.toUpperCase() || '';
-                                        const dName = (dept as any).name?.toUpperCase() || '';
-                                        const dId = dept.id.toUpperCase();
-                                        
-                                        return jobDept === dId || jobDept === dCode || jobDept === dName || dName.includes(jobDept);
+
+                                        if (!matchesDept) return false;
+
+                                        // 3. STRICT SEARCH FILTER (Hiding non-matches)
+                                        if (searchQuery.length >= 2) {
+                                            const q = searchQuery.toLowerCase().trim();
+                                            const matchesSearch = (
+                                                (job.numeroODLInterno?.toLowerCase().includes(q)) ||
+                                                (job.ordinePF?.toLowerCase().includes(q)) ||
+                                                (job.details?.toLowerCase().includes(q)) ||
+                                                (job.cliente?.toLowerCase().includes(q))
+                                            );
+                                            if (!matchesSearch) return false;
+                                        }
+
+                                        // 4. STATUS FILTER
+                                        if (statusFilter !== 'Tutte') {
+                                            const dStatus = getDerivedJobStatus(job);
+                                            let currentLabel = "";
+
+                                            // Replicate matrix logic for filtering
+                                            if (dStatus === 'DA_INIZIARE' || dStatus === 'IN_PREPARAZIONE') currentLabel = "IN PREP.";
+                                            else if (dStatus === 'PRONTO_PROD') {
+                                                if (macroArea === 'PREP') currentLabel = "COMPLETATA";
+                                                else if (macroArea === 'CORE') currentLabel = "PRONTO PROD.";
+                                                else currentLabel = "IN ATTESA";
+                                            }
+                                            else if (dStatus === 'IN_PRODUZIONE') {
+                                                if (macroArea === 'PREP') currentLabel = "COMPLETATA";
+                                                else if (macroArea === 'CORE') currentLabel = "IN LAV.";
+                                                else currentLabel = "IN ATTESA";
+                                            }
+                                            else if (dStatus === 'FINE_PRODUZIONE' || dStatus === 'QLTY_PACK') {
+                                                if (macroArea === 'PREP' || macroArea === 'CORE') currentLabel = "COMPLETATA";
+                                                else currentLabel = "PRONTO PACK";
+                                            }
+                                            else if (dStatus === 'CHIUSO' || getCloneStatus(job, macroArea) === 'status-green') {
+                                                currentLabel = "COMPLETATA";
+                                            }
+
+                                            if (currentLabel !== statusFilter) return false;
+                                        }
+
+                                        // 5. DEPARTMENT TEMPORAL FREEZING (Ghosting Fix)
+                                        // Se l'area è completata, deve sparire dai tab correnti se la data di fine appartiene a settimane passate.
+                                        if (pj.isFinished[macroArea]) {
+                                            const compDate = getMacroAreaCompletionDate(job, macroArea);
+                                            if (compDate && !isSameWeek(compDate, week.start, { weekStartsOn: 1 }) && compDate < week.start) {
+                                                return false;
+                                            }
+                                        }
+
+                                        return true;
                                     });
 
                                     // Salva esattamente le commesse renderizzate per l'export SSoT
@@ -639,6 +737,24 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                 </div>
                                                 <div className="flex flex-col items-end">
                                                     <div className="flex items-center gap-3">
+                                                        <Select value={statusFilter} onValueChange={setStatusFilter}>
+                                                            <SelectTrigger className="h-7 w-[130px] bg-slate-900 border-slate-800 text-[9px] font-black uppercase text-slate-400 rounded-lg">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Filter className="h-3 w-3 text-slate-500" />
+                                                                    <SelectValue placeholder="Filtro" />
+                                                                </div>
+                                                            </SelectTrigger>
+                                                            <SelectContent className="bg-slate-950 border-slate-800">
+                                                                <SelectItem value="Tutte" className="text-[10px] font-bold uppercase">Tutte</SelectItem>
+                                                                <SelectItem value="IN PREP." className="text-[10px] font-bold uppercase text-amber-500">IN PREP.</SelectItem>
+                                                                <SelectItem value="PRONTO PROD." className="text-[10px] font-bold uppercase text-amber-400">PRONTO PROD.</SelectItem>
+                                                                <SelectItem value="IN LAV." className="text-[10px] font-bold uppercase text-blue-400">IN LAV.</SelectItem>
+                                                                <SelectItem value="PRONTO PACK" className="text-[10px] font-bold uppercase text-amber-500">PRONTO PACK</SelectItem>
+                                                                <SelectItem value="IN ATTESA" className="text-[10px] font-bold uppercase text-slate-500">IN ATTESA</SelectItem>
+                                                                <SelectItem value="COMPLETATA" className="text-[10px] font-bold uppercase text-emerald-500">COMPLETATA</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+
                                                         <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/50 rounded-md px-2 py-0.5" title={`${completedJobs} completate / ${openJobs} aperte`}>
                                                             <Boxes className="h-3 w-3 text-slate-500" />
                                                             <span className="text-[10px] font-black text-emerald-500">{completedJobs}</span>
@@ -652,7 +768,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <Progress value={capacityHours > 0 ? (totalLoad / capacityHours) * 100 : 0} className={cn("h-1.5 w-16 mt-1.5", isOverloaded ? "[&>div]:bg-red-500" : "[&>div]:bg-blue-600")} />
+                                                    <Progress value={totalJobs > 0 ? (completedJobs / totalJobs) * 100 : 0} className={cn("h-1.5 w-16 mt-1.5", isOverloaded ? "[&>div]:bg-red-500" : "[&>div]:bg-blue-600")} />
                                                 </div>
                                             </CardHeader>
                                             <CardContent className="p-3 space-y-3 min-h-[250px] bg-transparent flex-1">
@@ -670,8 +786,6 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                             key={job.id}
                                                             className={cn(
                                                                 "relative transition-all duration-300",
-                                                                searchQuery.length >= 2 && !isA ? "opacity-20 grayscale-[0.8] scale-[0.98]" : "opacity-100",
-                                                                isA && !isActive ? "z-10 bg-slate-950/30 rounded-2xl ring-2 ring-blue-500/50 shadow-md scale-[1.01]" : "",
                                                                 isActive ? "z-20 bg-amber-950/20 rounded-2xl ring-4 ring-amber-400 shadow-[0_0_25px_rgba(251,191,36,0.5)] scale-[1.05]" : ""
                                                             )}
                                                         >
@@ -721,11 +835,11 @@ export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' |
     
     let deptPhases = phaseTemplates.filter(t => t.departmentCodes.includes(deptId));
     if (macroArea === 'PREP') {
-        deptPhases = phaseTemplates.filter(t => t.type === 'preparation');
+        deptPhases = phaseTemplates.filter(t => isPreparationPhase(t.type));
     } else if (macroArea === 'PACK') {
-        deptPhases = phaseTemplates.filter(t => t.type === 'quality' || t.type === 'packaging');
+        deptPhases = phaseTemplates.filter(t => isQualityPackagingPhase(t.type));
     } else {
-        deptPhases = phaseTemplates.filter(t => t.type === 'production' && t.departmentCodes.includes(deptId));
+        deptPhases = phaseTemplates.filter(t => isProductionPhase(t.type) && t.departmentCodes.includes(deptId));
     }
 
     let totalExpected = 0;
@@ -875,37 +989,87 @@ function JobCompactCard(props: {
         'status-green': 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
     };
 
-    const statusLabels: Record<string, string> = {
-        'status-gray': 'IN ATTESA',
-        'status-amber': 'PRONTA',
-        'status-blue': 'IN LAV.',
-        'status-green': 'COMPLETATA'
+    const derivedStatus = getDerivedJobStatus(job);
+    const isActuallyClosed = derivedStatus === 'CHIUSO' || ['CHIUSO', 'ARCHIVIATA'].includes(job.status?.toUpperCase() || '');
+    
+    const getBadgeVisuals = () => {
+        // 1. Matrice SSoT-AWARE per Colore e Testo
+        
+        // Regola A: In Preparazione / Da Iniziare
+        if (derivedStatus === 'DA_INIZIARE' || derivedStatus === 'IN_PREPARAZIONE') {
+            return { 
+                label: "IN PREP.", 
+                status: macroArea === 'PREP' ? 'status-amber' : 'status-gray' 
+            };
+        }
+
+        // Regola B: Pronto Produzione (Prep terminata)
+        if (derivedStatus === 'PRONTO_PROD') {
+            if (macroArea === 'PREP') return { label: "COMPLETATA", status: 'status-green' };
+            if (macroArea === 'CORE') return { label: "PRONTO PROD.", status: 'status-amber' };
+            return { label: "IN ATTESA", status: 'status-gray' };
+        }
+
+        // Regola C: In Produzione
+        if (derivedStatus === 'IN_PRODUZIONE') {
+            if (macroArea === 'PREP') return { label: "COMPLETATA", status: 'status-green' };
+            if (macroArea === 'CORE') return { label: "IN LAV.", status: 'status-blue' };
+            return { label: "IN ATTESA", status: 'status-gray' };
+        }
+
+        // Regola D: Produzione Finita
+        if (derivedStatus === 'FINE_PRODUZIONE' || derivedStatus === 'QLTY_PACK') {
+            if (macroArea === 'PREP' || macroArea === 'CORE') return { label: "COMPLETATA", status: 'status-green' };
+            return { label: "PRONTO PACK", status: 'status-amber' };
+        }
+
+        // Regola E: Chiuso
+        if (isActuallyClosed || semaphoreStatus === 'status-green') {
+            return { label: "COMPLETATA", status: 'status-green' };
+        }
+
+        // Fallback
+        const labels: Record<string, string> = {
+            'status-gray': 'IN ATTESA',
+            'status-amber': 'PRONTA',
+            'status-blue': 'IN LAV.',
+            'status-green': 'COMPLETATA'
+        };
+        return { 
+            label: job.workGroupId ? "IN GRUPPO" : (labels[semaphoreStatus] || semaphoreStatus), 
+            status: semaphoreStatus 
+        };
     };
 
-    const derivedStatus = getDerivedJobStatus(job);
-    const isActuallyClosed = derivedStatus === 'CHIUSO';
+    const visuals = getBadgeVisuals();
+    const isClosed = visuals.status === 'status-green' && macroArea === 'PACK';
 
-    const isClosed = semaphoreStatus === 'status-green' && macroArea === 'PACK';
+    const badgeColors: Record<string, string> = {
+        'status-gray': 'bg-slate-900 text-slate-400 border border-slate-800',
+        'status-amber': 'bg-amber-500 text-amber-950 font-black',
+        'status-blue': 'bg-blue-600 text-white font-black',
+        'status-green': 'bg-emerald-500 text-white'
+    };
 
     return (
         <div 
             onClick={onClick}
             className={cn(
                 "group relative flex items-center h-11 px-3 border rounded-xl transition-all cursor-pointer overflow-hidden",
-                sColors[semaphoreStatus],
+                sColors[visuals.status],
                 job.hasMaterialShortage && "border-destructive border-2 shadow-[0_0_10px_rgba(239,68,68,0.4)]",
                 job.isSuspended && !job.hasMaterialShortage && "border-yellow-500 border-2 shadow-[0_0_10px_rgba(234,179,8,0.4)]",
-                isOverdue && !isClosed && semaphoreStatus !== 'status-green' && !job.hasMaterialShortage && !job.isSuspended && "border-red-600/40 bg-red-950/5",
+                isOverdue && !isClosed && visuals.status !== 'status-green' && !job.hasMaterialShortage && !job.isSuspended && "border-red-600/40 bg-red-950/5",
                 isTechnicalDelay && !isClosed && "border-red-500 border-2 shadow-[0_0_12px_rgba(239,68,68,0.2)]"
             )}
         >
-            <div className={cn("absolute left-0 top-0 bottom-0 w-1", sIndicator[semaphoreStatus])} />
+            <div className={cn("absolute left-0 top-0 bottom-0 w-1", sIndicator[visuals.status])} />
 
             <div className="flex items-center w-full gap-3 pl-1">
                 <div 
                     className={cn(
                         "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0",
-                        (isActuallyClosed || isClosed) ? "bg-emerald-500 text-white" : "bg-slate-900 text-slate-400 border border-slate-800",
+                        badgeColors[visuals.status],
                         job.workGroupId && "bg-indigo-600 text-white border-none cursor-help"
                     )}
                     onClick={(e) => {
@@ -915,7 +1079,7 @@ function JobCompactCard(props: {
                         }
                     }}
                 >
-                    {job.workGroupId ? "IN GRUPPO" : (isActuallyClosed || semaphoreStatus === 'status-green' ? "COMPLETATA" : statusLabels[semaphoreStatus])}
+                    {visuals.label}
                 </div>
 
                 {!isActuallyClosed && job.hasMaterialShortage && (

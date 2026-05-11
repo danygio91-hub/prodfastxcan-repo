@@ -14,7 +14,7 @@ function sanitizeDocumentId(id: string): string {
 }
 
 
-async function createPhasesFromCycle(cycleId: string, templatesMap?: Map<string, WorkPhaseTemplate>): Promise<JobPhase[]> {
+export async function createPhasesFromCycle(cycleId: string, templatesMap?: Map<string, WorkPhaseTemplate>): Promise<JobPhase[]> {
     if (!cycleId) return [];
     const cycleSnap = await adminDb.collection("workCycles").doc(cycleId).get();
     if (!cycleSnap.exists) return [];

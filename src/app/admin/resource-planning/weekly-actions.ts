@@ -10,6 +10,51 @@ import { convertTimestampsToDates } from '@/lib/utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
 import type { WorkPhaseTemplate } from '@/types';
 import { getOverallStatus } from '@/lib/types';
+import { createPhasesFromCycle } from '../data-management/actions';
+
+/**
+ * Funzione di "Auto-Riparazione" (Self-Healing)
+ * Se una commessa ha lo stato avviato ma l'array phases è vuoto, tenta di ricaricarlo dal ciclo dell'articolo.
+ */
+export async function selfHealJobPhases(jobId: string, articleCode: string, uid: string) {
+    try {
+        await ensureAdmin(uid);
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        const jobSnap = await jobRef.get();
+        if (!jobSnap.exists) throw new Error("Commessa non trovata.");
+        
+        const jobData = jobSnap.data() as JobOrder;
+        
+        // Verifica se ha già le fasi (per sicurezza, anche se chiamato lato client)
+        if (jobData.phases && jobData.phases.length > 0) return { success: true, message: "Fasi già presenti." };
+
+        // Tenta di recuperare l'articolo per trovare il ciclo
+        const articleSnap = await adminDb.collection("articles").doc(articleCode.toUpperCase()).get();
+        if (!articleSnap.exists) throw new Error("Articolo non trovato in anagrafica.");
+        const articleData = articleSnap.data() as Article;
+        
+        const cycleId = jobData.workCycleId || articleData.workCycleId;
+        if (!cycleId) throw new Error("Nessun ciclo di lavorazione associato all'articolo.");
+
+        const phases = await createPhasesFromCycle(cycleId);
+        if (phases.length === 0) throw new Error("Il ciclo di lavorazione non contiene fasi valide.");
+
+        await jobRef.update({ 
+            phases, 
+            workCycleId: cycleId,
+            updatedAt: admin.firestore.Timestamp.now(),
+            selfHealedAt: admin.firestore.Timestamp.now()
+        });
+
+        revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/production-console');
+        
+        return { success: true, message: "Snapshot fasi ripristinato con successo." };
+    } catch (error: any) {
+        console.error("Self-healing error:", error);
+        return { success: false, message: error.message };
+    }
+}
 
 /**
  * Salva l'allocazione di operatori per un reparto in una specifica settimana.

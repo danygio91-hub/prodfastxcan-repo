@@ -38,7 +38,8 @@ import {
     advanceJobStatus, 
     migrateJobOrderStatuses, 
     getPlanningWorkPhaseTemplates,
-    saveMassiveAllocation
+    saveMassiveAllocation,
+    selfHealJobPhases
 } from './weekly-actions';
 import { updateJobDeliveryDate, updateJobDepartment, forceCloseAndExclude } from './actions';
 import MassiveAllocationDialog from './MassiveAllocationDialog';
@@ -180,6 +181,37 @@ export default function ResourcePlanningClientPage() {
     useEffect(() => {
         loadData();
     }, [currentDate]);
+
+    // --- SELF-HEALING ENGINE ---
+    // Monitora le commesse caricate e ripara i "gusci vuoti" (fasi assenti)
+    useEffect(() => {
+        if (!boardData.jobOrders.length || !uid) return;
+
+        const jobsToHeal = boardData.jobOrders.filter(j => {
+            const status = j.status?.toUpperCase() || '';
+            const isStarted = !['IN_PIANIFICAZIONE', 'PLANNED', 'IN ATTESA'].includes(status);
+            const hasNoPhases = !j.phases || j.phases.length === 0;
+            return isStarted && hasNoPhases;
+        });
+
+        if (jobsToHeal.length > 0) {
+            console.log(`[Self-Healing] Rilevate ${jobsToHeal.length} commesse senza fasi. Ripristino in corso...`);
+            
+            jobsToHeal.forEach(async (job) => {
+                const res = await selfHealJobPhases(job.id, job.details, uid);
+                if (res.success) {
+                    toast({ 
+                        title: "Auto-Riparazione Dati", 
+                        description: `Fasi ripristinate per ODL ${job.numeroODLInterno || job.ordinePF}.`,
+                        variant: "default"
+                    });
+                }
+            });
+            
+            // Ricarichiamo i dati dopo un breve delay per vedere le fasi
+            setTimeout(() => loadData(true), 1500);
+        }
+    }, [boardData.jobOrders, uid]);
 
     // --- UNIFIED SSoT CALCULATION FOR GLOBAL LOAD & CAPACITY ---
     const globalMetrics = useMemo(() => {

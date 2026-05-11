@@ -2,7 +2,29 @@
 import { startOfWeek, addWeeks, startOfDay, isSameWeek } from 'date-fns';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { parseRobustDate } from '@/lib/utils';
-import type { JobOrder, Department, Article, WorkPhaseTemplate } from '@/types';
+import type { JobOrder, Department, Article, WorkPhaseTemplate, JobPhase } from '@/types';
+
+/**
+ * Normalizzazione Universale dei Tipi Fase (SSoT)
+ * Gestisce case-insensitivity e multi-language (ITA/ENG)
+ */
+export function isPreparationPhase(type?: string): boolean {
+    if (!type) return false;
+    const t = type.toLowerCase().trim();
+    return ['preparation', 'preparazione', 'prep', 'prep.'].includes(t);
+}
+
+export function isProductionPhase(type?: string): boolean {
+    if (!type) return false;
+    const t = type.toLowerCase().trim();
+    return ['production', 'produzione', 'prod', 'prod.'].includes(t);
+}
+
+export function isQualityPackagingPhase(type?: string): boolean {
+    if (!type) return false;
+    const t = type.toLowerCase().trim();
+    return ['quality', 'qualità', 'qualita', 'packaging', 'imballo', 'confezionamento', 'pack', 'qlty'].includes(t);
+}
 
 export interface ProcessedJob {
     job: JobOrder;
@@ -42,9 +64,9 @@ export function processJobsSSoT(
         // 1. DETERMINAZIONE STATI COMPLETAMENTO PER MACRO-AREA
         const phases = job.phases || [];
         const isFinished = {
-            PREP: isClosedGlobally || (phases.filter(p => p.type === 'preparation').length === 0 || phases.filter(p => p.type === 'preparation').every(p => p.status === 'completed' || p.status === 'skipped')),
-            CORE: isClosedGlobally || (phases.filter(p => p.type === 'production').length === 0 || phases.filter(p => p.type === 'production').every(p => p.status === 'completed' || p.status === 'skipped')),
-            PACK: isClosedGlobally || (phases.filter(p => p.type === 'quality' || p.type === 'packaging').length === 0 || phases.filter(p => p.type === 'quality' || p.type === 'packaging').every(p => p.status === 'completed' || p.status === 'skipped'))
+            PREP: isClosedGlobally || (phases.filter(p => isPreparationPhase(p.type)).length === 0 || phases.filter(p => isPreparationPhase(p.type)).every(p => p.status === 'completed' || p.status === 'skipped')),
+            CORE: isClosedGlobally || (phases.filter(p => isProductionPhase(p.type)).length === 0 || phases.filter(p => isProductionPhase(p.type)).every(p => p.status === 'completed' || p.status === 'skipped')),
+            PACK: isClosedGlobally || (phases.filter(p => isQualityPackagingPhase(p.type)).length === 0 || phases.filter(p => isQualityPackagingPhase(p.type)).every(p => p.status === 'completed' || p.status === 'skipped'))
         };
 
         // 2. CALCOLO RESIDUO COMPUTATO (STATE MACHINE) - Spostato prima per determinare il rollover basato sul residuo fisico
@@ -117,10 +139,10 @@ function calculateAreaResidual(
 
     const phaseTimes = article.phaseTimes || {};
     let areaPhases = phaseTemplates.filter(t => {
-        if (area === 'PREP') return t.type === 'preparation';
-        if (area === 'PACK') return t.type === 'quality' || t.type === 'packaging';
+        if (area === 'PREP') return isPreparationPhase(t.type);
+        if (area === 'PACK') return isQualityPackagingPhase(t.type);
         // Per CORE prendiamo solo quelle del reparto del Job
-        return t.type === 'production' && t.departmentCodes.includes(job.department);
+        return isProductionPhase(t.type) && t.departmentCodes.includes(job.department);
     });
 
     const jobStatus = job.status?.toUpperCase() || '';

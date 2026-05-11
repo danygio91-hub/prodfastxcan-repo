@@ -793,20 +793,44 @@ export default function DataManagementClientPage({
               <FormField control={manualForm.control} name="ordinePF" render={({ field }) => (<FormItem><FormLabel>Ordine PF</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
             </div>
             <FormField control={manualForm.control} name="articleCode" render={({ field }) => (
-              <FormItem className="flex flex-col"><FormLabel>Articolo</FormLabel><Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between">{field.value || "Seleziona..."}<ArrowUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca minimo 2 char..." onValueChange={handleSearchArticle} /><CommandList><CommandEmpty>{isSearchingArticles ? <Loader2 className="h-4 w-4 animate-spin mx-auto my-2" /> : "Nessun articolo."}</CommandEmpty><CommandGroup>{articleSuggestions.map(a => (<CommandItem key={a.id} value={a.code} onSelect={() => { manualForm.setValue("articleCode", a.code); setIsArticlePopoverOpen(false); }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
+              <FormItem className="flex flex-col"><FormLabel>Articolo</FormLabel><Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between font-bold text-blue-400 border-blue-500/20">{field.value || "Seleziona..."}<ArrowUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca minimo 2 char..." onValueChange={handleSearchArticle} /><CommandList><CommandEmpty>{isSearchingArticles ? <Loader2 className="h-4 w-4 animate-spin mx-auto my-2" /> : "Nessun articolo."}</CommandEmpty><CommandGroup>{articleSuggestions.map(a => (
+                <CommandItem key={a.id} value={a.code} onSelect={() => { 
+                  manualForm.setValue("articleCode", a.code); 
+                  if (a.workCycleId) {
+                      manualForm.setValue("workCycleId", a.workCycleId);
+                  }
+                  setIsArticlePopoverOpen(false); 
+                }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
             )} />
-            <div className="grid grid-cols-2 gap-4">
-              <FormField control={manualForm.control} name="qta" render={({ field }) => (<FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+            <div className="grid grid-cols-2 gap-6">
               <FormField 
                 control={manualForm.control} 
                 name="dataFinePreparazione" 
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Fine Prep. (Magazzino)</FormLabel>
+                    <FormLabel className="text-amber-500 font-black uppercase text-[10px] tracking-widest">Fine Prep. (Magazzino)</FormLabel>
                     <FormControl>
                       <MaskedDatePicker 
                         value={field.value ? parseISO(field.value) : null} 
                         onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')} 
+                        className="border-amber-500/30 focus:border-amber-500 bg-amber-500/5 shadow-[0_0_10px_rgba(245,158,11,0.05)]"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} 
+              />
+              <FormField 
+                control={manualForm.control} 
+                name="dataConsegnaFinale" 
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-emerald-500 font-black uppercase text-[10px] tracking-widest">Consegna Finale (Cliente)</FormLabel>
+                    <FormControl>
+                      <MaskedDatePicker 
+                        value={field.value ? parseISO(field.value) : null} 
+                        onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')} 
+                        className="border-emerald-500/30 focus:border-emerald-500 bg-emerald-500/5 shadow-[0_0_10px_rgba(16,185,129,0.05)]"
                       />
                     </FormControl>
                     <FormMessage />
@@ -814,23 +838,8 @@ export default function DataManagementClientPage({
                 )} 
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <FormField 
-                control={manualForm.control} 
-                name="dataConsegnaFinale" 
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Consegna Finale (Cliente)</FormLabel>
-                    <FormControl>
-                      <MaskedDatePicker 
-                        value={field.value ? parseISO(field.value) : null} 
-                        onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')} 
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} 
-              />
+            <div className="grid grid-cols-2 gap-6">
+              <FormField control={manualForm.control} name="qta" render={({ field }) => (<FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
               <FormField control={manualForm.control} name="department" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Reparto</FormLabel>
@@ -847,7 +856,19 @@ export default function DataManagementClientPage({
                 </FormItem>
               )} />
             </div>
-            <FormField control={manualForm.control} name="workCycleId" render={({ field }) => (<FormItem><FormLabel>Ciclo</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></FormItem>)} />
+            <FormField control={manualForm.control} name="workCycleId" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Ciclo</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value || ""}>
+                  <FormControl>
+                    <SelectTrigger className="border-blue-500/20 bg-blue-500/5"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </FormItem>
+            )} />
             <DialogFooter><Button type="submit">Salva</Button></DialogFooter>
           </form></Form>
         </DialogContent>
