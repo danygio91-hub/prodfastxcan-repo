@@ -22,6 +22,7 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
       productionProblemTypes: data.productionProblemTypes || DEFAULT_GLOBAL_SETTINGS.productionProblemTypes,
       phaseTypes: data.phaseTypes || DEFAULT_GLOBAL_SETTINGS.phaseTypes,
       materialSessionCategories: data.materialSessionCategories || DEFAULT_GLOBAL_SETTINGS.materialSessionCategories,
+      smartCodeSettings: data.smartCodeSettings || DEFAULT_GLOBAL_SETTINGS.smartCodeSettings,
     };
   } catch (error) {
     console.error("Error fetching global settings:", error);

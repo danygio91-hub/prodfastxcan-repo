@@ -13,6 +13,12 @@ export interface Department {
   dependsOnPreparation?: boolean;
 }
 
+export interface Client {
+  id: string;
+  name: string;
+  smartCodePrefix?: string; // Manual override for Smart Code System
+}
+
 export interface WorkPhaseTemplate {
   id: string;
   name: string;
@@ -137,6 +143,8 @@ export interface JobOrder {
   anomalyNote?: string;
   dataFinePreparazione?: string;
   macroArea?: MacroArea;
+  isSmartJob?: boolean;
+  smartCodeParams?: Record<string, string>;
   createdAt?: any;
   updatedAt?: any;
   isSuspended?: boolean;

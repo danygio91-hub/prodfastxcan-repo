@@ -24,6 +24,7 @@ export default function AdminCompanySettingsPage() {
     { href: '/admin/settings/parameters', label: 'Parametri Globali', description: 'Configura tipi di materia prima, unità di misura e altri parametri di sistema.', icon: Settings2, disabled: false },
     { href: '/admin/workstation-management', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer, disabled: false },
     { href: '/admin/settings/odl-designer', label: 'Designer ODL', description: 'Personalizza il layout e i colori della scheda di lavorazione (PDF).', icon: Palette, disabled: false },
+    { href: '/admin/smart-code-settings', label: 'Impostazioni Commessa Rapida', description: 'Configura le regole per la generazione del Codice Parlante.', icon: Combine, disabled: false },
   ];
 
   return (

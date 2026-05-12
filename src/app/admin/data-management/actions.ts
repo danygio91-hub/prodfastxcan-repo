@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment } from '@/types';
+import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment, Client, BillOfMaterialsItem } from '@/types';
 import * as z from 'zod';
 import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
@@ -11,6 +11,27 @@ import { fetchInChunks } from '@/lib/firestore-utils';
 
 function sanitizeDocumentId(id: string): string {
   return id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+}
+
+/**
+ * Utility to deeply sanitize objects for Firestore, 
+ * converting undefined to null and removing undefined keys.
+ */
+function sanitizeFirestoreData(data: any): any {
+  if (data === undefined) return null;
+  if (data === null) return null;
+  if (Array.isArray(data)) return data.map(sanitizeFirestoreData);
+  if (typeof data === 'object' && data.constructor === Object) {
+    const sanitized: any = {};
+    for (const key in data) {
+      const val = data[key];
+      if (val !== undefined) {
+        sanitized[key] = sanitizeFirestoreData(val);
+      }
+    }
+    return sanitized;
+  }
+  return data;
 }
 
 
@@ -606,6 +627,166 @@ export async function updateJobOrderOdlNumber(jobId: string, newOdl: string) {
     } catch (error) {
         console.error("Error updating ODL:", error);
         return { success: false, message: "Errore durante l'aggiornamento dell'ODL." };
+    }
+}
+
+export async function getClients(): Promise<Client[]> {
+    const snap = await adminDb.collection('clients').orderBy('name').get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
+}
+
+export async function checkArticleExists(code: string): Promise<boolean> {
+    const doc = await adminDb.collection('articles').doc(code.toUpperCase().trim()).get();
+    return doc.exists;
+}
+
+export async function updateJobOrder(jobId: string, data: {
+    cliente: string;
+    ordinePF: string;
+    qta: number;
+    department: string;
+    workCycleId: string;
+    dataFinePreparazione: string;
+    dataConsegnaFinale: string;
+}) {
+    try {
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        const jobSnap = await jobRef.get();
+        if (!jobSnap.exists) throw new Error("Commessa non trovata.");
+        
+        const job = jobSnap.data() as JobOrder;
+        // Data Freeze Security
+        if (job.status !== 'IN_PIANIFICAZIONE' && job.status !== 'planned' && job.status !== 'IN_ATTESA') {
+             throw new Error("Data Freeze: Impossibile modificare una commessa già in produzione.");
+        }
+
+        // Logic: Only update phases if the work cycle has changed
+        const updatePayload: any = {
+            cliente: data.cliente,
+            ordinePF: data.ordinePF,
+            qta: data.qta,
+            department: data.department,
+            dataFinePreparazione: normalizeDateStr(data.dataFinePreparazione),
+            dataConsegnaFinale: normalizeDateStr(data.dataConsegnaFinale),
+            updatedAt: admin.firestore.Timestamp.now()
+        };
+
+        if (data.workCycleId !== job.workCycleId) {
+            console.log(`Cycle changed from ${job.workCycleId} to ${data.workCycleId}. Regenerating phases...`);
+            updatePayload.workCycleId = data.workCycleId;
+            updatePayload.phases = await createPhasesFromCycle(data.workCycleId);
+        }
+
+        // Deep Sanitization to prevent "undefined" Firestore errors
+        const sanitizedPayload = sanitizeFirestoreData(updatePayload);
+
+        await jobRef.update(sanitizedPayload);
+
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+        return { success: true, message: "Commessa aggiornata con successo." };
+    } catch (error) {
+        console.error("Error updating job order:", error);
+        return { success: false, message: error instanceof Error ? error.message : "Errore durante l'aggiornamento." };
+    }
+}
+
+
+export async function saveSmartJobOrder(data: {
+    cliente: string;
+    ordinePF: string;
+    articleCode: string;
+    description: string;
+    dataConsegnaFinale: string;
+    dataFinePreparazione: string;
+    workCycleId: string;
+    qta: number;
+    billOfMaterials?: BillOfMaterialsItem[];
+    expectedMinutes?: number;
+    fieldValues?: Record<string, string>;
+    isEdit?: boolean;
+}) {
+    const { cliente, ordinePF, articleCode, description, dataConsegnaFinale, dataFinePreparazione, workCycleId, qta, billOfMaterials, expectedMinutes, fieldValues, isEdit } = data;
+    
+    try {
+        const sanitizedId = sanitizeDocumentId(ordinePF);
+        const jobRef = adminDb.collection("jobOrders").doc(sanitizedId);
+        
+        // Check if job exists
+        const existingJob = await jobRef.get();
+        if (existingJob.exists && !isEdit) {
+            return { success: false, message: "Esiste già una commessa con questo Ordine PF." };
+        }
+
+        // Data Freeze Security
+        if (existingJob.exists && isEdit) {
+            const jobData = existingJob.data() as JobOrder;
+            if (jobData.status !== 'IN_PIANIFICAZIONE') {
+                return { success: false, message: "Data Freeze: Impossibile modificare una commessa già in produzione." };
+            }
+        }
+
+        // 1. Article Upsert
+        const articleRef = adminDb.collection("articles").doc(articleCode.toUpperCase().trim());
+        const articleSnap = await articleRef.get();
+        
+        const articleData: Partial<Article> = {
+            id: articleCode.toUpperCase().trim(),
+            code: articleCode.toUpperCase().trim(),
+            workCycleId: workCycleId,
+            billOfMaterials: billOfMaterials || [],
+            expectedMinutesDefault: expectedMinutes,
+        };
+
+        if (!articleSnap.exists) {
+            await articleRef.set(articleData);
+        } else {
+            await articleRef.update(articleData);
+        }
+
+        // 2. Job Creation
+        const phases = await createPhasesFromCycle(workCycleId);
+        
+        // Map BillOfMaterialsItem to JobBillOfMaterialsItem for the JobOrder snapshot
+        const jobBOM: JobBillOfMaterialsItem[] = (billOfMaterials || []).map(item => ({
+            ...item,
+            status: 'pending',
+            withdrawn: false,
+            isFromTemplate: true,
+            fabbisognoTotale: item.quantity * qta
+        }));
+
+        const newJob: any = {
+            id: sanitizedId,
+            status: 'IN_PIANIFICAZIONE',
+            ordinePF: ordinePF,
+            numeroODL: "", 
+            cliente: cliente,
+            qta: qta,
+            details: articleCode.toUpperCase().trim(),
+            department: phases[0]?.departmentCodes[0] || "PRODUZIONE",
+            postazioneLavoro: "Da Assegnare",
+            phases: phases,
+            billOfMaterials: jobBOM,
+            dataConsegnaFinale: normalizeDateStr(dataConsegnaFinale) || '',
+            dataFinePreparazione: normalizeDateStr(dataFinePreparazione) || '',
+            workCycleId: workCycleId,
+            isSmartJob: true,
+            smartCodeParams: fieldValues || {},
+            createdAt: admin.firestore.Timestamp.now(),
+            updatedAt: admin.firestore.Timestamp.now()
+        };
+
+        await jobRef.set(JSON.parse(JSON.stringify(newJob)));
+
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/production-console');
+
+        return { success: true, message: 'Commessa Rapida creata con successo.' };
+    } catch (error) {
+        console.error("Error saving smart job order:", error);
+        return { success: false, message: "Errore durante il salvataggio: " + (error instanceof Error ? error.message : "Errore sconosciuto") };
     }
 }
 

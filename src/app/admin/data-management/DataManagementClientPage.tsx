@@ -21,7 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import {
   ListChecks, Upload, Loader2, Trash2, Briefcase, PlayCircle, Search, XCircle,
   FileDown, PlusCircle, ArrowUpDown, Calendar as CalendarIcon,
-  CheckCircle2, AlertTriangle, Info, RefreshCw, Save
+  CheckCircle2, AlertTriangle, Info, RefreshCw, Save, Combine,
+  Pencil, Edit3
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/types';
 import { format, parseISO, isBefore } from 'date-fns';
@@ -52,6 +53,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { MRPSemaphore } from '@/components/mrp/MRPSemaphore';
+import { SmartJobModal } from '@/components/mrp/SmartJobModal';
+import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 
 const manualCreateSchema = z.object({
   cliente: z.string().min(1, "Il cliente è obbligatorio."),
@@ -87,7 +90,7 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sor
 
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
-  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onDownloadPdf, onAction, isDownloadingPdf, globalSettings, allowLink, activeSessions
+  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onDownloadPdf, onAction, onEdit, isDownloadingPdf, globalSettings, allowLink, activeSessions
 }: {
   data: JobOrder[];
   departments: Department[];
@@ -103,6 +106,7 @@ const JobTableRows = ({
   onUpdateOdlNumber: (id: string, newOdl: string) => Promise<void>;
   onDownloadPdf: (job: JobOrder) => void;
   onAction: (id: string, type: 'start' | 'cancel') => void;
+  onEdit: (job: JobOrder) => void;
   isDownloadingPdf: string | null;
   globalSettings: GlobalSettings | null;
   allowLink: boolean;
@@ -232,6 +236,26 @@ const JobTableRows = ({
               <MRPSemaphore job={j} mrpTimelines={mrpTimelines} activeSessions={activeSessions} size="lg" />
             </TableCell>
             <TableCell className="text-right space-x-1">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className={cn("h-8 w-8", !isPlanned && "opacity-30 cursor-not-allowed")} 
+                      onClick={() => isPlanned && onEdit(j)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  {!isPlanned && (
+                    <TooltipContent>
+                      Modifica bloccata: Commessa in produzione. Riportala in 'Pianificate' per sbloccarla.
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+
               <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => onDownloadPdf(j)} disabled={isDownloadingPdf === j.id}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
               {isPlanned ? <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'start')}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button> : <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'cancel')}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>}
             </TableCell>
@@ -282,6 +306,9 @@ export default function DataManagementClientPage({
   const [isArticlePopoverOpen, setIsArticlePopoverOpen] = useState(false);
   const [articleSuggestions, setArticleSuggestions] = useState<Article[]>([]);
   const [isSearchingArticles, setIsSearchingArticles] = useState(false);
+  const [isSmartJobModalOpen, setIsSmartJobModalOpen] = useState(false);
+  const [isEditStandardModalOpen, setIsEditStandardModalOpen] = useState(false);
+  const [jobToEdit, setJobToEdit] = useState<JobOrder | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const [odlConfig, setOdlConfig] = useState<any>(undefined);
@@ -553,7 +580,10 @@ export default function DataManagementClientPage({
     <div className="space-y-6">
       <header className="flex justify-between items-center flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><ListChecks className="h-8 w-8 text-primary" />Gestione Dati Commesse</h1>
+          <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+            <ListChecks className="h-8 w-8 text-primary" />
+            Gestione Dati Commesse
+          </h1>
           <p className="text-muted-foreground">Analisi MRP e pianificazione produzione.</p>
         </div>
         <div className="flex gap-2">
@@ -611,6 +641,25 @@ export default function DataManagementClientPage({
             {isRefreshingMRP ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Aggiorna MRP
           </Button>
+          {globalSettings?.smartCodeSettings?.enabled && (
+            <>
+              <Button 
+                onClick={() => setIsSmartJobModalOpen(true)}
+                className="bg-primary hover:bg-primary/80 text-white gap-2"
+              >
+                <Combine className="h-4 w-4" />
+                + Commessa Rapida
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="gap-2 border-primary/20 text-primary hover:bg-primary/5"
+              >
+                <Upload className="h-4 w-4" />
+                Import Rapide
+              </Button>
+            </>
+          )}
           <Button onClick={() => setIsManualCreateOpen(true)} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Nuova Commessa</Button>
           <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />} Importa Excel</Button>
         </div>
@@ -671,6 +720,14 @@ export default function DataManagementClientPage({
                     onUpdateOdlNumber={handleUpdateOdlLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
+                    onEdit={(job) => {
+                      setJobToEdit(job);
+                      if (job.isSmartJob) {
+                        setIsSmartJobModalOpen(true);
+                      } else {
+                        setIsEditStandardModalOpen(true);
+                      }
+                    }}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
                     allowLink={false}
@@ -721,6 +778,14 @@ export default function DataManagementClientPage({
                     onUpdateOdlNumber={handleUpdateOdlLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
+                    onEdit={(job) => {
+                      setJobToEdit(job);
+                      if (job.isSmartJob) {
+                        setIsSmartJobModalOpen(true);
+                      } else {
+                        setIsEditStandardModalOpen(true);
+                      }
+                    }}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
                     allowLink={true}
@@ -771,6 +836,14 @@ export default function DataManagementClientPage({
                     onUpdateOdlNumber={handleUpdateOdlLocal}
                     onDownloadPdf={handleDownloadPdf}
                     onAction={handleActionLocal}
+                    onEdit={(job) => {
+                      setJobToEdit(job);
+                      if (job.isSmartJob) {
+                        setIsSmartJobModalOpen(true);
+                      } else {
+                        setIsEditStandardModalOpen(true);
+                      }
+                    }}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
                     allowLink={true}
@@ -931,6 +1004,25 @@ export default function DataManagementClientPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SmartJobModal 
+        isOpen={isSmartJobModalOpen} 
+        onClose={() => {
+          setIsSmartJobModalOpen(false);
+          setJobToEdit(null);
+        }} 
+        settings={globalSettings} 
+        initialJob={jobToEdit}
+      />
+      <EditStandardJobModal
+        isOpen={isEditStandardModalOpen}
+        onClose={() => {
+          setIsEditStandardModalOpen(false);
+          setJobToEdit(null);
+        }}
+        job={jobToEdit}
+        workCycles={workCycles}
+        departments={departments}
+      />
     </div>
   );
 }

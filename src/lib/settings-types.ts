@@ -8,6 +8,25 @@ export interface RawMaterialTypeConfig {
   requiresCutLength?: boolean;
 }
 
+export interface SmartCodeFieldOption {
+  label: string;
+  code: string;
+}
+
+export interface SmartCodeField {
+  id: string;
+  name: string;
+  type: 'dropdown' | 'text';
+  options: SmartCodeFieldOption[];
+}
+
+export interface SmartCodeSettings {
+  enabled: boolean;
+  fields: SmartCodeField[];
+  pattern: string[]; // IDs of fields in order
+  separator: string;
+}
+
 export interface GlobalSettings {
   rawMaterialTypes: RawMaterialTypeConfig[];
   unitsOfMeasure: string[];
@@ -15,6 +34,7 @@ export interface GlobalSettings {
   phaseTypes: { id: string, label: string }[];
   materialSessionCategories: string[];
   jobOrderQrCodeRule?: string; // e.g. "{ordinePF}@{details}@{qta}"
+  smartCodeSettings?: SmartCodeSettings;
 }
 
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
@@ -40,4 +60,10 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   ],
   materialSessionCategories: ['TRECCIA', 'TUBI', 'GUAINA'],
   jobOrderQrCodeRule: "{ordinePF}@{details}@{qta}",
+  smartCodeSettings: {
+    enabled: false,
+    fields: [],
+    pattern: [],
+    separator: '-',
+  }
 };
