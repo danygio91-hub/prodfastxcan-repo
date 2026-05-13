@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { 
     Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, 
     Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX, Search, XCircle,
-    CalendarCheck, ChevronDown, ChevronUp, Box, Pause, Pencil
+    CalendarCheck, ChevronDown, ChevronUp, Box, Pause, Pencil, Wand2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -996,6 +996,13 @@ function JobCompactCard(props: {
     const derivedStatus = getDerivedJobStatus(job);
     const isActuallyClosed = derivedStatus === 'CHIUSO' || ['CHIUSO', 'ARCHIVIATA'].includes(job.status?.toUpperCase() || '');
     
+    // Check if any phase in this macro area is estimated
+    const isEstimated = job.phases.filter(p => {
+        if (macroArea === 'PREP') return isPreparationPhase(p.type);
+        if (macroArea === 'PACK') return isQualityPackagingPhase(p.type);
+        return isProductionPhase(p.type);
+    }).some(p => p.isEstimated);
+
     const getBadgeVisuals = () => {
         // 1. Matrice SSoT-AWARE per Colore e Testo
         
@@ -1171,8 +1178,24 @@ function JobCompactCard(props: {
 
                 <div className="flex flex-col items-end justify-center px-2 py-1 bg-blue-600/10 border border-blue-500/20 rounded-lg shrink-0 min-w-[90px]">
                     <div className="flex items-center gap-1.5">
-                        <Timer className="h-3 w-3 text-blue-400" />
-                        <span className="text-[10px] font-black text-blue-300 uppercase tracking-tight">
+                        {isEstimated ? (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Wand2 className="h-3 w-3 text-blue-400 animate-pulse" />
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[8px] font-black text-blue-400 uppercase tracking-widest">
+                                        Tempo Stimato (Smart Remainder)
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        ) : (
+                            <Timer className="h-3 w-3 text-blue-400" />
+                        )}
+                        <span className={cn(
+                            "text-[10px] font-black uppercase tracking-tight",
+                            isEstimated ? "text-blue-400/80 italic" : "text-blue-300"
+                        )}>
                             Residuo: {load.toFixed(1)}h
                         </span>
                     </div>

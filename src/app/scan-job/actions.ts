@@ -493,6 +493,7 @@ export async function handlePhaseScanResult(
             } else {
                 // Handle Start/Join
                 phs[idx].status = 'in-progress';
+                phs[idx].isEstimated = false; // Freeze estimate as production starts
                 if (!phs[idx].workPeriods) phs[idx].workPeriods = [];
                 
                 if (!phs[idx].workPeriods.some((wp: any) => wp.operatorId === opId && wp.end === null)) {

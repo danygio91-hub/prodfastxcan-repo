@@ -149,6 +149,7 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
                     ...phase, 
                     status: 'completed' as const, 
                     forced: true,
+                    isEstimated: false,
                     workPeriods: updatedWorkPeriods 
                 };
             }
@@ -410,7 +411,8 @@ async function internalForceCompleteJob(transaction: admin.firestore.Transaction
                 status: 'completed' as const, 
                 workPeriods: updatedWorkPeriods, 
                 forced: true,
-                isSanatoria: true 
+                isSanatoria: true,
+                isEstimated: false
             };
         }
         return { ...phase, workPeriods: updatedWorkPeriods };

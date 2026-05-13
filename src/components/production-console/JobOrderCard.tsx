@@ -4,7 +4,7 @@ import type { ProductionTimeData } from '@/app/admin/production-console/actions'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, ChevronDown, Loader2, Clock, Combine } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, ChevronDown, Loader2, Clock, Combine, Wand2, History } from 'lucide-react';
 import { format, parseISO, isPast, differenceInSeconds } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -737,15 +737,44 @@ export default function JobOrderCard({
                                       <PhaseLiveTimer phase={phase} />
                                   </div>
                                   <div className="p-1 rounded-md bg-muted/50 flex flex-col justify-center items-center relative">
-                                      <Label className="text-xs text-muted-foreground">Tempo Stimato</Label>
+                                      <Label className="text-xs text-muted-foreground">Tempo Target</Label>
                                       <div className="flex items-center gap-2">
-                                          <p className="font-mono text-lg">
-                                              {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
-                                                  ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
-                                                  : 'N/D'
+                                          <p className={cn(
+                                              "font-mono text-lg",
+                                              phase.isEstimated && "italic text-muted-foreground"
+                                          )}>
+                                              {(phase.expectedMinutesPerPiece !== undefined && phase.expectedMinutesPerPiece > 0)
+                                                  ? formatTime(phase.expectedMinutesPerPiece * jobOrder.qta * 60)
+                                                  : (analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
+                                                      ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
+                                                      : 'N/D'
                                               }
                                           </p>
-                                          {analysisData?.phases[phase.name]?.confidenceWarning && (
+                                          {phase.isEstimated && (
+                                              <TooltipProvider>
+                                                  <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                          <Wand2 className="h-3.5 w-3.5 text-blue-400" />
+                                                      </TooltipTrigger>
+                                                      <TooltipContent>
+                                                          <p>Tempo stimato in base ai pesi del ciclo</p>
+                                                      </TooltipContent>
+                                                  </Tooltip>
+                                              </TooltipProvider>
+                                          )}
+                                          {!phase.isEstimated && (phase.expectedMinutesPerPiece || 0) > 0 && (
+                                               <TooltipProvider>
+                                                   <Tooltip>
+                                                       <TooltipTrigger asChild>
+                                                           <History className="h-3.5 w-3.5 text-emerald-500" />
+                                                       </TooltipTrigger>
+                                                       <TooltipContent>
+                                                           <p>Tempo basato su storico reale</p>
+                                                       </TooltipContent>
+                                                   </Tooltip>
+                                               </TooltipProvider>
+                                          )}
+                                          {analysisData?.phases[phase.name]?.confidenceWarning && !phase.isEstimated && (
                                               <TooltipProvider>
                                                   <Tooltip>
                                                       <TooltipTrigger asChild>

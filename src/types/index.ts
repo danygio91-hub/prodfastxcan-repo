@@ -89,6 +89,7 @@ export interface JobPhase {
   theoreticalWeight?: number;
   expectedMinutesPerPiece?: number;
   detectedMinutesPerPiece?: number;
+  isEstimated?: boolean;
 }
 
 export interface JobBillOfMaterialsItem {

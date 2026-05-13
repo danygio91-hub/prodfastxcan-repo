@@ -43,6 +43,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
   const [dataPrep, setDataPrep] = useState('');
   const [selectedCycleId, setSelectedCycleId] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
+  const [expectedMinutes, setExpectedMinutes] = useState('0');
 
   useEffect(() => {
     if (job && isOpen) {
@@ -53,6 +54,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       setDataPrep(job.dataFinePreparazione || '');
       setSelectedCycleId(job.workCycleId || '');
       setSelectedDept(job.department || '');
+      setExpectedMinutes(job.expectedMinutesDefault?.toString() || '0');
     }
   }, [job, isOpen]);
 
@@ -72,7 +74,8 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
         department: selectedDept,
         workCycleId: selectedCycleId,
         dataFinePreparazione: dataPrep,
-        dataConsegnaFinale: dataConsegna
+        dataConsegnaFinale: dataConsegna,
+        expectedMinutes: Number(expectedMinutes)
       });
 
       if (res.success) {
@@ -182,16 +185,27 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-xs text-slate-400">Ciclo di Lavoro</Label>
-            <Select onValueChange={setSelectedCycleId} value={selectedCycleId}>
-              <SelectTrigger className="bg-slate-800 border-blue-500/20 bg-blue-500/5 h-10">
-                <SelectValue placeholder="Seleziona..." />
-              </SelectTrigger>
-              <SelectContent>
-                {workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-400">Ciclo di Lavoro</Label>
+              <Select onValueChange={setSelectedCycleId} value={selectedCycleId}>
+                <SelectTrigger className="bg-slate-800 border-blue-500/20 bg-blue-500/5 h-10">
+                  <SelectValue placeholder="Seleziona..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-400">Tempo Previsto Totale (min)</Label>
+              <Input 
+                type="number" 
+                value={expectedMinutes} 
+                onChange={(e) => setExpectedMinutes(e.target.value)} 
+                className="bg-slate-800 border-blue-500/30 focus:border-blue-500 h-10 font-bold text-blue-400"
+              />
+            </div>
           </div>
         </div>
 

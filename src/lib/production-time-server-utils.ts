@@ -204,13 +204,24 @@ export function distributeTheoreticalTimes(
         const normalizedName = phase.name.trim().toUpperCase();
         const historicalTime = historyMap.get(normalizedName);
 
-        // A phase has "history" if it's in the historical averages and > 0
+        // RULE: Protect phases that are already "confirmed" (real history, manual edit, completed or in-progress)
+        const isConfirmed = phase.isEstimated === false || 
+                           phase.status === 'completed' || 
+                           phase.status === 'skipped' ||
+                           (phase.workPeriods && phase.workPeriods.length > 0);
+
+        if (isConfirmed && (phase.expectedMinutesPerPiece || 0) > 0) {
+            totalHistoricalMinutes += (phase.expectedMinutesPerPiece || 0);
+            return { ...phase, isEstimated: false };
+        }
+
+        // Otherwise, try to match with NEW historical averages if available
         if (historicalTime !== undefined && historicalTime > 0) {
             totalHistoricalMinutes += historicalTime;
-            return { ...phase, expectedMinutesPerPiece: historicalTime };
+            return { ...phase, expectedMinutesPerPiece: historicalTime, isEstimated: false };
         } else {
             phasesToWeight.push(phase);
-            return { ...phase, expectedMinutesPerPiece: 0 };
+            return { ...phase, expectedMinutesPerPiece: 0, isEstimated: true };
         }
     });
 
@@ -227,6 +238,7 @@ export function distributeTheoreticalTimes(
             if (isToWeight) {
                 const weight = Math.max(1, phase.theoreticalWeight || 1);
                 phase.expectedMinutesPerPiece = (remainingMinutes / totalWeight) * weight;
+                phase.isEstimated = true;
             }
         });
     }

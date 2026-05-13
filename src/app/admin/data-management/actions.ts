@@ -7,6 +7,7 @@ import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBill
 import * as z from 'zod';
 import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
+import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 
 
 function sanitizeDocumentId(id: string): string {
@@ -377,7 +378,14 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 workCycleId = articleData.workCycleId || '';
             }
 
-            const phases = workCycleId ? await createPhasesFromCycle(workCycleId, templatesMap) : [];
+            let phases = workCycleId ? await createPhasesFromCycle(workCycleId, templatesMap) : [];
+            
+            // SMART REMAINDER TRIGGER (Import)
+            const expectedMins = articleData.expectedMinutesDefault;
+            if (expectedMins && expectedMins > 0 && phases.length > 0) {
+                const historicalAverages = articleData.historicalTimes?.averagePhaseTimes || [];
+                phases = distributeTheoreticalTimes(expectedMins, phases, historicalAverages);
+            }
             const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ 
                 ...item, 
                 component: item.component.toUpperCase().trim(),
@@ -418,6 +426,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 dataFinePreparazione: mappedRow.dataFinePreparazione, 
                 department: mappedRow.department, 
                 workCycleId: workCycleId,
+                expectedMinutesDefault: articleData.expectedMinutesDefault || 0,
                 createdAt: admin.firestore.Timestamp.now(),
                 updatedAt: admin.firestore.Timestamp.now()
             });
@@ -649,6 +658,7 @@ export async function updateJobOrder(jobId: string, data: {
     workCycleId: string;
     dataFinePreparazione: string;
     dataConsegnaFinale: string;
+    expectedMinutes?: number;
 }) {
     try {
         const jobRef = adminDb.collection("jobOrders").doc(jobId);
@@ -676,6 +686,19 @@ export async function updateJobOrder(jobId: string, data: {
             console.log(`Cycle changed from ${job.workCycleId} to ${data.workCycleId}. Regenerating phases...`);
             updatePayload.workCycleId = data.workCycleId;
             updatePayload.phases = await createPhasesFromCycle(data.workCycleId);
+        }
+
+        // SMART REMAINDER TRIGGER: If total time changed or phases were regenerated
+        const newExpectedMinutes = data.expectedMinutes ?? job.expectedMinutesDefault;
+        if (newExpectedMinutes !== undefined && (data.expectedMinutes !== undefined || data.workCycleId !== job.workCycleId)) {
+            const articleRef = adminDb.collection("articles").doc(job.details.toUpperCase().trim());
+            const articleSnap = await articleRef.get();
+            const article = articleSnap.exists ? articleSnap.data() as Article : null;
+            const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
+            
+            const currentPhases = updatePayload.phases || job.phases || [];
+            updatePayload.phases = distributeTheoreticalTimes(newExpectedMinutes, currentPhases, historicalAverages);
+            updatePayload.expectedMinutesDefault = newExpectedMinutes;
         }
 
         // Deep Sanitization to prevent "undefined" Firestore errors
@@ -747,8 +770,15 @@ export async function saveSmartJobOrder(data: {
         }
 
         // 2. Job Creation
-        const phases = await createPhasesFromCycle(workCycleId);
+        let phases = await createPhasesFromCycle(workCycleId);
         
+        // SMART REMAINDER ACTIVATION (Creation)
+        if (expectedMinutes && expectedMinutes > 0) {
+            const article = articleSnap.exists ? articleSnap.data() as Article : null;
+            const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
+            phases = distributeTheoreticalTimes(expectedMinutes, phases, historicalAverages);
+        }
+
         // Map BillOfMaterialsItem to JobBillOfMaterialsItem for the JobOrder snapshot
         const jobBOM: JobBillOfMaterialsItem[] = (billOfMaterials || []).map(item => ({
             ...item,

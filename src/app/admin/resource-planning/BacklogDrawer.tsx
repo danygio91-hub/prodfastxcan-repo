@@ -27,7 +27,9 @@ import {
     AlertTriangle, 
     Info, 
     Hash,
-    Pencil
+    Pencil,
+    Wand2,
+    History
 } from 'lucide-react';
 import { cn, formatDisplayStock, parseRobustDate } from '@/lib/utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
@@ -103,45 +105,47 @@ export default function BacklogDrawer({
     };
 
     const calculateRemainingHours = (job: JobOrder) => {
-        const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
-        if (!article) return 0;
-        
-        const phaseTimes = article.phaseTimes || {};
-        const activeTemplates = phaseTemplates.filter(t => 
-            phaseTimes[t.id]?.enabled !== false && 
-            (phaseTimes[t.id]?.expectedMinutesPerPiece || 0) > 0
-        );
-
-        const remainingMins = activeTemplates.reduce((acc, t) => {
-            const pt = phaseTimes[t.id];
-            const jobPhase = job.phases.find(p => p.name === t.name);
-            const isCompleted = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
-            
-            if (!isCompleted) {
-                return acc + (pt.expectedMinutesPerPiece * job.qta);
+        const remainingMins = job.phases.reduce((acc, p) => {
+            if (p.status !== 'completed' && p.status !== 'skipped') {
+                return acc + (p.expectedMinutesPerPiece || 0) * (job.qta || 0);
             }
             return acc;
         }, 0);
+        
+        if (remainingMins > 0) return remainingMins / 60;
 
-        return remainingMins / 60;
-    };
-
-    const calculateTotalHours = (job: JobOrder) => {
+        // Fallback to article data if job.phases is empty or expected times are missing
         const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
         if (!article) return 0;
-        
         const phaseTimes = article.phaseTimes || {};
         const activeTemplates = phaseTemplates.filter(t => 
             phaseTimes[t.id]?.enabled !== false && 
             (phaseTimes[t.id]?.expectedMinutesPerPiece || 0) > 0
         );
-
-        const totalMins = activeTemplates.reduce((acc, t) => {
+        const fbMins = activeTemplates.reduce((acc, t) => {
             const pt = phaseTimes[t.id];
-            return acc + (pt.expectedMinutesPerPiece * job.qta);
+            const jobPhase = job.phases.find(p => p.name === t.name);
+            const isCompleted = jobPhase && (jobPhase.status === 'completed' || jobPhase.status === 'skipped');
+            if (!isCompleted) return acc + (pt.expectedMinutesPerPiece * job.qta);
+            return acc;
         }, 0);
+        return fbMins / 60;
+    };
 
-        return totalMins / 60;
+    const calculateTotalHours = (job: JobOrder) => {
+        const totalMins = job.phases.reduce((acc, p) => acc + (p.expectedMinutesPerPiece || 0) * (job.qta || 0), 0);
+        
+        if (totalMins > 0) return totalMins / 60;
+
+        const article = articles.find(a => a.code.toUpperCase() === job.details?.toUpperCase());
+        if (!article) return 0;
+        const phaseTimes = article.phaseTimes || {};
+        const activeTemplates = phaseTemplates.filter(t => 
+            phaseTimes[t.id]?.enabled !== false && 
+            (phaseTimes[t.id]?.expectedMinutesPerPiece || 0) > 0
+        );
+        const fbMins = activeTemplates.reduce((acc, t) => acc + (phaseTimes[t.id].expectedMinutesPerPiece * job.qta), 0);
+        return fbMins / 60;
     };
 
     return (
@@ -277,8 +281,24 @@ export default function BacklogDrawer({
 
                                                     {/* Ore (Rim/Tot) */}
                                                     <div className="flex items-center gap-1 px-1.5 h-6 bg-blue-50 border border-blue-100 rounded-lg shrink-0 min-w-[55px] justify-center">
-                                                        <Timer className="h-3 w-3 text-blue-600" />
-                                                        <span className="text-[9px] font-black text-blue-700">
+                                                        {job.phases.some(p => p.isEstimated) ? (
+                                                            <TooltipProvider>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Wand2 className="h-3 w-3 text-blue-600 animate-pulse" />
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[8px] font-black text-blue-400 uppercase tracking-widest">
+                                                                        Tempo Stimato
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
+                                                        ) : (
+                                                            <Timer className="h-3 w-3 text-blue-600" />
+                                                        )}
+                                                        <span className={cn(
+                                                            "text-[9px] font-black text-blue-700",
+                                                            job.phases.some(p => p.isEstimated) && "italic opacity-80"
+                                                        )}>
                                                             {remainingHours.toFixed(1)}h
                                                         </span>
                                                     </div>
