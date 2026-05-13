@@ -722,11 +722,7 @@ export default function DataManagementClientPage({
                     onAction={handleActionLocal}
                     onEdit={(job) => {
                       setJobToEdit(job);
-                      if (job.isSmartJob) {
-                        setIsSmartJobModalOpen(true);
-                      } else {
-                        setIsEditStandardModalOpen(true);
-                      }
+                      setIsEditStandardModalOpen(true);
                     }}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
@@ -780,11 +776,7 @@ export default function DataManagementClientPage({
                     onAction={handleActionLocal}
                     onEdit={(job) => {
                       setJobToEdit(job);
-                      if (job.isSmartJob) {
-                        setIsSmartJobModalOpen(true);
-                      } else {
-                        setIsEditStandardModalOpen(true);
-                      }
+                      setIsEditStandardModalOpen(true);
                     }}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}
@@ -838,11 +830,7 @@ export default function DataManagementClientPage({
                     onAction={handleActionLocal}
                     onEdit={(job) => {
                       setJobToEdit(job);
-                      if (job.isSmartJob) {
-                        setIsSmartJobModalOpen(true);
-                      } else {
-                        setIsEditStandardModalOpen(true);
-                      }
+                      setIsEditStandardModalOpen(true);
                     }}
                     isDownloadingPdf={isDownloadingPdf}
                     globalSettings={globalSettings}

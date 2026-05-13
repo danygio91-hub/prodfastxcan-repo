@@ -41,6 +41,7 @@ import {
     saveMassiveAllocation,
     selfHealJobPhases
 } from './weekly-actions';
+import { getWorkCycles } from '../data-management/actions';
 import { updateJobDeliveryDate, updateJobDepartment, forceCloseAndExclude } from './actions';
 import MassiveAllocationDialog from './MassiveAllocationDialog';
 import QuickJobOrderDialog from './QuickJobOrderDialog';
@@ -62,6 +63,7 @@ import { calculateMRPTimelines } from '@/lib/mrp-utils';
 import { exportPlanningToExcel } from '@/lib/excel-export';
 import type { WeeklyCapacityBoardRef } from './WeeklyCapacityBoard';
 import { processJobsSSoT } from './ssot-utils';
+import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 
 import type { JobOrder, Department } from '@/types';
 
@@ -112,6 +114,11 @@ export default function ResourcePlanningClientPage() {
         dateField: string,
         dialogTitle: string
     } | null>(null);
+    
+    // Editing state
+    const [isEditStandardModalOpen, setIsEditStandardModalOpen] = useState(false);
+    const [jobToEdit, setJobToEdit] = useState<JobOrder | null>(null);
+    const [workCycles, setWorkCycles] = useState<any[]>([]);
     
 
 
@@ -288,7 +295,9 @@ export default function ResourcePlanningClientPage() {
             
             const data = await getWeeklyBoardData(year, week);
             const templates = await getPlanningWorkPhaseTemplates();
+            const cycles = await getWorkCycles();
             setPhaseTemplates(templates);
+            setWorkCycles(cycles);
             setBoardData(data);
         } catch (error) {
             toast({ title: 'Errore', description: 'Impossibile caricare i dati settimanali.', variant: 'destructive' });
@@ -480,6 +489,11 @@ export default function ResourcePlanningClientPage() {
         );
         
         toast({ title: "Report Generato", description: `Scaricamento del report per ${deptName} in corso...` });
+    };
+
+    const handleEditJob = (job: JobOrder) => {
+        setJobToEdit(job);
+        setIsEditStandardModalOpen(true);
     };
 
     if (loading && !isRefreshing && !boardData.jobOrders.length && !boardData.unassignedJobs.length) return (
@@ -702,6 +716,7 @@ export default function ResourcePlanningClientPage() {
                             }}
                             onJobClick={(jobId, macroArea) => handleRequestAssignment(jobId, undefined, undefined, macroArea)}
                             onQuickView={(job) => setQuickViewJob(job)}
+                            onEdit={handleEditJob}
                             rawMaterials={boardData.rawMaterials || []}
                             mrpTimelines={mrpTimelines}
                             globalSettings={boardData.globalSettings}
@@ -726,6 +741,7 @@ export default function ResourcePlanningClientPage() {
                     phaseTemplates={phaseTemplates}
                     onExclude={handleExcludeJob}
                     onAssignDate={(jobId) => handleRequestAssignment(jobId)}
+                    onEdit={handleEditJob}
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
                     rawMaterials={boardData.rawMaterials || []}
@@ -799,6 +815,20 @@ export default function ResourcePlanningClientPage() {
                     job={quickViewJob}
                     onActionSuccess={() => loadData(true)}
                 />
+
+                {isEditStandardModalOpen && jobToEdit && (
+                    <EditStandardJobModal
+                        isOpen={isEditStandardModalOpen}
+                        onClose={() => {
+                            setIsEditStandardModalOpen(false);
+                            setJobToEdit(null);
+                            loadData(true);
+                        }}
+                        job={jobToEdit}
+                        departments={cachedDepartments}
+                        workCycles={workCycles}
+                    />
+                )}
             </div>
     );
 }

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { 
     Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, 
     Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX, Search, XCircle,
-    CalendarCheck, ChevronDown, ChevronUp, Box, Pause
+    CalendarCheck, ChevronDown, ChevronUp, Box, Pause, Pencil
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -61,6 +61,7 @@ interface WeeklyCapacityBoardProps {
     onManageAllocations: (deptId: string, week: number, year: number) => void;
     onJobClick: (jobId: string, macroArea: string) => void;
     onQuickView: (job: JobOrder) => void;
+    onEdit: (job: JobOrder) => void;
     rawMaterials?: any[];
     mrpTimelines?: Map<string, MRPTimelineEntry[]>;
     globalSettings?: any;
@@ -105,6 +106,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
     onManageAllocations,
     onJobClick,
     onQuickView,
+    onEdit,
     rawMaterials = [],
     mrpTimelines = new Map(),
     globalSettings,
@@ -804,6 +806,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                                 semaphoreStatus={getCloneStatus(job, cardMacroArea)}
                                                                 isTechnicalDelay={checkTechnicalFeasibility(job, dept.id, week)}
                                                                 onQuickView={() => onQuickView(job)}
+                                                                onEdit={() => onEdit(job)}
                                                                 linkedODLs={job.workGroupId ? jobOrders.filter(j => j.workGroupId === job.workGroupId && j.id !== job.id).map(j => j.numeroODLInterno || j.ordinePF) : []}
                                                                 rawMaterials={rawMaterials}
                                                                 mrpTimelines={mrpTimelines}
@@ -949,6 +952,7 @@ function JobCompactCard(props: {
     onAdvance: () => void, 
     onToggleExclude: (val: boolean) => void | Promise<void>,
     onQuickView: () => void,
+    onEdit: () => void,
     onClick: () => void,
     macroArea: 'PREP' | 'CORE' | 'PACK',
     semaphoreStatus: 'status-gray' | 'status-amber' | 'status-blue' | 'status-green',
@@ -960,7 +964,7 @@ function JobCompactCard(props: {
     globalSettings: any
 }) {
     const { 
-        job, load, fatte, onAdvance, onToggleExclude, onQuickView, onClick, 
+        job, load, fatte, onAdvance, onToggleExclude, onQuickView, onEdit, onClick, 
         macroArea, semaphoreStatus, isTechnicalDelay, totalLoad, 
         linkedODLs = [], rawMaterials, mrpTimelines, globalSettings 
     } = props;
@@ -1178,6 +1182,17 @@ function JobCompactCard(props: {
                         </span>
                     )}
                 </div>
+
+                <Button 
+                    variant="ghost" 
+                    className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-800/50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all shrink-0 ml-1"
+                    onClick={(e) => { 
+                        e.stopPropagation(); 
+                        onEdit(); 
+                    }}
+                >
+                    <Pencil className="h-3.5 w-3.5" />
+                </Button>
 
                 <Button 
                     variant="ghost" 

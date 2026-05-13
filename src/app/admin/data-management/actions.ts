@@ -704,9 +704,10 @@ export async function saveSmartJobOrder(data: {
     billOfMaterials?: BillOfMaterialsItem[];
     expectedMinutes?: number;
     fieldValues?: Record<string, string>;
+    department?: string;
     isEdit?: boolean;
 }) {
-    const { cliente, ordinePF, articleCode, description, dataConsegnaFinale, dataFinePreparazione, workCycleId, qta, billOfMaterials, expectedMinutes, fieldValues, isEdit } = data;
+    const { cliente, ordinePF, articleCode, description, dataConsegnaFinale, dataFinePreparazione, workCycleId, qta, billOfMaterials, expectedMinutes, fieldValues, department, isEdit } = data;
     
     try {
         const sanitizedId = sanitizeDocumentId(ordinePF);
@@ -764,7 +765,7 @@ export async function saveSmartJobOrder(data: {
             cliente: cliente,
             qta: qta,
             details: articleCode.toUpperCase().trim(),
-            department: phases[0]?.departmentCodes[0] || "PRODUZIONE",
+            department: department || phases[0]?.departmentCodes[0] || "PRODUZIONE",
             postazioneLavoro: "Da Assegnare",
             phases: phases,
             billOfMaterials: jobBOM,

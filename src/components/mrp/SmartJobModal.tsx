@@ -17,13 +17,14 @@ import {
   ExternalLink, Layers, PlusCircle, Lock, ShieldCheck
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Client, WorkCycle, BillOfMaterialsItem } from '@/types';
+import type { Department, BillOfMaterialsItem, Client, WorkCycle } from '@/types';
 import { GlobalSettings, SmartCodeField } from '@/lib/settings-types';
 import { getCustomerPrefix } from '@/lib/customer-utils';
 import { 
   saveSmartJobOrder, 
   getClients, 
   getWorkCycles, 
+  getDepartments,
   checkArticleExists 
 } from '@/app/admin/data-management/actions';
 import { useRouter } from 'next/navigation';
@@ -55,9 +56,11 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
   const [dataConsegna, setDataConsegna] = useState('');
   const [dataPrep, setDataPrep] = useState('');
   const [selectedCycleId, setSelectedCycleId] = useState('');
+  const [selectedDept, setSelectedDept] = useState('');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   
   // Master Data State
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [bom, setBom] = useState<BillOfMaterialsItem[]>([]);
   const [expectedMinutes, setExpectedMinutes] = useState<string>('');
   const [articleExists, setArticleExists] = useState<boolean | null>(null);
@@ -71,10 +74,17 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
   useEffect(() => {
     if (isOpen) {
       setFetchingData(true);
-      getWorkCycles()
-        .then((cyclesRes) => {
+      Promise.all([getWorkCycles(), getDepartments()])
+        .then(([cyclesRes, deptsRes]) => {
           setCycles(cyclesRes);
-          if (cyclesRes.length > 0) setSelectedCycleId(cyclesRes[0].id);
+          if (cyclesRes.length > 0 && !selectedCycleId) setSelectedCycleId(cyclesRes[0].id);
+          
+          setDepartments(deptsRes);
+          if (deptsRes.length > 0 && !selectedDept) {
+            // Priority to "CORE" departments if possible
+            const defaultDept = deptsRes.find(d => d.macroAreas?.includes('PRODUZIONE')) || deptsRes[0];
+            setSelectedDept(defaultDept.code || defaultDept.id);
+          }
         })
         .finally(() => setFetchingData(false));
     }
@@ -158,6 +168,7 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
         billOfMaterials: bom,
         expectedMinutes: expectedMinutes ? Number(expectedMinutes) : undefined,
         fieldValues,
+        department: selectedDept,
         isEdit: !!initialJob
       });
 
@@ -438,6 +449,19 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
                   <SelectContent className="bg-slate-900 border-slate-700 text-white">
                     {cycles.map(c => (
                       <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300 font-semibold">Reparto (Destinazione)</Label>
+                <Select value={selectedDept} onValueChange={setSelectedDept}>
+                  <SelectTrigger className="bg-slate-900 border-slate-700 h-10">
+                    <SelectValue placeholder="Seleziona Reparto" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-900 border-slate-700 text-white">
+                    {departments.filter(d => d.macroAreas?.includes('PRODUZIONE') || d.code === 'MAG').map(d => (
+                      <SelectItem key={d.id} value={d.code || d.id}>{d.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

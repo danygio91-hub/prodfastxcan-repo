@@ -26,7 +26,8 @@ import {
     CheckCircle2, 
     AlertTriangle, 
     Info, 
-    Hash
+    Hash,
+    Pencil
 } from 'lucide-react';
 import { cn, formatDisplayStock, parseRobustDate } from '@/lib/utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
@@ -47,6 +48,7 @@ interface BacklogDrawerProps {
     phaseTemplates: WorkPhaseTemplate[];
     onExclude?: (jobId: string) => void;
     onAssignDate: (jobId: string, macroArea: string) => void;
+    onEdit: (job: JobOrder) => void;
     searchQuery: string;
     onSearchChange: (q: string) => void;
     rawMaterials?: any[];
@@ -62,6 +64,7 @@ export default function BacklogDrawer({
     phaseTemplates,
     onExclude, 
     onAssignDate,
+    onEdit,
     searchQuery,
     onSearchChange,
     rawMaterials = [],
@@ -279,6 +282,17 @@ export default function BacklogDrawer({
                                                             {remainingHours.toFixed(1)}h
                                                         </span>
                                                     </div>
+
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all shrink-0 ml-1"
+                                                        onClick={(e) => { 
+                                                            e.stopPropagation(); 
+                                                            onEdit(job); 
+                                                        }}
+                                                    >
+                                                        <Pencil className="h-3.5 w-3.5" />
+                                                    </Button>
 
                                                     <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-blue-500 transition-colors shrink-0" />
                                                 </div>
