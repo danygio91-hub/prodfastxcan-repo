@@ -178,3 +178,58 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
         // Do not throw, just log to allow bulk migration to continue
     }
 }
+
+/**
+ * SMART REMAINDER LOGIC
+ * Distributes total expected minutes among phases based on theoretical weights,
+ * after subtracting phases that already have historical/real data.
+ */
+export function distributeTheoreticalTimes(
+    totalMinutes: number,
+    phases: JobPhase[],
+    historicalAverages: Array<{ name: string; averageMinutesPerPiece: number }> = []
+): JobPhase[] {
+    if (totalMinutes <= 0) return phases;
+
+    // 1. Map historical averages by normalized name
+    const historyMap = new Map(
+        historicalAverages.map(h => [h.name.trim().toUpperCase(), h.averageMinutesPerPiece])
+    );
+
+    // 2. Identify phases with history (B) and empty phases to be weighted
+    let totalHistoricalMinutes = 0;
+    const phasesToWeight: JobPhase[] = [];
+
+    const updatedPhases = phases.map(phase => {
+        const normalizedName = phase.name.trim().toUpperCase();
+        const historicalTime = historyMap.get(normalizedName);
+
+        // A phase has "history" if it's in the historical averages and > 0
+        if (historicalTime !== undefined && historicalTime > 0) {
+            totalHistoricalMinutes += historicalTime;
+            return { ...phase, expectedMinutesPerPiece: historicalTime };
+        } else {
+            phasesToWeight.push(phase);
+            return { ...phase, expectedMinutesPerPiece: 0 };
+        }
+    });
+
+    // 3. Calculate Remainder (C = A - B)
+    const remainingMinutes = Math.max(0, totalMinutes - totalHistoricalMinutes);
+
+    if (remainingMinutes > 0 && phasesToWeight.length > 0) {
+        // 4. Sum theoretical weights (fallback to 1 if missing or <= 0)
+        const totalWeight = phasesToWeight.reduce((sum, p) => sum + Math.max(1, p.theoreticalWeight || 1), 0);
+
+        // 5. Proportional distribution
+        updatedPhases.forEach(phase => {
+            const isToWeight = phasesToWeight.some(p => p.id === phase.id && p.name === phase.name && p.sequence === phase.sequence);
+            if (isToWeight) {
+                const weight = Math.max(1, phase.theoreticalWeight || 1);
+                phase.expectedMinutesPerPiece = (remainingMinutes / totalWeight) * weight;
+            }
+        });
+    }
+
+    return updatedPhases;
+}

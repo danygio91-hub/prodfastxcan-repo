@@ -58,6 +58,7 @@ export async function createPhasesFromCycle(cycleId: string, templatesMap?: Map<
             requiresMaterialScan: template.requiresMaterialScan, requiresMaterialSearch: template.requiresMaterialSearch,
             requiresMaterialAssociation: template.requiresMaterialAssociation, allowedMaterialTypes: template.allowedMaterialTypes || [],
             materialConsumptions: [], qualityResult: null, departmentCodes: template.departmentCodes || [], isIndependent: template.isIndependent || false,
+            theoreticalWeight: cycle.phaseWeights?.[index] || 1,
         };
     }).filter((p): p is JobPhase => p !== null);
 }

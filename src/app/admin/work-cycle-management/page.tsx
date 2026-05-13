@@ -30,6 +30,7 @@ const workCycleSchema = z.object({
   name: z.string().min(3, 'Il nome del ciclo deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione è obbligatoria.'),
   phaseTemplateIds: z.array(z.string()).min(1, 'Selezionare almeno una fase di lavorazione.'),
+  phaseWeights: z.array(z.number()).min(1),
 });
 
 type WorkCycleFormValues = z.infer<typeof workCycleSchema>;
@@ -46,12 +47,12 @@ function WorkCycleManagementContent() {
   
   // New state for the two-column picker
   const [availablePhases, setAvailablePhases] = useState<WorkPhaseTemplate[]>([]);
-  const [selectedPhases, setSelectedPhases] = useState<WorkPhaseTemplate[]>([]);
+  const [selectedPhases, setSelectedPhases] = useState<(WorkPhaseTemplate & { theoreticalWeight: number })[]>([]);
 
 
   const form = useForm<WorkCycleFormValues>({
     resolver: zodResolver(workCycleSchema),
-    defaultValues: { id: undefined, name: "", description: "", phaseTemplateIds: [] },
+    defaultValues: { id: undefined, name: "", description: "", phaseTemplateIds: [], phaseWeights: [] },
   });
 
   const fetchCycles = async () => {
@@ -68,13 +69,19 @@ function WorkCycleManagementContent() {
   
   useEffect(() => {
     form.setValue('phaseTemplateIds', selectedPhases.map(p => p.id));
+    form.setValue('phaseWeights', selectedPhases.map(p => p.theoreticalWeight || 1));
   }, [selectedPhases, form]);
 
 
   const handleOpenDialog = (cycle: WorkCycle | null = null) => {
     setEditingCycle(cycle);
     if (cycle && cycle.phaseTemplateIds) {
-      const cyclePhases = cycle.phaseTemplateIds.map(id => phaseTemplates.find(p => p.id === id)).filter(Boolean) as WorkPhaseTemplate[];
+      const cyclePhases = cycle.phaseTemplateIds.map((id, idx) => {
+          const template = phaseTemplates.find(p => p.id === id);
+          if (!template) return null;
+          return { ...template, theoreticalWeight: cycle.phaseWeights?.[idx] || 1 };
+      }).filter(Boolean) as (WorkPhaseTemplate & { theoreticalWeight: number })[];
+      
       setSelectedPhases(cyclePhases);
       setAvailablePhases(phaseTemplates.filter(p => !cycle.phaseTemplateIds.includes(p.id)));
       form.reset({
@@ -82,11 +89,12 @@ function WorkCycleManagementContent() {
         name: cycle.name,
         description: cycle.description,
         phaseTemplateIds: cycle.phaseTemplateIds,
+        phaseWeights: cycle.phaseWeights || cycle.phaseTemplateIds.map(() => 1),
       });
     } else {
       setAvailablePhases([...phaseTemplates]);
       setSelectedPhases([]);
-      form.reset({ id: undefined, name: "", description: "", phaseTemplateIds: [] });
+      form.reset({ id: undefined, name: "", description: "", phaseTemplateIds: [], phaseWeights: [] });
     }
     setIsDialogOpen(true);
   };
@@ -103,6 +111,7 @@ function WorkCycleManagementContent() {
     formData.append('name', values.name);
     formData.append('description', values.description);
     values.phaseTemplateIds.forEach(id => formData.append('phaseTemplateIds', id));
+    values.phaseWeights?.forEach(w => formData.append('phaseWeights', String(w)));
 
     setIsPending(true);
     const result = await saveWorkCycle(formData);
@@ -157,13 +166,20 @@ function WorkCycleManagementContent() {
   // --- New handlers for two-column picker ---
   const addPhaseToCycle = (phase: WorkPhaseTemplate) => {
     setAvailablePhases(prev => prev.filter(p => p.id !== phase.id));
-    setSelectedPhases(prev => [...prev, phase]);
+    setSelectedPhases(prev => [...prev, { ...phase, theoreticalWeight: 1 }]);
   };
 
   const removePhaseFromCycle = (phase: WorkPhaseTemplate) => {
     setSelectedPhases(prev => prev.filter(p => p.id !== phase.id));
     setAvailablePhases(prev => [...prev, phase].sort((a,b) => a.name.localeCompare(b.name)));
+  };
 
+  const updatePhaseWeight = (index: number, weight: number) => {
+    setSelectedPhases(prev => {
+        const next = [...prev];
+        next[index] = { ...next[index], theoreticalWeight: weight };
+        return next;
+    });
   };
   
   const movePhase = (index: number, direction: 'up' | 'down') => {
@@ -360,12 +376,25 @@ function WorkCycleManagementContent() {
                                <FormLabel>Fasi nel Ciclo (in ordine di esecuzione)</FormLabel>
                                <div className="border rounded-md p-2 space-y-2 min-h-[200px]">
                                    {selectedPhases.map((phase, index) => (
-                                       <div key={phase.id} className="flex items-center justify-between p-2 bg-secondary rounded-md">
-                                            <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => removePhaseFromCycle(phase)}>
+                                       <div key={`${phase.id}-${index}`} className="flex items-center justify-between p-2 bg-secondary rounded-md gap-2">
+                                            <Button type="button" size="icon" variant="ghost" className="h-7 w-7 flex-shrink-0" onClick={() => removePhaseFromCycle(phase)}>
                                                 <ArrowLeft className="h-4 w-4" />
                                             </Button>
-                                            <span className="text-sm font-semibold text-secondary-foreground flex-1 mx-2">{index + 1}. {phase.name}</span>
-                                            <div className="flex flex-col gap-1">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm font-semibold text-secondary-foreground truncate">{index + 1}. {phase.name}</div>
+                                                <div className="flex items-center gap-1.5 mt-1">
+                                                    <span className="text-[10px] text-muted-foreground font-medium uppercase">Peso:</span>
+                                                    <Input 
+                                                        type="number" 
+                                                        step="0.1" 
+                                                        min="0.1"
+                                                        value={phase.theoreticalWeight} 
+                                                        onChange={(e) => updatePhaseWeight(index, parseFloat(e.target.value) || 1)}
+                                                        className="h-6 w-16 text-[10px] py-0 px-1"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col gap-1 flex-shrink-0">
                                                 <Button type="button" size="icon" variant="outline" className="h-6 w-6" disabled={index === 0} onClick={() => movePhase(index, 'up')}>
                                                     <ArrowUp className="h-3 w-3" />
                                                 </Button>

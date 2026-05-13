@@ -13,6 +13,7 @@ const workCycleSchema = z.object({
   name: z.string().min(3, 'Il nome del ciclo deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione è obbligatoria.'),
   phaseTemplateIds: z.array(z.string()).min(1, 'Selezionare almeno una fase di lavorazione.'),
+  phaseWeights: z.array(z.number()).optional(),
 });
 
 // --- Actions ---
@@ -35,6 +36,7 @@ export async function saveWorkCycle(formData: FormData) {
     name: formData.get('name'),
     description: formData.get('description'),
     phaseTemplateIds: formData.getAll('phaseTemplateIds'),
+    phaseWeights: formData.getAll('phaseWeights').map(v => Number(v)),
   };
 
   const validatedFields = workCycleSchema.safeParse(rawData);
@@ -47,12 +49,13 @@ export async function saveWorkCycle(formData: FormData) {
     };
   }
 
-  const { id, name, description, phaseTemplateIds } = validatedFields.data;
+  const { id, name, description, phaseTemplateIds, phaseWeights } = validatedFields.data;
 
   const dataToSave: Omit<WorkCycle, 'id'> = {
     name,
     description,
     phaseTemplateIds,
+    phaseWeights: phaseWeights || phaseTemplateIds.map(() => 1),
   };
 
   if (id) {

@@ -86,6 +86,9 @@ export interface JobPhase {
   pauseReason?: string;
   isSanatoria?: boolean;
   paper_tracked?: boolean;
+  theoreticalWeight?: number;
+  expectedMinutesPerPiece?: number;
+  detectedMinutesPerPiece?: number;
 }
 
 export interface JobBillOfMaterialsItem {
@@ -410,6 +413,7 @@ export interface WorkCycle {
   name: string;
   description: string;
   phaseTemplateIds: string[];
+  phaseWeights?: number[]; // Parallel array for weights (safe extension)
 }
 
 export type MaterialSessionCategory = string;
