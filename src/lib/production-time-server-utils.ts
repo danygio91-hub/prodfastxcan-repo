@@ -187,8 +187,11 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
 export function distributeTheoreticalTimes(
     totalMinutes: number,
     phases: JobPhase[],
-    historicalAverages: Array<{ name: string; averageMinutesPerPiece: number }> = []
+    historicalAverages: Array<{ name: string; averageMinutesPerPiece: number }> = [],
+    qta: number = 1
 ): JobPhase[] {
+    // Note: qta is kept for compatibility but not used for division 
+    // because totalMinutes is already "per piece".
     if (totalMinutes <= 0) return phases;
 
     // 1. Map historical averages by normalized name
@@ -198,13 +201,13 @@ export function distributeTheoreticalTimes(
 
     // 2. Identify phases with history (B) and empty phases to be weighted
     let totalHistoricalMinutes = 0;
-    const phasesToWeight: JobPhase[] = [];
+    const indicesToWeight: number[] = [];
 
-    const updatedPhases = phases.map(phase => {
+    const updatedPhases = phases.map((phase, idx) => {
         const normalizedName = phase.name.trim().toUpperCase();
         const historicalTime = historyMap.get(normalizedName);
 
-        // RULE: Protect phases that are already "confirmed" (real history, manual edit, completed or in-progress)
+        // RULE: Protect phases that are already "confirmed" (manual edit, completed or in-progress)
         const isConfirmed = phase.isEstimated === false || 
                            phase.status === 'completed' || 
                            phase.status === 'skipped' ||
@@ -220,28 +223,40 @@ export function distributeTheoreticalTimes(
             totalHistoricalMinutes += historicalTime;
             return { ...phase, expectedMinutesPerPiece: historicalTime, isEstimated: false };
         } else {
-            phasesToWeight.push(phase);
+            indicesToWeight.push(idx);
             return { ...phase, expectedMinutesPerPiece: 0, isEstimated: true };
         }
     });
 
     // 3. Calculate Remainder (C = A - B)
+    // IMPORTANT: totalMinutes is "per piece" as per business logic
     const remainingMinutes = Math.max(0, totalMinutes - totalHistoricalMinutes);
+    console.log(`[DISTRIBUTE] totalMinutes(perPiece): ${totalMinutes}, totalHistorical: ${totalHistoricalMinutes}, remaining: ${remainingMinutes}`);
 
-    if (remainingMinutes > 0 && phasesToWeight.length > 0) {
+    if (remainingMinutes > 0 && indicesToWeight.length > 0) {
         // 4. Sum theoretical weights (fallback to 1 if missing or <= 0)
-        const totalWeight = phasesToWeight.reduce((sum, p) => sum + Math.max(1, p.theoreticalWeight || 1), 0);
+        const totalWeight = indicesToWeight.reduce((sum, idx) => {
+            const p = updatedPhases[idx];
+            return sum + Math.max(1, p.theoreticalWeight || 1);
+        }, 0);
+
+        console.log(`[DISTRIBUTE] Total weight of ${indicesToWeight.length} phases: ${totalWeight}`);
 
         // 5. Proportional distribution
-        updatedPhases.forEach(phase => {
-            const isToWeight = phasesToWeight.some(p => p.id === phase.id && p.name === phase.name && p.sequence === phase.sequence);
-            if (isToWeight) {
-                const weight = Math.max(1, phase.theoreticalWeight || 1);
-                phase.expectedMinutesPerPiece = (remainingMinutes / totalWeight) * weight;
-                phase.isEstimated = true;
-            }
+        indicesToWeight.forEach(idx => {
+            const phase = updatedPhases[idx];
+            const weight = Math.max(1, phase.theoreticalWeight || 1);
+            
+            // MATH REVERT: Input is already per piece, so no division by Qty
+            const calculatedTime = (remainingMinutes / totalWeight) * weight;
+            
+            phase.expectedMinutesPerPiece = calculatedTime;
+            phase.isEstimated = true;
+            
+            console.log(`[DISTRIBUTE] Phase [${idx}] ${phase.name} (Weight ${weight}) -> ${calculatedTime.toFixed(4)} mins/pc`);
         });
     }
 
+    console.log(`[DISTRIBUTE] Return: ${updatedPhases.length} phases. First phase mins/pc: ${updatedPhases[0]?.expectedMinutesPerPiece}`);
     return updatedPhases;
 }

@@ -832,9 +832,7 @@ export default WeeklyCapacityBoard;
 
 export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' | 'CORE' | 'PACK', articles: Article[], phaseTemplates: WorkPhaseTemplate[]) {
     const article = articles.find(a => a.code?.trim().toUpperCase() === job.details?.trim().toUpperCase());
-    if (!article) return { residual: 0, done: 0, expected: 0 };
-    
-    const phaseTimes = article.phaseTimes || {};
+    const phaseTimes = article?.phaseTimes || {};
     
     let deptPhases = phaseTemplates.filter(t => t.departmentCodes.includes(deptId));
     if (macroArea === 'PREP') {
@@ -866,15 +864,20 @@ export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' |
 
     deptPhases.forEach(t => {
         const pt = phaseTimes[t.id] || phaseTimes[t.name];
-        if (!pt || pt.enabled === false || !(pt.expectedMinutesPerPiece > 0)) {
+        const jobPhase = (job.phases || []).find(p => p.name === t.name);
+
+        // SSoT Pivot: Prioritize Job-level estimate over Article-level template
+        const sourceExpectedMins = (jobPhase?.expectedMinutesPerPiece && jobPhase.expectedMinutesPerPiece > 0) 
+            ? jobPhase.expectedMinutesPerPiece 
+            : (pt?.expectedMinutesPerPiece || 0);
+
+        if (!(sourceExpectedMins > 0) || (pt && pt.enabled === false)) {
             return;
         }
 
-        const safeTarget = pt.expectedMinutesPerPiece || 0;
-        const expectedMins = safeTarget * (job.qta || 0);
+        const expectedMins = sourceExpectedMins * (job.qta || 0);
         totalExpected += expectedMins;
 
-        const jobPhase = (job.phases || []).find(p => p.name === t.name);
         let realTimeMins = 0;
 
         if (jobPhase && jobPhase.workPeriods) {

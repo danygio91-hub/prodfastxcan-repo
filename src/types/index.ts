@@ -149,6 +149,7 @@ export interface JobOrder {
   macroArea?: MacroArea;
   isSmartJob?: boolean;
   smartCodeParams?: Record<string, string>;
+  expectedMinutesDefault?: number;
   createdAt?: any;
   updatedAt?: any;
   isSuspended?: boolean;

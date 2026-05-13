@@ -697,7 +697,7 @@ export async function updateJobOrder(jobId: string, data: {
             const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
             
             const currentPhases = updatePayload.phases || job.phases || [];
-            updatePayload.phases = distributeTheoreticalTimes(newExpectedMinutes, currentPhases, historicalAverages);
+            updatePayload.phases = distributeTheoreticalTimes(newExpectedMinutes, currentPhases, historicalAverages, data.qta);
             updatePayload.expectedMinutesDefault = newExpectedMinutes;
         }
 
@@ -705,6 +705,7 @@ export async function updateJobOrder(jobId: string, data: {
         const sanitizedPayload = sanitizeFirestoreData(updatePayload);
 
         await jobRef.update(sanitizedPayload);
+        console.log(`[UPDATE_JOB] Saved Job ${jobId}. Phase[0] expectedMins/pc: ${sanitizedPayload.phases?.[0]?.expectedMinutesPerPiece}`);
 
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
@@ -774,9 +775,12 @@ export async function saveSmartJobOrder(data: {
         
         // SMART REMAINDER ACTIVATION (Creation)
         if (expectedMinutes && expectedMinutes > 0) {
+            console.log(`[SAVE_SMART] Triggering distribution for ${expectedMinutes} mins`);
             const article = articleSnap.exists ? articleSnap.data() as Article : null;
             const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
-            phases = distributeTheoreticalTimes(expectedMinutes, phases, historicalAverages);
+        if (expectedMinutes > 0) {
+            phases = distributeTheoreticalTimes(expectedMinutes, phases, historicalAverages, qta);
+        }    console.log(`[SAVE_SMART] Post-distribution phases[0]:`, JSON.stringify(phases[0], null, 2));
         }
 
         // Map BillOfMaterialsItem to JobBillOfMaterialsItem for the JobOrder snapshot
@@ -805,11 +809,14 @@ export async function saveSmartJobOrder(data: {
             workCycleId: workCycleId,
             isSmartJob: true,
             smartCodeParams: fieldValues || {},
+            expectedMinutesDefault: expectedMinutes || 0,
             createdAt: admin.firestore.Timestamp.now(),
             updatedAt: admin.firestore.Timestamp.now()
         };
 
-        await jobRef.set(JSON.parse(JSON.stringify(newJob)));
+        const finalJobData = JSON.parse(JSON.stringify(newJob));
+        await jobRef.set(finalJobData);
+        console.log(`[SAVE_SMART] Saved Job ${ordinePF}. Phase[0] expectedMins/pc: ${finalJobData.phases?.[0]?.expectedMinutesPerPiece}`);
 
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
@@ -819,6 +826,74 @@ export async function saveSmartJobOrder(data: {
     } catch (error) {
         console.error("Error saving smart job order:", error);
         return { success: false, message: "Errore durante il salvataggio: " + (error instanceof Error ? error.message : "Errore sconosciuto") };
+    }
+}
+
+/**
+ * RETROACTIVITY TOOL: Recalculates missing estimates for planned jobs
+ */
+export async function forceRecalculateEstimates() {
+    try {
+        const jobsSnap = await adminDb.collection("jobOrders")
+            .where("status", "in", ["planned", "IN_ATTESA", "In Pianificazione", "IN_PIANIFICAZIONE", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO"])
+            .get();
+
+        if (jobsSnap.empty) return { success: true, message: "Nessuna commessa pianificata da processare." };
+
+        const jobs = jobsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as JobOrder));
+        const [articlesSnap, cyclesSnap] = await Promise.all([
+            adminDb.collection("articles").get(),
+            adminDb.collection("workCycles").get()
+        ]);
+
+        const articlesMap = new Map(articlesSnap.docs.map(d => [d.id.toUpperCase(), d.data() as Article]));
+        const cyclesMap = new Map(cyclesSnap.docs.map(d => [d.id, d.data() as WorkCycle]));
+
+        const batch = adminDb.batch();
+        let updatedCount = 0;
+
+        for (const job of jobs) {
+            const expectedMins = job.expectedMinutesDefault || 0;
+            if (expectedMins <= 0) continue;
+
+            // Check if phases have 0 time
+            const needsCalculation = (job.phases || []).every(p => !p.expectedMinutesPerPiece || p.expectedMinutesPerPiece === 0);
+            
+            if (needsCalculation && job.phases && job.phases.length > 0) {
+                const article = articlesMap.get(job.details.toUpperCase());
+                const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
+                
+                // If the job has a cycle, ensure weights are up to date
+                if (job.workCycleId && cyclesMap.has(job.workCycleId)) {
+                    const cycle = cyclesMap.get(job.workCycleId)!;
+                    job.phases = job.phases.map((p, idx) => ({
+                        ...p,
+                        theoreticalWeight: cycle.phaseWeights?.[idx] || 1
+                    }));
+                }
+
+                // MATH FIX: Pass job.qta to ensure minutes-per-piece division
+                const updatedPhases = distributeTheoreticalTimes(expectedMins, job.phases, historicalAverages, job.qta);
+                console.log(`[MIGRATE] Job ${job.ordinePF} recalculated. Phases[0] time: ${updatedPhases[0]?.expectedMinutesPerPiece}`);
+                
+                batch.update(adminDb.collection("jobOrders").doc(job.id), { 
+                    phases: updatedPhases,
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+                updatedCount++;
+            }
+        }
+
+        if (updatedCount > 0) {
+            await batch.commit();
+            revalidatePath('/admin/data-management');
+            revalidatePath('/admin/resource-planning');
+        }
+
+        return { success: true, message: `Ricalcolo completato: ${updatedCount} commesse aggiornate.` };
+    } catch (error) {
+        console.error("Error in forceRecalculateEstimates:", error);
+        return { success: false, message: "Errore durante il ricalcolo." };
     }
 }
 

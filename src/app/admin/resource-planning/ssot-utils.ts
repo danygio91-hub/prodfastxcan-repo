@@ -135,9 +135,7 @@ function calculateAreaResidual(
     if (isAreaFinished) return 0;
 
     const article = articles.find(a => a.code?.trim().toUpperCase() === job.details?.trim().toUpperCase());
-    if (!article) return 0;
-
-    const phaseTimes = article.phaseTimes || {};
+    const phaseTimes = article?.phaseTimes || {};
     let areaPhases = phaseTemplates.filter(t => {
         if (area === 'PREP') return isPreparationPhase(t.type);
         if (area === 'PACK') return isQualityPackagingPhase(t.type);
@@ -159,10 +157,17 @@ function calculateAreaResidual(
 
     areaPhases.forEach(t => {
         const pt = phaseTimes[t.id] || phaseTimes[t.name];
-        if (!pt || pt.enabled === false || !(pt.expectedMinutesPerPiece > 0)) return;
-
-        const expectedMins = pt.expectedMinutesPerPiece * (job.qta || 0);
         const jobPhase = (job.phases || []).find(p => p.name === t.name);
+        
+        // SSoT Pivot: Se la fase della commessa ha già un tempo stimato (Smart Engine), usiamo quello come SSoT primario.
+        // Questo risolve il bug delle Smart Job che apparivano con 0 ore nel Resource Planning.
+        const sourceExpectedMins = (jobPhase?.expectedMinutesPerPiece && jobPhase.expectedMinutesPerPiece > 0) 
+            ? jobPhase.expectedMinutesPerPiece 
+            : (pt?.expectedMinutesPerPiece || 0);
+
+        if (!(sourceExpectedMins > 0) || (pt && pt.enabled === false)) return;
+
+        const expectedMins = sourceExpectedMins * (job.qta || 0);
         
         let realMins = 0;
         if (jobPhase?.workPeriods) {

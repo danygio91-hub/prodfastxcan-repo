@@ -21,7 +21,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { GitMerge, PlusCircle, Edit, Trash2, Loader2, ArrowLeft, ArrowRight, ChevronsUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { GitMerge, PlusCircle, Edit, Trash2, Loader2, ArrowLeft, ArrowRight, ChevronsUpDown, ArrowUp, ArrowDown, Timer, X, Save } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 
@@ -48,6 +49,9 @@ function WorkCycleManagementContent() {
   // New state for the two-column picker
   const [availablePhases, setAvailablePhases] = useState<WorkPhaseTemplate[]>([]);
   const [selectedPhases, setSelectedPhases] = useState<(WorkPhaseTemplate & { theoreticalWeight: number })[]>([]);
+
+  const totalPercentage = selectedPhases.reduce((sum, p) => sum + (p.theoreticalWeight || 0), 0);
+  const isTotalValid = Math.abs(totalPercentage - 100) < 0.01;
 
 
   const form = useForm<WorkCycleFormValues>({
@@ -351,60 +355,97 @@ function WorkCycleManagementContent() {
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                     {/* Colonna Fasi Disponibili */}
-                    <div className="space-y-2">
-                        <FormLabel>Fasi Disponibili</FormLabel>
-                        <div className="border rounded-md p-2 space-y-2 min-h-[200px]">
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <FormLabel className="text-primary font-bold uppercase tracking-widest text-[10px]">Fasi Disponibili</FormLabel>
+                            <Badge variant="outline" className="text-[9px] opacity-70">{availablePhases.length} disponibili</Badge>
+                        </div>
+                        <div className="border border-slate-800 bg-slate-900/50 rounded-xl p-3 space-y-2 min-h-[350px] max-h-[500px] overflow-y-auto custom-scrollbar">
                             {availablePhases.map(phase => (
-                                <div key={phase.id} className="flex items-center justify-between p-2 bg-background rounded-md">
-                                    <span className="text-sm font-medium">{phase.name}</span>
-                                    <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={() => addPhaseToCycle(phase)}>
+                                <div key={phase.id} className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-lg hover:border-primary/50 transition-all group">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-semibold text-slate-200">{phase.name}</span>
+                                        <span className="text-[10px] text-slate-500 uppercase">{phase.type}</span>
+                                    </div>
+                                    <Button type="button" size="icon" variant="ghost" className="h-8 w-8 hover:bg-primary/20 hover:text-primary transition-colors" onClick={() => addPhaseToCycle(phase)}>
                                         <ArrowRight className="h-4 w-4" />
                                     </Button>
                                 </div>
                             ))}
-                             {availablePhases.length === 0 && <p className="text-xs text-muted-foreground text-center p-4">Nessuna fase da aggiungere.</p>}
+                             {availablePhases.length === 0 && (
+                                <div className="flex flex-col items-center justify-center py-12 text-slate-600">
+                                    <div className="p-3 bg-slate-800/30 rounded-full mb-2"><PlusCircle className="h-6 w-6 opacity-20" /></div>
+                                    <p className="text-xs italic">Tutte le fasi sono state aggiunte.</p>
+                                </div>
+                             )}
                         </div>
                     </div>
                     
                     {/* Colonna Fasi nel Ciclo */}
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                          <FormField
                             control={form.control}
                             name="phaseTemplateIds"
                             render={() => (
-                            <FormItem>
-                               <FormLabel>Fasi nel Ciclo (in ordine di esecuzione)</FormLabel>
-                               <div className="border rounded-md p-2 space-y-2 min-h-[200px]">
+                            <FormItem className="space-y-3">
+                               <div className="flex items-center justify-between">
+                                    <FormLabel className="text-primary font-bold uppercase tracking-widest text-[10px]">Sequenza Ciclo</FormLabel>
+                                    <div className={cn(
+                                        "flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-bold border transition-all",
+                                        isTotalValid ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse"
+                                    )}>
+                                        <Timer className="h-3 w-3" />
+                                        Totale: {totalPercentage.toFixed(1)}% / 100%
+                                    </div>
+                               </div>
+
+                               <div className="border border-slate-800 bg-slate-900/50 rounded-xl p-3 space-y-2 min-h-[350px] max-h-[500px] overflow-y-auto custom-scrollbar">
                                    {selectedPhases.map((phase, index) => (
-                                       <div key={`${phase.id}-${index}`} className="flex items-center justify-between p-2 bg-secondary rounded-md gap-2">
-                                            <Button type="button" size="icon" variant="ghost" className="h-7 w-7 flex-shrink-0" onClick={() => removePhaseFromCycle(phase)}>
-                                                <ArrowLeft className="h-4 w-4" />
+                                       <div key={`${phase.id}-${index}`} className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-lg gap-3 hover:shadow-lg hover:shadow-black/20 transition-all">
+                                            {/* Rimuovi */}
+                                            <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-slate-500 hover:text-red-500 hover:bg-red-500/10 flex-shrink-0" onClick={() => removePhaseFromCycle(phase)}>
+                                                <X className="h-4 w-4" />
                                             </Button>
+
+                                            {/* Info Fase */}
                                             <div className="flex-1 min-w-0">
-                                                <div className="text-sm font-semibold text-secondary-foreground truncate">{index + 1}. {phase.name}</div>
-                                                <div className="flex items-center gap-1.5 mt-1">
-                                                    <span className="text-[10px] text-muted-foreground font-medium uppercase">Peso:</span>
-                                                    <Input 
-                                                        type="number" 
-                                                        step="0.1" 
-                                                        min="0.1"
-                                                        value={phase.theoreticalWeight} 
-                                                        onChange={(e) => updatePhaseWeight(index, parseFloat(e.target.value) || 1)}
-                                                        className="h-6 w-16 text-[10px] py-0 px-1"
-                                                    />
+                                                <div className="text-xs font-bold text-slate-200 truncate flex items-center gap-2">
+                                                    <span className="text-primary font-mono opacity-50">{index + 1}.</span>
+                                                    {phase.name}
                                                 </div>
                                             </div>
-                                            <div className="flex flex-col gap-1 flex-shrink-0">
-                                                <Button type="button" size="icon" variant="outline" className="h-6 w-6" disabled={index === 0} onClick={() => movePhase(index, 'up')}>
+
+                                            {/* Peso / Percentuale */}
+                                            <div className="flex items-center gap-2 flex-shrink-0 bg-slate-950/50 px-2 py-1 rounded-md border border-slate-800/50">
+                                                <Input 
+                                                    type="number" 
+                                                    step="1" 
+                                                    min="0"
+                                                    max="100"
+                                                    value={phase.theoreticalWeight} 
+                                                    onChange={(e) => updatePhaseWeight(index, parseFloat(e.target.value) || 0)}
+                                                    className="h-7 w-14 text-xs py-0 px-1 bg-transparent border-none focus-visible:ring-0 text-center font-bold text-emerald-500"
+                                                />
+                                                <span className="text-[10px] font-bold text-slate-600">%</span>
+                                            </div>
+
+                                            {/* Ordinamento */}
+                                            <div className="flex items-center gap-1 flex-shrink-0 bg-slate-950/50 p-1 rounded-md">
+                                                <Button type="button" size="icon" variant="ghost" className="h-6 w-6 hover:bg-white/5" disabled={index === 0} onClick={() => movePhase(index, 'up')}>
                                                     <ArrowUp className="h-3 w-3" />
                                                 </Button>
-                                                <Button type="button" size="icon" variant="outline" className="h-6 w-6" disabled={index === selectedPhases.length - 1} onClick={() => movePhase(index, 'down')}>
+                                                <Button type="button" size="icon" variant="ghost" className="h-6 w-6 hover:bg-white/5" disabled={index === selectedPhases.length - 1} onClick={() => movePhase(index, 'down')}>
                                                     <ArrowDown className="h-3 w-3" />
                                                 </Button>
                                             </div>
                                        </div>
                                    ))}
-                                    {selectedPhases.length === 0 && <p className="text-xs text-muted-foreground text-center p-4">Aggiungi fasi dalla colonna a sinistra.</p>}
+                                    {selectedPhases.length === 0 && (
+                                        <div className="flex flex-col items-center justify-center py-12 text-slate-600">
+                                            <div className="p-3 bg-slate-800/30 rounded-full mb-2"><ArrowLeft className="h-6 w-6 opacity-20" /></div>
+                                            <p className="text-xs italic">Aggiungi fasi per comporre il ciclo.</p>
+                                        </div>
+                                    )}
                                </div>
                                 <FormMessage />
                             </FormItem>
@@ -413,11 +454,18 @@ function WorkCycleManagementContent() {
                     </div>
                 </div>
 
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>
-                  <Button type="submit" disabled={isPending}>
-                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                    {editingCycle ? "Salva Modifiche" : "Crea Ciclo"}
+                <DialogFooter className="border-t border-slate-800/50 pt-4 mt-2">
+                  <Button type="button" variant="ghost" onClick={handleCloseDialog} disabled={isPending} className="text-slate-400 hover:text-white">Annulla</Button>
+                  <Button 
+                    type="submit" 
+                    disabled={isPending || !isTotalValid}
+                    className={cn(
+                        "min-w-[150px] transition-all duration-300",
+                        isTotalValid ? "bg-primary hover:bg-primary/90" : "bg-slate-800 cursor-not-allowed text-slate-500"
+                    )}
+                  >
+                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
+                    {editingCycle ? "Salva Ciclo" : "Crea Ciclo"}
                   </Button>
                 </DialogFooter>
               </form>

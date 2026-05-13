@@ -31,7 +31,8 @@ import { useToast } from "@/hooks/use-toast";
 import {
   processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL,
   createMultipleODLs, cancelODL, updateJobOrderCycle, saveManualJobOrder, markJobAsPrinted,
-  updateJobOrderDeliveryDate, updateJobOrderPrepDate, updateJobOrderOdlNumber
+  updateJobOrderDeliveryDate, updateJobOrderPrepDate, updateJobOrderOdlNumber,
+  forceRecalculateEstimates
 } from './actions';
 import { emergencyRestoreStagingArea } from '../data-healing/actions';
 import { getArticles } from '../article-management/actions';
@@ -604,6 +605,26 @@ export default function DataManagementClientPage({
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Ripristina Filtri
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={async () => {
+              if (!confirm("Avviare il ricalcolo forzato delle stime per tutte le commesse pianificate?")) return;
+              setIsRefreshingMRP(true);
+              const res = await forceRecalculateEstimates();
+              setIsRefreshingMRP(false);
+              if (res.success) {
+                toast({ title: "Ricalcolo Completato", description: res.message });
+                router.refresh();
+              } else {
+                toast({ title: "Errore", description: res.message, variant: "destructive" });
+              }
+            }}
+            className="text-amber-600 hover:text-amber-700 border-amber-200 hover:border-amber-500"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Forza Ricalcolo Stime
           </Button>
           <input type="file" ref={fileInputRef} onChange={async (e) => {
             const file = e.target.files?.[0]; if (!file) return; setIsImporting(true);
