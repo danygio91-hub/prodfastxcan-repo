@@ -133,20 +133,12 @@ export function calculateInventoryMovement(
  * Robust conversion factor selector with fallback.
  */
 export function getConversionFactor(material: RawMaterial, config: Partial<RawMaterialTypeConfig>): number {
-  if (!config.hasConversion) return 1;
+  // SSoT Priority: Use rapportoKgMt if present (for KG/MT materials), otherwise conversionFactor
+  const ratio = material.rapportoKgMt || material.conversionFactor || 0;
   
-  const factorField = config.conversionType === 'kg/mt' ? 'rapportoKgMt' : 'conversionFactor';
-  const primaryFactor = material[factorField as keyof RawMaterial] as number;
+  if (ratio > 0) return ratio;
   
-  if (primaryFactor && primaryFactor > 0) return primaryFactor;
-  
-  // Fallback to the other factor if primary is missing/zero
-  const secondaryField = config.conversionType === 'kg/mt' ? 'conversionFactor' : 'rapportoKgMt';
-  const secondaryFactor = material[secondaryField as keyof RawMaterial] as number;
-  
-  if (secondaryFactor && secondaryFactor > 0) return secondaryFactor;
-  
-  return 1; // Last resort fallback
+  return 1; // Default to 1 (discrete or unconfigured)
 }
 
 export interface BOMRequirementDetails {
@@ -182,31 +174,31 @@ export function calculateBOMRequirement(
   // Se config.requiresCutLength è undefined, assumiamo il comportamento storico (se lengthMm > 0 usalo)
   // Se è esplicitamente false, MAI usarlo.
   const isLengthApplicable = config.requiresCutLength !== false;
-  const lengthMm = isLengthApplicable ? (Number(bomItem.lunghezzaTaglioMm) || 0) : 0;
+  const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
 
   let totalInBaseUnits = 0;
   let totalMeters: number | undefined = undefined;
 
-  // 1. Calculate Length if applicable (mm -> mt)
-  if (isLengthApplicable && lengthMm > 0) {
+  // 1. Calculate length if cut length is present (mm -> mt)
+  if (lengthMm > 0) {
       totalMeters = (totalPieces * lengthMm) / 1000;
-  } else if (isLengthApplicable && bomItem.unit === 'mt') {
+  } else if (bomItem.unit === 'mt') {
       totalMeters = totalPieces;
   }
 
-  // 2. Derive base units
+  // 2. Derive base units (The Source of Truth for inventory)
   if (baseUnit === 'kg') {
-      if (totalMeters !== undefined) {
-          // Mt to Kg: Meters * Factor
+      if (totalMeters !== undefined && factor > 0) {
+          // Continuous Material: (jobQty * bomQty) * (mm / 1000) * ratio
           totalInBaseUnits = totalMeters * factor;
       } else {
-          // Generic Unit to Kg: Units * Factor (e.g. pieces * unit weight)
+          // Discrete Material calculated in KG: pieces * unit weight
           totalInBaseUnits = totalPieces * factor;
       }
   } else if (baseUnit === 'mt' && totalMeters !== undefined) {
       totalInBaseUnits = totalMeters;
   } else {
-      // In ogni altro caso (incluso 'n' o 'mt' senza taglio), moltiplicazione diretta pezzi * quantita per pezzo
+      // Discrete or default case
       totalInBaseUnits = totalPieces;
   }
 

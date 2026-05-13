@@ -236,18 +236,9 @@ export function calculateMRPTimelines(
                             const dWithTime = new Date(demandDate);
                             dWithTime.setUTCHours(16, 0, 0, 0);
 
-                            // [MRP CONVERSION FIX] Blinded logic for manual commitments
-                            const ratio = (mat as any).conversionRatio || (mat as any).rapportoKgMt || (mat as any).pesoMetro || (mat as any).kgMtRatio || (mat as any).conversionFactor || 0;
-                            const matUnit = (mat.unitOfMeasure || '').toLowerCase();
-                            
-                            let demandQtyBase = req.totalInBaseUnits;
-                            if (matUnit === 'kg' || ratio > 0) {
-                                demandQtyBase = req.weightKg;
-                            }
-
                             events.push({
                                 date: dWithTime.toISOString(),
-                                qty: -Number(demandQtyBase),
+                                qty: -Number(req.totalInBaseUnits),
                                 type: 'DEMAND',
                                 id: c.id,
                                 odl: `COMMIT-${c.id.substring(0, 5)}`
