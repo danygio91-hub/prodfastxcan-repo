@@ -109,6 +109,7 @@ const JobTableRows = ({
   onAction: (id: string, type: 'start' | 'cancel') => void;
   onEdit: (job: JobOrder) => void;
   isDownloadingPdf: string | null;
+  isProcessingBatch?: boolean;
   globalSettings: GlobalSettings | null;
   allowLink: boolean;
   activeSessions?: any[];
@@ -257,7 +258,7 @@ const JobTableRows = ({
                 </Tooltip>
               </TooltipProvider>
 
-              <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => onDownloadPdf(j)} disabled={isDownloadingPdf === j.id}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
+              <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => onDownloadPdf(j)} disabled={isDownloadingPdf !== null || isProcessingBatch}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
               {isPlanned ? <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'start')}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button> : <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'cancel')}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>}
             </TableCell>
           </TableRow>
@@ -351,6 +352,7 @@ export default function DataManagementClientPage({
 
 
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
   const [pdfData, setPdfData] = useState<{ job: JobOrder, article: Article | null, materials: RawMaterial[], printDate: Date } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -476,7 +478,7 @@ export default function DataManagementClientPage({
     setTimeout(() => setIsRefreshingMRP(false), 1500);
   };
 
-  const handleDownloadPdf = async (job: JobOrder) => {
+  const generateSinglePdf = async (job: JobOrder) => {
     setIsDownloadingPdf(job.id);
     try {
       const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
@@ -495,10 +497,36 @@ export default function DataManagementClientPage({
       }
       pdf.save(`ODL_${job.ordinePF.replace(/\//g, '_')}.pdf`);
       await markJobAsPrinted(job.id);
-      router.refresh();
-      toast({ title: "PDF Scaricato" });
-    } catch (error) { toast({ variant: "destructive", title: "Errore Download" }); }
-    finally { setIsDownloadingPdf(null); setPdfData(null); }
+    } catch (error) { 
+      toast({ variant: "destructive", title: `Errore Download ${job.ordinePF}` }); 
+    } finally { 
+      setPdfData(null); 
+    }
+  };
+
+  const handleDownloadPdf = async (job: JobOrder) => {
+    if (isDownloadingPdf || isProcessingBatch) return;
+    await generateSinglePdf(job);
+    setIsDownloadingPdf(null);
+    router.refresh();
+    toast({ title: "PDF Scaricato" });
+  };
+
+  const handleBatchDownloadPdf = async () => {
+    if (isDownloadingPdf || isProcessingBatch || selectedRows.length === 0) return;
+    setIsProcessingBatch(true);
+    
+    const jobsToDownload = allJobsUnfiltered.filter(j => selectedRows.includes(j.id));
+    
+    for (const job of jobsToDownload) {
+      await generateSinglePdf(job);
+    }
+    
+    setIsDownloadingPdf(null);
+    setIsProcessingBatch(false);
+    setSelectedRows([]);
+    router.refresh();
+    toast({ title: "Download Massivo Completato", description: `Scaricati ${jobsToDownload.length} ODL.` });
   };
 
   const handleToggleRow = (id: string, checked: boolean) => {
@@ -681,6 +709,15 @@ export default function DataManagementClientPage({
               </Button>
             </>
           )}
+          <Button 
+            onClick={handleBatchDownloadPdf} 
+            disabled={selectedRows.length === 0 || isProcessingBatch || isDownloadingPdf !== null} 
+            variant="outline" 
+            className="border-green-200 text-green-700 hover:bg-green-50"
+          >
+            {isProcessingBatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+            Scarica ODL Selezionati
+          </Button>
           <Button onClick={() => setIsManualCreateOpen(true)} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Nuova Commessa</Button>
           <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />} Importa Excel</Button>
         </div>
@@ -746,6 +783,7 @@ export default function DataManagementClientPage({
                       setIsEditStandardModalOpen(true);
                     }}
                     isDownloadingPdf={isDownloadingPdf}
+                    isProcessingBatch={isProcessingBatch}
                     globalSettings={globalSettings}
                     allowLink={false}
                     activeSessions={activeSessions}
@@ -800,6 +838,7 @@ export default function DataManagementClientPage({
                       setIsEditStandardModalOpen(true);
                     }}
                     isDownloadingPdf={isDownloadingPdf}
+                    isProcessingBatch={isProcessingBatch}
                     globalSettings={globalSettings}
                     allowLink={true}
                     activeSessions={activeSessions}
@@ -854,6 +893,7 @@ export default function DataManagementClientPage({
                       setIsEditStandardModalOpen(true);
                     }}
                     isDownloadingPdf={isDownloadingPdf}
+                    isProcessingBatch={isProcessingBatch}
                     globalSettings={globalSettings}
                     allowLink={true}
                     activeSessions={activeSessions}
