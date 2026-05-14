@@ -62,16 +62,7 @@ export default function ODLPrintTemplate({
   const hasTubiNotes = tubiItems.some(i => i.note && i.note.trim() !== '');
   const hasGuainaNotes = guainaItems.some(i => i.note && i.note.trim() !== '');
 
-  const getDeptSigla = (name: string) => {
-    const n = (name || '').toUpperCase();
-    if (n.includes('CONN') || n.includes('PICCOLE') || n.includes('CP')) return 'CP';
-    if (n.includes('QUALITÀ') || n.includes('CG')) return 'CG';
-    if (n.includes('BURATTATURA') || n.includes('FINITURA') || n.includes('BF')) return 'BF';
-    if (n.includes('MAGAZZINO') || n.includes('MAG')) return 'MAG';
-    if (n.includes('COLLAUDO') || n.includes('TEST') || n.includes('QLTY')) return 'QLTY';
-    if (n.includes('OFFICINA') || n.includes('OFF')) return 'OFF';
-    return n;
-  };
+
 
   const formatDateSafe = (dateInput: any) => {
     if (!dateInput) return '---';
@@ -282,7 +273,7 @@ export default function ODLPrintTemplate({
                             <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
                               {activeHeaderCols.map((col, idx) => {
                                 let val = '---';
-                                if (col.field === 'reparto') val = getDeptSigla(job.department);
+                                if (col.field === 'reparto') val = job.phases?.[0]?.departmentCodes?.[0] || job.department || 'N/D';
                                 if (col.field === 'dataOdl') val = format(printDate || new Date(), 'dd/MM/yyyy');
                                 if (col.field === 'ordinePf') val = job.ordinePF;
                                 if (col.field === 'numeroOdl') val = job.numeroODLInterno || '---';
