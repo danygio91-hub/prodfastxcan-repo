@@ -91,7 +91,7 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sor
 
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
-  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onDownloadPdf, onAction, onEdit, isDownloadingPdf, globalSettings, allowLink, activeSessions
+  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onDownloadPdf, onAction, onEdit, isDownloadingPdf, isProcessingBatch, globalSettings, allowLink, activeSessions
 }: {
   data: JobOrder[];
   departments: Department[];
