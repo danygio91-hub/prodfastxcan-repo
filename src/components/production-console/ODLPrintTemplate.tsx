@@ -273,7 +273,7 @@ export default function ODLPrintTemplate({
                             <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
                               {activeHeaderCols.map((col, idx) => {
                                 let val = '---';
-                                if (col.field === 'reparto') val = job.phases?.[0]?.departmentCodes?.[0] || job.department || 'N/D';
+                                if (col.field === 'reparto') val = job.department || 'N/D';
                                 if (col.field === 'dataOdl') val = format(printDate || new Date(), 'dd/MM/yyyy');
                                 if (col.field === 'ordinePf') val = job.ordinePF;
                                 if (col.field === 'numeroOdl') val = job.numeroODLInterno || '---';
