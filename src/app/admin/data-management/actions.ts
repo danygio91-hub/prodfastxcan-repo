@@ -611,7 +611,8 @@ export async function deleteSelectedJobOrders(ids: string[]) {
 
 export async function updateJobOrderCycle(jobId: string, cycleId: string) {
     const phases = await createPhasesFromCycle(cycleId);
-    await adminDb.collection("jobOrders").doc(jobId).update({ workCycleId: cycleId, phases });
+    const sanitizedPayload = sanitizeFirestoreData({ workCycleId: cycleId, phases });
+    await adminDb.collection("jobOrders").doc(jobId).update(sanitizedPayload);
     revalidatePath('/admin/data-management');
     return { success: true, message: 'Ciclo aggiornato.' };
 }
