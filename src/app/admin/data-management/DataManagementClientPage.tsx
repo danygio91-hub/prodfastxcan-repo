@@ -18,11 +18,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   ListChecks, Upload, Loader2, Trash2, Briefcase, PlayCircle, Search, XCircle,
   FileDown, PlusCircle, ArrowUpDown, Calendar as CalendarIcon,
   CheckCircle2, AlertTriangle, Info, RefreshCw, Save, Combine,
-  Pencil, Edit3
+  Pencil, Edit3, BellRing
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/types';
 import { format, parseISO, isBefore } from 'date-fns';
@@ -412,6 +414,26 @@ export default function DataManagementClientPage({
     );
   }, [sSotPlanned, sSotProduction, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings]);
 
+  const criticalMaterialsTimeline = useMemo(() => {
+    const criticals = new Map<string, { entry: MRPTimelineEntry, job: JobOrder | undefined }[]>();
+    
+    mrpTimelines.forEach((entries, matCode) => {
+      if (entries.some(e => e.status === 'RED' || e.status === 'LATE')) {
+        const mappedEntries = entries.map(entry => {
+          const job = allJobsUnfiltered.find(j => j.id === entry.jobId);
+          return { entry, job };
+        }).sort((a, b) => {
+           const dateA = a.job?.dataFinePreparazione || a.job?.dataConsegnaFinale || '9999-12-31';
+           const dateB = b.job?.dataFinePreparazione || b.job?.dataConsegnaFinale || '9999-12-31';
+           return dateA.localeCompare(dateB);
+        });
+        criticals.set(matCode, mappedEntries);
+      }
+    });
+    
+    return criticals;
+  }, [mrpTimelines, allJobsUnfiltered]);
+
   const filteredDepartmentsForManualCreate = useMemo(() => {
     return departments.filter(d => 
       d.macroAreas.includes('PRODUZIONE') || d.code === 'MAG'
@@ -616,6 +638,84 @@ export default function DataManagementClientPage({
           <p className="text-muted-foreground">Analisi MRP e pianificazione produzione.</p>
         </div>
         <div className="flex gap-2">
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="relative group hover:bg-red-50 hover:border-red-200">
+                <BellRing className="h-4 w-4 mr-2 text-muted-foreground group-hover:text-red-500" />
+                Allarmi MRP
+                {criticalMaterialsTimeline.size > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 shadow-sm animate-in zoom-in">
+                    {criticalMaterialsTimeline.size}
+                  </span>
+                )}
+              </Button>
+            </SheetTrigger>
+            <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2 text-red-600">
+                  <AlertTriangle className="h-5 w-5" />
+                  Allertatore Intelligente MRP
+                </SheetTitle>
+                <SheetDescription>
+                  Report temporizzato delle mancanze di materiale per le commesse a schermo. (In-Memory Aggregation)
+                </SheetDescription>
+              </SheetHeader>
+              
+              <div className="mt-6">
+                {criticalMaterialsTimeline.size === 0 ? (
+                  <div className="text-center p-6 text-muted-foreground bg-green-50 rounded-lg border border-green-100">
+                    <CheckCircle2 className="h-8 w-8 mx-auto text-green-500 mb-2" />
+                    Nessun materiale critico per le commesse visualizzate.
+                  </div>
+                ) : (
+                  <Accordion type="single" collapsible className="w-full">
+                    {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries], idx) => {
+                      const shortageEntry = entries.find(e => e.entry.status === 'RED' || e.entry.status === 'LATE');
+                      const materialName = rawMaterials.find(m => m.code.toUpperCase() === matCode)?.name || '';
+                      return (
+                        <AccordionItem key={matCode} value={matCode}>
+                          <AccordionTrigger className="hover:no-underline px-2 hover:bg-muted/50 rounded-md transition-colors">
+                            <div className="flex flex-col items-start text-left w-full">
+                                <div className="flex items-center justify-between w-full pr-4">
+                                    <span className="font-bold text-sm">{matCode}</span>
+                                    <Badge variant={shortageEntry?.entry.status === 'RED' ? 'destructive' : 'secondary'} className={shortageEntry?.entry.status === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}>
+                                      {shortageEntry?.entry.status === 'RED' ? 'MANCANTE' : 'IN RITARDO'}
+                                    </Badge>
+                                </div>
+                                <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="px-2 pt-2 pb-4">
+                            <div className="space-y-3">
+                              {entries.map((item, i) => {
+                                const jobDate = item.job?.dataFinePreparazione || item.job?.dataConsegnaFinale;
+                                const isNegative = item.entry.projectedBalance < 0;
+                                return (
+                                  <div key={i} className={cn("p-2 rounded-md border text-sm", isNegative ? "border-red-200 bg-red-50/30" : "border-border bg-muted/20")}>
+                                    <div className="flex justify-between items-center mb-1">
+                                      <span className="font-semibold text-xs">{jobDate ? format(parseISO(jobDate), "dd/MM/yyyy") : 'N/D'}</span>
+                                      <span className="text-xs font-mono">{item.job?.ordinePF || item.job?.id || 'N/D'}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-muted-foreground">Fabbisogno: {item.entry.requiredQty.toFixed(2)}</span>
+                                      <span className={cn("font-bold", isNegative ? "text-red-600" : "text-emerald-600")}>
+                                        Stock Proiettato: {item.entry.projectedBalance.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    })}
+                  </Accordion>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+
           <Button 
             variant="outline" 
             size="sm" 
