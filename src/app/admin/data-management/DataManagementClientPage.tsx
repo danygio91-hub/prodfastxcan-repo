@@ -418,7 +418,7 @@ export default function DataManagementClientPage({
     const criticals = new Map<string, { entry: MRPTimelineEntry, job: JobOrder | undefined }[]>();
     
     mrpTimelines.forEach((entries, matCode) => {
-      if (entries.some(e => e.status === 'RED' || e.status === 'LATE')) {
+      if (entries.some(e => e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK')) {
         const mappedEntries = entries.map(entry => {
           const job = allJobsUnfiltered.find(j => j.id === entry.jobId);
           return { entry, job };
@@ -670,7 +670,7 @@ export default function DataManagementClientPage({
                 ) : (
                   <Accordion type="single" collapsible className="w-full">
                     {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries], idx) => {
-                      const shortageEntry = entries.find(e => e.entry.status === 'RED' || e.entry.status === 'LATE');
+                      const shortageEntry = entries.find(e => e.entry.status === 'RED') || entries.find(e => e.entry.status === 'LATE') || entries.find(e => e.entry.status === 'LOW_STOCK');
                       const materialName = rawMaterials.find(m => m.code.toUpperCase() === matCode)?.description || '';
                       return (
                         <AccordionItem key={matCode} value={matCode}>
@@ -678,8 +678,8 @@ export default function DataManagementClientPage({
                             <div className="flex flex-col items-start text-left w-full">
                                 <div className="flex items-center justify-between w-full pr-4">
                                     <span className="font-bold text-sm">{matCode}</span>
-                                    <Badge variant={shortageEntry?.entry.status === 'RED' ? 'destructive' : 'secondary'} className={shortageEntry?.entry.status === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}>
-                                      {shortageEntry?.entry.status === 'RED' ? 'MANCANTE' : 'IN RITARDO'}
+                                    <Badge variant={shortageEntry?.entry.status === 'RED' ? 'destructive' : 'secondary'} className={shortageEntry?.entry.status === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : shortageEntry?.entry.status === 'LOW_STOCK' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
+                                      {shortageEntry?.entry.status === 'RED' ? 'MANCANTE' : shortageEntry?.entry.status === 'LATE' ? 'IN RITARDO' : 'SOTTO SCORTA'}
                                     </Badge>
                                 </div>
                                 <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
@@ -690,15 +690,16 @@ export default function DataManagementClientPage({
                               {entries.map((item, i) => {
                                 const jobDate = item.job?.dataFinePreparazione || item.job?.dataConsegnaFinale;
                                 const isNegative = item.entry.projectedBalance < 0;
+                                const isLowStock = item.entry.status === 'LOW_STOCK';
                                 return (
-                                  <div key={i} className={cn("p-2 rounded-md border text-sm", isNegative ? "border-red-200 bg-red-50/30" : "border-border bg-muted/20")}>
+                                  <div key={i} className={cn("p-2 rounded-md border text-sm", isNegative ? "border-red-200 bg-red-50/30" : isLowStock ? "border-orange-200 bg-orange-50/30" : "border-border bg-muted/20")}>
                                     <div className="flex justify-between items-center mb-1">
                                       <span className="font-semibold text-xs">{jobDate ? format(parseISO(jobDate), "dd/MM/yyyy") : 'N/D'}</span>
                                       <span className="text-xs font-mono">{item.job?.ordinePF || item.job?.id || 'N/D'}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-xs">
                                       <span className="text-muted-foreground">Fabbisogno: {item.entry.requiredQty.toFixed(2)}</span>
-                                      <span className={cn("font-bold", isNegative ? "text-red-600" : "text-emerald-600")}>
+                                      <span className={cn("font-bold", isNegative ? "text-red-600" : isLowStock ? "text-orange-600" : "text-emerald-600")}>
                                         Stock Proiettato: {item.entry.projectedBalance.toFixed(2)}
                                       </span>
                                     </div>

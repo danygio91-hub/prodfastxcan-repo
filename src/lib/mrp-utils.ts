@@ -8,7 +8,7 @@ export interface MRPTimelineEntry {
     jobId: string;
     materialCode: string;
     requiredQty: number;
-    status: 'GREEN' | 'AMBER' | 'LATE' | 'RED';
+    status: 'GREEN' | 'LOW_STOCK' | 'AMBER' | 'LATE' | 'RED';
     projectedBalance: number;
     supplyArrivalDate?: string; 
     details: string[]; 
@@ -328,31 +328,38 @@ export function calculateMRPTimelines(
 
                 details.push(`Fabbisogno: ${simQty.toFixed(2)} ${mat.unitOfMeasure}`);
 
+                const cumulativePO = events
+                    .filter(e => e.type === 'PO' && e.date <= currentEvent.date)
+                    .reduce((sum, e) => sum + Number(e.qty), 0);
+
+                const safeStock = Number(mat.minStockLevel) || 0;
+
                 if (currentBalanceAtSim >= -0.001) {
-                    // COPERTO (Green o Amber)
-                    const demandAlreadyMet = totalDemand - runningBalance + currentBalanceAtSim;
-                    if (initialPhysicalStock - demandAlreadyMet >= simQty - 0.001) {
-                        status = 'GREEN';
-                        details.push("✅ DISPONIBILE (Stock fisico)." + dbg);
-                    } else if (totalPO > 0.001) {
-                        // AMBER solo se esiste effettivamente un PO a copertura
+                    if (currentBalanceAtSim - cumulativePO >= -0.001) {
+                        if (currentBalanceAtSim < safeStock) {
+                            status = 'LOW_STOCK';
+                            details.push("⚠️ SOTTO SCORTA MINIMA." + dbg);
+                        } else {
+                            status = 'GREEN';
+                            details.push("✅ DISPONIBILE (Stock fisico)." + dbg);
+                        }
+                    } else {
                         status = 'AMBER';
                         const lastPO = [...events].filter(e => e.type === 'PO' && e.date <= currentEvent.date).pop();
                         supplyArrivalDate = lastPO?.date;
-                        details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}.` + dbg);
-                    } else {
-                        // BUG 2 Fix: Se non ci sono PO e lo stock iniziale non basta, è MANCANTE
-                        status = 'RED';
-                        details.push("❌ MANCANTE: Stock fisico insufficiente e nessun ordine pendente." + dbg);
+                        if (currentBalanceAtSim < safeStock) {
+                            status = 'LOW_STOCK';
+                            details.push(`⚠️ SOTTO SCORTA MINIMA (Coperto da PO in arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}).` + dbg);
+                        } else {
+                            details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}.` + dbg);
+                        }
                     }
                 } else {
-                    // È negativo al momento del bisogno.
-                    if (absoluteFinalBalance >= -0.001 && totalPO > 0.001) {
+                    if (absoluteFinalBalance >= -0.001 && totalPO > 0) {
                          status = 'LATE';
                          supplyArrivalDate = coveringPODate || undefined;
                          details.push(`🟠 IN RITARDO: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'futuro'}.` + dbg);
                     } else {
-                         // Se non ci sono PO o il bilancio finale è comunque negativo
                          status = 'RED';
                          details.push("❌ MANCANTE: Stock e ordini totali insufficienti." + dbg);
                     }
@@ -409,10 +416,11 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
     groups.forEach((group, code) => {
         const totalQty = group.entries.reduce((sum, e) => sum + (e.requiredQty || 0), 0);
         
-        // Priorità Stato: RED > LATE > AMBER > GREEN
+        // Priorità Stato: RED > LATE > LOW_STOCK > AMBER > GREEN
         let finalStatus: MRPTimelineEntry['status'] = 'GREEN';
         if (group.entries.some(e => e.status === 'RED')) finalStatus = 'RED';
         else if (group.entries.some(e => e.status === 'LATE')) finalStatus = 'LATE';
+        else if (group.entries.some(e => e.status === 'LOW_STOCK')) finalStatus = 'LOW_STOCK';
         else if (group.entries.some(e => e.status === 'AMBER')) finalStatus = 'AMBER';
 
         // Prendi il primo item e entry come rappresentativi per metadati (UOM, etc)
@@ -440,6 +448,11 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
             const lateEntry = group.entries.find(e => e.status === 'LATE' && e.supplyArrivalDate);
             newDetails.push(`🟠 IN RITARDO: In arrivo il ${lateEntry?.supplyArrivalDate ? new Date(lateEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'futuro'}. ${debugString}`);
             newDetails.push("Verificare se è possibile anticipare la consegna.");
+        } else if (finalStatus === 'LOW_STOCK') {
+            const lowStockEntry = group.entries.find(e => e.status === 'LOW_STOCK');
+            const arrivalStr = lowStockEntry?.supplyArrivalDate ? ` (Coperto da PO in arrivo il ${new Date(lowStockEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })})` : '';
+            newDetails.push(`⚠️ SOTTO SCORTA MINIMA${arrivalStr}. ${debugString}`);
+            newDetails.push("Pianificare riassortimento.");
         } else if (finalStatus === 'AMBER') {
             const amberEntry = group.entries.find(e => e.status === 'AMBER' && e.supplyArrivalDate);
             newDetails.push(`🟡 COPERTO DA ORDINE: In arrivo il ${amberEntry?.supplyArrivalDate ? new Date(amberEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}. ${debugString}`);
