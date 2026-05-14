@@ -671,7 +671,7 @@ export default function DataManagementClientPage({
                   <Accordion type="single" collapsible className="w-full">
                     {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries], idx) => {
                       const shortageEntry = entries.find(e => e.entry.status === 'RED' || e.entry.status === 'LATE');
-                      const materialName = rawMaterials.find(m => m.code.toUpperCase() === matCode)?.name || '';
+                      const materialName = rawMaterials.find(m => m.code.toUpperCase() === matCode)?.description || '';
                       return (
                         <AccordionItem key={matCode} value={matCode}>
                           <AccordionTrigger className="hover:no-underline px-2 hover:bg-muted/50 rounded-md transition-colors">
