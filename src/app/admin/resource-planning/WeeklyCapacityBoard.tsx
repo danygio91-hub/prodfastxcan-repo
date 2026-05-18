@@ -1015,6 +1015,8 @@ function JobCompactCard(props: {
     const derivedStatus = getDerivedJobStatus(job);
     const isActuallyClosed = derivedStatus === 'CHIUSO' || ['CHIUSO', 'ARCHIVIATA'].includes(job.status?.toUpperCase() || '');
     
+    const hasNoPhases = !job.phases || job.phases.length === 0;
+
     // Check if any phase in this macro area is estimated
     const isEstimated = job.phases.filter(p => {
         if (macroArea === 'PREP') return isPreparationPhase(p.type);
@@ -1023,6 +1025,10 @@ function JobCompactCard(props: {
     }).some(p => p.isEstimated);
 
     const getBadgeVisuals = () => {
+        if (hasNoPhases) {
+            return { label: "⚠️ CICLO MANCANTE", status: 'status-error' };
+        }
+
         // 0. SSoT Forzatura se l'area è completata
         if (isAreaFinished) {
             return { label: "COMPLETATA", status: 'status-green' };
@@ -1083,22 +1089,26 @@ function JobCompactCard(props: {
         'status-gray': 'bg-slate-900 text-slate-400 border border-slate-800',
         'status-amber': 'bg-amber-500 text-amber-950 font-black',
         'status-blue': 'bg-blue-600 text-white font-black',
-        'status-green': 'bg-emerald-500 text-white'
+        'status-green': 'bg-emerald-500 text-white',
+        'status-error': 'bg-red-600 text-white font-black animate-pulse'
     };
+
+    const isError = visuals.status === 'status-error';
 
     return (
         <div 
             onClick={onClick}
             className={cn(
                 "group relative flex items-center h-11 px-3 border rounded-xl transition-all cursor-pointer overflow-hidden",
-                sColors[visuals.status],
-                job.hasMaterialShortage && "border-destructive border-2 shadow-[0_0_10px_rgba(239,68,68,0.4)]",
-                job.isSuspended && !job.hasMaterialShortage && "border-yellow-500 border-2 shadow-[0_0_10px_rgba(234,179,8,0.4)]",
-                isOverdue && !isClosed && visuals.status !== 'status-green' && !job.hasMaterialShortage && !job.isSuspended && "border-red-600/40 bg-red-950/5",
-                isTechnicalDelay && !isClosed && "border-red-500 border-2 shadow-[0_0_12px_rgba(239,68,68,0.2)]"
+                sColors[visuals.status] || sColors['status-gray'],
+                isError && "border-red-600 border-2 bg-red-950/20 shadow-[0_0_15px_rgba(220,38,38,0.5)]",
+                job.hasMaterialShortage && !isError && "border-destructive border-2 shadow-[0_0_10px_rgba(239,68,68,0.4)]",
+                job.isSuspended && !job.hasMaterialShortage && !isError && "border-yellow-500 border-2 shadow-[0_0_10px_rgba(234,179,8,0.4)]",
+                isOverdue && !isClosed && visuals.status !== 'status-green' && !job.hasMaterialShortage && !job.isSuspended && !isError && "border-red-600/40 bg-red-950/5",
+                isTechnicalDelay && !isClosed && !isError && "border-red-500 border-2 shadow-[0_0_12px_rgba(239,68,68,0.2)]"
             )}
         >
-            <div className={cn("absolute left-0 top-0 bottom-0 w-1", sIndicator[visuals.status])} />
+            <div className={cn("absolute left-0 top-0 bottom-0 w-1", sIndicator[visuals.status] || 'bg-red-600')} />
 
             <div className="flex items-center w-full gap-3 pl-1">
                 <div 
