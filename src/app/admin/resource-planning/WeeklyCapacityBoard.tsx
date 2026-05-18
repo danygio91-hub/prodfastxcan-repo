@@ -131,6 +131,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
     const [viewMode, setViewMode] = useState<'1W' | '2W'>('2W');
     const [activeResultIndex, setActiveResultIndex] = useState(0);
     const [statusFilter, setStatusFilter] = useState<string>('Tutte');
+    const [showCompletedJobs, setShowCompletedJobs] = useState(true);
 
     const numWeeks = viewMode === '1W' ? 1 : 2;
     const settingsEfficiency = (globalSettings?.capacityBufferPercent || 85) / 100;
@@ -562,6 +563,19 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
 
                         <div className="flex items-center gap-3 pr-2 border-l border-slate-800 pl-4">
                             <div className="flex flex-col items-end">
+                                <Label htmlFor="show-completed" className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Mostra Completati</Label>
+                                <span className="text-[8px] font-bold text-emerald-500 uppercase italic leading-none">Fasi Concluse</span>
+                            </div>
+                            <Switch 
+                                id="show-completed"
+                                checked={showCompletedJobs}
+                                onCheckedChange={setShowCompletedJobs}
+                                className="data-[state=checked]:bg-emerald-600"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-3 pr-2 border-l border-slate-800 pl-4">
+                            <div className="flex flex-col items-end">
                                 <Label htmlFor="simulation-mode" className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Check-up Venerdì</Label>
                                 <span className="text-[8px] font-bold text-slate-600 uppercase italic leading-none">Proiezione Arretrati</span>
                             </div>
@@ -594,11 +608,17 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                     const weekStartDateStr = format(week.start, 'yyyy-MM-dd');
                                     
                                     const weekJobs = processedJobs.filter(pj => {
+                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
+                                        
                                         // 1. Filtro Settimanale (SSoT Virtual Week)
-                                        if (!isSameWeek(week.start, pj.virtualWeek, { weekStartsOn: 1 })) return false;
+                                        const areaVirtualWeek = pj.virtualWeeks ? pj.virtualWeeks[macroArea] : pj.virtualWeek;
+                                        if (!isSameWeek(week.start, areaVirtualWeek, { weekStartsOn: 1 })) return false;
+
+                                        // Toggle Mostra Completati
+                                        const isAreaFinished = pj.isFinished[macroArea];
+                                        if (!showCompletedJobs && isAreaFinished) return false;
 
                                         const job = pj.job;
-                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
 
                                         // 2. Filtro Reparto/MacroArea
                                         let matchesDept = false;
@@ -663,14 +683,8 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                             if (currentLabel !== statusFilter) return false;
                                         }
 
-                                        // 5. DEPARTMENT TEMPORAL FREEZING (Ghosting Fix)
-                                        // Se l'area è completata, deve sparire dai tab correnti se la data di fine appartiene a settimane passate.
-                                        if (pj.isFinished[macroArea]) {
-                                            const compDate = getMacroAreaCompletionDate(job, macroArea);
-                                            if (compDate && !isSameWeek(compDate, week.start, { weekStartsOn: 1 }) && compDate < week.start) {
-                                                return false;
-                                            }
-                                        }
+                                        // 5. DEPARTMENT TEMPORAL FREEZING
+                                        // Non necessario: le virtualWeeks gestiscono la scomparsa naturale nelle settimane in cui la fase non è completata.
 
                                         return true;
                                     });
@@ -811,6 +825,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                                 rawMaterials={rawMaterials}
                                                                 mrpTimelines={mrpTimelines}
                                                                 globalSettings={globalSettings}
+                                                                isAreaFinished={pj.isFinished[cardMacroArea]}
                                                             />
                                                         </div>
                                                     );
@@ -964,12 +979,13 @@ function JobCompactCard(props: {
     linkedODLs: string[],
     rawMaterials: any[],
     mrpTimelines: Map<string, MRPTimelineEntry[]>,
-    globalSettings: any
+    globalSettings: any,
+    isAreaFinished: boolean
 }) {
     const { 
         job, load, fatte, onAdvance, onToggleExclude, onQuickView, onEdit, onClick, 
         macroArea, semaphoreStatus, isTechnicalDelay, totalLoad, 
-        linkedODLs = [], rawMaterials, mrpTimelines, globalSettings 
+        linkedODLs = [], rawMaterials, mrpTimelines, globalSettings, isAreaFinished
     } = props;
 
     const { toast } = useToast();
@@ -986,7 +1002,7 @@ function JobCompactCard(props: {
         'status-gray': 'bg-slate-750/30 border-slate-700/50 opacity-60 grayscale',
         'status-amber': 'bg-amber-950/20 border-amber-500/30 shadow-amber-900/5',
         'status-blue': 'bg-blue-950/30 border-blue-500/40 shadow-blue-900/10 active-row-glow',
-        'status-green': 'bg-emerald-950/40 border-emerald-500/30 shadow-emerald-900/5'
+        'status-green': 'bg-emerald-950/40 border-emerald-500/30 shadow-emerald-900/5 opacity-80'
     };
 
     const sIndicator: Record<string, string> = {
@@ -1007,6 +1023,11 @@ function JobCompactCard(props: {
     }).some(p => p.isEstimated);
 
     const getBadgeVisuals = () => {
+        // 0. SSoT Forzatura se l'area è completata
+        if (isAreaFinished) {
+            return { label: "COMPLETATA", status: 'status-green' };
+        }
+
         // 1. Matrice SSoT-AWARE per Colore e Testo
         
         // Regola A: In Preparazione / Da Iniziare

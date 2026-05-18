@@ -243,32 +243,40 @@ export default function ResourcePlanningClientPage() {
         
         processedJobs.forEach(pj => {
             // FONDAMENTALE: Se la settimana virtuale non è quella corrente, la commessa vale 0 per questo header
-            if (!isSameWeek(pj.virtualWeek, currentWStart, { weekStartsOn: 1 })) return;
+            const isPrepWeek = pj.virtualWeeks ? isSameWeek(pj.virtualWeeks.PREP, currentWStart, { weekStartsOn: 1 }) : isSameWeek(pj.virtualWeek, currentWStart, { weekStartsOn: 1 });
+            const isCoreWeek = pj.virtualWeeks ? isSameWeek(pj.virtualWeeks.CORE, currentWStart, { weekStartsOn: 1 }) : isSameWeek(pj.virtualWeek, currentWStart, { weekStartsOn: 1 });
+            const isPackWeek = pj.virtualWeeks ? isSameWeek(pj.virtualWeeks.PACK, currentWStart, { weekStartsOn: 1 }) : isSameWeek(pj.virtualWeek, currentWStart, { weekStartsOn: 1 });
 
             const job = pj.job;
 
             // A. PREPARAZIONE (Mirror tab filtering logic)
-            const jobCoreDept = cachedDepartments.find(d => d.id === job.department || (d as any).code === job.department);
-            const dependsOnPrep = jobCoreDept?.dependsOnPreparation ?? false;
-            const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
-            if (dependsOnPrep && hasPrepPhases) {
-                prepLoad += pj.computedResidual.PREP;
+            if (isPrepWeek) {
+                const jobCoreDept = cachedDepartments.find(d => d.id === job.department || (d as any).code === job.department);
+                const dependsOnPrep = jobCoreDept?.dependsOnPreparation ?? false;
+                const hasPrepPhases = (job.phases || []).some(p => p.type === 'preparation');
+                if (dependsOnPrep && hasPrepPhases) {
+                    prepLoad += pj.computedResidual.PREP;
+                }
             }
 
             // B. PRODUZIONE / CORE (Check if dept is in displayDepts)
-            const isCoreVisible = coreDepts.some(d => {
-                const jDept = job.department?.toUpperCase() || '';
-                const dId = d.id.toUpperCase();
-                const dCode = (d as any).code?.toUpperCase() || '';
-                const dName = (d as any).name?.toUpperCase() || '';
-                return jDept === dId || jDept === dCode || jDept === dName || dName.includes(jDept);
-            });
-            if (isCoreVisible) {
-                coreLoad += pj.computedResidual.CORE;
+            if (isCoreWeek) {
+                const isCoreVisible = coreDepts.some(d => {
+                    const jDept = job.department?.toUpperCase() || '';
+                    const dId = d.id.toUpperCase();
+                    const dCode = (d as any).code?.toUpperCase() || '';
+                    const dName = (d as any).name?.toUpperCase() || '';
+                    return jDept === dId || jDept === dCode || jDept === dName || dName.includes(jDept);
+                });
+                if (isCoreVisible) {
+                    coreLoad += pj.computedResidual.CORE;
+                }
             }
 
             // C. PACK & QLTY (Shows all jobs with pack residual)
-            packLoad += pj.computedResidual.PACK;
+            if (isPackWeek) {
+                packLoad += pj.computedResidual.PACK;
+            }
         });
 
         const totalLoad = prepLoad + coreLoad + packLoad;

@@ -28,7 +28,12 @@ export function isQualityPackagingPhase(type?: string): boolean {
 
 export interface ProcessedJob {
     job: JobOrder;
-    virtualWeek: Date;
+    virtualWeek: Date; // Fallback legacy
+    virtualWeeks: {
+        PREP: Date;
+        CORE: Date;
+        PACK: Date;
+    };
     computedResidual: {
         PREP: number;
         CORE: number;
@@ -39,6 +44,51 @@ export interface ProcessedJob {
         CORE: boolean;
         PACK: boolean;
     };
+}
+
+export function getMacroAreaCompletionDateSSoT(job: JobOrder, type: 'PREP' | 'CORE' | 'PACK'): Date | null {
+    const phases = job.phases || [];
+    let relevantPhases = [];
+    if (type === 'PREP') relevantPhases = phases.filter(p => isPreparationPhase(p.type));
+    else if (type === 'CORE') relevantPhases = phases.filter(p => isProductionPhase(p.type));
+    else relevantPhases = phases.filter(p => isQualityPackagingPhase(p.type));
+
+    if (relevantPhases.length === 0) return null;
+    if (!relevantPhases.every(p => p.status === 'completed' || p.status === 'skipped')) return null;
+
+    let latestDate: Date | null = null;
+    relevantPhases.forEach(p => {
+        if (p.status === 'completed' && p.workPeriods && p.workPeriods.length > 0) {
+            p.workPeriods.forEach(wp => {
+                if (wp.end) {
+                    const d = wp.end instanceof Date 
+                        ? wp.end 
+                        : (typeof wp.end === 'object' && 'seconds' in (wp.end as any))
+                            ? new Date((wp.end as any).seconds * 1000)
+                            : new Date(wp.end as string);
+                    
+                    if (!latestDate || d > latestDate) latestDate = d;
+                }
+            });
+        }
+    });
+
+    if (!latestDate) {
+        // Fallback for actualCompletionDate if added later
+        relevantPhases.forEach(p => {
+            const actualDate = (p as any).actualCompletionDate;
+            if (actualDate) {
+                const d = actualDate instanceof Date 
+                    ? actualDate 
+                    : (typeof actualDate === 'object' && 'seconds' in actualDate)
+                        ? new Date(actualDate.seconds * 1000)
+                        : new Date(actualDate);
+                if (!latestDate || d > latestDate) latestDate = d;
+            }
+        });
+    }
+
+    return latestDate;
 }
 
 /**
@@ -93,7 +143,7 @@ export function processJobsSSoT(
             referenceDate = realTodayStart;
         }
 
-        let virtualWeek = startOfDay(startOfWeek(referenceDate || realTodayStart, { weekStartsOn: 1 }));
+        let virtualWeekBase = startOfDay(startOfWeek(referenceDate || realTodayStart, { weekStartsOn: 1 }));
 
         // NUOVA LOGICA ROLLOVER AGGRESSIVA (Richiesta Audit Cliente - REVERSION)
         // Il rollover si basa ESCLUSIVAMENTE sullo stato globale per gestire articoli senza tempi target (residuo 0.0h)
@@ -101,24 +151,41 @@ export function processJobsSSoT(
 
         if (isJobOpen) {
             // A. Rollover Standard Arretrati -> Settimana Corrente
-            if (virtualWeek < realTodayStart) {
-                virtualWeek = realTodayStart;
+            if (virtualWeekBase < realTodayStart) {
+                virtualWeekBase = realTodayStart;
             }
             
             // B. Rollover Simulation (Check-up Friday): Arretrati e Settimana Corrente -> Settimana Successiva
-            if (isSimulationMode && virtualWeek <= realTodayStart) {
-                virtualWeek = addWeeks(realTodayStart, 1);
+            if (isSimulationMode && virtualWeekBase <= realTodayStart) {
+                virtualWeekBase = addWeeks(realTodayStart, 1);
             }
         }
 
         // Clamping visivo alla board corrente per gli arretrati non ancora "rollati" oltre
-        if (isJobOpen && virtualWeek < currentBoardStart) {
-            virtualWeek = currentBoardStart;
+        if (isJobOpen && virtualWeekBase < currentBoardStart) {
+            virtualWeekBase = currentBoardStart;
         }
+
+        const getAreaVirtualWeek = (area: 'PREP' | 'CORE' | 'PACK', isFin: boolean) => {
+            if (isFin) {
+                const compDate = getMacroAreaCompletionDateSSoT(job, area);
+                if (compDate) {
+                    return startOfDay(startOfWeek(compDate, { weekStartsOn: 1 }));
+                }
+            }
+            return virtualWeekBase;
+        };
+
+        const virtualWeeks = {
+            PREP: getAreaVirtualWeek('PREP', isFinished.PREP),
+            CORE: getAreaVirtualWeek('CORE', isFinished.CORE),
+            PACK: getAreaVirtualWeek('PACK', isFinished.PACK)
+        };
 
         return {
             job,
-            virtualWeek,
+            virtualWeek: virtualWeekBase,
+            virtualWeeks,
             computedResidual,
             isFinished
         };
