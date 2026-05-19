@@ -53,10 +53,13 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       setDataConsegna(job.dataConsegnaFinale || '');
       setDataPrep(job.dataFinePreparazione || '');
       setSelectedCycleId(job.workCycleId || '');
-      setSelectedDept(job.department || '');
+      
+      const deptCode = departments.find(d => d.name === job.department || d.code === job.department)?.code || job.department || '';
+      setSelectedDept(deptCode);
+      
       setExpectedMinutes(job.expectedMinutesDefault?.toString() || '0');
     }
-  }, [job, isOpen]);
+  }, [job, isOpen, departments]);
 
   const handleSave = async () => {
     if (!job) return;
@@ -178,7 +181,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
                 <SelectTrigger className="bg-slate-800 border-slate-700 h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {departments.map(d => (
-                    <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                    <SelectItem key={d.id} value={d.code}>{d.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

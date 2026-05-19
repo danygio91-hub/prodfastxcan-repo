@@ -8,6 +8,7 @@ import * as z from 'zod';
 import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
+import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
 
 
 function sanitizeDocumentId(id: string): string {
@@ -158,13 +159,44 @@ export async function saveManualJobOrder(data: any) {
     }
     const articleData = articleSnap.data() as Article;
 
+    const globalSettingsSnap = await adminDb.collection("settings").doc("global").get();
+    const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
+
+    const compCodes = (articleData.billOfMaterials || []).map(item => item.component.toUpperCase().trim());
+    const rawMaterials = compCodes.length > 0 ? await fetchInChunks<RawMaterial>(
+        adminDb.collection("rawMaterials"),
+        "code",
+        compCodes
+    ) : [];
+
     const phases = await createPhasesFromCycle(workCycleId);
-    const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ 
-        ...item, 
-        component: item.component.toUpperCase().trim(),
-        status: 'pending', 
-        isFromTemplate: true 
-    }));
+    const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => {
+        const compCode = item.component.toUpperCase().trim();
+        const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
+        const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+        const requiresCut = typeConfig?.requiresCutLength !== false;
+
+        const req = calculateBOMRequirement(
+            Number(qta),
+            { 
+                quantity: item.quantity, 
+                lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
+                unit: item.unit 
+            },
+            material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
+            typeConfig || { defaultUnit: item.unit }
+        );
+
+        return { 
+            ...item, 
+            component: compCode,
+            status: 'pending', 
+            isFromTemplate: true,
+            lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
+            fabbisognoTotale: req.totalInBaseUnits,
+            pesoStimato: req.weightKg
+        };
+    });
 
     const now = new Date();
     const shortYear = now.getFullYear().toString().slice(-2);
@@ -230,12 +262,17 @@ export async function processAndValidateImport(data: any[]): Promise<{
             return { success: false, message: "Il file è vuoto o non contiene dati validi.", newJobs: [], jobsToUpdate: [], blockedJobs: [] };
         }
 
-        const [articlesSnap, cyclesSnap, templatesSnap, deptsSnap] = await Promise.all([
+        const [articlesSnap, cyclesSnap, templatesSnap, deptsSnap, globalSettingsSnap, rawMaterialsSnap] = await Promise.all([
             adminDb.collection("articles").get(), 
             adminDb.collection("workCycles").get(),
             adminDb.collection("workPhaseTemplates").get(),
-            adminDb.collection("departments").get()
+            adminDb.collection("departments").get(),
+            adminDb.collection("settings").doc("global").get(),
+            adminDb.collection("rawMaterials").get()
         ]);
+        
+        const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
+        const rawMaterialsList = rawMaterialsSnap.docs.map(doc => doc.data() as RawMaterial);
         
         const articlesMap = new Map(articlesSnap.docs
             .filter(d => d.data()?.code)
@@ -386,12 +423,33 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 const historicalAverages = articleData.historicalTimes?.averagePhaseTimes || [];
                 phases = distributeTheoreticalTimes(expectedMins, phases, historicalAverages);
             }
-            const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ 
-                ...item, 
-                component: item.component.toUpperCase().trim(),
-                status: 'pending', 
-                isFromTemplate: true 
-            }));
+            const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => {
+                const compCode = item.component.toUpperCase().trim();
+                const material = rawMaterialsList.find(m => m.code.toUpperCase() === compCode);
+                const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+                const requiresCut = typeConfig?.requiresCutLength !== false;
+
+                const req = calculateBOMRequirement(
+                    mappedRow.qta,
+                    { 
+                        quantity: item.quantity, 
+                        lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
+                        unit: item.unit 
+                    },
+                    material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
+                    typeConfig || { defaultUnit: item.unit }
+                );
+
+                return { 
+                    ...item, 
+                    component: compCode,
+                    status: 'pending', 
+                    isFromTemplate: true,
+                    lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
+                    fabbisognoTotale: req.totalInBaseUnits,
+                    pesoStimato: req.weightKg
+                };
+            });
             
             let odlToAssign = null;
             if (mappedRow.numeroODLInternoImport) {
@@ -702,11 +760,131 @@ export async function updateJobOrder(jobId: string, data: {
             updatePayload.expectedMinutesDefault = newExpectedMinutes;
         }
 
+        // Recalculate/Synchronize BOM when updating the job (to reflect new quantity or material settings)
+        const globalSettingsSnap = await adminDb.collection("settings").doc("global").get();
+        const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
+
+        const articleRefForBOM = adminDb.collection("articles").doc(job.details.toUpperCase().trim());
+        const articleSnapForBOM = await articleRefForBOM.get();
+        const articleForBOM = articleSnapForBOM.exists ? articleSnapForBOM.data() as Article : null;
+
+        const compCodes = (job.billOfMaterials || []).map(item => item.component.toUpperCase().trim());
+        const rawMaterials = compCodes.length > 0 ? await fetchInChunks<RawMaterial>(
+            adminDb.collection("rawMaterials"),
+            "code",
+            compCodes
+        ) : [];
+
+        if (job.billOfMaterials && job.billOfMaterials.length > 0) {
+            updatePayload.billOfMaterials = syncJobBOMItems(
+                Number(data.qta),
+                job.billOfMaterials,
+                articleForBOM?.billOfMaterials || [],
+                rawMaterials,
+                globalSettings
+            );
+        }
+
         // Deep Sanitization to prevent "undefined" Firestore errors
         const sanitizedPayload = sanitizeFirestoreData(updatePayload);
 
-        await jobRef.update(sanitizedPayload);
-        console.log(`[UPDATE_JOB] Saved Job ${jobId}. Phase[0] expectedMins/pc: ${sanitizedPayload.phases?.[0]?.expectedMinutesPerPiece}`);
+        const newJobId = sanitizeDocumentId(data.ordinePF);
+        const batch = adminDb.batch();
+
+        if (newJobId !== jobId) {
+            console.log(`[UPDATE_JOB] Renaming document ID from "${jobId}" to "${newJobId}"`);
+            
+            // Check if a document already exists at the new ID to prevent overwrite collisions
+            const newDocRef = adminDb.collection("jobOrders").doc(newJobId);
+            const newDocSnap = await newDocRef.get();
+            if (newDocSnap.exists) {
+                return { success: false, message: "Esiste già una commessa con il nuovo Ordine PF specificato." };
+            }
+
+            // Create full migrated document data
+            const migratedJob = {
+                ...job,
+                ...sanitizedPayload,
+                id: newJobId,
+                ordinePF: data.ordinePF
+            };
+
+            batch.set(newDocRef, JSON.parse(JSON.stringify(migratedJob)));
+            batch.delete(jobRef);
+
+            // Cascade updates to other collections referencing the old ID or old ordinePF
+            // 1. workGroups
+            const workGroupsSnap = await adminDb.collection("workGroups")
+                .where("jobOrderIds", "array-contains", jobId)
+                .get();
+            workGroupsSnap.forEach(wgDoc => {
+                const groupData = wgDoc.data();
+                const jobOrderIds = (groupData.jobOrderIds || []).map((id: string) => id === jobId ? newJobId : id);
+                const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => pf === jobId || pf === job.ordinePF ? data.ordinePF : pf);
+                batch.update(wgDoc.ref, { jobOrderIds, jobOrderPFs });
+            });
+
+            // 2. materialWithdrawals
+            const withdrawalsSnap1 = await adminDb.collection("materialWithdrawals")
+                .where("jobIds", "array-contains", jobId)
+                .get();
+            withdrawalsSnap1.forEach(wDoc => {
+                const wData = wDoc.data();
+                const jobIds = (wData.jobIds || []).map((id: string) => id === jobId ? newJobId : id);
+                const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => pf === jobId || pf === job.ordinePF ? data.ordinePF : pf);
+                batch.update(wDoc.ref, { jobIds, jobOrderPFs });
+            });
+
+            // 3. manualCommitments
+            const commitmentsSnap = await adminDb.collection("manualCommitments")
+                .where("jobOrderCode", "==", job.ordinePF)
+                .get();
+            commitmentsSnap.forEach(cDoc => {
+                batch.update(cDoc.ref, { jobOrderCode: data.ordinePF });
+            });
+
+            // 4. operators
+            const operatorsSnap = await adminDb.collection("operators")
+                .where("activeJobId", "==", jobId)
+                .get();
+            operatorsSnap.forEach(oDoc => {
+                batch.update(oDoc.ref, { activeJobId: newJobId });
+            });
+
+            // 5. packingLists
+            const packingListsSnap = await adminDb.collection("packingLists").get();
+            packingListsSnap.forEach(plDoc => {
+                const plData = plDoc.data();
+                let modified = false;
+                const items = (plData.items || []).map((item: any) => {
+                    let itemMod = false;
+                    let newJobIdVal = item.jobId;
+                    let newOrderPFVal = item.orderPF;
+                    if (item.jobId === jobId) {
+                        newJobIdVal = newJobId;
+                        itemMod = true;
+                    }
+                    if (item.orderPF === jobId || item.orderPF === job.ordinePF) {
+                        newOrderPFVal = data.ordinePF;
+                        itemMod = true;
+                    }
+                    if (itemMod) {
+                        modified = true;
+                        return { ...item, jobId: newJobIdVal, orderPF: newOrderPFVal };
+                    }
+                    return item;
+                });
+                if (modified) {
+                    batch.update(plDoc.ref, { items });
+                }
+            });
+        } else {
+            // Document ID is not changing, just update in place
+            batch.update(jobRef, sanitizedPayload);
+        }
+
+        await batch.commit();
+        console.log(`[UPDATE_JOB] Saved Job ${newJobId}. Phase[0] expectedMins/pc: ${sanitizedPayload.phases?.[0]?.expectedMinutesPerPiece}`);
 
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
@@ -784,14 +962,45 @@ export async function saveSmartJobOrder(data: {
         }    console.log(`[SAVE_SMART] Post-distribution phases[0]:`, JSON.stringify(phases[0], null, 2));
         }
 
+        const globalSettingsSnap = await adminDb.collection("settings").doc("global").get();
+        const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
+
+        const compCodes = (billOfMaterials || []).map(item => item.component.toUpperCase().trim());
+        const rawMaterials = compCodes.length > 0 ? await fetchInChunks<RawMaterial>(
+            adminDb.collection("rawMaterials"),
+            "code",
+            compCodes
+        ) : [];
+
         // Map BillOfMaterialsItem to JobBillOfMaterialsItem for the JobOrder snapshot
-        const jobBOM: JobBillOfMaterialsItem[] = (billOfMaterials || []).map(item => ({
-            ...item,
-            status: 'pending',
-            withdrawn: false,
-            isFromTemplate: true,
-            fabbisognoTotale: item.quantity * qta
-        }));
+        const jobBOM: JobBillOfMaterialsItem[] = (billOfMaterials || []).map(item => {
+            const compCode = item.component.toUpperCase().trim();
+            const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
+            const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+            const requiresCut = typeConfig?.requiresCutLength !== false;
+
+            const req = calculateBOMRequirement(
+                qta,
+                { 
+                    quantity: item.quantity, 
+                    lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
+                    unit: item.unit 
+                },
+                material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
+                typeConfig || { defaultUnit: item.unit }
+            );
+
+            return {
+                ...item,
+                component: compCode,
+                status: 'pending',
+                withdrawn: false,
+                isFromTemplate: true,
+                lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
+                fabbisognoTotale: req.totalInBaseUnits,
+                pesoStimato: req.weightKg
+            };
+        });
 
         const newJob: any = {
             id: sanitizedId,
@@ -895,6 +1104,141 @@ export async function forceRecalculateEstimates() {
     } catch (error) {
         console.error("Error in forceRecalculateEstimates:", error);
         return { success: false, message: "Errore durante il ricalcolo." };
+    }
+}
+
+/**
+ * Automatically detects and heals any jobOrders whose Document ID does not match
+ * the sanitized version of their internal field "ordinePF".
+ * It migrates the old document to the new one (if not already existing) and deletes the old one.
+ */
+export async function healGhostJobOrders(): Promise<{ success: boolean; message: string; healedCount: number }> {
+    try {
+        const jobsSnap = await adminDb.collection("jobOrders").get();
+        let healedCount = 0;
+        const batch = adminDb.batch();
+        let ops = 0;
+
+        for (const doc of jobsSnap.docs) {
+            const job = doc.data() as JobOrder;
+            if (!job.ordinePF) continue;
+
+            const correctId = sanitizeDocumentId(job.ordinePF);
+            const currentId = doc.id;
+
+            if (currentId !== correctId) {
+                console.log(`[HEAL_GHOST] Mismatch detected: Document ID "${currentId}", internal ordinePF "${job.ordinePF}" (correct ID: "${correctId}")`);
+                
+                // Read correct document to check if it already exists
+                const correctDocRef = adminDb.collection("jobOrders").doc(correctId);
+                const correctDocSnap = await correctDocRef.get();
+
+                if (!correctDocSnap.exists) {
+                    // Migrate data to the correct document ID
+                    const migratedJob = {
+                        ...job,
+                        id: correctId
+                    };
+                    batch.set(correctDocRef, JSON.parse(JSON.stringify(migratedJob)));
+                    ops++;
+                }
+
+                // Delete the old mismatched ghost document
+                batch.delete(doc.ref);
+                ops++;
+                healedCount++;
+
+                // Cascade updates to other collections referencing the old ID or old ordinePF
+                // 1. workGroups
+                const workGroupsSnap = await adminDb.collection("workGroups")
+                    .where("jobOrderIds", "array-contains", currentId)
+                    .get();
+                workGroupsSnap.forEach(wgDoc => {
+                    const groupData = wgDoc.data();
+                    const jobOrderIds = (groupData.jobOrderIds || []).map((id: string) => id === currentId ? correctId : id);
+                    const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => pf === currentId || pf === job.ordinePF ? job.ordinePF : pf);
+                    batch.update(wgDoc.ref, { jobOrderIds, jobOrderPFs });
+                    ops++;
+                });
+
+                // 2. materialWithdrawals
+                const withdrawalsSnap1 = await adminDb.collection("materialWithdrawals")
+                    .where("jobIds", "array-contains", currentId)
+                    .get();
+                withdrawalsSnap1.forEach(wDoc => {
+                    const wData = wDoc.data();
+                    const jobIds = (wData.jobIds || []).map((id: string) => id === currentId ? correctId : id);
+                    const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => pf === currentId || pf === job.ordinePF ? job.ordinePF : pf);
+                    batch.update(wDoc.ref, { jobIds, jobOrderPFs });
+                    ops++;
+                });
+
+                // 3. manualCommitments
+                const commitmentsSnap = await adminDb.collection("manualCommitments")
+                    .where("jobOrderCode", "==", currentId)
+                    .get();
+                commitmentsSnap.forEach(cDoc => {
+                    batch.update(cDoc.ref, { jobOrderCode: job.ordinePF });
+                    ops++;
+                });
+
+                // 4. operators
+                const operatorsSnap = await adminDb.collection("operators")
+                    .where("activeJobId", "==", currentId)
+                    .get();
+                operatorsSnap.forEach(oDoc => {
+                    batch.update(oDoc.ref, { activeJobId: correctId });
+                    ops++;
+                });
+
+                // 5. packingLists
+                const packingListsSnap = await adminDb.collection("packingLists").get();
+                packingListsSnap.forEach(plDoc => {
+                    const plData = plDoc.data();
+                    let modified = false;
+                    const items = (plData.items || []).map((item: any) => {
+                        let itemMod = false;
+                        let newJobIdVal = item.jobId;
+                        let newOrderPFVal = item.orderPF;
+                        if (item.jobId === currentId) {
+                            newJobIdVal = correctId;
+                            itemMod = true;
+                        }
+                        if (item.orderPF === currentId || item.orderPF === job.ordinePF) {
+                            newOrderPFVal = job.ordinePF;
+                            itemMod = true;
+                        }
+                        if (itemMod) {
+                            modified = true;
+                            return { ...item, jobId: newJobIdVal, orderPF: newOrderPFVal };
+                        }
+                        return item;
+                    });
+                    if (modified) {
+                        batch.update(plDoc.ref, { items });
+                        ops++;
+                    }
+                });
+
+                // Commit batch if it's getting close to the Firestore limit (500 operations)
+                if (ops >= 400) {
+                    await batch.commit();
+                    ops = 0;
+                }
+            }
+        }
+
+        if (ops > 0) {
+            await batch.commit();
+        }
+
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+        
+        return { success: true, message: `Sanificazione completata: ${healedCount} commesse orfane corrette.`, healedCount };
+    } catch (error) {
+        console.error("Errore durante healGhostJobOrders:", error);
+        return { success: false, message: "Errore durante la riparazione: " + (error instanceof Error ? error.message : "Errore sconosciuto"), healedCount: 0 };
     }
 }
 

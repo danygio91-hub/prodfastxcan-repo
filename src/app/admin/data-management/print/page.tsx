@@ -12,6 +12,7 @@ import type { JobOrder, RawMaterial, Article } from '@/types';
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { getODLConfig } from '@/app/admin/settings/odl-actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
+import { getDepartments } from '@/app/admin/department-management/actions';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 
 function PrintPageContent() {
@@ -21,6 +22,7 @@ function PrintPageContent() {
   const [job, setJob] = useState<JobOrder | null>(null);
   const [article, setArticle] = useState<Article | null>(null);
   const [materials, setMaterials] = useState<RawMaterial[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
   const [config, setConfig] = useState<ODLConfig>(DEFAULT_ODL_CONFIG);
   const [qrRule, setQrRule] = useState<string>("{ordinePF}@{details}@{qta}");
   const [loading, setLoading] = useState(true);
@@ -35,13 +37,15 @@ function PrintPageContent() {
       }
 
       try {
-        const [jobData, odlConfig, globalSettings] = await Promise.all([
+        const [jobData, odlConfig, globalSettings, depts] = await Promise.all([
           getJobDetailReport(jobId),
           getODLConfig(),
-          getGlobalSettings()
+          getGlobalSettings(),
+          getDepartments()
         ]);
 
         setConfig(odlConfig);
+        setDepartments(depts);
         if (globalSettings?.jobOrderQrCodeRule) {
           setQrRule(globalSettings.jobOrderQrCodeRule);
         }
@@ -110,6 +114,7 @@ function PrintPageContent() {
                 materials={materials}
                 config={config}
                 qrRule={qrRule}
+                departments={departments}
             />
         </div>
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import QRCode from 'react-qr-code';
 import { format, isValid, parseISO } from 'date-fns';
-import type { JobOrder, RawMaterial, Article } from '@/types';
+import type { JobOrder, RawMaterial, Article, Department } from '@/types';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { GlobalSettings } from '@/lib/settings-types';
@@ -14,6 +14,7 @@ interface ODLPrintTemplateProps {
   config?: ODLConfig;
   qrRule?: string;
   globalSettings?: GlobalSettings | null;
+  departments?: Department[];
 }
 
 export default function ODLPrintTemplate({ 
@@ -23,7 +24,8 @@ export default function ODLPrintTemplate({
   printDate, 
   config = DEFAULT_ODL_CONFIG,
   qrRule = "{ordinePF}@{details}@{qta}",
-  globalSettings
+  globalSettings,
+  departments = []
 }: ODLPrintTemplateProps) {
   console.log("ODL Print Job Data:", {
     id: job.id,
@@ -273,7 +275,10 @@ export default function ODLPrintTemplate({
                             <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
                               {activeHeaderCols.map((col, idx) => {
                                 let val = '---';
-                                if (col.field === 'reparto') val = job.department || 'N/D';
+                                if (col.field === 'reparto') {
+                                    const deptCode = departments.find(d => d.id === job.department || d.name === job.department)?.code || job.department;
+                                    val = deptCode || 'N/D';
+                                }
                                 if (col.field === 'dataOdl') val = format(printDate || new Date(), 'dd/MM/yyyy');
                                 if (col.field === 'ordinePf') val = job.ordinePF;
                                 if (col.field === 'numeroOdl') val = job.numeroODLInterno || '---';

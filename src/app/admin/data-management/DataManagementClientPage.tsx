@@ -34,7 +34,7 @@ import {
   processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL,
   createMultipleODLs, cancelODL, updateJobOrderCycle, saveManualJobOrder, markJobAsPrinted,
   updateJobOrderDeliveryDate, updateJobOrderPrepDate, updateJobOrderOdlNumber,
-  forceRecalculateEstimates
+  forceRecalculateEstimates, healGhostJobOrders
 } from './actions';
 import { emergencyRestoreStagingArea } from '../data-healing/actions';
 import { getArticles } from '../article-management/actions';
@@ -755,6 +755,26 @@ export default function DataManagementClientPage({
             <RefreshCw className="h-4 w-4 mr-2" />
             Forza Ricalcolo Stime
           </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={async () => {
+              if (!confirm("Riparare eventuali commesse orfane (ghost) nel database delle commesse?")) return;
+              setIsRefreshingMRP(true);
+              const res = await healGhostJobOrders();
+              setIsRefreshingMRP(false);
+              if (res.success) {
+                toast({ title: "Sanificazione Completata", description: res.message });
+                router.refresh();
+              } else {
+                toast({ title: "Errore", description: res.message, variant: "destructive" });
+              }
+            }}
+            className="text-indigo-600 hover:text-indigo-700 border-indigo-200 hover:border-indigo-500"
+          >
+            <AlertTriangle className="h-4 w-4 mr-2" />
+            Riparazione Database
+          </Button>
           <input type="file" ref={fileInputRef} onChange={async (e) => {
             const file = e.target.files?.[0]; if (!file) return; setIsImporting(true);
             try {
@@ -1022,6 +1042,12 @@ export default function DataManagementClientPage({
                   if (a.workCycleId) {
                       manualForm.setValue("workCycleId", a.workCycleId);
                   }
+                  if (!manualForm.getValues("department")) {
+                      const defaultDept = filteredDepartmentsForManualCreate.find(d => d.macroAreas?.includes('PRODUZIONE')) || filteredDepartmentsForManualCreate[0];
+                      if (defaultDept) {
+                          manualForm.setValue("department", defaultDept.code || defaultDept.id);
+                      }
+                  }
                   setIsArticlePopoverOpen(false); 
                 }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
             )} />
@@ -1066,13 +1092,13 @@ export default function DataManagementClientPage({
               <FormField control={manualForm.control} name="department" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Reparto</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value || ""}>
                     <FormControl>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Seleziona..." /></SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       {filteredDepartmentsForManualCreate.map(d => (
-                        <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                        <SelectItem key={d.id} value={d.code}>{d.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1082,7 +1108,15 @@ export default function DataManagementClientPage({
             <FormField control={manualForm.control} name="workCycleId" render={({ field }) => (
               <FormItem>
                 <FormLabel>Ciclo</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value || ""}>
+                <Select onValueChange={(val) => {
+                  field.onChange(val);
+                  if (!manualForm.getValues("department")) {
+                      const defaultDept = filteredDepartmentsForManualCreate.find(d => d.macroAreas?.includes('PRODUZIONE')) || filteredDepartmentsForManualCreate[0];
+                      if (defaultDept) {
+                          manualForm.setValue("department", defaultDept.code || defaultDept.id);
+                      }
+                  }
+                }} value={field.value || ""}>
                   <FormControl>
                     <SelectTrigger className="border-blue-500/20 bg-blue-500/5"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
                   </FormControl>

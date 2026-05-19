@@ -166,47 +166,59 @@ export function calculateBOMRequirement(
 ): BOMRequirementDetails {
   const qta = Number(jobQta) || 0;
   const bomQty = Number(bomItem.quantity) || 0;
-  const baseUnit = config.defaultUnit as UnitOfMeasure;
+  
+  // SSoT: L'unità base è quella di default per la tipologia (dai Global Settings),
+  // sovrascritta da quella del materiale solo se è stata fatta un'eccezione locale.
+  const rawUom = material?.unitOfMeasure || config?.defaultUnit || 'n';
+  const baseUnitStr = rawUom.toLowerCase();
+  const baseUnit = baseUnitStr as UnitOfMeasure;
+  
   const totalPieces = qta * bomQty;
-  const factor = getConversionFactor(material as any, config as any);
-
-  // Determina se considerare la lunghezza taglio (mm)
-  // Se config.requiresCutLength è undefined, assumiamo il comportamento storico (se lengthMm > 0 usalo)
-  // Se è esplicitamente false, MAI usarlo.
-  const isLengthApplicable = config.requiresCutLength !== false;
+  
+  // ARCHITETTURA: I flag di GlobalSettings guidano dinamicamente la logica
+  const richiedeTaglio = config?.requiresCutLength === true;
+  const usaConversione = config?.hasConversion === true;
+  const conversionType = config?.conversionType; // 'kg/mt' o 'kg/unit'
   const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
+
+  const factor = usaConversione ? getConversionFactor(material as any, config as any) : 1;
 
   let totalInBaseUnits = 0;
   let totalMeters: number | undefined = undefined;
 
-  // 1. Calculate length if cut length is present (mm -> mt)
-  if (lengthMm > 0) {
+  // 1. Calcolo Metri (Solo se richiedeTaglio === true)
+  if (richiedeTaglio && lengthMm > 0) {
       totalMeters = (totalPieces * lengthMm) / 1000;
-  } else if (bomItem.unit === 'mt') {
+  } else if (bomItem.unit?.toLowerCase() === 'mt' || bomItem.unit?.toLowerCase() === 'm') {
       totalMeters = totalPieces;
   }
 
-  // 2. Derive base units (The Source of Truth for inventory)
-  if (baseUnit === 'kg') {
-      if (totalMeters !== undefined && factor > 0) {
-          // Continuous Material: (jobQty * bomQty) * (mm / 1000) * ratio
-          totalInBaseUnits = totalMeters * factor;
+  // 2. Fabbisogno in base all'unità (Source of Truth) e regole di conversione
+  if (baseUnitStr === 'kg') {
+      if (usaConversione) {
+          if (conversionType === 'kg/mt' || (conversionType == null && totalMeters !== undefined)) {
+              // Conversione da Metri a KG (es. Bobina: totalMeters * rapportoKgMt)
+              totalInBaseUnits = (totalMeters !== undefined ? totalMeters : 0) * factor;
+          } else if (conversionType === 'kg/unit' || conversionType == null) {
+              // Conversione da Pezzi a KG (es. Tubi: totalPieces * pesoUnitario)
+              totalInBaseUnits = totalPieces * factor;
+          }
       } else {
-          // Discrete Material calculated in KG: pieces * unit weight
-          totalInBaseUnits = totalPieces * factor;
+          // Senza conversione (impostazione admin) fallback 1:1
+          totalInBaseUnits = totalMeters !== undefined ? totalMeters : totalPieces;
       }
-  } else if (baseUnit === 'mt' && totalMeters !== undefined) {
-      totalInBaseUnits = totalMeters;
+  } else if (baseUnitStr === 'mt' || baseUnitStr === 'm') {
+      totalInBaseUnits = totalMeters !== undefined ? totalMeters : totalPieces;
   } else {
-      // Discrete or default case
+      // baseUnitStr === 'n' o altro
       totalInBaseUnits = totalPieces;
   }
 
-  // 3. Calculate Weight in KG for estimate/printing
+  // 3. Stima Peso
   let weightKg = 0;
-  if (baseUnit === 'kg') {
+  if (baseUnitStr === 'kg') {
       weightKg = totalInBaseUnits;
-  } else {
+  } else if (usaConversione && factor > 0) {
       weightKg = totalInBaseUnits * factor;
   }
 

@@ -112,6 +112,9 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
       setFieldValues(initialJob.smartCodeParams || {});
       setBom(initialJob.billOfMaterials || []);
       
+      const deptCode = departments.find(d => d.name === initialJob.department || d.code === initialJob.department)?.code || initialJob.department || '';
+      setSelectedDept(deptCode);
+      
       // If we have article-level data to fetch, we could do it here.
       // But for basic fields, this is enough.
     } else if (!isOpen) {
@@ -123,7 +126,7 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
       setExpectedMinutes('');
       setArticleExists(null);
     }
-  }, [initialJob, isOpen]);
+  }, [initialJob, isOpen, departments]);
 
   // Live Validation
   useEffect(() => {
