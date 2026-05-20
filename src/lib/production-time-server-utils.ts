@@ -18,7 +18,6 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
         // 2. Fetch last 500 jobs for this article (Increased from 50)
         const jobsSnap = await adminDb.collection("jobOrders")
             .where("details", "==", trimmedCode)
-            .orderBy("ordinePF", "desc") // Get most recent
             .limit(500)
             .get();
 
@@ -30,7 +29,11 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
             return;
         }
 
-        const jobs = jobsSnap.docs.map(doc => doc.data() as JobOrder);
+        const allowedStatuses = ["completed", "production", "suspended", "paused", "CHIUSO", "FINE_PRODUZIONE", "QLTY_PACK", "IN_PRODUZIONE"];
+        const jobs = jobsSnap.docs
+            .map(doc => doc.data() as JobOrder)
+            .filter(j => allowedStatuses.includes(j.status || ''))
+            .sort((a, b) => (b.ordinePF || '').localeCompare(a.ordinePF || ''));
 
         // 3. Setup settings and templates (Use cache if provided)
         let MIN_MS = cachedData?.minMs;

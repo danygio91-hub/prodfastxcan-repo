@@ -8,7 +8,7 @@ import { it } from 'date-fns/locale';
 import { getOverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
-import { convertTimestampsToDates } from '@/lib/utils';
+import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 
 function formatDuration(ms: number): string {
@@ -354,8 +354,8 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     // Optimization: only consider the last 100 completed/in-production jobs for average calculation
     // to keep performance stable even with large histories.
     const jobsSnap = await adminDb.collection("jobOrders")
-        .where("status", "in", ["completed", "production", "suspended", "paused"])
-        .limit(100)
+        .where("status", "in", ["completed", "production", "suspended", "paused", "CHIUSO", "FINE_PRODUZIONE", "QLTY_PACK", "IN_PRODUZIONE"])
+        .limit(300)
         .get();
 
     const jobs = jobsSnap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
@@ -402,7 +402,16 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         let totalMs = 0;
         let isReliable = true;
         let phasesWithDetails: any[] = [];
-        const calculateMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => wp.start && wp.end ? acc + (new Date(wp.end).getTime() - new Date(wp.start).getTime()) : acc, 0);
+        const calculateMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => {
+            if (!wp.start || !wp.end) return acc;
+            const start = parseRobustDate(wp.start);
+            const end = parseRobustDate(wp.end);
+            if (start && end) {
+                const diff = end.getTime() - start.getTime();
+                return diff > 0 ? acc + diff : acc;
+            }
+            return acc;
+        }, 0);
 
         if (job.workGroupId && groupsMap.has(job.workGroupId)) {
             const group = groupsMap.get(job.workGroupId)!;

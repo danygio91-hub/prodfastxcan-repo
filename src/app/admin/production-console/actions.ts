@@ -10,7 +10,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate, Article } from '@/types';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 import { pulseOperatorsForJob } from '@/lib/job-sync-server';
-import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
+import { convertTimestampsToDates, normalizeDateStr, parseRobustDate } from '@/lib/utils';
 import { getOverallStatus } from '@/lib/types';
 
 
@@ -780,13 +780,17 @@ export async function bulkUpdateJobOrders(jobs: JobOrder[], uid: string | undefi
 export async function getAnalysisForArticle(articleCode: string): Promise<ProductionTimeData | null> {
     const jobsSnap = await adminDb.collection("jobOrders")
         .where("details", "==", articleCode)
-        .where("status", "in", ["completed", "production", "suspended", "paused"])
-        .limit(50)
+        .limit(200)
         .get();
 
     if (jobsSnap.empty) return null;
 
-    const jobs = jobsSnap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    const allowedStatuses = ["completed", "production", "suspended", "paused", "CHIUSO", "FINE_PRODUZIONE", "QLTY_PACK", "IN_PRODUZIONE"];
+    const jobs = jobsSnap.docs
+        .map(doc => convertTimestampsToDates(doc.data()) as JobOrder)
+        .filter(j => allowedStatuses.includes(j.status || ''))
+        .sort((a, b) => (b.ordinePF || '').localeCompare(a.ordinePF || ''))
+        .slice(0, 50);
     
     const articleSnap = await adminDb.collection("articles").where("code", "==", articleCode).limit(1).get();
     const article = articleSnap.empty ? null : (articleSnap.docs[0].data() as Article);
@@ -822,7 +826,16 @@ export async function getAnalysisForArticle(articleCode: string): Promise<Produc
         let totalMs = 0;
         let isReliable = true;
         let phasesWithDetails: any[] = [];
-        const calculateMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => wp.start && wp.end ? acc + (new Date(wp.end).getTime() - new Date(wp.start).getTime()) : acc, 0);
+        const calculateMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => {
+            if (!wp.start || !wp.end) return acc;
+            const start = parseRobustDate(wp.start);
+            const end = parseRobustDate(wp.end);
+            if (start && end) {
+                const diff = end.getTime() - start.getTime();
+                return diff > 0 ? acc + diff : acc;
+            }
+            return acc;
+        }, 0);
 
         if (job.workGroupId && groupsMap.has(job.workGroupId)) {
             const group = groupsMap.get(job.workGroupId)!;
