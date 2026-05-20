@@ -803,7 +803,7 @@ export async function getAnalysisForArticle(articleCode: string): Promise<Produc
     const typeMap = new Map<string, string>();
     tSnap.forEach(d => typeMap.set(d.data().name, d.data().type));
     
-    const workGroupIds = [...new Set(jobs.map(j => j.workGroupId).filter(Boolean))] as string[];
+    const workGroupIds = [...new Set(jobs.map(j => j.workGroupId).filter(id => id && typeof id === 'string'))] as string[];
     const groupsMap = new Map<string, WorkGroup>();
     if (workGroupIds.length > 0) {
         for (let i = 0; i < workGroupIds.length; i += 30) {

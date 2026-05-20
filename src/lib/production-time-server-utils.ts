@@ -54,7 +54,7 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
         }
         
         // 4. Fetch WorkGroups if any
-        const workGroupIds = [...new Set(jobs.map(j => j.workGroupId).filter(Boolean))] as string[];
+        const workGroupIds = [...new Set(jobs.map(j => j.workGroupId).filter(id => id && typeof id === 'string'))] as string[];
         const groupsMap = new Map<string, WorkGroup>();
         if (workGroupIds.length > 0) {
             for (let i = 0; i < workGroupIds.length; i += 30) {
