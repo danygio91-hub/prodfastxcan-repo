@@ -143,3 +143,14 @@ export async function convertDraftToJobOrder(draftId: string, customJobId?: stri
         return { success: false, message: "Errore durante la conversione della bozza." };
     }
 }
+
+export async function getArticlesByCodes(codes: string[]): Promise<Article[]> {
+    if (codes.length === 0) return [];
+    const articles: Article[] = [];
+    for (let i = 0; i < codes.length; i += 30) {
+        const chunk = codes.slice(i, i + 30);
+        const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
+        aSnap.forEach(d => articles.push({ id: d.id, ...convertTimestampsToDates(d.data() as any) } as Article));
+    }
+    return articles;
+}

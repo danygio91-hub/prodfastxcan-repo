@@ -9,12 +9,13 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Calculator, Save, Trash2, ArrowRightLeft, FileSpreadsheet, AlertTriangle, CheckCircle2, Clock, Plus, Search } from 'lucide-react';
+import { Loader2, Calculator, Save, Trash2, ArrowRightLeft, FileSpreadsheet, AlertTriangle, CheckCircle2, Clock, Plus, Search, Clipboard } from 'lucide-react';
 import { Article, RawMaterial, JobOrder, PurchaseOrder, ManualCommitment, DraftJobOrder } from '@/types';
 import { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, aggregateMRPRequirements, MRPTimelineEntry } from '@/lib/mrp-utils';
-import { saveDraft, getDrafts, deleteDraft, convertDraftToJobOrder } from './actions';
+import { saveDraft, getDrafts, deleteDraft, convertDraftToJobOrder, getArticlesByCodes } from './actions';
 import { getArticles } from '../article-management/actions';
+import { Textarea } from '@/components/ui/textarea';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { syncJobBOMItems } from '@/lib/inventory-utils';
@@ -50,6 +51,11 @@ export default function MrpSimulationClientPage({
     // Rapid Input State
     const [rows, setRows] = useState<SimulationRow[]>([{ id: crypto.randomUUID(), articleCode: '', quantity: '', deliveryDate: '' }]);
     
+    // Paste from Excel State
+    const [isPasteDialogOpen, setIsPasteDialogOpen] = useState(false);
+    const [pasteText, setPasteText] = useState('');
+    const [isProcessingPaste, setIsProcessingPaste] = useState(false);
+    
     // Async Search State
     const [downloadedArticles, setDownloadedArticles] = useState<Article[]>([]);
     const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
@@ -73,6 +79,136 @@ export default function MrpSimulationClientPage({
             .filter(a => a.code && a.billOfMaterials && a.billOfMaterials.length > 0)
             .sort((a, b) => a.code.localeCompare(b.code));
     }, [downloadedArticles]);
+
+    const parseExcelDate = (dateStr: string): string => {
+        const s = dateStr.trim();
+        if (!s) return '';
+        
+        // Formato standard YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            return s;
+        }
+        
+        // Divide per slash, trattini o punti
+        const parts = s.split(/[\/\-\.]/);
+        if (parts.length === 3) {
+            let day = '';
+            let month = '';
+            let year = '';
+            
+            if (parts[0].length === 4) {
+                // YYYY/MM/DD
+                year = parts[0];
+                month = parts[1];
+                day = parts[2];
+            } else if (parts[2].length === 4 || parts[2].length === 2) {
+                // DD/MM/YYYY o DD/MM/YY
+                day = parts[0];
+                month = parts[1];
+                year = parts[2];
+            }
+            
+            if (day && month && year) {
+                const cleanDay = day.padStart(2, '0');
+                const cleanMonth = month.padStart(2, '0');
+                let cleanYear = year;
+                if (cleanYear.length === 2) {
+                    cleanYear = '20' + cleanYear;
+                }
+                return `${cleanYear}-${cleanMonth}-${cleanDay}`;
+            }
+        }
+        
+        // Fallback: prova parsing nativo di JS
+        try {
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) {
+                return d.toISOString().split('T')[0];
+            }
+        } catch (_) {}
+        
+        return '';
+    };
+
+    const handlePasteSubmit = async () => {
+        if (!pasteText.trim()) {
+            toast({ variant: 'destructive', title: 'Errore', description: 'Inserisci del testo da copiare.' });
+            return;
+        }
+        
+        setIsProcessingPaste(true);
+        try {
+            const lines = pasteText.split(/\r?\n/);
+            const newParsedRows: { articleCode: string; quantity: number | ''; deliveryDate: string }[] = [];
+            
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                const columns = line.split('\t');
+                if (columns.length < 2) continue; // Almeno codice e quantità sono necessari
+                
+                const code = columns[0].trim().toUpperCase();
+                
+                // Conversione quantità (es. virgola come decimale)
+                let qtyStr = columns[1] ? columns[1].trim() : '';
+                qtyStr = qtyStr.replace(',', '.');
+                const qty = qtyStr ? parseFloat(qtyStr) : '';
+                const finalQty = isNaN(qty as number) ? '' : (qty as number);
+                
+                // Parsing data consegna
+                const rawDate = columns[2] ? columns[2].trim() : '';
+                const formattedDate = rawDate ? parseExcelDate(rawDate) : '';
+                
+                newParsedRows.push({
+                    articleCode: code,
+                    quantity: finalQty,
+                    deliveryDate: formattedDate
+                });
+            }
+            
+            if (newParsedRows.length === 0) {
+                toast({ variant: 'destructive', title: 'Errore', description: 'Nessuna riga valida trovata. Verifica che le colonne siano separate da Tab (copiate da Excel).' });
+                setIsProcessingPaste(false);
+                return;
+            }
+            
+            // Pre-fetch degli articoli per far funzionare all'istante l'analisi MRP globale
+            const codesToFetch = [...new Set(newParsedRows.map(r => r.articleCode).filter(Boolean))];
+            if (codesToFetch.length > 0) {
+                const fetchedArticles = await getArticlesByCodes(codesToFetch);
+                if (fetchedArticles.length > 0) {
+                    setDownloadedArticles(prev => {
+                        const newMap = new Map(prev.map(a => [a.code, a]));
+                        fetchedArticles.forEach(a => newMap.set(a.code, a));
+                        return Array.from(newMap.values());
+                    });
+                }
+            }
+            
+            // Inserisci le nuove righe
+            setRows(prev => {
+                const isOnlyRowEmpty = prev.length === 1 && !prev[0].articleCode && !prev[0].quantity && !prev[0].deliveryDate;
+                const newRows = newParsedRows.map(r => ({
+                    id: crypto.randomUUID(),
+                    ...r
+                }));
+                return isOnlyRowEmpty ? newRows : [...prev, ...newRows];
+            });
+            
+            toast({
+                title: 'Incolla Completato',
+                description: `Importate con successo ${newParsedRows.length} righe da Excel.`
+            });
+            
+            // Resetta e chiudi
+            setPasteText('');
+            setIsPasteDialogOpen(false);
+        } catch (error) {
+            console.error("Error during Smart Paste processing:", error);
+            toast({ variant: 'destructive', title: 'Errore', description: 'Si è verificato un errore durante l\'elaborazione del testo incollato.' });
+        } finally {
+            setIsProcessingPaste(false);
+        }
+    };
 
     const addRow = () => {
         setRows([...rows, { id: crypto.randomUUID(), articleCode: '', quantity: '', deliveryDate: '' }]);
@@ -393,9 +529,14 @@ export default function MrpSimulationClientPage({
                                     </div>
                                 );
                             })}
-                            <Button variant="outline" size="sm" onClick={addRow} className="gap-2 mt-2 w-full md:w-auto border-dashed">
-                                <Plus className="h-4 w-4" /> Aggiungi Riga
-                            </Button>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                <Button variant="outline" size="sm" onClick={addRow} className="gap-2 w-full md:w-auto border-dashed">
+                                    <Plus className="h-4 w-4" /> Aggiungi Riga
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" onClick={() => setIsPasteDialogOpen(true)} className="gap-2 w-full md:w-auto border-dashed border-primary/50 text-primary hover:text-primary hover:bg-primary/5">
+                                    <Clipboard className="h-4 w-4" /> 📋 Incolla da Excel
+                                </Button>
+                            </div>
                         </div>
 
                         {simulatedBOM && simulatedBOM.length > 0 && (
@@ -536,6 +677,53 @@ export default function MrpSimulationClientPage({
                         <Button onClick={handleConvertSubmit} disabled={isConverting} className="gap-2">
                             {isConverting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
                             Converti Ora
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Dialog per Incolla Massivo da Excel */}
+            <Dialog open={isPasteDialogOpen} onOpenChange={(open) => !open && setIsPasteDialogOpen(false)}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Clipboard className="h-5 w-5 text-primary" />
+                            Smart Paste da Excel
+                        </DialogTitle>
+                        <DialogDescription>
+                            Copia le righe direttamente dal tuo foglio Excel (assicurati di includere esattamente 3 colonne nell'ordine: <strong className="text-foreground">Codice Articolo | Quantità | Data Consegna</strong>) e incollale qui sotto.
+                        </DialogDescription>
+                    </DialogHeader>
+                    
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="paste-textarea" className="text-sm font-medium">Incolla i dati qui (Ctrl+V)</Label>
+                            <Textarea 
+                                id="paste-textarea" 
+                                placeholder="Esempio:&#10;ART-A100	1500	25/05/2026&#10;ART-B200	340	10/06/2026" 
+                                value={pasteText} 
+                                onChange={(e) => setPasteText(e.target.value)} 
+                                className="min-h-[220px] font-mono text-sm leading-relaxed"
+                            />
+                        </div>
+                        <div className="bg-accent/40 p-3 rounded-md border text-xs text-muted-foreground space-y-1.5">
+                            <p className="font-semibold text-foreground">💡 Suggerimenti per l'uso:</p>
+                            <ul className="list-disc pl-4 space-y-1">
+                                <li>Assicurati che la prima colonna sia il codice dell'articolo, la seconda sia il numero della quantità e la terza sia la data.</li>
+                                <li>Le date possono essere inserite nei formati standard: <code className="font-mono">GG/MM/AAAA</code>, <code className="font-mono">GG-MM-AAAA</code> o <code className="font-mono">AAAA-MM-GG</code>.</li>
+                                <li>Il sistema correggerà automaticamente le quantità espresse con virgole (es. <code className="font-mono">12,5</code> diventerà <code className="font-mono">12.5</code>).</li>
+                                <li>Eventuali righe vuote verranno ignorate.</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="gap-2 md:gap-0">
+                        <DialogClose asChild>
+                            <Button variant="outline">Annulla</Button>
+                        </DialogClose>
+                        <Button onClick={handlePasteSubmit} disabled={isProcessingPaste || !pasteText.trim()} className="gap-2">
+                            {isProcessingPaste ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                            Elabora e Inserisci
                         </Button>
                     </DialogFooter>
                 </DialogContent>
