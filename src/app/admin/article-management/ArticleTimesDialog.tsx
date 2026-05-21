@@ -32,6 +32,30 @@ interface ArticleTimesDialogProps {
     phaseTemplates: WorkPhaseTemplate[];
 }
 
+function applyCyclePhases(
+    cycleId: string,
+    cyclesList: WorkCycle[],
+    currentTimes: Record<string, ArticlePhaseTime>,
+    phaseTemplates: WorkPhaseTemplate[]
+): Record<string, ArticlePhaseTime> {
+    if (cycleId === 'manual') return currentTimes;
+
+    const selectedCycle = cyclesList.find(c => c.id === cycleId);
+    if (!selectedCycle) return currentTimes;
+
+    const cyclePhases = new Set(selectedCycle.phaseTemplateIds);
+    const newPhaseTimes = { ...currentTimes };
+
+    phaseTemplates.forEach(t => {
+        newPhaseTimes[t.id] = {
+            ...(newPhaseTimes[t.id] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0 }),
+            enabled: cyclePhases.has(t.id)
+        };
+    });
+
+    return newPhaseTimes;
+}
+
 export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates }: ArticleTimesDialogProps) {
     const { toast } = useToast();
     const [isPending, setIsPending] = useState(false);
@@ -48,44 +72,57 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
 
     useEffect(() => {
         if (isOpen) {
-            getWorkCycles().then(setWorkCycles);
-            if (article) {
-                setPrimaryCycleId(article.workCycleId || 'manual');
-                setSecondaryCycleId(article.secondaryWorkCycleId || 'manual');
-                setExpectedTotalDefault(article.expectedMinutesDefault || 0);
-                setExpectedTotalSecondary(article.expectedMinutesSecondary || 0);
-                
-                let initialDefault = article.phaseTimes || {};
-                let initialSecondary = article.phaseTimesSecondary || {};
+            getWorkCycles().then((cycles) => {
+                setWorkCycles(cycles);
+                if (article) {
+                    const primaryId = article.workCycleId || 'manual';
+                    const secondaryId = article.secondaryWorkCycleId || 'manual';
 
-                // Auto-populate from historicalTimes
-                if (article.historicalTimes?.averagePhaseTimes) {
-                    const historicalUpdates: Record<string, number> = {};
-                    article.historicalTimes.averagePhaseTimes.forEach((rptPhase: any) => {
-                        const template = phaseTemplates.find(t => t.name.trim().toUpperCase() === rptPhase.name.trim().toUpperCase());
-                        if (template) {
-                            historicalUpdates[template.id] = rptPhase.averageMinutesPerPiece;
-                        }
-                    });
+                    setPrimaryCycleId(primaryId);
+                    setSecondaryCycleId(secondaryId);
+                    setExpectedTotalDefault(article.expectedMinutesDefault || 0);
+                    setExpectedTotalSecondary(article.expectedMinutesSecondary || 0);
+                    
+                    let initialDefault = article.phaseTimes || {};
+                    let initialSecondary = article.phaseTimesSecondary || {};
 
-                    const applyHistorical = (phaseTimesObj: Record<string, ArticlePhaseTime>) => {
-                        const newObj = { ...phaseTimesObj };
-                        Object.keys(historicalUpdates).forEach(templateId => {
-                            newObj[templateId] = {
-                                ...(newObj[templateId] || { expectedMinutesPerPiece: 0, enabled: true }),
-                                detectedMinutesPerPiece: historicalUpdates[templateId]
-                            };
+                    // Auto-populate from historicalTimes
+                    if (article.historicalTimes?.averagePhaseTimes) {
+                        const historicalUpdates: Record<string, number> = {};
+                        article.historicalTimes.averagePhaseTimes.forEach((rptPhase: any) => {
+                            const template = phaseTemplates.find(t => t.name.trim().toUpperCase() === rptPhase.name.trim().toUpperCase());
+                            if (template) {
+                                historicalUpdates[template.id] = rptPhase.averageMinutesPerPiece;
+                            }
                         });
-                        return newObj;
-                    };
 
-                    initialDefault = applyHistorical(initialDefault);
-                    initialSecondary = applyHistorical(initialSecondary);
+                        const applyHistorical = (phaseTimesObj: Record<string, ArticlePhaseTime>) => {
+                            const newObj = { ...phaseTimesObj };
+                            Object.keys(historicalUpdates).forEach(templateId => {
+                                newObj[templateId] = {
+                                    ...(newObj[templateId] || { expectedMinutesPerPiece: 0, enabled: true }),
+                                    detectedMinutesPerPiece: historicalUpdates[templateId]
+                                };
+                            });
+                            return newObj;
+                        };
+
+                        initialDefault = applyHistorical(initialDefault);
+                        initialSecondary = applyHistorical(initialSecondary);
+                    }
+
+                    // Apply standard phases of the cycles if they are assigned, preserving existing times/targets
+                    if (primaryId !== 'manual') {
+                        initialDefault = applyCyclePhases(primaryId, cycles, initialDefault, phaseTemplates);
+                    }
+                    if (secondaryId !== 'manual') {
+                        initialSecondary = applyCyclePhases(secondaryId, cycles, initialSecondary, phaseTemplates);
+                    }
+
+                    setLocalPhaseTimesDefault(initialDefault);
+                    setLocalPhaseTimesSecondary(initialSecondary);
                 }
-
-                setLocalPhaseTimesDefault(initialDefault);
-                setLocalPhaseTimesSecondary(initialSecondary);
-            }
+            });
         }
     }, [isOpen, article, phaseTemplates]);
 
@@ -178,18 +215,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
 
         if (cycleId === 'manual') return;
 
-        const selectedCycle = workCycles.find(c => c.id === cycleId);
-        if (!selectedCycle) return;
-
-        const cyclePhases = new Set(selectedCycle.phaseTemplateIds);
-        const newPhaseTimes = { ...(type === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary) };
-
-        phaseTemplates.forEach(t => {
-            newPhaseTimes[t.id] = {
-                ...(newPhaseTimes[t.id] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0 }),
-                enabled: cyclePhases.has(t.id)
-            };
-        });
+        const currentTimes = type === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
+        const newPhaseTimes = applyCyclePhases(cycleId, workCycles, currentTimes, phaseTemplates);
 
         if (type === 'default') setLocalPhaseTimesDefault(newPhaseTimes);
         else setLocalPhaseTimesSecondary(newPhaseTimes);
