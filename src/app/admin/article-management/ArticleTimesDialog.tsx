@@ -47,8 +47,9 @@ function applyCyclePhases(
     const newPhaseTimes = { ...currentTimes };
 
     phaseTemplates.forEach(t => {
+        const existing = newPhaseTimes[t.id];
         newPhaseTimes[t.id] = {
-            ...(newPhaseTimes[t.id] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0 }),
+            ...(existing || { expectedMinutesPerPiece: "" as any, detectedMinutesPerPiece: 0 }),
             enabled: cyclePhases.has(t.id)
         };
     });
@@ -83,8 +84,25 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                     setExpectedTotalDefault(article.expectedMinutesDefault || 0);
                     setExpectedTotalSecondary(article.expectedMinutesSecondary || 0);
                     
-                    let initialDefault = article.phaseTimes || {};
-                    let initialSecondary = article.phaseTimesSecondary || {};
+                    const roundTo3 = (v: any) => {
+                        const parsed = parseFloat(v);
+                        if (isNaN(parsed)) return "";
+                        return (Math.round(parsed * 1000) / 1000).toString();
+                    };
+
+                    const prepareInitialTimes = (obj: Record<string, ArticlePhaseTime>) => {
+                        const res: Record<string, ArticlePhaseTime> = {};
+                        Object.keys(obj).forEach(key => {
+                            res[key] = {
+                                ...obj[key],
+                                expectedMinutesPerPiece: obj[key].expectedMinutesPerPiece !== undefined ? roundTo3(obj[key].expectedMinutesPerPiece) as any : ""
+                            };
+                        });
+                        return res;
+                    };
+
+                    let initialDefault = prepareInitialTimes(article.phaseTimes || {});
+                    let initialSecondary = prepareInitialTimes(article.phaseTimesSecondary || {});
 
                     // Auto-populate from historicalTimes
                     if (article.historicalTimes?.averagePhaseTimes) {
@@ -99,9 +117,11 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                         const applyHistorical = (phaseTimesObj: Record<string, ArticlePhaseTime>) => {
                             const newObj = { ...phaseTimesObj };
                             Object.keys(historicalUpdates).forEach(templateId => {
+                                const existingExpected = newObj[templateId]?.expectedMinutesPerPiece;
                                 newObj[templateId] = {
-                                    ...(newObj[templateId] || { expectedMinutesPerPiece: 0, enabled: true }),
-                                    detectedMinutesPerPiece: historicalUpdates[templateId]
+                                    ...(newObj[templateId] || { expectedMinutesPerPiece: "", enabled: true }),
+                                    detectedMinutesPerPiece: historicalUpdates[templateId],
+                                    expectedMinutesPerPiece: existingExpected !== undefined && existingExpected !== null ? existingExpected : "" as any
                                 };
                             });
                             return newObj;
@@ -139,7 +159,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
             const isEnabled = data ? data.enabled !== false : false;
             if (isEnabled) {
                 enabledCount++;
-                const expected = data?.expectedMinutesPerPiece || 0;
+                const expected = parseFloat(data?.expectedMinutesPerPiece as any) || 0;
                 totalExpected += expected;
                 totalDetected += (data?.detectedMinutesPerPiece || 0);
                 if (expected > 0) expectedCompleteCount++;
@@ -169,7 +189,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                 const template = phaseTemplates.find(t => t.name.trim().toUpperCase() === rptPhase.name.trim().toUpperCase());
                 if (template) {
                     newPhaseTimes[template.id] = {
-                        ...(newPhaseTimes[template.id] || { expectedMinutesPerPiece: 0, enabled: true }),
+                        ...(newPhaseTimes[template.id] || { expectedMinutesPerPiece: "", enabled: true }),
                         detectedMinutesPerPiece: rptPhase.averageMinutesPerPiece
                     };
                 }
@@ -192,9 +212,10 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         Object.keys(newPhaseTimes).forEach(key => {
             const data = newPhaseTimes[key];
             if (data && data.enabled !== false && data.detectedMinutesPerPiece && data.detectedMinutesPerPiece > 0) {
+                const roundedVal = Math.round(data.detectedMinutesPerPiece * 1000) / 1000;
                 newPhaseTimes[key] = {
                     ...data,
-                    expectedMinutesPerPiece: data.detectedMinutesPerPiece
+                    expectedMinutesPerPiece: roundedVal.toString() as any
                 };
                 copied++;
             }
@@ -223,21 +244,55 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
     };
 
     const handleExpectedTimeChange = (phaseId: string, value: string) => {
-        const numValue = parseFloat(value) || 0;
+        const cleanValue = value.replace(',', '.');
         if (activeView === 'default') {
-            setLocalPhaseTimesDefault(prev => ({ ...prev, [phaseId]: { ...(prev[phaseId] || { detectedMinutesPerPiece: 0, enabled: true }), expectedMinutesPerPiece: numValue } }));
+            setLocalPhaseTimesDefault(prev => ({ ...prev, [phaseId]: { ...(prev[phaseId] || { detectedMinutesPerPiece: 0, enabled: true }), expectedMinutesPerPiece: cleanValue as any } }));
         } else {
-            setLocalPhaseTimesSecondary(prev => ({ ...prev, [phaseId]: { ...(prev[phaseId] || { detectedMinutesPerPiece: 0, enabled: true }), expectedMinutesPerPiece: numValue } }));
+            setLocalPhaseTimesSecondary(prev => ({ ...prev, [phaseId]: { ...(prev[phaseId] || { detectedMinutesPerPiece: 0, enabled: true }), expectedMinutesPerPiece: cleanValue as any } }));
+        }
+    };
+
+    const handleExpectedTimeBlur = (phaseId: string) => {
+        const roundAndFormat = (val: any) => {
+            const parsed = parseFloat(val);
+            if (isNaN(parsed)) return "";
+            return (Math.round(parsed * 1000) / 1000).toString();
+        };
+
+        if (activeView === 'default') {
+            setLocalPhaseTimesDefault(prev => {
+                const item = prev[phaseId];
+                if (!item) return prev;
+                return {
+                    ...prev,
+                    [phaseId]: {
+                        ...item,
+                        expectedMinutesPerPiece: roundAndFormat(item.expectedMinutesPerPiece) as any
+                    }
+                };
+            });
+        } else {
+            setLocalPhaseTimesSecondary(prev => {
+                const item = prev[phaseId];
+                if (!item) return prev;
+                return {
+                    ...prev,
+                    [phaseId]: {
+                        ...item,
+                        expectedMinutesPerPiece: roundAndFormat(item.expectedMinutesPerPiece) as any
+                    }
+                };
+            });
         }
     };
 
     const handleToggleEnabled = (phaseId: string, checked: boolean) => {
         if (activeView === 'default') {
             setPrimaryCycleId('manual');
-            setLocalPhaseTimesDefault(prev => ({ ...prev, [phaseId]: { ...(prev[phaseId] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0 }), enabled: checked } }));
+            setLocalPhaseTimesDefault(prev => ({ ...prev, [phaseId]: { ...(prev[phaseId] || { expectedMinutesPerPiece: "", detectedMinutesPerPiece: 0 }), enabled: checked } }));
         } else {
             setSecondaryCycleId('manual');
-            setLocalPhaseTimesSecondary(prev => ({ ...prev, [phaseId]: { ...(prev[phaseId] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0 }), enabled: checked } }));
+            setLocalPhaseTimesSecondary(prev => ({ ...prev, [phaseId]: { ...(prev[phaseId] || { expectedMinutesPerPiece: "", detectedMinutesPerPiece: 0 }), enabled: checked } }));
         }
     };
 
@@ -245,13 +300,24 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         if (!article) return;
         setIsPending(true);
 
+        const parseTimes = (obj: Record<string, ArticlePhaseTime>) => {
+            const res: Record<string, ArticlePhaseTime> = {};
+            Object.keys(obj).forEach(key => {
+                res[key] = {
+                    ...obj[key],
+                    expectedMinutesPerPiece: parseFloat(obj[key].expectedMinutesPerPiece as any) || 0
+                };
+            });
+            return res;
+        };
+
         const data: Partial<Article> = {
             workCycleId: primaryCycleId,
             secondaryWorkCycleId: secondaryCycleId,
             expectedMinutesDefault: activeView === 'default' && stats.isExpectedComplete ? stats.totalExpected : expectedTotalDefault,
             expectedMinutesSecondary: activeView === 'secondary' && stats.isExpectedComplete ? stats.totalExpected : expectedTotalSecondary,
-            phaseTimes: localPhaseTimesDefault,
-            phaseTimesSecondary: localPhaseTimesSecondary,
+            phaseTimes: parseTimes(localPhaseTimesDefault),
+            phaseTimesSecondary: parseTimes(localPhaseTimesSecondary),
         };
 
         const result = await saveArticleStandardTimes(article.id, data);
@@ -346,7 +412,17 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                             <TableCell><Checkbox checked={isEnabled} onCheckedChange={(c) => handleToggleEnabled(phase.id, !!c)} /></TableCell>
                                             <TableCell><div className="flex flex-col"><span className="font-bold text-sm uppercase">{phase.name}</span><span className="text-[10px] text-muted-foreground uppercase">{phase.type}</span></div></TableCell>
                                             <TableCell className="text-right font-mono text-muted-foreground">{data?.detectedMinutesPerPiece ? data.detectedMinutesPerPiece.toFixed(4) : '---'}</TableCell>
-                                            <TableCell className="text-right"><Input type="number" step="0.0001" disabled={!isEnabled} className="w-32 text-right h-9 font-mono" value={data?.expectedMinutesPerPiece || ''} onChange={(e) => handleExpectedTimeChange(phase.id, e.target.value)} /></TableCell>
+                                            <TableCell className="text-right">
+                                                <Input 
+                                                    type="number" 
+                                                    step="0.001" 
+                                                    disabled={!isEnabled} 
+                                                    className="w-32 text-right h-9 font-mono" 
+                                                    value={data?.expectedMinutesPerPiece ?? ''} 
+                                                    onChange={(e) => handleExpectedTimeChange(phase.id, e.target.value)} 
+                                                    onBlur={() => handleExpectedTimeBlur(phase.id)}
+                                                />
+                                            </TableCell>
                                         </TableRow>
                                     )
                                 })}
