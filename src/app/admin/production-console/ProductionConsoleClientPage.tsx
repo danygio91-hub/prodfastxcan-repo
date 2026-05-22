@@ -99,7 +99,7 @@ import {
 import { getProductionSettings } from '@/app/admin/production-settings/actions';
 import { getOverallStatus } from '@/lib/types';
 import { getDerivedJobStatus } from '@/lib/job-status';
-import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
+import { dissolveWorkGroup, removeSingleJobFromGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -512,6 +512,7 @@ export default function ProductionConsoleClientPage() {
                 onForcePauseClick={handleForcePause} 
                 onForceCompleteClick={handleForceComplete} 
                 onDissolveGroupClick={handleDissolveGroup} 
+                onRemoveSingleJobClick={async (gid, jid) => { await removeSingleJobFromGroup(gid, jid); loadAllData(true); }}
                 onOpenPhaseManager={handleOpenPhaseManager} 
                 onOpenMaterialManager={() => setMaterialManagedItem(item as WorkGroup)} 
                 onToggleGuainaClick={handleToggleGuaina} 

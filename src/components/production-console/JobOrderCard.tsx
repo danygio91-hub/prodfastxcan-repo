@@ -52,7 +52,7 @@ import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import PauseReasonDialog from './PauseReasonDialog';
 import AttachmentViewerDialog from './AttachmentViewerDialog';
-import { View, FileText } from 'lucide-react';
+import { View, FileText, Unlink } from 'lucide-react';
 
 
 interface ActivePhaseInfo {
@@ -141,6 +141,7 @@ interface JobOrderCardProps {
     overallStatus: OverallStatus;
     onNavigateToAnalysis: (articleCode: string) => void;
     onCopyArticleCode: (articleCode: string) => void;
+    onRemoveFromGroupClick?: (jobId: string) => void;
     forceAllowActions?: boolean;
 }
 
@@ -169,6 +170,7 @@ export default function JobOrderCard({
     overallStatus,
     onNavigateToAnalysis,
     onCopyArticleCode,
+    onRemoveFromGroupClick,
     forceAllowActions = false,
 }: JobOrderCardProps) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
@@ -535,6 +537,28 @@ export default function JobOrderCard({
                                      </AlertDialog>
                                    )}
                                    <DropdownMenuSeparator />
+                                   {isPartOfGroup && onRemoveFromGroupClick && (
+                                         <AlertDialog>
+                                             <AlertDialogTrigger asChild>
+                                                 <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                                                     <Unlink className="mr-2 h-4 w-4" />
+                                                     <span>Scollega dal Gruppo</span>
+                                                 </DropdownMenuItem>
+                                             </AlertDialogTrigger>
+                                             <AlertDialogContent>
+                                                 <AlertDialogHeader>
+                                                     <AlertDialogTitle>Scollegare la commessa?</AlertDialogTitle>
+                                                     <AlertDialogDescription>
+                                                         Questa commessa verrà separata dal gruppo. I tempi di lavorazione registrati finora verranno riproporzionati e assegnati a questa singola commessa, mentre eventuali timer aperti continueranno sul gruppo.
+                                                     </AlertDialogDescription>
+                                                 </AlertDialogHeader>
+                                                 <AlertDialogFooter>
+                                                     <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                     <AlertDialogAction onClick={() => onRemoveFromGroupClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, scollega</AlertDialogAction>
+                                                 </AlertDialogFooter>
+                                             </AlertDialogContent>
+                                         </AlertDialog>
+                                     )}
                                    <AlertDialog>
                                        <AlertDialogTrigger asChild disabled={isPartOfGroup}>
                                            {isPartOfGroup ? (

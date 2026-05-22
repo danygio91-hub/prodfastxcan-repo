@@ -31,10 +31,10 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
 }
 
 async function fetchRelevantJobsAndGroups(completedLimit = 400) {
-    const activeJobsQuery = adminDb.collection("jobOrders").where("status", "in", ["production", "suspended", "paused"]).get();
+    const activeJobsQuery = adminDb.collection("jobOrders").where("status", "in", ["production", "suspended", "paused", "IN_PRODUZIONE", "FINE_PRODUZIONE", "FINE PRODUZIONE", "QLTY_PACK", "CHIUSO"]).get();
     const completedJobsQuery = adminDb.collection("jobOrders").where("status", "==", "completed").limit(completedLimit).get();
     
-    const activeGroupsQuery = adminDb.collection("workGroups").where("status", "in", ["production", "suspended", "paused"]).get();
+    const activeGroupsQuery = adminDb.collection("workGroups").where("status", "in", ["production", "suspended", "paused", "IN_PRODUZIONE", "FINE_PRODUZIONE", "FINE PRODUZIONE", "QLTY_PACK", "CHIUSO"]).get();
     const completedGroupsQuery = adminDb.collection("workGroups").where("status", "==", "completed").limit(Math.max(100, Math.floor(completedLimit / 4))).get();
 
     const [activeJobs, completedJobs, activeGroups, completedGroups] = await Promise.all([

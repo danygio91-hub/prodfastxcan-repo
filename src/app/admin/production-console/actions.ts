@@ -12,6 +12,7 @@ import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } 
 import { pulseOperatorsForJob } from '@/lib/job-sync-server';
 import { convertTimestampsToDates, normalizeDateStr, parseRobustDate } from '@/lib/utils';
 import { getOverallStatus } from '@/lib/types';
+import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 
 
 export type ProductionTimeData = {
@@ -495,6 +496,12 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
       const itemSnap = await transaction.get(itemRef);
       if (!itemSnap.exists) throw new Error("Non trovata.");
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
+      
+      // HARD LOCK: Impedisce reset individuali se la commessa è in un gruppo
+      if (!isGroup && (itemData as JobOrder).workGroupId) {
+          throw new Error(`AZIONE BLOCCATA: La commessa ${(itemData as JobOrder).ordinePF} appartiene al gruppo ${(itemData as JobOrder).workGroupId}. Scollegala prima dal gruppo.`);
+      }
+      
       const jobIds = isGroup ? (itemData as WorkGroup).jobOrderIds : [jobId];
       if (!jobIds || jobIds.length === 0) return;
       const withdrawalsQuery = adminDb.collection("materialWithdrawals").where("jobIds", "array-contains-any", jobIds);
@@ -560,6 +567,12 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
           const itemSnap = await transaction.get(itemRef);
           if (!itemSnap.exists) throw new Error("Non trovato.");
           const itemData = itemSnap.data() as JobOrder | WorkGroup;
+          
+          // HARD LOCK: Impedisce revert individuali se la commessa è in un gruppo
+          if (!isGroup && (itemData as JobOrder).workGroupId) {
+              throw new Error(`AZIONE BLOCCATA: La commessa ${(itemData as JobOrder).ordinePF} appartiene al gruppo ${(itemData as JobOrder).workGroupId}. Scollegala prima dal gruppo.`);
+          }
+          
           if (!itemData.forcedCompletion) throw new Error("Solo chiusure forzate riapribili.");
           const isAct = (itemData.phases || []).some(p => p.status === 'in-progress');
           const dummyJobForStatus = { ...itemData };
@@ -912,4 +925,212 @@ export async function getRawMaterialsByCodes(codes: string[]): Promise<RawMateri
         mSnap.forEach(d => materials.push({ id: d.id, ...convertTimestampsToDates(d.data()) } as RawMaterial));
     }
     return materials;
+}
+
+export async function getOperatorDashboardData(operatorId: string, activeJobId?: string | null, activePhaseName?: string | null) {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const timeline: any[] = [];
+    const activeOrPausedJobs: any[] = [];
+
+    // Fetch recently updated jobs AND jobs in active/custom statuses to guarantee we don't miss anything
+    const [recentSnap, activeSnap] = await Promise.all([
+        adminDb.collection('jobOrders').where('updatedAt', '>=', admin.firestore.Timestamp.fromDate(startOfToday)).get(),
+        adminDb.collection('jobOrders').where('status', 'in', ['production', 'suspended', 'paused', 'FINE PRODUZIONE', 'QLTY_PACK', 'IN_PRODUZIONE', 'FINE_PRODUZIONE']).get()
+    ]);
+
+    const allDocs = new Map();
+    recentSnap.docs.forEach(d => allDocs.set(d.id, d.data()));
+    activeSnap.docs.forEach(d => allDocs.set(d.id, d.data()));
+
+    // Ensure we have the operator's active job even if it's old and not updated
+    const sanitizedActiveJobId = activeJobId ? activeJobId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '') : null;
+
+    if (sanitizedActiveJobId && !allDocs.has(sanitizedActiveJobId)) {
+        const isGroup = sanitizedActiveJobId.startsWith('group-');
+        const activeDoc = await adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(sanitizedActiveJobId).get();
+        if (activeDoc.exists) {
+            allDocs.set(sanitizedActiveJobId, activeDoc.data());
+        }
+    }
+
+    allDocs.forEach((jobData, id) => {
+        (jobData.phases || []).forEach((phase: any) => {
+            let isOperatorActiveInPhase = false;
+            let unclosedWpStart: any = null;
+
+            (phase.workPeriods || []).forEach((wp: any, wpIndex: number) => {
+                if (wp.operatorId === operatorId) {
+                    const wpStart = wp.start ? (wp.start.toDate ? wp.start.toDate() : new Date(wp.start)) : null;
+                    
+                    if (!wp.end) {
+                        isOperatorActiveInPhase = true;
+                        unclosedWpStart = wpStart;
+                    }
+                    
+                    if (wpStart && (!wp.end || wpStart >= startOfToday)) {
+                        timeline.push({
+                            jobId: id,
+                            jobOrderPF: jobData.ordinePF,
+                            details: jobData.details,
+                            phaseId: phase.id,
+                            phaseName: phase.name,
+                            phaseStatus: phase.status,
+                            workPeriodIndex: wpIndex,
+                            start: wpStart.toISOString(),
+                            end: wp.end ? (wp.end.toDate ? wp.end.toDate().toISOString() : new Date(wp.end).toISOString()) : null,
+                        });
+                    }
+                }
+            });
+
+            // If this is the operator's officially active/paused phase, OR they are actively working on it
+            if ((sanitizedActiveJobId === id && phase.name === activePhaseName) || isOperatorActiveInPhase) {
+                const calculateMs = (p: any) => (p.workPeriods || []).reduce((acc: number, w: any) => {
+                    if (!w.start) return acc;
+                    const start = w.start.toDate ? w.start.toDate() : new Date(w.start);
+                    const end = w.end ? (w.end.toDate ? w.end.toDate() : new Date(w.end)) : new Date();
+                    return acc + Math.max(0, end.getTime() - start.getTime());
+                }, 0);
+
+                const detectedMinutes = calculateMs(phase) / 60000;
+                const expectedMinutes = (phase.expectedMinutesPerPiece || 0) * (jobData.qta || jobData.totalQuantity || 0);
+
+                if (!activeOrPausedJobs.some(j => j.jobId === id && j.phaseId === phase.id)) {
+                    // Find the very first workPeriod start time for this operator in this phase
+                    const firstWpForOp = (phase.workPeriods || []).find((w: any) => w.operatorId === operatorId && w.start);
+                    const globalSessionStart = firstWpForOp && firstWpForOp.start ? 
+                        (firstWpForOp.start.toDate ? firstWpForOp.start.toDate().toISOString() : new Date(firstWpForOp.start).toISOString()) : null;
+
+                    activeOrPausedJobs.push({
+                        jobId: id,
+                        jobOrderPF: jobData.ordinePF || jobData.cliente,
+                        details: jobData.details,
+                        phaseId: phase.id,
+                        phaseName: phase.name,
+                        phaseStatus: phase.status,
+                        expectedMinutes,
+                        detectedMinutes,
+                        sessionStart: globalSessionStart
+                    });
+                }
+            }
+        });
+    });
+
+    timeline.sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime());
+    return { timeline, activeOrPausedJobs };
+}
+
+export async function editOperatorWorkPeriodTime(
+    jobId: string, 
+    phaseId: string, 
+    workPeriodIndex: number, 
+    newStartIso: string, 
+    newEndIso: string,
+    uid: string
+): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    const isGroup = jobId.startsWith('group-');
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+
+    try {
+        let articleCodeToUpdate = '';
+
+        await adminDb.runTransaction(async (t) => {
+            const snap = await t.get(itemRef);
+            if (!snap.exists) throw new Error("Elemento non trovato.");
+            const itemData = snap.data() as JobOrder | WorkGroup;
+            
+            const phases = [...(itemData.phases || [])];
+            const pIdx = phases.findIndex(p => p.id === phaseId);
+            if (pIdx === -1) throw new Error("Fase non trovata.");
+            
+            const phase = phases[pIdx];
+            if (!phase.workPeriods || !phase.workPeriods[workPeriodIndex]) {
+                throw new Error("Log di lavoro non trovato.");
+            }
+
+            phase.workPeriods[workPeriodIndex].start = admin.firestore.Timestamp.fromDate(new Date(newStartIso));
+            if (newEndIso) {
+                phase.workPeriods[workPeriodIndex].end = admin.firestore.Timestamp.fromDate(new Date(newEndIso));
+            }
+
+            t.update(itemRef, { phases, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+            if (isGroup) {
+                const groupData = itemData as WorkGroup;
+                (groupData.jobOrderIds || []).forEach(id => {
+                    t.update(adminDb.collection('jobOrders').doc(id), { phases, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+                });
+                articleCodeToUpdate = groupData.details;
+            } else {
+                articleCodeToUpdate = (itemData as JobOrder).details;
+            }
+        });
+
+        if (articleCodeToUpdate) {
+            updateArticleHistoricalTimes(articleCodeToUpdate).catch(console.error);
+        }
+
+        revalidatePath('/admin/production-console');
+        return { success: true, message: "Tempo aggiornato correttamente." };
+    } catch (e) {
+        return { success: false, message: e instanceof Error ? e.message : "Errore durante l'aggiornamento del tempo." };
+    }
+}
+
+export async function reopenOperatorPhase(jobId: string, phaseId: string, operatorId: string, uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    const isGroup = jobId.startsWith('group-');
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+
+    try {
+        await adminDb.runTransaction(async (t) => {
+            const snap = await t.get(itemRef);
+            if (!snap.exists) throw new Error("Elemento non trovato.");
+            const itemData = snap.data() as JobOrder | WorkGroup;
+            
+            const phases = [...(itemData.phases || [])];
+            const pIdx = phases.findIndex(p => p.id === phaseId);
+            if (pIdx === -1) throw new Error("Fase non trovata.");
+            
+            phases[pIdx].status = 'paused';
+            phases[pIdx].forced = false;
+
+            const dummyJob = { ...itemData, phases } as any;
+            const newStatus = getOverallStatus(dummyJob);
+
+            const updates: any = { 
+                phases, 
+                status: newStatus, 
+                updatedAt: admin.firestore.FieldValue.serverTimestamp() 
+            };
+            if (itemData.forcedCompletion) {
+                updates.forcedCompletion = admin.firestore.FieldValue.delete();
+                updates.overallEndTime = admin.firestore.FieldValue.delete();
+            }
+
+            t.update(itemRef, updates);
+
+            if (isGroup) {
+                (itemData.jobOrderIds || []).forEach(id => {
+                    t.update(adminDb.collection('jobOrders').doc(id), updates);
+                });
+            }
+
+            t.update(adminDb.collection('operators').doc(operatorId), {
+                stato: 'in pausa',
+                activeJobId: jobId,
+                activePhaseName: phases[pIdx].name
+            });
+        });
+
+        revalidatePath('/admin/production-console');
+        await pulseOperatorsForJob(jobId);
+        return { success: true, message: "Fase riaperta. Operatore in pausa." };
+    } catch (e) {
+        return { success: false, message: e instanceof Error ? e.message : "Errore durante la riapertura." };
+    }
 }

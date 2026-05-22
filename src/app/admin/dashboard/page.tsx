@@ -6,6 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Loader2, Bell, Activity, Calculator } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
+import OperatorCommandCenter from '@/components/dashboard/OperatorCommandCenter';
 import { checkAttendanceDeclared } from '../attendance-calendar/actions';
 import { DailyAttendanceModal } from '@/components/dashboard/DailyAttendanceModal';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -56,11 +57,18 @@ export default function AdminDashboardPage() {
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-8">
-          <header className="space-y-2">
-            <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard Amministrazione</h1>
-            <p className="text-muted-foreground">
-              Seleziona un'opzione qui sotto o usa il menu rapido in alto per iniziare.
-            </p>
+          <header className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="space-y-2">
+              <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard Amministrazione</h1>
+              <p className="text-muted-foreground">
+                Seleziona un'opzione qui sotto o usa il menu rapido in alto per iniziare.
+              </p>
+            </div>
+            <OperatorCommandCenter>
+              <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-sm whitespace-nowrap">
+                📡 Flotta Operatori
+              </Button>
+            </OperatorCommandCenter>
           </header>
 
           {isDeclared === false && (

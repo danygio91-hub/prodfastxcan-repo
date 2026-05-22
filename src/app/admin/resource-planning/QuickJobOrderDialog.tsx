@@ -34,7 +34,7 @@ import {
   updatePhasesForJob
 } from '@/app/admin/production-console/actions';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
+import { dissolveWorkGroup, removeSingleJobFromGroup } from '@/app/admin/work-group-management/actions';
 
 interface QuickJobOrderDialogProps {
     isOpen: boolean;
@@ -197,6 +197,7 @@ export default function QuickJobOrderDialog({ isOpen, onClose, job, onActionSucc
                                 onForcePauseClick={(id, ops) => handleAction(() => forcePauseOperators(id, ops, user?.uid, 'Pausa Admin'))}
                                 onForceCompleteClick={(id) => handleAction(() => forceCompleteJob(id, user?.uid))}
                                 onDissolveGroupClick={(id) => handleAction(async () => { await dissolveWorkGroup(id); return {success: true, message: "Gruppo sciolto."}})}
+                                onRemoveSingleJobClick={(gid, jid) => handleAction(async () => { return removeSingleJobFromGroup(gid, jid); })}
                                 onOpenPhaseManager={(item) => setPhaseManagedItem(item)}
                                 onOpenMaterialManager={() => {}} // TODO if needed
                                 onToggleGuainaClick={(id, pid, state) => handleAction(() => toggleGuainaPhasePosition(id, pid, state))}

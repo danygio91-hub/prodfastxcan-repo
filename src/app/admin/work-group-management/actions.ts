@@ -139,7 +139,7 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         
         const gTx = gSnapTx.data() as WorkGroup;
         const jobRefs = jobOrderIds.map(id => {
-             const tid = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+             const tid = id.replace(/\//g, '-');
              return adminDb.collection('jobOrders').doc(tid);
         });
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
@@ -179,8 +179,8 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
 
                 // 1. Tempi (Work Periods)
                 const scaledWorkPeriods = (matchedGroupPhase.workPeriods || []).map((wp, wpIdx) => {
-                    const startTs = wp.start?.toDate ? wp.start.toDate().getTime() : new Date(wp.start).getTime();
-                    const endTs = wp.end?.toDate ? wp.end.toDate().getTime() : new Date(wp.end).getTime();
+                    const startTs = typeof wp.start?.toDate === 'function' ? wp.start.toDate().getTime() : new Date(wp.start).getTime();
+                    const endTs = typeof wp.end?.toDate === 'function' ? wp.end.toDate().getTime() : new Date(wp.end as any).getTime();
 
                     const totalDuration = endTs - startTs;
                     const key = `${matchedGroupPhase.id}-${wpIdx}`;
@@ -308,3 +308,128 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     return { success: false, message: errorMessage };
   }
 }
+
+export async function removeSingleJobFromGroup(groupId: string, jobId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    if (!groupId || !jobId) return { success: false, message: "ID Gruppo o Commessa mancanti." };
+    
+    const groupRef = adminDb.collection('workGroups').doc(groupId);
+    const tid = jobId.replace(/\//g, '-');
+    const jobRef = adminDb.collection('jobOrders').doc(tid);
+
+    await adminDb.runTransaction(async (transaction) => {
+        const [gSnapTx, jSnapTx] = await Promise.all([transaction.get(groupRef), transaction.get(jobRef)]);
+        
+        if (!gSnapTx.exists) throw new Error("Gruppo di lavoro non trovato.");
+        if (!jSnapTx.exists) throw new Error("Commessa non trovata.");
+        
+        const gTx = gSnapTx.data() as WorkGroup;
+        const job = jSnapTx.data() as JobOrder;
+
+        if (!gTx.jobOrderIds?.includes(jobId) && job.workGroupId !== groupId) {
+            throw new Error("La commessa non fa parte di questo gruppo.");
+        }
+
+        // 1. Calcola JobShare
+        const totalQty = gTx.totalQuantity || 1;
+        const jobShare = (job.qta || 0) / totalQty;
+
+        // 2. Ripartizione Fasi (SOLO WORK PERIOD CHIUSI)
+        const finalJobPhases = (job.phases || []).map((originalPhase: JobPhase) => {
+            const matchedGroupPhase = (gTx.phases || []).find(gp => gp.id === originalPhase.id);
+            if (!matchedGroupPhase) return originalPhase;
+
+            const scaledWorkPeriods = (matchedGroupPhase.workPeriods || [])
+                .filter(wp => wp.end !== null) // Solo periodi chiusi
+                .map((wp) => {
+                    const startTs = typeof wp.start?.toDate === 'function' ? wp.start.toDate().getTime() : new Date(wp.start).getTime();
+                    const endTs = typeof wp.end?.toDate === 'function' ? wp.end.toDate().getTime() : new Date(wp.end as any).getTime();
+                    const duration = endTs - startTs;
+                    const allocatedDuration = Math.round(duration * jobShare);
+
+                    return cleanUndefined({
+                        ...wp,
+                        start: admin.firestore.Timestamp.fromMillis(startTs),
+                        end: admin.firestore.Timestamp.fromMillis(startTs + Math.max(0, allocatedDuration))
+                    });
+                });
+
+            const scaledConsumptions = (matchedGroupPhase.materialConsumptions || []).map((mc) => {
+                const round3 = (v: number) => Math.round(v * 1000) / 1000;
+                return cleanUndefined({
+                    ...mc,
+                    grossOpeningWeight: round3((mc.grossOpeningWeight || 0) * jobShare),
+                    netOpeningWeight: round3((mc.netOpeningWeight || 0) * jobShare),
+                    closingWeight: round3((mc.closingWeight || 0) * jobShare),
+                    pcs: Math.round((mc.pcs || 0) * jobShare)
+                });
+            });
+
+            return cleanUndefined({
+                ...originalPhase,
+                status: matchedGroupPhase.status === 'completed' ? 'completed' : 'paused',
+                workPeriods: scaledWorkPeriods,
+                materialConsumptions: scaledConsumptions,
+                materialReady: matchedGroupPhase.materialReady,
+                materialStatus: matchedGroupPhase.materialStatus || originalPhase.materialStatus || null
+            });
+        });
+
+        // 3. Aggiorna Commessa (Scollegata)
+        transaction.update(jobRef, cleanUndefined({ 
+            workGroupId: admin.firestore.FieldValue.delete(),
+            isGrouped: false,
+            phases: finalJobPhases,
+            status: gTx.status === 'completed' ? 'completed' : 'paused',
+        }));
+
+        // 4. Aggiorna Gruppo decurtando
+        const newGroupJobs = (gTx.jobOrderIds || []).filter(id => id !== jobId);
+        const newGroupPFs = (gTx.jobOrderPFs || []).filter(pf => pf !== job.ordinePF);
+        
+        if (newGroupJobs.length === 0) {
+            transaction.delete(groupRef);
+        } else {
+            const newTotalQty = Math.max(0, totalQty - (job.qta || 0));
+            
+            const updatedGroupPhases = (gTx.phases || []).map(gp => {
+                const updatedConsumptions = (gp.materialConsumptions || []).map(mc => {
+                    const round3 = (v: number) => Math.round(v * 1000) / 1000;
+                    return cleanUndefined({
+                        ...mc,
+                        grossOpeningWeight: round3((mc.grossOpeningWeight || 0) * (1 - jobShare)),
+                        netOpeningWeight: round3((mc.netOpeningWeight || 0) * (1 - jobShare)),
+                        closingWeight: round3((mc.closingWeight || 0) * (1 - jobShare)),
+                        pcs: Math.round((mc.pcs || 0) * (1 - jobShare))
+                    });
+                });
+                
+                return cleanUndefined({
+                    ...gp,
+                    materialConsumptions: updatedConsumptions
+                });
+            });
+
+            transaction.update(groupRef, cleanUndefined({
+                jobOrderIds: newGroupJobs,
+                jobOrderPFs: newGroupPFs,
+                totalQuantity: newTotalQty,
+                phases: updatedGroupPhases
+            }));
+        }
+    });
+
+    revalidatePath('/admin/work-group-management');
+    revalidatePath('/admin/production-console');
+    revalidatePath('/scan-job');
+    
+    await pulseOperatorsForJob([groupId, tid]);
+
+    return { success: true, message: `Commessa sfilata dal gruppo con successo.` };
+
+  } catch (error) {
+    console.error("Error removing job from group:", error);
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante lo scollegamento." };
+  }
+}
+
