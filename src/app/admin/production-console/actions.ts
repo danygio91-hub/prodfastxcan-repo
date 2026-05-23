@@ -189,8 +189,8 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
         for (const opId of Array.from(operatorIdsToPulse)) {
             transaction.update(adminDb.collection('operators').doc(opId), {
                 stato: 'inattivo',
-                activePhaseName: null
-                // We keep activeJobId for persistence
+                activePhaseName: null,
+                activeJobId: null
             });
         }
     });

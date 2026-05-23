@@ -96,11 +96,19 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
             const phs = [...(data.phases || [])];
             let modified = false;
 
+            const operatorIdsToPulse: Set<string> = new Set();
+
             phs.forEach((p, idx) => {
                 // Saltiamo solo le fasi di produzione centrali
                 if (p.type === 'production' && p.status !== 'completed' && p.status !== 'skipped') {
                     // Chiudiamo eventuali workPeriods aperti
-                    const updatedWPs = (p.workPeriods || []).map(wp => wp.end === null ? { ...wp, end: new Date(), reason: 'Fast-Forward' } : wp);
+                    const updatedWPs = (p.workPeriods || []).map(wp => {
+                        if (wp.end === null) {
+                            operatorIdsToPulse.add(wp.operatorId);
+                            return { ...wp, end: new Date(), reason: 'Fast-Forward' };
+                        }
+                        return wp;
+                    });
                     
                     phs[idx] = {
                         ...p,
@@ -131,6 +139,14 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
                 (data.jobOrderIds || []).forEach(childId => {
                     const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
                     transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updates);
+                });
+            }
+
+            for (const kickedOpId of Array.from(operatorIdsToPulse)) {
+                transaction.update(adminDb.collection('operators').doc(kickedOpId), {
+                    stato: 'inattivo',
+                    activePhaseName: null,
+                    activeJobId: null
                 });
             }
         });
@@ -398,14 +414,15 @@ export async function handlePhaseScanResult(
     
     await adminDb.runTransaction(async (transaction) => {
         const snap = await transaction.get(itemRef);
-        if (!snap.exists) return;
+        if (!snap.exists) throw new Error("Commessa non trovata.");
         const data = snap.data() as any;
         const phs = [...(data.phases || [])];
         const idx = phs.findIndex(p => p.id === phaseId);
         
-        if (idx !== -1) {
-            if (isCompletion) {
-                // Handle Completion
+        if (idx === -1) throw new Error("Fase non trovata.");
+
+        if (isCompletion) {
+            // Handle Completion
                 
                 // NEW: Strict Completion Order Policy
                 let prev: JobPhase | null = null;
@@ -421,9 +438,11 @@ export async function handlePhaseScanResult(
                 }
 
                 const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
-                if (myWorkPeriodIndex !== -1) {
-                    phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
+                if (myWorkPeriodIndex === -1) {
+                    throw new Error("L'operatore non ha un periodo di lavoro aperto in questa fase.");
                 }
+                
+                phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
                 
                 // If no one else is active, mark phase as completed
                 if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
@@ -492,6 +511,16 @@ export async function handlePhaseScanResult(
 
             } else {
                 // Handle Start/Join
+                
+                // GLOBAL LOCK ATOMICO IN ENTRATA
+                const opSnap = await transaction.get(adminDb.collection('operators').doc(opId));
+                if (opSnap.exists) {
+                    const opData = opSnap.data();
+                    if (opData && opData.activeJobId && opData.activeJobId !== jobId) {
+                        throw new Error("L'operatore è già assegnato a un'altra commessa.");
+                    }
+                }
+                
                 phs[idx].status = 'in-progress';
                 phs[idx].isEstimated = false; // Freeze estimate as production starts
                 if (!phs[idx].workPeriods) phs[idx].workPeriods = [];
@@ -534,7 +563,6 @@ export async function handlePhaseScanResult(
                     stato: 'attivo' 
                 });
             }
-        }
     });
 
     if (isCompletion) {
@@ -555,16 +583,20 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
     
     await adminDb.runTransaction(async (transaction) => {
         const snap = await transaction.get(itemRef);
-        if (!snap.exists) return;
+        if (!snap.exists) throw new Error("Commessa non trovata.");
         const data = snap.data() as any;
         const phs = [...(data.phases || [])];
         const idx = phs.findIndex(p => p.id === phaseId);
         
-        if (idx !== -1) {
-            const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
-            if (myWorkPeriodIndex !== -1) {
-                phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
-                phs[idx].workPeriods[myWorkPeriodIndex].reason = reason; // Save reason in period
+        if (idx === -1) throw new Error("Fase non trovata.");
+        
+        const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
+        if (myWorkPeriodIndex === -1) {
+            throw new Error("L'operatore non ha un periodo di lavoro aperto in questa fase.");
+        }
+        
+        phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
+        phs[idx].workPeriods[myWorkPeriodIndex].reason = reason; // Save reason in period
                 
                 // If no one else is active, mark phase as paused
                 if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
@@ -612,9 +644,7 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
                 }
                 // ----------------------------------
 
-                transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
-            }
-        }
+            transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
     });
 
     revalidatePath('/scan-job');
