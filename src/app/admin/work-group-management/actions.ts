@@ -144,11 +144,19 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         });
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
         
-        const jobs = jobDocs.map(doc => ({ 
-            id: doc.id, 
-            ...(doc.data() || {}), 
-            ref: doc.ref 
-        } as any));
+        const jobs = jobDocs
+            .filter(doc => {
+                if (!doc.exists) {
+                    console.warn(`[ANTI-BRICK] Commessa orfana ignorata durante lo scioglimento: ${doc.id}`);
+                    return false;
+                }
+                return true;
+            })
+            .map(doc => ({ 
+                id: doc.id, 
+                ...(doc.data() || {}), 
+                ref: doc.ref 
+            } as any));
 
         // RESET SESSIONI FANTASMA
         for (const opId of operatorIdsToReset) {

@@ -93,9 +93,27 @@ async function propagateGroupUpdatesToJobs(transaction: admin.firestore.Transact
         const sanitizedId = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
         return adminDb.collection('jobOrders').doc(sanitizedId);
     });
-    jobRefs.forEach(jobRef => { 
-        transaction.update(jobRef, updatePayload); 
+    const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
+    
+    let hasMissing = false;
+    const missingIds: string[] = [];
+
+    jobDocs.forEach((doc, idx) => {
+        if (!doc.exists) {
+            console.warn(`[ANTI-BRICK] Commessa orfana rimossa dal gruppo ${groupData.id}: ${groupData.jobOrderIds![idx]}`);
+            hasMissing = true;
+            missingIds.push(groupData.jobOrderIds![idx]);
+        } else {
+            transaction.update(doc.ref, updatePayload);
+        }
     });
+
+    if (hasMissing && groupData.id) {
+        const validIds = groupData.jobOrderIds!.filter(id => !missingIds.includes(id));
+        transaction.update(adminDb.collection('workGroups').doc(groupData.id), {
+            jobOrderIds: validIds
+        });
+    }
 }
 
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {

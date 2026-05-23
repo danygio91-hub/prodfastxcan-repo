@@ -757,7 +757,21 @@ export default function JobOrderCard({
                              </div>
                              <div className="grid grid-cols-2 gap-2 text-center">
                                   <div className="p-1 rounded-md bg-muted/50">
-                                      <Label className="text-xs text-muted-foreground">Tempo eff.</Label>
+                                      <Label className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                                          Tempo eff.
+                                          {isPartOfGroup && (
+                                              <TooltipProvider>
+                                                  <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                          <Combine className="h-3 w-3 text-amber-500" />
+                                                      </TooltipTrigger>
+                                                      <TooltipContent>
+                                                          <p className="max-w-xs text-xs">Tempi aggregati di gruppo. Verranno riproporzionati allo scioglimento.</p>
+                                                      </TooltipContent>
+                                                  </Tooltip>
+                                              </TooltipProvider>
+                                          )}
+                                      </Label>
                                       <PhaseLiveTimer phase={phase} />
                                   </div>
                                   <div className="p-1 rounded-md bg-muted/50 flex flex-col justify-center items-center relative">

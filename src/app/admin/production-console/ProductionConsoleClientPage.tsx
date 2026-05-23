@@ -407,7 +407,7 @@ export default function ProductionConsoleClientPage() {
   const onResetJobOrderClick = async (jobId: string) => { if (!user) return; await resetSingleCompletedJobOrder(jobId, user.uid); };
   const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => { if (!user) return; await updateJobDeliveryDate(itemId, newDate, user.uid); };
   const handleUpdatePrepDate = async (itemId: string, newDate: string) => { if (!user) return; await updateJobPrepDate(itemId, newDate, user.uid); };
-  const handleDissolveGroup = async (groupId: string) => { await dissolveWorkGroup(groupId); };
+  const handleDissolveGroup = async (groupId: string) => { await dissolveWorkGroup(groupId); loadAllData(true); };
 
   const handleOpenPhaseManager = (item: JobOrder | WorkGroup) => {
     setPhaseManagedItem(item);

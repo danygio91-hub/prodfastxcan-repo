@@ -1014,7 +1014,12 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
         const firstJob = jobs[0];
         if (!firstJob) throw new Error("Nessuna commessa valida.");
 
-        const totalQty = jobs.reduce((sum, j) => sum + j.qta, 0);
+        const invalidJobs = jobs.filter(j => ['CHIUSO', 'FINE PRODUZIONE', 'FINE_PRODUZIONE', 'completed', 'shipped', 'closed'].includes(j.status));
+        if (invalidJobs.length > 0) {
+            throw new Error(`Impossibile raggruppare: la commessa ${invalidJobs[0].ordinePF} è in uno stato non compatibile (${invalidJobs[0].status}).`);
+        }
+
+        const totalQty = jobs.reduce((sum, j) => sum + (Number(j.qta) || 0), 0);
         const jobPFs = jobs.map(j => j.ordinePF);
 
         // REFINED LOGIC: ONLY COMMON AVAILABLE PHASES
@@ -1037,12 +1042,30 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
                 return !isCompletedAnywhere;
             })
             .sort((a, b) => a.sequence - b.sequence)
-            .map(p => ({
-                ...p,
-                status: 'pending' as const,
-                workPeriods: [],
-                materialConsumptions: []
-            }));
+            .map(p1 => {
+                let totalExpectedTime = 0;
+                let hasValidTime = false;
+                
+                jobs.forEach(j => {
+                    const matchedPhase = (j.phases || []).find(jp => jp.id === p1.id);
+                    if (matchedPhase && typeof matchedPhase.expectedMinutesPerPiece === 'number') {
+                        totalExpectedTime += matchedPhase.expectedMinutesPerPiece * (Number(j.qta) || 0);
+                        hasValidTime = true;
+                    }
+                });
+
+                const weightedExpectedMinutes = (hasValidTime && totalQty > 0) 
+                    ? (totalExpectedTime / totalQty) 
+                    : p1.expectedMinutesPerPiece;
+
+                return {
+                    ...p1,
+                    status: 'pending' as const,
+                    workPeriods: [],
+                    materialConsumptions: [],
+                    expectedMinutesPerPiece: weightedExpectedMinutes
+                };
+            });
 
         if (commonPhases.length === 0) {
             throw new Error("Nessuna fase operativa comune disponibile per il concatenamento.");
