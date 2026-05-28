@@ -1244,10 +1244,16 @@ export async function healGhostJobOrders(): Promise<{ success: boolean; message:
 
 /**
  * Scans all job orders in Firestore, dynamically checks if any of their string fields contain
- * hyphens instead of slashes in the "-PF" pattern (e.g. converting 430-PF.3 back to 430/PF.3),
- * restores the original slash format, and cascades the correction across all related collections.
+ * hyphens instead of slashes in the "-PF" pattern or miss dots (e.g. converting 268-PF1-2/268/PF1-2 to 268/PF.1-2),
+ * restores the original slash and dot format, and cascades the correction across all related collections.
  */
 export async function healJobOrdersSanitization(): Promise<{ success: boolean; message: string; healedCount: number }> {
+    const isMatchingJobId = (restoredVal: string, currentId: string): boolean => {
+        const cleanRestored = restoredVal.toLowerCase().replace(/[\/\-\.]/g, '');
+        const cleanId = currentId.toLowerCase().replace(/[\/\-\.]/g, '');
+        return cleanRestored === cleanId;
+    };
+
     try {
         const jobsSnap = await adminDb.collection("jobOrders").get();
         let healedCount = 0;
@@ -1261,15 +1267,17 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
             let needsHeal = false;
             const updatePayload: Record<string, any> = {};
 
-            // Dynamically scan all string fields of the document for the "-PF" pattern
+            // Dynamically scan all string fields of the document for the "-PF" or "/PF" patterns
             for (const key of Object.keys(rawData)) {
                 const val = rawData[key];
-                if (typeof val === 'string' && val.includes('-PF')) {
-                    const restoredVal = val.replace(/-PF/g, "/PF");
+                if (typeof val === 'string' && (val.includes('-PF') || val.includes('/PF'))) {
+                    let restoredVal = val.replace(/-PF/g, "/PF");
+                    restoredVal = restoredVal.replace(/\/PF(\d)/g, "/PF.$1");
+                    
                     if (restoredVal !== val) {
                         // Apply self-validation only to the primary ordinePF field
                         if (key === 'ordinePF') {
-                            if (sanitizeDocumentId(restoredVal) === currentId) {
+                            if (isMatchingJobId(restoredVal, currentId)) {
                                 updatePayload[key] = restoredVal;
                                 needsHeal = true;
                             }
@@ -1283,7 +1291,11 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
 
             if (needsHeal) {
                 const oldOrdinePF = rawData.ordinePF || currentId;
-                const restoredOrdinePF = updatePayload.ordinePF || oldOrdinePF.replace(/-PF/g, "/PF");
+                let restoredOrdinePF = updatePayload.ordinePF;
+                if (!restoredOrdinePF) {
+                    restoredOrdinePF = oldOrdinePF.replace(/-PF/g, "/PF");
+                    restoredOrdinePF = restoredOrdinePF.replace(/\/PF(\d)/g, "/PF.$1");
+                }
 
                 console.log(`[HEAL_SANITIZATION] Healing job ${currentId}:`, updatePayload);
 
@@ -1292,10 +1304,17 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
                 ops++;
                 healedCount++;
 
-                // Cascade updates using all old matching formats (original with dashes and field values)
-                const oldValuesToMatch = new Set([oldOrdinePF, currentId]);
+                // Build a set of all possible search patterns for reference queries
+                const queryKeys = new Set([
+                    oldOrdinePF,
+                    currentId,
+                    oldOrdinePF.replace(/\//g, '-'),
+                    oldOrdinePF.replace(/-/g, '/'),
+                    oldOrdinePF.replace('/PF.', '/PF'),
+                    oldOrdinePF.replace('/PF', '/PF.')
+                ]);
 
-                for (const oldVal of oldValuesToMatch) {
+                for (const oldVal of queryKeys) {
                     if (!oldVal) continue;
 
                     // 1. workGroups (jobOrderPFs array field)
@@ -1304,9 +1323,18 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
                         .get();
                     workGroupsSnap.forEach(wgDoc => {
                         const groupData = wgDoc.data();
-                        const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => pf === oldVal ? restoredOrdinePF : pf);
-                        batch.update(wgDoc.ref, { jobOrderPFs });
-                        ops++;
+                        let modified = false;
+                        const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => {
+                            if (isMatchingJobId(pf, currentId)) {
+                                modified = true;
+                                return restoredOrdinePF;
+                            }
+                            return pf;
+                        });
+                        if (modified) {
+                            batch.update(wgDoc.ref, { jobOrderPFs });
+                            ops++;
+                        }
                     });
 
                     // 2. materialWithdrawals (jobOrderPFs array field)
@@ -1315,9 +1343,18 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
                         .get();
                     withdrawalsSnap.forEach(wDoc => {
                         const wData = wDoc.data();
-                        const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => pf === oldVal ? restoredOrdinePF : pf);
-                        batch.update(wDoc.ref, { jobOrderPFs });
-                        ops++;
+                        let modified = false;
+                        const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => {
+                            if (isMatchingJobId(pf, currentId)) {
+                                modified = true;
+                                return restoredOrdinePF;
+                            }
+                            return pf;
+                        });
+                        if (modified) {
+                            batch.update(wDoc.ref, { jobOrderPFs });
+                            ops++;
+                        }
                     });
 
                     // 3. manualCommitments (jobOrderCode field)
@@ -1338,7 +1375,7 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
                     const items = (plData.items || []).map((item: any) => {
                         let itemMod = false;
                         let newOrderPF = item.orderPF;
-                        if (oldValuesToMatch.has(item.orderPF)) {
+                        if (isMatchingJobId(item.orderPF, currentId)) {
                             newOrderPF = restoredOrdinePF;
                             itemMod = true;
                         }
@@ -1373,7 +1410,7 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
 
         return { 
             success: true, 
-            message: `Sanificazione completata con successo: ${healedCount} commesse ripristinate con gli slash '/' originari.`, 
+            message: `Sanificazione completata con successo: ${healedCount} commesse ripristinate con slashes '/' e punti '.' originari.`, 
             healedCount 
         };
     } catch (error) {
