@@ -149,7 +149,7 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 transaction.get(materialRef),
                 adminDb.collection('materialWithdrawals').where('materialId', '==', session.materialId).get(),
                 ...jobIds.map(id => {
-                    const sanitizedId = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                    const sanitizedId = id.replace(/\//g, '-');
                     return transaction.get(adminDb.collection('jobOrders').doc(sanitizedId));
                 })
             ]);

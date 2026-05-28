@@ -12,7 +12,7 @@ import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils'
 
 
 function sanitizeDocumentId(id: string): string {
-  return id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+  return id.replace(/\//g, '-');
 }
 
 /**

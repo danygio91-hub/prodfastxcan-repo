@@ -1476,7 +1476,7 @@ export async function alignBOMFromWithdrawalHistory(uid: string): Promise<{ succ
         
         // 3. Iterazione su ogni JobOrder per allineare la BOM
         for (const rawId of jobIds) {
-            const sanitizedId = rawId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+            const sanitizedId = rawId.replace(/\//g, '-');
             const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
             
             await adminDb.runTransaction(async (t) => {
@@ -1548,7 +1548,7 @@ export async function surgicalBOMSync(
 ): Promise<{ success: boolean; message: string }> {
     await ensureAdmin(uid);
     try {
-        const sanitizedId = jobId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        const sanitizedId = jobId.replace(/\//g, '-');
         const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
         const targetMaterial = materialCode.trim().toUpperCase();
 

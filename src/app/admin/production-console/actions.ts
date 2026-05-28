@@ -90,7 +90,7 @@ async function propagateGroupUpdatesToJobs(transaction: admin.firestore.Transact
     };
 
     const jobRefs = groupData.jobOrderIds.map(id => {
-        const sanitizedId = id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        const sanitizedId = id.replace(/\//g, '-');
         return adminDb.collection('jobOrders').doc(sanitizedId);
     });
     const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
@@ -963,7 +963,7 @@ export async function getOperatorDashboardData(operatorId: string, activeJobId?:
     activeSnap.docs.forEach(d => allDocs.set(d.id, d.data()));
 
     // Ensure we have the operator's active job even if it's old and not updated
-    const sanitizedActiveJobId = activeJobId ? activeJobId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '') : null;
+    const sanitizedActiveJobId = activeJobId ? activeJobId.replace(/\//g, '-') : null;
 
     if (sanitizedActiveJobId && !allDocs.has(sanitizedActiveJobId)) {
         const isGroup = sanitizedActiveJobId.startsWith('group-');

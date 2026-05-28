@@ -137,7 +137,7 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
             // Se è un gruppo, propaghiamo alle commesse figlie
             if (isGroup) {
                 (data.jobOrderIds || []).forEach(childId => {
-                    const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                    const sanitizedId = childId.replace(/\//g, '-');
                     transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updates);
                 });
             }
@@ -240,7 +240,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 }
 
 export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
-  const sanitizedId = (scannedData.ordinePF || '').replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+  const sanitizedId = (scannedData.ordinePF || '').replace(/\//g, '-');
   if (!sanitizedId) return { error: 'ID Commessa non valido.', title: 'Errore' };
   const snap = await adminDb.collection("jobOrders").doc(sanitizedId).get();
   if (!snap.exists) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
@@ -314,7 +314,7 @@ export async function resolveJobBOMCommitmentsByType(
     const typesToMatch = materialTypesToExtinguish.map(t => t.toUpperCase());
 
     for (const rawId of jobIds) {
-        const sanitizedId = rawId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        const sanitizedId = rawId.replace(/\//g, '-');
         const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
         
         // Read-Modify-Write Pattern
@@ -364,7 +364,7 @@ export async function resolveJobBOMCommitmentByMaterialCode(
     const targetCode = materialCode.trim().toUpperCase();
 
     for (const rawId of jobIds) {
-        const sanitizedId = rawId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+        const sanitizedId = rawId.replace(/\//g, '-');
         const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
         
         const snap = transaction ? await transaction.get(jobRef) : await jobRef.get();
@@ -501,7 +501,7 @@ export async function handlePhaseScanResult(
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
                     data.jobOrderIds.forEach((childId: string) => {
-                        const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                        const sanitizedId = childId.replace(/\//g, '-');
                         transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updates);
                     });
                 }
@@ -551,7 +551,7 @@ export async function handlePhaseScanResult(
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
                     data.jobOrderIds.forEach((childId: string) => {
-                        const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                        const sanitizedId = childId.replace(/\//g, '-');
                         transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), startUpdates);
                     });
                 }
@@ -638,7 +638,7 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
                     data.jobOrderIds.forEach((childId: string) => {
-                        const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                        const sanitizedId = childId.replace(/\//g, '-');
                         transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updateData);
                     });
                 }
@@ -725,7 +725,7 @@ export async function forceResetStuckMaterialSession(jobId: string, materialCode
                 
                 if (isGroup && data.jobOrderIds) {
                     data.jobOrderIds.forEach((childId: string) => {
-                        const sanitizedId = childId.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+                        const sanitizedId = childId.replace(/\//g, '-');
                         transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), { phases: phs });
                     });
                 }

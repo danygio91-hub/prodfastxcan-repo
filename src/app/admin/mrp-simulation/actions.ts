@@ -7,7 +7,7 @@ import type { DraftJobOrder, JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, A
 import { convertTimestampsToDates } from '@/lib/utils';
 
 function sanitizeDocumentId(id: string): string {
-  return id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+  return id.replace(/\//g, '-');
 }
 
 export async function saveDraft(draftData: Omit<DraftJobOrder, 'id' | 'createdAt' | 'status'>) {
