@@ -27,6 +27,46 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
+/**
+ * Helper to perform a hybrid, fallback-safe lookup for a Job Order.
+ * Supports standard fetches and Firestore transactions.
+ */
+async function getJobOrderRefAndSnap(
+    rawId: string, 
+    transaction?: admin.firestore.Transaction
+): Promise<{ jobRef: admin.firestore.DocumentReference; jobSnap: admin.firestore.DocumentSnapshot }> {
+    const sanitizedId = rawId.replace(/\//g, '-');
+    let jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
+    let jobSnap = transaction ? await transaction.get(jobRef) : await jobRef.get();
+
+    // FALLBACK 1: Ricerca per campo testuale esatto (Risolve disallineamento ID/campo)
+    if (!jobSnap.exists) {
+        const querySnap = await adminDb.collection('jobOrders')
+            .where('ordinePF', '==', rawId)
+            .limit(1)
+            .get();
+        
+        if (!querySnap.empty) {
+            const foundSnap = querySnap.docs[0];
+            jobRef = foundSnap.ref;
+            jobSnap = transaction ? await transaction.get(jobRef) : foundSnap;
+        }
+    }
+
+    // FALLBACK 2: Ricerca legacy assoluta (Senza punti)
+    if (!jobSnap.exists) {
+        const legacyId = sanitizedId.replace(/[\.#$\[\]]/g, '');
+        const legacyRef = adminDb.collection('jobOrders').doc(legacyId);
+        const legacySnap = transaction ? await transaction.get(legacyRef) : await legacyRef.get();
+        if (legacySnap.exists) {
+            jobRef = legacyRef;
+            jobSnap = legacySnap;
+        }
+    }
+
+    return { jobRef, jobSnap };
+}
+
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sorted = [...phases].sort((a, b) => a.sequence - b.sequence);
     
@@ -86,10 +126,17 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
         }
 
         const isGroup = jobId.startsWith('group-');
-        const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-
         await adminDb.runTransaction(async (transaction) => {
-            const snap = await transaction.get(itemRef);
+            let itemRef;
+            let snap;
+            if (isGroup) {
+                itemRef = adminDb.collection('workGroups').doc(jobId);
+                snap = await transaction.get(itemRef);
+            } else {
+                const lookup = await getJobOrderRefAndSnap(jobId, transaction);
+                itemRef = lookup.jobRef;
+                snap = lookup.jobSnap;
+            }
             if (!snap.exists) throw new Error("Commessa non trovata.");
             const data = snap.data() as JobOrder;
             
@@ -167,7 +214,13 @@ export async function resolveJobProblem(jobId: string, uid: string): Promise<{ s
     try {
         await ensureAdmin(uid);
         const isGroup = jobId.startsWith('group-');
-        const itemRef = adminDb.collection(isGroup ? "workGroups" : "jobOrders").doc(jobId);
+        let itemRef;
+        if (isGroup) {
+            itemRef = adminDb.collection("workGroups").doc(jobId);
+        } else {
+            const lookup = await getJobOrderRefAndSnap(jobId);
+            itemRef = lookup.jobRef;
+        }
         
         await itemRef.update({
             isProblemReported: false,
@@ -223,9 +276,18 @@ export async function getRawMaterialByCode(code: string | undefined): Promise<Ra
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
     if (!id || typeof id !== 'string') return null;
     const isGroup = id.startsWith('group-');
-    const snap = await adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(id).get();
+    let snap;
+    let finalId = id;
+    if (isGroup) {
+        snap = await adminDb.collection('workGroups').doc(id).get();
+    } else {
+        const lookup = await getJobOrderRefAndSnap(id);
+        snap = lookup.jobSnap;
+        finalId = snap.id;
+    }
     if (!snap.exists) return null;
     const data = convertTimestampsToDates(snap.data()) as any;
+    data.id = finalId;
     if (isGroup) {
         const group = data as WorkGroup;
         return { 
@@ -240,15 +302,16 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 }
 
 export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
-  const sanitizedId = (scannedData.ordinePF || '').replace(/\//g, '-');
-  if (!sanitizedId) return { error: 'ID Commessa non valido.', title: 'Errore' };
-  const snap = await adminDb.collection("jobOrders").doc(sanitizedId).get();
-  if (!snap.exists) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
+  const scannedCode = scannedData.ordinePF || '';
+  if (!scannedCode) return { error: 'ID Commessa non valido.', title: 'Errore' };
+  const { jobRef, jobSnap } = await getJobOrderRefAndSnap(scannedCode);
+  if (!jobSnap.exists) return { error: `Commessa ${scannedCode} non trovata.`, title: 'Errore' };
   
-  let job = convertTimestampsToDates(snap.data()) as JobOrder;
+  let job = convertTimestampsToDates(jobSnap.data()) as JobOrder;
+  job.id = jobSnap.id;
   
   if (['planned', 'IN_ATTESA', 'In Pianificazione', 'IN_PIANIFICAZIONE'].includes(job.status)) {
-      return { error: `La commessa ${job.ordinePF || sanitizedId} è in pianificazione e non può essere lavorata. Rivolgiti al responsabile.`, title: 'Commessa non Avviata' };
+      return { error: `La commessa ${job.ordinePF || scannedCode} è in pianificazione e non può essere lavorata. Rivolgiti al responsabile.`, title: 'Commessa non Avviata' };
   }
 
   // Enchancement: Fetch attachments from Article if not present on JobOrder
@@ -314,11 +377,9 @@ export async function resolveJobBOMCommitmentsByType(
     const typesToMatch = materialTypesToExtinguish.map(t => t.toUpperCase());
 
     for (const rawId of jobIds) {
-        const sanitizedId = rawId.replace(/\//g, '-');
-        const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
-        
-        // Read-Modify-Write Pattern
-        const snap = transaction ? await transaction.get(jobRef) : await jobRef.get();
+        const lookup = await getJobOrderRefAndSnap(rawId, transaction);
+        const jobRef = lookup.jobRef;
+        const snap = lookup.jobSnap;
         if (!snap.exists) continue;
         
         const jobData = snap.data() as JobOrder;
@@ -364,10 +425,9 @@ export async function resolveJobBOMCommitmentByMaterialCode(
     const targetCode = materialCode.trim().toUpperCase();
 
     for (const rawId of jobIds) {
-        const sanitizedId = rawId.replace(/\//g, '-');
-        const jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
-        
-        const snap = transaction ? await transaction.get(jobRef) : await jobRef.get();
+        const lookup = await getJobOrderRefAndSnap(rawId, transaction);
+        const jobRef = lookup.jobRef;
+        const snap = lookup.jobSnap;
         if (!snap.exists) continue;
         
         const jobData = snap.data() as JobOrder;
@@ -410,10 +470,17 @@ export async function handlePhaseScanResult(
     packagingUpdates?: { jobId: string, actualQty: number }[]
 ) {
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-    
     await adminDb.runTransaction(async (transaction) => {
-        const snap = await transaction.get(itemRef);
+        let itemRef;
+        let snap;
+        if (isGroup) {
+            itemRef = adminDb.collection('workGroups').doc(jobId);
+            snap = await transaction.get(itemRef);
+        } else {
+            const lookup = await getJobOrderRefAndSnap(jobId, transaction);
+            itemRef = lookup.jobRef;
+            snap = lookup.jobSnap;
+        }
         if (!snap.exists) throw new Error("Commessa non trovata.");
         const data = snap.data() as any;
         const phs = [...(data.phases || [])];
@@ -566,7 +633,13 @@ export async function handlePhaseScanResult(
     });
 
     if (isCompletion) {
-        const snap = await adminDb.collection(jobId.startsWith('group-') ? 'workGroups' : 'jobOrders').doc(jobId).get();
+        let snap;
+        if (jobId.startsWith('group-')) {
+            snap = await adminDb.collection('workGroups').doc(jobId).get();
+        } else {
+            const lookup = await getJobOrderRefAndSnap(jobId);
+            snap = lookup.jobSnap;
+        }
         const details = snap.data()?.details;
         if (details) {
             await updateArticleHistoricalTimes(details);
@@ -579,10 +652,17 @@ export async function handlePhaseScanResult(
 
 export async function handlePhasePause(jobId: string, phaseId: string, opId: string, reason?: string, notes?: string) {
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-    
     await adminDb.runTransaction(async (transaction) => {
-        const snap = await transaction.get(itemRef);
+        let itemRef;
+        let snap;
+        if (isGroup) {
+            itemRef = adminDb.collection('workGroups').doc(jobId);
+            snap = await transaction.get(itemRef);
+        } else {
+            const lookup = await getJobOrderRefAndSnap(jobId, transaction);
+            itemRef = lookup.jobRef;
+            snap = lookup.jobSnap;
+        }
         if (!snap.exists) throw new Error("Commessa non trovata.");
         const data = snap.data() as any;
         const phs = [...(data.phases || [])];
@@ -654,11 +734,18 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
 
 export async function markPhaseMaterialReady(jobId: string, phaseId: string, materialInfo: { materialCode: string, lotto?: string }) {
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-    
     try {
         await adminDb.runTransaction(async (transaction) => {
-            const snap = await transaction.get(itemRef);
+            let itemRef;
+            let snap;
+            if (isGroup) {
+                itemRef = adminDb.collection('workGroups').doc(jobId);
+                snap = await transaction.get(itemRef);
+            } else {
+                const lookup = await getJobOrderRefAndSnap(jobId, transaction);
+                itemRef = lookup.jobRef;
+                snap = lookup.jobSnap;
+            }
             if (!snap.exists) throw new Error('Elemento non trovato.');
             const data = snap.data() as any;
             
@@ -697,11 +784,18 @@ export async function markPhaseMaterialReady(jobId: string, phaseId: string, mat
 
 export async function forceResetStuckMaterialSession(jobId: string, materialCode: string) {
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-    
     try {
         await adminDb.runTransaction(async (transaction) => {
-            const snap = await transaction.get(itemRef);
+            let itemRef;
+            let snap;
+            if (isGroup) {
+                itemRef = adminDb.collection('workGroups').doc(jobId);
+                snap = await transaction.get(itemRef);
+            } else {
+                const lookup = await getJobOrderRefAndSnap(jobId, transaction);
+                itemRef = lookup.jobRef;
+                snap = lookup.jobSnap;
+            }
             if (!snap.exists) throw new Error('Elemento non trovato.');
             const data = snap.data() as any;
             
