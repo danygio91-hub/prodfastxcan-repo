@@ -492,7 +492,11 @@ export async function isOperatorActiveOnAnyJob(opId: string, currentJobId: strin
     const docSnap = await adminDb.collection("operators").doc(opId).get();
     if (docSnap.exists) {
         const data = docSnap.data();
-        if (data && data.activeJobId && data.activeJobId !== currentJobId) return { available: false, activeJobId: data.activeJobId, activePhaseName: data.activePhaseName };
+        // L'operatore è considerato "Occupato" (e bloccato) SOLO se ha una fase attiva
+        // Se activePhaseName è null, significa che è in pausa o sta solo esplorando, quindi è libero.
+        if (data && data.activeJobId && data.activePhaseName && data.activeJobId !== currentJobId) {
+             return { available: false, activeJobId: data.activeJobId, activePhaseName: data.activePhaseName };
+        }
     }
     return { available: true };
 }
@@ -623,7 +627,8 @@ export async function handlePhaseScanResult(
                 const opSnap = await transaction.get(adminDb.collection('operators').doc(opId));
                 if (opSnap.exists) {
                     const opData = opSnap.data();
-                    if (opData && opData.activeJobId && opData.activeJobId !== (data.ordinePF || jobId)) {
+                    // Blocca SOLO se l'operatore ha una fase attualmente attiva in un'altra commessa
+                    if (opData && opData.activeJobId && opData.activePhaseName && opData.activeJobId !== (data.ordinePF || jobId)) {
                         throw new Error(`L'operatore è già assegnato a un'altra commessa (${opData.activeJobId}).`);
                     }
                 }

@@ -33,15 +33,23 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   const syncPulseRef = React.useRef<number | undefined>(operator?.syncPulse);
 
   
-  // The source of truth for the active job ID is now the operator context
-  const activeJobId = operator?.activeJobId || null;
+  const [localViewedJobId, setLocalViewedJobId] = useState<string | null>(null);
+
+  // The source of truth for the active job ID is local (scanned) or the operator context (active work)
+  const activeJobId = localViewedJobId || operator?.activeJobId || null;
 
   const setActiveJobId = useCallback(async (jobId: string | null) => {
     if (!operator) return;
     try {
-        const operatorRef = doc(db, "operators", operator.id);
-        await updateDoc(operatorRef, { activeJobId: jobId || null });
-        // The onSnapshot listener in AuthProvider will handle the state update.
+        if (jobId === null) {
+            // Explicitly abandoning: Clear local view and DB
+            setLocalViewedJobId(null);
+            const operatorRef = doc(db, "operators", operator.id);
+            await updateDoc(operatorRef, { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
+        } else {
+            // Just scanning/viewing: ONLY update local state. Do NOT mutate DB!
+            setLocalViewedJobId(jobId);
+        }
     } catch (error) {
         console.error("Failed to update active job ID on operator profile", error);
     }
