@@ -39,7 +39,6 @@ async function getJobOrderRefAndSnap(
     let jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
     let jobSnap = transaction ? await transaction.get(jobRef) : await jobRef.get();
 
-    // FALLBACK 1: Ricerca per campo testuale esatto (Risolve disallineamento ID/campo)
     if (!jobSnap.exists) {
         const querySnap = await adminDb.collection('jobOrders')
             .where('ordinePF', '==', rawId)
@@ -53,7 +52,6 @@ async function getJobOrderRefAndSnap(
         }
     }
 
-    // FALLBACK 2: Ricerca legacy assoluta (Senza punti)
     if (!jobSnap.exists) {
         const legacyId = sanitizedId.replace(/[\.#$\[\]]/g, '');
         const legacyRef = adminDb.collection('jobOrders').doc(legacyId);
@@ -304,8 +302,18 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
   const scannedCode = scannedData.ordinePF || '';
   if (!scannedCode) return { error: 'ID Commessa non valido.', title: 'Errore' };
-  const { jobRef, jobSnap } = await getJobOrderRefAndSnap(scannedCode);
-  if (!jobSnap.exists) return { error: `Commessa ${scannedCode} non trovata.`, title: 'Errore' };
+  
+  // NUCLEAR FIX: ONLY EXACT MATCH ON SSoT 'ordinePF' for QR SCANS
+  const querySnap = await adminDb.collection('jobOrders')
+      .where('ordinePF', '==', scannedCode)
+      .limit(1)
+      .get();
+
+  if (querySnap.empty) {
+      return { error: `Commessa "${scannedCode}" non trovata (Ricerca esatta fallita).`, title: 'Errore SSoT' };
+  }
+  
+  const jobSnap = querySnap.docs[0];
   
   let job = convertTimestampsToDates(jobSnap.data()) as JobOrder;
   job.id = jobSnap.id;
@@ -593,8 +601,8 @@ export async function handlePhaseScanResult(
                 const opSnap = await transaction.get(adminDb.collection('operators').doc(opId));
                 if (opSnap.exists) {
                     const opData = opSnap.data();
-                    if (opData && opData.activeJobId && opData.activeJobId !== jobId) {
-                        throw new Error("L'operatore è già assegnato a un'altra commessa.");
+                    if (opData && opData.activeJobId && opData.activeJobId !== (data.ordinePF || jobId)) {
+                        throw new Error(`L'operatore è già assegnato a un'altra commessa (${opData.activeJobId}).`);
                     }
                 }
                 
