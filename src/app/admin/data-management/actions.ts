@@ -1243,8 +1243,9 @@ export async function healGhostJobOrders(): Promise<{ success: boolean; message:
 }
 
 /**
- * Scans all job orders in Firestore, checks if their internal "ordinePF" field contains dashes instead of slashes
- * (e.g. converting 430-PF.3 back to 430/PF.3), and restores the original slash format in all referenced collections.
+ * Scans all job orders in Firestore, dynamically checks if any of their string fields contain
+ * hyphens instead of slashes in the "-PF" pattern (e.g. converting 430-PF.3 back to 430/PF.3),
+ * restores the original slash format, and cascades the correction across all related collections.
  */
 export async function healJobOrdersSanitization(): Promise<{ success: boolean; message: string; healedCount: number }> {
     try {
@@ -1254,68 +1255,96 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
         let ops = 0;
 
         for (const doc of jobsSnap.docs) {
-            const job = doc.data() as JobOrder;
-            if (!job.ordinePF) continue;
-
+            const rawData = doc.data();
             const currentId = doc.id;
-            const currentOrdinePF = job.ordinePF;
+            
+            let needsHeal = false;
+            const updatePayload: Record<string, any> = {};
 
-            // Restoring slash by replacing hyphens (e.g., "430-PF.3" -> "430/PF.3")
-            const restoredOrdinePF = currentOrdinePF.replace(/-PF/g, "/PF");
+            // Dynamically scan all string fields of the document for the "-PF" pattern
+            for (const key of Object.keys(rawData)) {
+                const val = rawData[key];
+                if (typeof val === 'string' && val.includes('-PF')) {
+                    const restoredVal = val.replace(/-PF/g, "/PF");
+                    if (restoredVal !== val) {
+                        // Apply self-validation only to the primary ordinePF field
+                        if (key === 'ordinePF') {
+                            if (sanitizeDocumentId(restoredVal) === currentId) {
+                                updatePayload[key] = restoredVal;
+                                needsHeal = true;
+                            }
+                        } else {
+                            updatePayload[key] = restoredVal;
+                            needsHeal = true;
+                        }
+                    }
+                }
+            }
 
-            // We apply self-validation: if sanitized restored is current doc.id, and they differ
-            if (restoredOrdinePF !== currentOrdinePF && sanitizeDocumentId(restoredOrdinePF) === currentId) {
-                console.log(`[HEAL_SANITIZATION] Healing job ${currentId}: "${currentOrdinePF}" -> "${restoredOrdinePF}"`);
+            if (needsHeal) {
+                const oldOrdinePF = rawData.ordinePF || currentId;
+                const restoredOrdinePF = updatePayload.ordinePF || oldOrdinePF.replace(/-PF/g, "/PF");
 
-                // Update the job order document fields
-                batch.update(doc.ref, { 
-                    ordinePF: restoredOrdinePF,
-                    updatedAt: admin.firestore.Timestamp.now()
-                });
+                console.log(`[HEAL_SANITIZATION] Healing job ${currentId}:`, updatePayload);
+
+                updatePayload.updatedAt = admin.firestore.Timestamp.now();
+                batch.update(doc.ref, updatePayload);
                 ops++;
                 healedCount++;
 
-                // Cascade updates to all collections referencing the old ordinePF
-                // 1. workGroups
-                const workGroupsSnap = await adminDb.collection("workGroups")
-                    .where("jobOrderPFs", "array-contains", currentOrdinePF)
-                    .get();
-                workGroupsSnap.forEach(wgDoc => {
-                    const groupData = wgDoc.data();
-                    const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => pf === currentOrdinePF ? restoredOrdinePF : pf);
-                    batch.update(wgDoc.ref, { jobOrderPFs });
-                    ops++;
-                });
+                // Cascade updates using all old matching formats (original with dashes and field values)
+                const oldValuesToMatch = new Set([oldOrdinePF, currentId]);
 
-                // 2. materialWithdrawals
-                const withdrawalsSnap = await adminDb.collection("materialWithdrawals")
-                    .where("jobOrderPFs", "array-contains", currentOrdinePF)
-                    .get();
-                withdrawalsSnap.forEach(wDoc => {
-                    const wData = wDoc.data();
-                    const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => pf === currentOrdinePF ? restoredOrdinePF : pf);
-                    batch.update(wDoc.ref, { jobOrderPFs });
-                    ops++;
-                });
+                for (const oldVal of oldValuesToMatch) {
+                    if (!oldVal) continue;
 
-                // 3. manualCommitments
-                const commitmentsSnap = await adminDb.collection("manualCommitments")
-                    .where("jobOrderCode", "==", currentOrdinePF)
-                    .get();
-                commitmentsSnap.forEach(cDoc => {
-                    batch.update(cDoc.ref, { jobOrderCode: restoredOrdinePF });
-                    ops++;
-                });
+                    // 1. workGroups (jobOrderPFs array field)
+                    const workGroupsSnap = await adminDb.collection("workGroups")
+                        .where("jobOrderPFs", "array-contains", oldVal)
+                        .get();
+                    workGroupsSnap.forEach(wgDoc => {
+                        const groupData = wgDoc.data();
+                        const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => pf === oldVal ? restoredOrdinePF : pf);
+                        batch.update(wgDoc.ref, { jobOrderPFs });
+                        ops++;
+                    });
 
-                // 4. packingLists
+                    // 2. materialWithdrawals (jobOrderPFs array field)
+                    const withdrawalsSnap = await adminDb.collection("materialWithdrawals")
+                        .where("jobOrderPFs", "array-contains", oldVal)
+                        .get();
+                    withdrawalsSnap.forEach(wDoc => {
+                        const wData = wDoc.data();
+                        const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => pf === oldVal ? restoredOrdinePF : pf);
+                        batch.update(wDoc.ref, { jobOrderPFs });
+                        ops++;
+                    });
+
+                    // 3. manualCommitments (jobOrderCode field)
+                    const commitmentsSnap = await adminDb.collection("manualCommitments")
+                        .where("jobOrderCode", "==", oldVal)
+                        .get();
+                    commitmentsSnap.forEach(cDoc => {
+                        batch.update(cDoc.ref, { jobOrderCode: restoredOrdinePF });
+                        ops++;
+                    });
+                }
+
+                // 4. packingLists (sub-items orderPF field)
                 const packingListsSnap = await adminDb.collection("packingLists").get();
                 packingListsSnap.forEach(plDoc => {
                     const plData = plDoc.data();
                     let modified = false;
                     const items = (plData.items || []).map((item: any) => {
-                        if (item.orderPF === currentOrdinePF) {
+                        let itemMod = false;
+                        let newOrderPF = item.orderPF;
+                        if (oldValuesToMatch.has(item.orderPF)) {
+                            newOrderPF = restoredOrdinePF;
+                            itemMod = true;
+                        }
+                        if (itemMod) {
                             modified = true;
-                            return { ...item, orderPF: restoredOrdinePF };
+                            return { ...item, orderPF: newOrderPF };
                         }
                         return item;
                     });
@@ -1344,7 +1373,7 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
 
         return { 
             success: true, 
-            message: `Sanificazione completata: ${healedCount} commesse corrette con gli slash originari.`, 
+            message: `Sanificazione completata con successo: ${healedCount} commesse ripristinate con gli slash '/' originari.`, 
             healedCount 
         };
     } catch (error) {
