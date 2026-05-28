@@ -199,10 +199,12 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
 
             // Se è un gruppo, propaghiamo alle commesse figlie
             if (isGroup) {
-                (data.jobOrderIds || []).forEach(childId => {
-                    const sanitizedId = childId.replace(/\//g, '-');
-                    transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updates);
-                });
+                for (const childId of (data.jobOrderIds || [])) {
+                    const lookup = await getJobOrderRefAndSnap(childId, transaction);
+                    if (lookup.jobSnap.exists) {
+                        transaction.update(lookup.jobRef, updates);
+                    }
+                }
             }
 
             for (const kickedOpId of Array.from(operatorIdsToPulse)) {
@@ -586,8 +588,10 @@ export async function handlePhaseScanResult(
                 // HANDLE PACKAGING UPDATES (WorkGroup / Single Job)
                 if (packagingUpdates && packagingUpdates.length > 0) {
                     for (const update of packagingUpdates) {
-                        const childRef = adminDb.collection('jobOrders').doc(update.jobId);
-                        const childSnap = await transaction.get(childRef);
+                        const childLookup = await getJobOrderRefAndSnap(update.jobId, transaction);
+                        const childRef = childLookup.jobRef;
+                        const childSnap = childLookup.jobSnap;
+                        
                         if (childSnap.exists) {
                             const childData = childSnap.data() as JobOrder;
                             const childUpdates: any = { qta: update.actualQty };
@@ -607,10 +611,12 @@ export async function handlePhaseScanResult(
 
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
-                    data.jobOrderIds.forEach((childId: string) => {
-                        const sanitizedId = childId.replace(/\//g, '-');
-                        transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updates);
-                    });
+                    for (const childId of data.jobOrderIds) {
+                        const lookup = await getJobOrderRefAndSnap(childId, transaction);
+                        if (lookup.jobSnap.exists) {
+                            transaction.update(lookup.jobRef, updates);
+                        }
+                    }
                 }
                 // ----------------------------------
 
@@ -662,10 +668,12 @@ export async function handlePhaseScanResult(
                 
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
-                    data.jobOrderIds.forEach((childId: string) => {
-                        const sanitizedId = childId.replace(/\//g, '-');
-                        transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), startUpdates);
-                    });
+                    for (const childId of data.jobOrderIds) {
+                        const lookup = await getJobOrderRefAndSnap(childId, transaction);
+                        if (lookup.jobSnap.exists) {
+                            transaction.update(lookup.jobRef, startUpdates);
+                        }
+                    }
                 }
                 // ----------------------------------
                 
@@ -762,10 +770,12 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
 
                 // --- CASCADE UPDATE TO CHILDREN ---
                 if (isGroup && data.jobOrderIds) {
-                    data.jobOrderIds.forEach((childId: string) => {
-                        const sanitizedId = childId.replace(/\//g, '-');
-                        transaction.update(adminDb.collection('jobOrders').doc(sanitizedId), updateData);
-                    });
+                    for (const childId of data.jobOrderIds) {
+                        const lookup = await getJobOrderRefAndSnap(childId, transaction);
+                        if (lookup.jobSnap.exists) {
+                            transaction.update(lookup.jobRef, updateData);
+                        }
+                    }
                 }
                 // ----------------------------------
 

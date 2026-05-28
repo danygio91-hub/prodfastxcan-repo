@@ -413,12 +413,17 @@ export default function ScanJobPage() {
   const confirmPause = async (reason: PauseReason, notes?: string) => {
     if (!activeJob || !operator || !phaseIdToPause) return;
     setIsPausing(true);
-    await handlePhasePause(activeJob.id, phaseIdToPause, operator.id, reason, notes);
-    setIsPausing(false);
-    setIsPauseReasonDialogOpen(false);
-    setPhaseIdToPause(null);
-    triggerJobRefresh();
-    toast({ title: 'Pausa registrata', description: `Causale: ${reason}` });
+    try {
+        await handlePhasePause(activeJob.id, phaseIdToPause, operator.id, reason, notes);
+        setIsPauseReasonDialogOpen(false);
+        setPhaseIdToPause(null);
+        triggerJobRefresh();
+        toast({ title: 'Pausa registrata', description: `Causale: ${reason}` });
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Errore', description: error.message || 'Errore durante la pausa della fase.' });
+    } finally {
+        setIsPausing(false);
+    }
   };
 
 
@@ -434,7 +439,11 @@ export default function ScanJobPage() {
 
         await handlePhaseScanResult(activeJob.id, id, operator.id, false);
         triggerJobRefresh();
-      } finally { setIsProcessingAction(false); }
+      } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Errore', description: error.message || 'Errore durante l\'avvio della fase.' });
+      } finally { 
+        setIsProcessingAction(false); 
+      }
   };
 
 
@@ -444,7 +453,12 @@ export default function ScanJobPage() {
     try {
         await handlePhaseScanResult(activeJob.id, id, operator.id, true);
         triggerJobRefresh();
-    } finally { setIsProcessingAction(false); }
+        toast({ title: 'Fase Completata', description: 'La fase è stata chiusa correttamente.' });
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Errore', description: error.message || 'Errore durante il completamento della fase.' });
+    } finally { 
+        setIsProcessingAction(false); 
+    }
   };
 
   const handleOpenDeclarationDialog = (phase: JobPhase) => {
@@ -457,32 +471,42 @@ export default function ScanJobPage() {
     if (!activeJob || !operator || !phaseForDeclaration) return;
     setIsDeclaring(true);
     
-    const anomalyData = result === 'NON_OK' ? {
-      hasAnomaly: true,
-      anomalyType: 'QUALITY_REJECT',
-      anomalyNote: note
-    } : undefined;
+    try {
+        const anomalyData = result === 'NON_OK' ? {
+          hasAnomaly: true,
+          anomalyType: 'QUALITY_REJECT',
+          anomalyNote: note
+        } : undefined;
 
-    await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, anomalyData);
-    
-    setIsDeclaring(false);
-    setIsQualityDialogOpen(false);
-    setPhaseForDeclaration(null);
-    triggerJobRefresh();
-    toast({ title: result === 'OK' ? "Qualità Confermata" : "Anomalia Registrata", description: "La fase è stata chiusa correttamente." });
+        await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, anomalyData);
+        
+        setIsQualityDialogOpen(false);
+        setPhaseForDeclaration(null);
+        triggerJobRefresh();
+        toast({ title: result === 'OK' ? "Qualità Confermata" : "Anomalia Registrata", description: "La fase è stata chiusa correttamente." });
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Errore', description: error.message || 'Errore durante la dichiarazione qualità.' });
+    } finally {
+        setIsDeclaring(false);
+    }
   };
 
   const handleConfirmPackaging = async (items: { jobId: string, actualQty: number }[]) => {
     if (!activeJob || !operator || !phaseForDeclaration) return;
     setIsDeclaring(true);
     
-    await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, undefined, items);
-    
-    setIsDeclaring(false);
-    setIsPackagingDialogOpen(false);
-    setPhaseForDeclaration(null);
-    triggerJobRefresh();
-    toast({ title: "Imballo Completato", description: "Le quantità sono state salvate e la fase è chiusa." });
+    try {
+        await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, undefined, items);
+        
+        setIsPackagingDialogOpen(false);
+        setPhaseForDeclaration(null);
+        triggerJobRefresh();
+        toast({ title: "Imballo Completato", description: "Le quantità sono state salvate e la fase è chiusa." });
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Errore Imballo', description: error.message || 'Errore durante il salvataggio dell\'imballo.' });
+    } finally {
+        setIsDeclaring(false);
+    }
   };
 
 
