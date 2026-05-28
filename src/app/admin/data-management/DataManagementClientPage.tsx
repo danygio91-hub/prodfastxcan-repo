@@ -21,10 +21,16 @@ import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   ListChecks, Upload, Loader2, Trash2, Briefcase, PlayCircle, Search, XCircle,
   FileDown, PlusCircle, ArrowUpDown, Calendar as CalendarIcon,
   CheckCircle2, AlertTriangle, Info, RefreshCw, Save, Combine,
-  Pencil, Edit3, BellRing
+  Pencil, Edit3, BellRing, ChevronDown
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/types';
 import { format, parseISO, isBefore } from 'date-fns';
@@ -717,84 +723,91 @@ export default function DataManagementClientPage({
             </SheetContent>
           </Sheet>
 
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={async () => {
-              if (!confirm("Sei sicuro di voler ripristinare le commesse non avviate in Sala d'Attesa?")) return;
-              const res = await emergencyRestoreStagingArea();
-              if (res.success) {
-                toast({ title: "Successo", description: res.message });
-                router.refresh();
-              } else {
-                toast({ title: "Errore", description: res.message, variant: "destructive" });
-              }
-            }}
-            className="text-red-500 hover:text-red-700 border-red-200 hover:border-red-500"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Ripristina Filtri
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={async () => {
-              if (!confirm("Avviare il ricalcolo forzato delle stime per tutte le commesse pianificate?")) return;
-              setIsRefreshingMRP(true);
-              const res = await forceRecalculateEstimates();
-              setIsRefreshingMRP(false);
-              if (res.success) {
-                toast({ title: "Ricalcolo Completato", description: res.message });
-                router.refresh();
-              } else {
-                toast({ title: "Errore", description: res.message, variant: "destructive" });
-              }
-            }}
-            className="text-amber-600 hover:text-amber-700 border-amber-200 hover:border-amber-500"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Forza Ricalcolo Stime
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={async () => {
-              if (!confirm("Riparare eventuali commesse orfane (ghost) nel database delle commesse?")) return;
-              setIsRefreshingMRP(true);
-              const res = await healGhostJobOrders();
-              setIsRefreshingMRP(false);
-              if (res.success) {
-                toast({ title: "Sanificazione Completata", description: res.message });
-                router.refresh();
-              } else {
-                toast({ title: "Errore", description: res.message, variant: "destructive" });
-              }
-            }}
-            className="text-indigo-600 hover:text-indigo-700 border-indigo-200 hover:border-indigo-500"
-          >
-            <AlertTriangle className="h-4 w-4 mr-2" />
-            Riparazione Database
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={async () => {
-              if (!confirm("Ripristinare gli slash '/' originari nei codici delle commesse rapide salvate con trattini?")) return;
-              setIsRefreshingMRP(true);
-              const res = await healJobOrdersSanitization();
-              setIsRefreshingMRP(false);
-              if (res.success) {
-                toast({ title: "Ripristino Completato", description: res.message });
-                router.refresh();
-              } else {
-                toast({ title: "Errore", description: res.message, variant: "destructive" });
-              }
-            }}
-            className="text-emerald-600 hover:text-emerald-700 border-emerald-200 hover:border-emerald-500"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Ripristina Slash Commesse
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="text-indigo-600 hover:text-indigo-700 border-indigo-200 hover:border-indigo-500 gap-2 font-semibold"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Ripristino/Correzioni
+                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64 bg-slate-900 border-slate-800 text-slate-200">
+              <DropdownMenuItem 
+                onClick={async () => {
+                  if (!confirm("Sei sicuro di voler ripristinare le commesse non avviate in Sala d'Attesa?")) return;
+                  const res = await emergencyRestoreStagingArea();
+                  if (res.success) {
+                    toast({ title: "Successo", description: res.message });
+                    router.refresh();
+                  } else {
+                    toast({ title: "Errore", description: res.message, variant: "destructive" });
+                  }
+                }}
+                className="hover:bg-slate-800 focus:bg-slate-800 cursor-pointer gap-2 text-red-400 focus:text-red-400"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Ripristina Filtri
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={async () => {
+                  if (!confirm("Avviare il ricalcolo forzato delle stime per tutte le commesse pianificate?")) return;
+                  setIsRefreshingMRP(true);
+                  const res = await forceRecalculateEstimates();
+                  setIsRefreshingMRP(false);
+                  if (res.success) {
+                    toast({ title: "Ricalcolo Completato", description: res.message });
+                    router.refresh();
+                  } else {
+                    toast({ title: "Errore", description: res.message, variant: "destructive" });
+                  }
+                }}
+                className="hover:bg-slate-800 focus:bg-slate-800 cursor-pointer gap-2 text-amber-400 focus:text-amber-400"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Forza Ricalcolo Stime
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={async () => {
+                  if (!confirm("Riparare eventuali commesse orfane (ghost) nel database delle commesse?")) return;
+                  setIsRefreshingMRP(true);
+                  const res = await healGhostJobOrders();
+                  setIsRefreshingMRP(false);
+                  if (res.success) {
+                    toast({ title: "Sanificazione Completata", description: res.message });
+                    router.refresh();
+                  } else {
+                    toast({ title: "Errore", description: res.message, variant: "destructive" });
+                  }
+                }}
+                className="hover:bg-slate-800 focus:bg-slate-800 cursor-pointer gap-2 text-indigo-400 focus:text-indigo-400"
+              >
+                <AlertTriangle className="h-4 w-4" />
+                Riparazione Database
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={async () => {
+                  if (!confirm("Ripristinare gli slash '/' originari nei codici delle commesse rapide salvate con trattini?")) return;
+                  setIsRefreshingMRP(true);
+                  const res = await healJobOrdersSanitization();
+                  setIsRefreshingMRP(false);
+                  if (res.success) {
+                    toast({ title: "Ripristino Completato", description: res.message });
+                    router.refresh();
+                  } else {
+                    toast({ title: "Errore", description: res.message, variant: "destructive" });
+                  }
+                }}
+                className="hover:bg-slate-800 focus:bg-slate-800 cursor-pointer gap-2 text-emerald-400 focus:text-emerald-400"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Ripristina Slash Commesse
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <input type="file" ref={fileInputRef} onChange={async (e) => {
             const file = e.target.files?.[0]; if (!file) return; setIsImporting(true);
             try {
