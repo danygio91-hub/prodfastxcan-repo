@@ -39,67 +39,46 @@ export default function ActiveJobStatusBar() {
   const handlePauseResume = async (phaseId: string) => {
     if (!activeJob || !operator) return;
     
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+    const phaseToUpdate = (activeJob.phases || []).find((p: JobPhase) => p.id === phaseId);
     if (!phaseToUpdate) return;
     
-    const myWorkPeriodIndex = phaseToUpdate.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
+    const myWorkPeriodIndex = (phaseToUpdate.workPeriods || []).findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
+    const isMyWorkActive = myWorkPeriodIndex !== -1;
 
-    if (myWorkPeriodIndex !== -1) { // Operator is currently active, so pause
-      phaseToUpdate.workPeriods[myWorkPeriodIndex].end = new Date();
-       const isAnyoneElseWorking = phaseToUpdate.workPeriods.some((wp: any) => wp.end === null);
-       if (!isAnyoneElseWorking) {
-          phaseToUpdate.status = 'paused';
-       }
-       // Keep the operator on the job, but clear the active phase
-      await updateOperatorStatus(operator.id, activeJob.id, null);
-      toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToUpdate.name}" è stata messa in pausa.` });
-    } else { // Operator is not active, so resume/join
-      phaseToUpdate.status = 'in-progress';
-      phaseToUpdate.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-      await updateOperatorStatus(operator.id, jobToUpdate.id, phaseToUpdate.name);
-      toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToUpdate.name}".` });
+    try {
+        if (isMyWorkActive) { // Pause
+            const { handlePhasePause } = await import('@/app/scan-job/actions');
+            await handlePhasePause(activeJob.id, phaseId, operator.id, 'Pausa da Barra di Stato');
+            toast({ title: "Fase in Pausa", description: `La tua attività è in pausa.` });
+        } else { // Resume
+            const { handlePhaseScanResult } = await import('@/app/scan-job/actions');
+            await handlePhaseScanResult(activeJob.id, phaseId, operator.id, false);
+            toast({ title: "Fase Ripresa", description: `Hai ripreso a lavorare.` });
+        }
+    } catch (e) {
+        toast({ variant: "destructive", title: "Errore", description: "Impossibile aggiornare la fase." });
     }
-    
-    handleUpdateJobOrGroup(jobToUpdate);
   };
 
   const handleCompletePhase = async (phaseId: string) => {
     if (!activeJob || !operator) return;
 
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+    const phaseToUpdate = (activeJob.phases || []).find((p: JobPhase) => p.id === phaseId);
     if (!phaseToUpdate) return;
     
-    const myWorkPeriodIndex = phaseToUpdate.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
-    if (myWorkPeriodIndex !== -1) {
-        phaseToUpdate.workPeriods[myWorkPeriodIndex].end = new Date();
-    } else {
-        toast({
-            variant: "destructive",
-            title: "Nessuna attività da completare",
-            description: "Non hai un periodo di lavoro attivo su questa fase da completare.",
-        });
+    const myWorkPeriodIndex = (phaseToUpdate.workPeriods || []).findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
+    if (myWorkPeriodIndex === -1) {
+        toast({ variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo." });
         return;
     }
     
-    const isAnyoneElseWorking = phaseToUpdate.workPeriods.some((wp: any) => wp.end === null);
-
-    if (!isAnyoneElseWorking) {
-        phaseToUpdate.status = 'completed';
+    try {
+        const { handlePhaseScanResult } = await import('@/app/scan-job/actions');
+        await handlePhaseScanResult(activeJob.id, phaseId, operator.id, true);
+        toast({ title: "Fase Completata", description: `La tua attività è terminata.` });
+    } catch (e) {
+        toast({ variant: "destructive", title: "Errore", description: "Impossibile completare la fase." });
     }
-    
-    await updateOperatorStatus(operator.id, activeJob.id, null);
-    toast({ title: "Fase Completata", description: `La tua attività sulla fase "${phaseToUpdate.name}" è terminata.` });
-    
-    const allPhasesCompleted = jobToUpdate.phases.every((p: JobPhase) => p.status === 'completed' || p.status === 'skipped');
-    if (allPhasesCompleted) {
-        jobToUpdate.status = 'completed';
-        jobToUpdate.overallEndTime = new Date();
-        toast({ title: "Commessa Completata!", description: `Tutte le fasi per ${jobToUpdate.id} sono terminate.` });
-    }
-    
-    handleUpdateJobOrGroup(jobToUpdate);
   };
 
   if (isLoading || !activeJob || getDerivedJobStatus(activeJob) === 'CHIUSO' || getDerivedJobStatus(activeJob) === 'DA_INIZIARE' || !operator) {

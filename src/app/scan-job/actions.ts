@@ -610,7 +610,11 @@ export async function handlePhaseScanResult(
                 }
                 // ----------------------------------
 
-                transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
+                transaction.update(adminDb.collection('operators').doc(opId), { 
+                    activeJobId: data.ordinePF || jobId, 
+                    activePhaseName: null, 
+                    stato: 'attivo' // Keeps them in the job, but without active phase
+                });
 
             } else {
                 // Handle Start/Join
@@ -760,7 +764,11 @@ export async function handlePhasePause(jobId: string, phaseId: string, opId: str
                 }
                 // ----------------------------------
 
-            transaction.update(adminDb.collection('operators').doc(opId), { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
+            transaction.update(adminDb.collection('operators').doc(opId), { 
+                activeJobId: data.ordinePF || jobId, 
+                activePhaseName: null, 
+                stato: 'attivo' 
+            });
     });
 
     revalidatePath('/scan-job');
