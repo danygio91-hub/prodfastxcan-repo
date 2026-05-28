@@ -34,7 +34,7 @@ import {
   processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL,
   createMultipleODLs, cancelODL, updateJobOrderCycle, saveManualJobOrder, markJobAsPrinted,
   updateJobOrderDeliveryDate, updateJobOrderPrepDate, updateJobOrderOdlNumber,
-  forceRecalculateEstimates, healGhostJobOrders
+  forceRecalculateEstimates, healGhostJobOrders, healJobOrdersSanitization
 } from './actions';
 import { emergencyRestoreStagingArea } from '../data-healing/actions';
 import { getArticles } from '../article-management/actions';
@@ -774,6 +774,26 @@ export default function DataManagementClientPage({
           >
             <AlertTriangle className="h-4 w-4 mr-2" />
             Riparazione Database
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={async () => {
+              if (!confirm("Ripristinare gli slash '/' originari nei codici delle commesse rapide salvate con trattini?")) return;
+              setIsRefreshingMRP(true);
+              const res = await healJobOrdersSanitization();
+              setIsRefreshingMRP(false);
+              if (res.success) {
+                toast({ title: "Ripristino Completato", description: res.message });
+                router.refresh();
+              } else {
+                toast({ title: "Errore", description: res.message, variant: "destructive" });
+              }
+            }}
+            className="text-emerald-600 hover:text-emerald-700 border-emerald-200 hover:border-emerald-500"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Ripristina Slash Commesse
           </Button>
           <input type="file" ref={fileInputRef} onChange={async (e) => {
             const file = e.target.files?.[0]; if (!file) return; setIsImporting(true);

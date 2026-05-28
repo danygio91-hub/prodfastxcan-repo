@@ -115,7 +115,7 @@ export async function convertDraftToJobOrder(draftId: string, customJobId?: stri
             status: 'IN_PIANIFICAZIONE',
             postazioneLavoro: 'Da Assegnare',
             cliente: "SIMULAZIONE MRP",
-            ordinePF: sanitizedId,
+            ordinePF: finalJobId,
             numeroODL: "SIMULAZIONE",
             numeroODLInterno: null,
             details: articleCode,

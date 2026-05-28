@@ -1242,3 +1242,118 @@ export async function healGhostJobOrders(): Promise<{ success: boolean; message:
     }
 }
 
+/**
+ * Scans all job orders in Firestore, checks if their internal "ordinePF" field contains dashes instead of slashes
+ * (e.g. converting 430-PF.3 back to 430/PF.3), and restores the original slash format in all referenced collections.
+ */
+export async function healJobOrdersSanitization(): Promise<{ success: boolean; message: string; healedCount: number }> {
+    try {
+        const jobsSnap = await adminDb.collection("jobOrders").get();
+        let healedCount = 0;
+        let batch = adminDb.batch();
+        let ops = 0;
+
+        for (const doc of jobsSnap.docs) {
+            const job = doc.data() as JobOrder;
+            if (!job.ordinePF) continue;
+
+            const currentId = doc.id;
+            const currentOrdinePF = job.ordinePF;
+
+            // Restoring slash by replacing hyphens (e.g., "430-PF.3" -> "430/PF.3")
+            const restoredOrdinePF = currentOrdinePF.replace(/-PF/g, "/PF");
+
+            // We apply self-validation: if sanitized restored is current doc.id, and they differ
+            if (restoredOrdinePF !== currentOrdinePF && sanitizeDocumentId(restoredOrdinePF) === currentId) {
+                console.log(`[HEAL_SANITIZATION] Healing job ${currentId}: "${currentOrdinePF}" -> "${restoredOrdinePF}"`);
+
+                // Update the job order document fields
+                batch.update(doc.ref, { 
+                    ordinePF: restoredOrdinePF,
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+                ops++;
+                healedCount++;
+
+                // Cascade updates to all collections referencing the old ordinePF
+                // 1. workGroups
+                const workGroupsSnap = await adminDb.collection("workGroups")
+                    .where("jobOrderPFs", "array-contains", currentOrdinePF)
+                    .get();
+                workGroupsSnap.forEach(wgDoc => {
+                    const groupData = wgDoc.data();
+                    const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => pf === currentOrdinePF ? restoredOrdinePF : pf);
+                    batch.update(wgDoc.ref, { jobOrderPFs });
+                    ops++;
+                });
+
+                // 2. materialWithdrawals
+                const withdrawalsSnap = await adminDb.collection("materialWithdrawals")
+                    .where("jobOrderPFs", "array-contains", currentOrdinePF)
+                    .get();
+                withdrawalsSnap.forEach(wDoc => {
+                    const wData = wDoc.data();
+                    const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => pf === currentOrdinePF ? restoredOrdinePF : pf);
+                    batch.update(wDoc.ref, { jobOrderPFs });
+                    ops++;
+                });
+
+                // 3. manualCommitments
+                const commitmentsSnap = await adminDb.collection("manualCommitments")
+                    .where("jobOrderCode", "==", currentOrdinePF)
+                    .get();
+                commitmentsSnap.forEach(cDoc => {
+                    batch.update(cDoc.ref, { jobOrderCode: restoredOrdinePF });
+                    ops++;
+                });
+
+                // 4. packingLists
+                const packingListsSnap = await adminDb.collection("packingLists").get();
+                packingListsSnap.forEach(plDoc => {
+                    const plData = plDoc.data();
+                    let modified = false;
+                    const items = (plData.items || []).map((item: any) => {
+                        if (item.orderPF === currentOrdinePF) {
+                            modified = true;
+                            return { ...item, orderPF: restoredOrdinePF };
+                        }
+                        return item;
+                    });
+                    if (modified) {
+                        batch.update(plDoc.ref, { items });
+                        ops++;
+                    }
+                });
+
+                // Commit batch if it's getting close to the Firestore limit (500 operations)
+                if (ops >= 400) {
+                    await batch.commit();
+                    batch = adminDb.batch();
+                    ops = 0;
+                }
+            }
+        }
+
+        if (ops > 0) {
+            await batch.commit();
+        }
+
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+        revalidatePath('/admin/resource-planning');
+
+        return { 
+            success: true, 
+            message: `Sanificazione completata: ${healedCount} commesse corrette con gli slash originari.`, 
+            healedCount 
+        };
+    } catch (error) {
+        console.error("Errore durante healJobOrdersSanitization:", error);
+        return { 
+            success: false, 
+            message: "Errore durante il ripristino: " + (error instanceof Error ? error.message : "Errore sconosciuto"), 
+            healedCount: 0 
+        };
+    }
+}
+
