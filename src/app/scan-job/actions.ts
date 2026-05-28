@@ -336,7 +336,17 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
 
 export async function updateOperatorStatus(opId: string, jobId: string | null, phaseName: string | null) {
   if (!opId) return;
-  await adminDb.collection('operators').doc(opId).update({ activeJobId: jobId || null, activePhaseName: phaseName || null, stato: jobId ? 'attivo' : 'inattivo' });
+  
+  let displayJobId = jobId;
+  if (jobId && !jobId.startsWith('group-')) {
+      const { jobSnap } = await getJobOrderRefAndSnap(jobId);
+      if (jobSnap.exists) {
+          const data = jobSnap.data() as any;
+          displayJobId = data.ordinePF || jobId;
+      }
+  }
+
+  await adminDb.collection('operators').doc(opId).update({ activeJobId: displayJobId || null, activePhaseName: phaseName || null, stato: displayJobId ? 'attivo' : 'inattivo' });
   return { success: true };
 }
 
@@ -625,7 +635,7 @@ export async function handlePhaseScanResult(
                 // ----------------------------------
                 
                 transaction.update(adminDb.collection('operators').doc(opId), { 
-                    activeJobId: jobId, 
+                    activeJobId: data.ordinePF || jobId, 
                     activePhaseName: phs[idx].name, 
                     stato: 'attivo' 
                 });
