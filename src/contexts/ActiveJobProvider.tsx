@@ -51,67 +51,12 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchJobById = useCallback(async (id: string) => {
-    setIsLoading(true);
-    try {
-        const isWorkGroup = id.startsWith('group-');
-        const collectionName = isWorkGroup ? 'workGroups' : 'jobOrders';
-        const jobRef = doc(db, collectionName, id);
-        const docSnap = await getDoc(jobRef);
-
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            const jobWithDates: any = JSON.parse(JSON.stringify(data), (key, value) => {
-                 if ((key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime' || key === 'odlCreationDate' || key === 'createdAt') && value && value.seconds !== undefined) {
-                    return new Date(value.seconds * 1000);
-                 }
-                 return value;
-            });
-            
-            const jobToSet: JobOrder = isWorkGroup 
-              ? {
-                  id: docSnap.id,
-                  ordinePF: jobWithDates.jobOrderPFs?.join(', ') || 'Gruppo',
-                  qta: jobWithDates.totalQuantity || 0,
-                  cliente: jobWithDates.cliente,
-                  department: jobWithDates.department,
-                  details: jobWithDates.details,
-                  numeroODLInterno: jobWithDates.numeroODLInterno,
-                  numeroODL: jobWithDates.numeroODL,
-                  dataConsegnaFinale: jobWithDates.dataConsegnaFinale,
-                  postazioneLavoro: 'Multi-Commessa',
-                  phases: jobWithDates.phases || [],
-                  status: jobWithDates.status,
-                  workCycleId: jobWithDates.workCycleId,
-                  workGroupId: docSnap.id,
-                  jobOrderIds: jobWithDates.jobOrderIds || [],
-                  jobOrderPFs: jobWithDates.jobOrderPFs || [],
-                  overallStartTime: jobWithDates.overallStartTime,
-                  overallEndTime: jobWithDates.overallEndTime,
-                  isProblemReported: jobWithDates.isProblemReported,
-                  problemType: jobWithDates.problemType,
-                  problemNotes: jobWithDates.problemNotes,
-                  problemReportedBy: jobWithDates.problemReportedBy,
-              }
-              : jobWithDates;
-
-            setActiveJobState(jobToSet);
-        } else {
-            setActiveJobId(null);
-            setActiveJobState(null);
-        }
-    } catch (error) {
-        console.error("Error fetching active job:", error);
-    } finally {
-        setIsLoading(false);
-    }
-  }, [setActiveJobId]);
+    // This function is kept for signature compatibility but we rely on onSnapshot now.
+  }, []);
 
   const refreshJob = useCallback(() => {
     setRefreshKey(prev => prev + 1);
   }, []);
-
-  // Update context type to include refreshJob
-  // ... (this will be handled by updating the interface)
 
   useEffect(() => {
     if (authLoading) {
@@ -125,8 +70,92 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
         return;
     }
     
-    fetchJobById(activeJobId);
-  }, [activeJobId, fetchJobById, authLoading, refreshKey]);
+    let unsubscribe: (() => void) | null = null;
+    let isCancelled = false;
+
+    const setupListener = async () => {
+        setIsLoading(true);
+        try {
+            // BACKEND CALL: Resolve visual string (e.g., '241/PF.1-1') to TRUE Document ID (e.g., '241-PF1-1')
+            const { getTrueJobId } = await import('@/app/scan-job/actions');
+            const result = await getTrueJobId(activeJobId);
+            
+            if (isCancelled) return;
+
+            if (result.success && result.trueId) {
+                const isWorkGroup = result.trueId.startsWith('group-');
+                const collectionName = isWorkGroup ? 'workGroups' : 'jobOrders';
+                const { onSnapshot, doc } = await import('firebase/firestore');
+                
+                const jobRef = doc(db, collectionName, result.trueId);
+                
+                unsubscribe = onSnapshot(jobRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        const jobWithDates: any = JSON.parse(JSON.stringify(data), (key, value) => {
+                             if ((key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime' || key === 'odlCreationDate' || key === 'createdAt') && value && value.seconds !== undefined) {
+                                return new Date(value.seconds * 1000);
+                             }
+                             return value;
+                        });
+                        
+                        const jobToSet: JobOrder = isWorkGroup 
+                          ? {
+                              id: docSnap.id,
+                              ordinePF: jobWithDates.jobOrderPFs?.join(', ') || 'Gruppo',
+                              qta: jobWithDates.totalQuantity || 0,
+                              cliente: jobWithDates.cliente,
+                              department: jobWithDates.department,
+                              details: jobWithDates.details,
+                              numeroODLInterno: jobWithDates.numeroODLInterno,
+                              numeroODL: jobWithDates.numeroODL,
+                              dataConsegnaFinale: jobWithDates.dataConsegnaFinale,
+                              postazioneLavoro: 'Multi-Commessa',
+                              phases: jobWithDates.phases || [],
+                              status: jobWithDates.status,
+                              workCycleId: jobWithDates.workCycleId,
+                              workGroupId: docSnap.id,
+                              jobOrderIds: jobWithDates.jobOrderIds || [],
+                              jobOrderPFs: jobWithDates.jobOrderPFs || [],
+                              overallStartTime: jobWithDates.overallStartTime,
+                              overallEndTime: jobWithDates.overallEndTime,
+                              isProblemReported: jobWithDates.isProblemReported,
+                              problemType: jobWithDates.problemType,
+                              problemNotes: jobWithDates.problemNotes,
+                              problemReportedBy: jobWithDates.problemReportedBy,
+                          }
+                          : jobWithDates;
+            
+                        setActiveJobState(jobToSet);
+                    } else {
+                        setActiveJobId(null);
+                        setActiveJobState(null);
+                    }
+                    setIsLoading(false);
+                }, (error) => {
+                    console.error("Error in active job snapshot listener:", error);
+                    setIsLoading(false);
+                });
+            } else {
+                setActiveJobId(null);
+                setActiveJobState(null);
+                setIsLoading(false);
+            }
+        } catch (error) {
+            console.error("Error setting up active job listener:", error);
+            setIsLoading(false);
+        }
+    };
+
+    setupListener();
+
+    return () => {
+        isCancelled = true;
+        if (unsubscribe) {
+            unsubscribe();
+        }
+    };
+  }, [activeJobId, setActiveJobId, authLoading, refreshKey]);
 
   
   const setActiveJob = useCallback((job: JobOrder | null) => {

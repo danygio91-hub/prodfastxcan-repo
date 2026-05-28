@@ -65,6 +65,24 @@ async function getJobOrderRefAndSnap(
     return { jobRef, jobSnap };
 }
 
+export async function getTrueJobId(id: string): Promise<{ success: boolean; trueId?: string; message?: string }> {
+    try {
+        if (!id) return { success: false, message: "ID mancante." };
+        if (id.startsWith('group-')) {
+            return { success: true, trueId: id }; // Groups use their ID directly
+        }
+        
+        const { jobRef, jobSnap } = await getJobOrderRefAndSnap(id);
+        if (jobSnap.exists) {
+            return { success: true, trueId: jobRef.id };
+        } else {
+            return { success: false, message: "Commessa non trovata." };
+        }
+    } catch (e) {
+        return { success: false, message: "Errore durante il lookup." };
+    }
+}
+
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sorted = [...phases].sort((a, b) => a.sequence - b.sequence);
     
