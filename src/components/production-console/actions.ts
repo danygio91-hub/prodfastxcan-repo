@@ -10,6 +10,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/types';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
+import { getItemRefAndSnap } from '@/lib/firestore-utils';
 
 export type ProductionTimeData = {
     averageMinutesPerPiece: number;
@@ -41,10 +42,8 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobRef = adminDb.collection('jobOrders').doc(jobId);
-    
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-        const jobSnap = await transaction.get(jobRef);
+        const { itemRef: jobRef, itemSnap: jobSnap } = await getItemRefAndSnap(adminDb, jobId, transaction);
         if (!jobSnap.exists) throw new Error('Commessa non trovata.');
         const job = jobSnap.data() as JobOrder;
 
@@ -74,10 +73,8 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
 export async function revertForceFinish(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobRef = adminDb.collection('jobOrders').doc(jobId);
-    
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-      const jobSnap = await transaction.get(jobRef);
+        const { itemRef: jobRef, itemSnap: jobSnap } = await getItemRefAndSnap(adminDb, jobId, transaction);
       if (!jobSnap.exists) throw new Error('Commessa non trovata.');
       const job = jobSnap.data() as JobOrder;
 
@@ -103,11 +100,10 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
 export async function toggleGuainaPhasePosition(itemId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
   try {
     const isGroup = itemId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
     const templateRef = adminDb.collection('workPhaseTemplates').doc(phaseId);
-    
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-        const [itemSnap, tSnap] = await Promise.all([transaction.get(itemRef), transaction.get(templateRef)]);
+        const { itemRef, itemSnap: itemSnap } = await getItemRefAndSnap(adminDb, itemId, transaction);
+        const tSnap = await transaction.get(templateRef);
         if (!itemSnap.exists) throw new Error('Non trovato.');
 
         const itemData = itemSnap.data() as JobOrder | WorkGroup;
@@ -143,10 +139,8 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
 export async function revertPhaseCompletion(jobId: string, phaseId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobRef = adminDb.collection('jobOrders').doc(jobId);
-    
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-      const jobSnap = await transaction.get(jobRef);
+        const { itemRef: jobRef, itemSnap: jobSnap } = await getItemRefAndSnap(adminDb, jobId, transaction);
       if (!jobSnap.exists) throw new Error('Commessa non trovata.');
       
       const jobData = jobSnap.data() as JobOrder;
@@ -172,10 +166,8 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
   try {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-      const itemSnap = await transaction.get(itemRef);
+        const { itemRef, itemSnap: itemSnap } = await getItemRefAndSnap(adminDb, jobId, transaction);
       if (!itemSnap.exists) throw new Error('Non trovato.');
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
 
@@ -232,10 +224,8 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
   try {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-    
     await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-      const itemSnap = await transaction.get(itemRef);
+        const { itemRef, itemSnap: itemSnap } = await getItemRefAndSnap(adminDb, jobId, transaction);
       if (!itemSnap.exists) throw new Error("Non trovata.");
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
       const jobIds = isGroup ? (itemData as WorkGroup).jobOrderIds : [jobId];
@@ -309,7 +299,7 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
 export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid: string): Promise<{ success: boolean, message: string }> {
   await ensureAdmin(uid);
   const isGroup = jobId.startsWith('group-');
-  const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+  const { itemRef } = await getItemRefAndSnap(adminDb, jobId);
   const finalPhases = updatePhasesMaterialReadiness(phases.map((p, i) => ({ ...p, sequence: i + 1 })));
   try {
     await itemRef.update({ phases: finalPhases });
@@ -336,14 +326,15 @@ export async function forceFinishMultiple(jobIds: string[], uid: string): Promis
 export async function forceCompleteMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const batch = adminDb.batch();
-  jobIds.forEach(id => {
+  for (const id of jobIds) {
       const isGroup = id.startsWith('group-');
-      batch.update(adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(id), { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true });
-  });
+      const { itemRef } = await getItemRefAndSnap(adminDb, id);
+      batch.update(itemRef, { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true });
+  }
   await batch.commit();
 
   for (const id of jobIds) {
-      const snap = await adminDb.collection(id.startsWith('group-') ? 'workGroups' : 'jobOrders').doc(id).get();
+      const { itemSnap: snap } = await getItemRefAndSnap(adminDb, id);
       if (snap.data()?.details) {
           await updateArticleHistoricalTimes(snap.data()?.details);
       }
@@ -371,10 +362,10 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
 export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
     await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
-      const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(adminDb.collection('operators').doc(uid))]);
+      const { itemRef, itemSnap: snap } = await getItemRefAndSnap(adminDb, itemId, t);
+      const opSnap = await t.get(adminDb.collection('operators').doc(uid));
       if (!snap.exists) throw new Error("Non trovato.");
       const itemData = snap.data() as JobOrder;
       const phases = [...itemData.phases];
@@ -421,10 +412,8 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
   try {
     await ensureAdmin(uid);
     const isGroup = itemId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
-
     await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
-        const snap = await t.get(itemRef);
+        const { itemRef, itemSnap: snap } = await getItemRefAndSnap(adminDb, itemId, t);
         if (!snap.exists) throw new Error("Non trovato.");
         
         t.update(itemRef, { dataConsegnaFinale: newDate });

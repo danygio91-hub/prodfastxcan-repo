@@ -41,3 +41,61 @@ export async function fetchInChunks<T>(
 
     return Array.from(resultsMap.values());
 }
+
+/**
+ * Helper to perform a hybrid, fallback-safe lookup for a Job Order.
+ * Supports standard fetches and Firestore transactions.
+ */
+export async function getJobOrderRefAndSnap(
+    adminDb: admin.firestore.Firestore,
+    rawId: string, 
+    transaction?: admin.firestore.Transaction
+): Promise<{ jobRef: admin.firestore.DocumentReference; jobSnap: admin.firestore.DocumentSnapshot }> {
+    const sanitizedId = rawId.replace(/\//g, '-');
+    let jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
+    let jobSnap = transaction ? await transaction.get(jobRef) : await jobRef.get();
+
+    // FALLBACK 1: Ricerca per campo testuale esatto (Risolve disallineamento ID/campo)
+    if (!jobSnap.exists) {
+        const querySnap = await adminDb.collection('jobOrders')
+            .where('ordinePF', '==', rawId)
+            .limit(1)
+            .get();
+        
+        if (!querySnap.empty) {
+            const foundSnap = querySnap.docs[0];
+            jobRef = foundSnap.ref;
+            jobSnap = transaction ? await transaction.get(jobRef) : foundSnap;
+        }
+    }
+
+    // FALLBACK 2: Ricerca legacy assoluta (Senza punti)
+    if (!jobSnap.exists) {
+        const legacyId = sanitizedId.replace(/[\.#$\[\]]/g, '');
+        const legacyRef = adminDb.collection('jobOrders').doc(legacyId);
+        const legacySnap = transaction ? await transaction.get(legacyRef) : await legacyRef.get();
+        if (legacySnap.exists) {
+            jobRef = legacyRef;
+            jobSnap = legacySnap;
+        }
+    }
+
+    return { jobRef, jobSnap };
+}
+
+/**
+ * High-level helper that resolves a group or a job order, applying the hybrid fallback for job orders.
+ */
+export async function getItemRefAndSnap(
+    adminDb: admin.firestore.Firestore,
+    itemId: string,
+    transaction?: admin.firestore.Transaction
+): Promise<{ itemRef: admin.firestore.DocumentReference; itemSnap: admin.firestore.DocumentSnapshot }> {
+    if (itemId.startsWith('group-')) {
+        const itemRef = adminDb.collection('workGroups').doc(itemId);
+        const itemSnap = transaction ? await transaction.get(itemRef) : await itemRef.get();
+        return { itemRef, itemSnap };
+    }
+    const { jobRef, jobSnap } = await getJobOrderRefAndSnap(adminDb, itemId, transaction);
+    return { itemRef: jobRef, itemSnap: jobSnap };
+}
