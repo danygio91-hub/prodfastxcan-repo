@@ -90,24 +90,19 @@ async function propagateGroupUpdatesToJobs(transaction: admin.firestore.Transact
         problemReportedBy: (groupData as any).problemReportedBy || null
     };
 
-    const jobRefs = groupData.jobOrderIds.map(id => {
-        const sanitizedId = id.replace(/\//g, '-');
-        return adminDb.collection('jobOrders').doc(sanitizedId);
-    });
-    const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
-    
     let hasMissing = false;
     const missingIds: string[] = [];
 
-    jobDocs.forEach((doc, idx) => {
-        if (!doc.exists) {
-            console.warn(`[ANTI-BRICK] Commessa orfana rimossa dal gruppo ${groupData.id}: ${groupData.jobOrderIds![idx]}`);
+    for (const childId of groupData.jobOrderIds) {
+        const { itemRef, itemSnap } = await getItemRefAndSnap(adminDb, childId, transaction);
+        if (!itemSnap.exists) {
+            console.warn(`[ANTI-BRICK] Commessa orfana rimossa dal gruppo ${groupData.id}: ${childId}`);
             hasMissing = true;
-            missingIds.push(groupData.jobOrderIds![idx]);
+            missingIds.push(childId);
         } else {
-            transaction.update(doc.ref, updatePayload);
+            transaction.update(itemRef, updatePayload);
         }
-    });
+    }
 
     if (hasMissing && groupData.id) {
         const validIds = groupData.jobOrderIds!.filter(id => !missingIds.includes(id));
