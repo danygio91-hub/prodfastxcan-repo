@@ -391,9 +391,8 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
 
 async function internalForceCompleteJob(transaction: admin.firestore.Transaction, jobId: string, uid: string) {
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    const { itemRef, itemSnap: snap } = await getItemRefAndSnap(adminDb, jobId, transaction);
     
-    const snap = await transaction.get(itemRef);
     if (!snap.exists) throw new Error(`Elemento ${jobId} non trovato.`);
     const item = snap.data() as JobOrder;
 
@@ -568,10 +567,9 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
 export async function revertCompletion(itemId: string, uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
       await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-          const itemSnap = await transaction.get(itemRef);
+          const { itemRef, itemSnap } = await getItemRefAndSnap(adminDb, itemId, transaction);
           if (!itemSnap.exists) throw new Error("Non trovato.");
           const itemData = itemSnap.data() as JobOrder | WorkGroup;
           
@@ -680,10 +678,9 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
 export async function resolveMaterialMissing(itemId: string, phaseId: string, uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
     await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
-      const snap = await t.get(itemRef);
+      const { itemRef, itemSnap: snap } = await getItemRefAndSnap(adminDb, itemId, t);
       if (!snap.exists) throw new Error("Non trovato.");
       const itemData = snap.data() as JobOrder;
       let phases = [...itemData.phases];
@@ -779,10 +776,10 @@ export async function bulkUpdateJobOrders(jobs: JobOrder[], uid: string | undefi
   try {
     await ensureAdmin(uid);
     const batch = adminDb.batch();
-    jobs.forEach(job => {
-      const ref = adminDb.collection('jobOrders').doc(job.id);
+    for (const job of jobs) {
+      const { itemRef: ref } = await getItemRefAndSnap(adminDb, job.id);
       batch.update(ref, { phases: job.phases });
-    });
+    }
     await batch.commit();
     revalidatePath('/admin/production-console');
     return { success: true, message: `${jobs.length} commesse aggiornate correttamente.` };

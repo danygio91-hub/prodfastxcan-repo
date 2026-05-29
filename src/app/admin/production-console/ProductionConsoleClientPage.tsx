@@ -397,16 +397,65 @@ export default function ProductionConsoleClientPage() {
     setShowCompleted(false);
   };
 
-  const handleForceFinish = async (jobId: string) => { if (!user) return; await forceFinishProduction(jobId, user.uid); };
-  const handleRevertForceFinish = async (jobId: string) => { if (!user) return; await revertForceFinish(jobId, user.uid); };
-  const handleForceComplete = async (jobId: string) => { if (!user) return; await forceCompleteJob(jobId, user.uid); };
-  const handleToggleGuaina = async (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => { if (!user) return; await toggleGuainaPhasePosition(jobId, phaseId, currentState); };
-  const handleRevertPhase = async (jobId: string, phaseId: string) => { if (!user) return; await revertPhaseCompletion(jobId, phaseId, user.uid); };
-  const handleRevertCompletion = async (itemId: string) => { if (!user) return; await revertCompletion(itemId, user.uid); };
-  const handleForcePause = async (jobId: string, ops: string[], reason?: string, notes?: string) => { if (!user) return; await forcePauseOperators(jobId, ops, user.uid, reason, notes); };
-  const onResetJobOrderClick = async (jobId: string) => { if (!user) return; await resetSingleCompletedJobOrder(jobId, user.uid); };
-  const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => { if (!user) return; await updateJobDeliveryDate(itemId, newDate, user.uid); };
-  const handleUpdatePrepDate = async (itemId: string, newDate: string) => { if (!user) return; await updateJobPrepDate(itemId, newDate, user.uid); };
+  const handleForceFinish = async (jobId: string) => {
+    if (!user) return;
+    const res = await forceFinishProduction(jobId, user.uid);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const handleRevertForceFinish = async (jobId: string) => {
+    if (!user) return;
+    const res = await revertForceFinish(jobId, user.uid);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const handleForceComplete = async (jobId: string) => {
+    if (!user) return;
+    const res = await forceCompleteJob(jobId, user.uid);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const handleToggleGuaina = async (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => {
+    if (!user) return;
+    const res = await toggleGuainaPhasePosition(jobId, phaseId, currentState);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const handleRevertPhase = async (jobId: string, phaseId: string) => {
+    if (!user) return;
+    const res = await revertPhaseCompletion(jobId, phaseId, user.uid);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const handleRevertCompletion = async (itemId: string) => {
+    if (!user) return;
+    const res = await revertCompletion(itemId, user.uid);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const handleForcePause = async (jobId: string, ops: string[], reason?: string, notes?: string) => {
+    if (!user) return;
+    const res = await forcePauseOperators(jobId, ops, user.uid, reason, notes);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const onResetJobOrderClick = async (jobId: string) => {
+    if (!user) return;
+    const res = await resetSingleCompletedJobOrder(jobId, user.uid);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => {
+    if (!user) return;
+    const res = await updateJobDeliveryDate(itemId, newDate, user.uid);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
+
+  const handleUpdatePrepDate = async (itemId: string, newDate: string) => {
+    if (!user) return;
+    const res = await updateJobPrepDate(itemId, newDate, user.uid);
+    toast({ title: res.success ? "Successo" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
   const handleDissolveGroup = async (groupId: string) => { await dissolveWorkGroup(groupId); loadAllData(true); };
 
   const handleOpenPhaseManager = (item: JobOrder | WorkGroup) => {
