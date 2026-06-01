@@ -68,11 +68,13 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
 
     if (!groupRef) {
         if (callerJobId) {
-             const tid = callerJobId.replace(/\//g, '-');
-             await adminDb.collection('jobOrders').doc(tid).update({
-                 workGroupId: admin.firestore.FieldValue.delete(),
-                 isGrouped: false
-             });
+             const jobSnap = await adminDb.collection('jobOrders').where('id', '==', callerJobId).limit(1).get();
+             if (!jobSnap.empty) {
+                 await jobSnap.docs[0].ref.update({
+                     workGroupId: admin.firestore.FieldValue.delete(),
+                     isGrouped: false
+                 });
+             }
              revalidatePath('/scan-job');
              return { success: true, message: "Dati gruppo corrotti. La commessa è stata sbloccata." };
         }
@@ -108,11 +110,13 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         
         // FAIL-SAFE for the specific caller job if it wasn't caught by the query
         if (callerJobId) {
-             const tid = callerJobId.replace(/\//g, '-');
-             await adminDb.collection('jobOrders').doc(tid).update({
-                 workGroupId: admin.firestore.FieldValue.delete(),
-                 isGrouped: false
-             });
+             const jobSnap = await adminDb.collection('jobOrders').where('id', '==', callerJobId).limit(1).get();
+             if (!jobSnap.empty) {
+                 await jobSnap.docs[0].ref.update({
+                     workGroupId: admin.firestore.FieldValue.delete(),
+                     isGrouped: false
+                 });
+             }
              revalidatePath('/scan-job');
              return { success: true, message: "Gruppo non trovato. La commessa è stata forzatamente sbloccata." };
         }
