@@ -40,11 +40,13 @@ import {
     getPlanningWorkPhaseTemplates,
     saveMassiveAllocation,
     selfHealJobPhases,
-    saveDefaultCompanyAllocation
+    saveDefaultCompanyAllocation,
+    getCurrentDefaultMaster
 } from './weekly-actions';
 import { getWorkCycles } from '../data-management/actions';
 import { updateJobDeliveryDate, updateJobDepartment, forceCloseAndExclude } from './actions';
 import MassiveAllocationDialog from './MassiveAllocationDialog';
+import CompanyMasterSetupDialog from './CompanyMasterSetupDialog';
 import QuickJobOrderDialog from './QuickJobOrderDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { 
@@ -106,6 +108,8 @@ export default function ResourcePlanningClientPage() {
 
     const [isLoanDialogOpen, setIsLoanDialogOpen] = useState(false);
     const [isMassiveDialogOpen, setIsMassiveDialogOpen] = useState(false);
+    const [isMasterDialogOpen, setIsMasterDialogOpen] = useState(false);
+    const [currentMaster, setCurrentMaster] = useState<any>(null);
     const [selectedSlot, setSelectedSlot] = useState<{ deptId: string, week: number, year: number } | null>(null);
     const [pendingMove, setPendingMove] = useState<{
         jobId: string, 
@@ -407,19 +411,19 @@ export default function ResourcePlanningClientPage() {
         }
     };
 
-    const handleSaveDefault = async () => {
-        const distributions: { departmentId: string, assignments: { operatorId: string, hours: number }[] }[] = [];
-        displayDepts.forEach(dept => {
-            const key = `${currentYear}_${currentWeek}_${dept.id}`;
-            const assignments = boardData.allocations[key] || [];
-            distributions.push({ departmentId: dept.id, assignments });
-        });
-        
+    const handleOpenMasterSetup = async () => {
+        setIsMasterDialogOpen(true);
+        const master = await getCurrentDefaultMaster();
+        setCurrentMaster(master);
+    };
+
+    const handleSaveMaster = async (distributions: { departmentId: string, assignments: { operatorId: string, hours: number }[] }[]) => {
         const res = await saveDefaultCompanyAllocation(currentYear, currentWeek, distributions, uid);
         if (res.success) {
-            toast({ title: "Standard Aziendale Salvato", description: "L'impostazione predefinita è stata salvata con successo." });
+            toast({ title: "Master Aziendale Salvato", description: "Il nuovo master è stato impostato con successo." });
+            loadData(); // Ricarica i dati per applicare il nuovo master
         } else {
-            toast({ title: "Errore", description: res.message || "Errore nel salvataggio dello standard.", variant: "destructive" });
+            toast({ title: "Errore", description: res.message || "Impossibile salvare il master.", variant: "destructive" });
         }
     };
 
@@ -526,22 +530,41 @@ export default function ResourcePlanningClientPage() {
                             <Badge className="bg-blue-500 text-white border-none ml-1 h-5 w-5 p-0 flex items-center justify-center rounded-full shadow-inner text-[9px]">{boardData.unassignedJobs.length}</Badge>
                         </Button>
 
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button 
-                                        variant="ghost" 
-                                        className="h-12 w-12 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-all flex items-center justify-center shadow-lg hover:shadow-emerald-900/50 border border-emerald-500/30"
-                                        onClick={() => setIsMassiveDialogOpen(true)}
-                                    >
-                                        <Zap className="h-5 w-5 fill-white" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="bg-emerald-900 border-emerald-700 text-white font-black uppercase text-[10px] tracking-widest">
-                                    Pianificazione Massiva
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
+                        <div className="flex items-center gap-2">
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button 
+                                            variant="ghost" 
+                                            className="h-12 w-12 rounded-xl bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-all flex items-center justify-center shadow-lg border border-slate-700"
+                                            onClick={handleOpenMasterSetup}
+                                        >
+                                            <Settings2 className="h-5 w-5" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="bg-slate-800 border-slate-700 text-white font-black uppercase text-[10px] tracking-widest">
+                                        Configura Master Aziendale
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button 
+                                            variant="ghost" 
+                                            className="h-12 w-12 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-all flex items-center justify-center shadow-lg hover:shadow-emerald-900/50 border border-emerald-500/30"
+                                            onClick={() => setIsMassiveDialogOpen(true)}
+                                        >
+                                            <Zap className="h-5 w-5 fill-white" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="bg-emerald-900 border-emerald-700 text-white font-black uppercase text-[10px] tracking-widest">
+                                        Pianificazione Massiva (Eccezioni)
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        </div>
 
                         <div className="h-8 w-px bg-slate-800 mx-1 hidden lg:block" />
 
@@ -769,7 +792,15 @@ export default function ResourcePlanningClientPage() {
                     currentAllocations={boardData.allocations}
                     weeklyLimit={weeklyLimitHours}
                     onSave={handleMassiveSave}
-                    onSaveDefault={handleSaveDefault}
+                />
+
+                <CompanyMasterSetupDialog 
+                    isOpen={isMasterDialogOpen}
+                    onClose={() => setIsMasterDialogOpen(false)}
+                    operators={planningOperators}
+                    displayDepts={displayDepts}
+                    currentMaster={currentMaster}
+                    onSave={handleSaveMaster}
                 />
 
                 {pendingMove && (

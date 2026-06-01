@@ -275,6 +275,24 @@ export async function migrateJobOrderStatuses(uid: string) {
 }
 
 /**
+ * Recupera l'ultimo master aziendale impostato
+ */
+export async function getCurrentDefaultMaster() {
+    try {
+        const snap = await adminDb.collection("defaultCapacityAssignments")
+            .orderBy("validFromKey", "desc")
+            .limit(1)
+            .get();
+        if (snap.empty) return null;
+        
+        return snap.docs[0].data();
+    } catch (error) {
+        console.error("Error getting current default master:", error);
+        return null;
+    }
+}
+
+/**
  * Salva l'impostazione "Aziendale Standard" che vale di default per le settimane future
  */
 export async function saveDefaultCompanyAllocation(

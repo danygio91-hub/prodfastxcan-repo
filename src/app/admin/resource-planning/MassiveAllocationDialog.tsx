@@ -40,7 +40,6 @@ interface MassiveAllocationDialogProps {
     currentAllocations: Record<string, { operatorId: string, hours: number }[]>;
     weeklyLimit: number;
     onSave: (operatorId: string, distributions: { departmentId: string, hours: number }[]) => Promise<void>;
-    onSaveDefault: () => Promise<void>;
 }
 
 export default function MassiveAllocationDialog({
@@ -52,8 +51,7 @@ export default function MassiveAllocationDialog({
     displayDepts,
     currentAllocations,
     weeklyLimit,
-    onSave,
-    onSaveDefault
+    onSave
 }: MassiveAllocationDialogProps) {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedOpId, setSelectedOpId] = useState<string | null>(null);
@@ -154,18 +152,7 @@ export default function MassiveAllocationDialog({
                                         <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3">
                                             <Zap className="h-6 w-6 text-blue-500" /> Pianificazione Massiva
                                         </h2>
-                                        <div className="flex items-center gap-2">
-                                            <Button 
-                                                variant="outline" 
-                                                size="sm"
-                                                className="border-emerald-500/50 text-emerald-500 hover:bg-emerald-500 hover:text-white font-black text-[10px] uppercase tracking-widest gap-2 rounded-xl transition-all h-8"
-                                                onClick={onSaveDefault}
-                                            >
-                                                <Save className="h-3 w-3" />
-                                                Salva come Master
-                                            </Button>
-                                            <Badge className="bg-slate-900 border-slate-800 text-slate-400 font-bold uppercase py-1 px-3">Settimana {week}</Badge>
-                                        </div>
+                                        <Badge className="bg-slate-900 border-slate-800 text-slate-400 font-bold uppercase py-1 px-3">Settimana {week}</Badge>
                                     </div>
                                     
                                     <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-800/50">
