@@ -31,7 +31,7 @@ export interface GlobalSettings {
   rawMaterialTypes: RawMaterialTypeConfig[];
   unitsOfMeasure: string[];
   productionProblemTypes: { id: string, label: string }[];
-  phaseTypes: { id: string, label: string }[];
+  phaseTypes: { id: string, label: string, isExternalRouting: boolean, isTerminal: boolean, macroArea: 'PREPARAZIONE' | 'PRODUZIONE' | 'QLTY_PACK' }[];
   materialSessionCategories: string[];
   jobOrderQrCodeRule?: string; // e.g. "{ordinePF}@{details}@{qta}"
   smartCodeSettings?: SmartCodeSettings;
@@ -53,10 +53,10 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
     { id: 'ALTRO', label: 'Altro' },
   ],
   phaseTypes: [
-    { id: 'preparation', label: 'Preparazione' },
-    { id: 'production', label: 'Produzione' },
-    { id: 'quality', label: 'Qualità' },
-    { id: 'packaging', label: 'Imballaggio' },
+    { id: 'preparation', label: 'Preparazione', isExternalRouting: false, isTerminal: false, macroArea: 'PREPARAZIONE' },
+    { id: 'production', label: 'Produzione', isExternalRouting: false, isTerminal: false, macroArea: 'PRODUZIONE' },
+    { id: 'quality', label: 'Qualità', isExternalRouting: false, isTerminal: false, macroArea: 'QLTY_PACK' },
+    { id: 'packaging', label: 'Imballaggio', isExternalRouting: false, isTerminal: true, macroArea: 'QLTY_PACK' },
   ],
   materialSessionCategories: ['TRECCIA', 'TUBI', 'GUAINA'],
   jobOrderQrCodeRule: "{ordinePF}@{details}@{qta}",

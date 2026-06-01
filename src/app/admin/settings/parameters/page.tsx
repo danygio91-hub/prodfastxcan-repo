@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Save, Plus, Trash2, Settings2, Boxes, Ruler, AlertCircle, Layers } from 'lucide-react';
+import { Loader2, Save, Plus, Trash2, Settings2, Boxes, Ruler, AlertCircle, Layers, Workflow } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getGlobalSettings, updateGlobalSettings } from '@/lib/settings-actions';
@@ -97,6 +97,27 @@ export default function GlobalParametersPage() {
     setSettings({ ...settings, productionProblemTypes: newList });
   };
 
+  const addPhaseType = () => {
+    if (!settings) return;
+    setSettings({ 
+      ...settings, 
+      phaseTypes: [...settings.phaseTypes, { id: `FASE_${Date.now()}`, label: 'Nuova Fase', isExternalRouting: false, isTerminal: false, macroArea: 'PRODUZIONE' }] 
+    });
+  };
+
+  const updatePhaseType = (index: number, updates: Partial<{ id: string, label: string, isExternalRouting: boolean, isTerminal: boolean, macroArea: 'PREPARAZIONE' | 'PRODUZIONE' | 'QLTY_PACK' }>) => {
+    if (!settings) return;
+    const newList = [...settings.phaseTypes];
+    newList[index] = { ...newList[index], ...updates };
+    setSettings({ ...settings, phaseTypes: newList });
+  };
+
+  const removePhaseType = (index: number) => {
+    if (!settings) return;
+    const newList = settings.phaseTypes.filter((_, i) => i !== index);
+    setSettings({ ...settings, phaseTypes: newList });
+  };
+
   if (isLoading) {
     return (
       <AppShell>
@@ -128,12 +149,12 @@ export default function GlobalParametersPage() {
           </header>
 
           <Tabs defaultValue="materials" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+            <TabsList className="grid w-full grid-cols-5 max-w-3xl">
               <TabsTrigger value="materials" className="gap-2"><Boxes className="h-4 w-4" /> Materiali</TabsTrigger>
               <TabsTrigger value="units" className="gap-2"><Ruler className="h-4 w-4" /> Unità</TabsTrigger>
               <TabsTrigger value="problems" className="gap-2"><AlertCircle className="h-4 w-4" /> Problemi</TabsTrigger>
               <TabsTrigger value="sessions" className="gap-2"><Layers className="h-4 w-4" /> Sessioni</TabsTrigger>
-              <TabsTrigger value="general" className="gap-2"><Settings2 className="h-4 w-4" /> Generali</TabsTrigger>
+              <TabsTrigger value="phasetypes" className="gap-2"><Workflow className="h-4 w-4" /> Tipi di Fase</TabsTrigger>
             </TabsList>
 
             {/* RAW MATERIAL TYPES */}
@@ -256,6 +277,66 @@ export default function GlobalParametersPage() {
                                 setSettings({ ...settings, productionProblemTypes: newList });
                             }} className="text-destructive mt-4">
                                 <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    ))}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* PHASE TYPES */}
+            <TabsContent value="phasetypes" className="space-y-4 pt-4">
+               <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Tipi di Fase</CardTitle>
+                    <CardDescription>Configura le tipologie di fase (es. Produzione, Conto Lavoro) e le loro regole base.</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={addPhaseType} className="gap-1">
+                    <Plus className="h-4 w-4" /> Aggiungi Tipo
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {settings.phaseTypes.map((phaseType, index) => (
+                        <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border rounded-lg bg-muted/5 relative group">
+                            <div className="space-y-2">
+                                <Label>Codice/ID</Label>
+                                <Input value={phaseType.id} onChange={(e) => updatePhaseType(index, { id: e.target.value.toLowerCase().replace(/\s+/g, '_') })} placeholder="Es. conto_lavoro" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Etichetta</Label>
+                                <Input value={phaseType.label} onChange={(e) => updatePhaseType(index, { label: e.target.value })} placeholder="Es. Conto Lavoro" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Macro Area</Label>
+                                <Select value={phaseType.macroArea} onValueChange={(val: any) => updatePhaseType(index, { macroArea: val })}>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="PREPARAZIONE">Preparazione</SelectItem>
+                                    <SelectItem value="PRODUZIONE">Produzione</SelectItem>
+                                    <SelectItem value="QLTY_PACK">Qualità & Packaging</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="flex flex-col justify-end space-y-3 pb-1">
+                                <div className="flex items-center justify-between gap-2 px-1">
+                                   <Label className="text-[10px] uppercase font-bold text-muted-foreground">Routing Esterno</Label>
+                                   <Switch checked={phaseType.isExternalRouting} onCheckedChange={(val) => updatePhaseType(index, { isExternalRouting: val })} />
+                                </div>
+                                <div className="flex items-center justify-between gap-2 px-1">
+                                   <Label className="text-[10px] uppercase font-bold text-muted-foreground">Fase Terminale (Fine Commessa)</Label>
+                                   <Switch checked={phaseType.isTerminal} onCheckedChange={(val) => updatePhaseType(index, { isTerminal: val })} />
+                                </div>
+                            </div>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-destructive/10 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => removePhaseType(index)}
+                            >
+                              <Trash2 className="h-3 w-3" />
                             </Button>
                         </div>
                     ))}

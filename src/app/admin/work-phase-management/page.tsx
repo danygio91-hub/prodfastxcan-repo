@@ -10,6 +10,8 @@ import * as XLSX from 'xlsx';
 
 import { type WorkPhaseTemplate, RawMaterialType, type Department } from '@/types';
 import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartments, deleteSelectedWorkPhaseTemplates } from './actions';
+import { getGlobalSettings } from '@/lib/settings-actions';
+import { GlobalSettings } from '@/lib/settings-types';
 
 
 import { Button } from '@/components/ui/button';
@@ -36,7 +38,7 @@ const workPhaseSchema = z.object({
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
-  type: z.enum(['preparation', 'production', 'quality', 'packaging'], { required_error: 'Specificare il tipo di fase' }),
+  type: z.string({ required_error: 'Specificare il tipo di fase' }),
   tracksTime: z.boolean().default(true).optional(),
   requiresMaterialScan: z.boolean().default(false).optional(),
   requiresMaterialSearch: z.boolean().default(false).optional(),
@@ -51,6 +53,7 @@ type WorkPhaseFormValues = z.infer<typeof workPhaseSchema>;
 export default function WorkPhaseManagementClientPage() {
   const [phases, setPhases] = useState<WorkPhaseTemplate[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [settings, setSettings] = useState<GlobalSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPhase, setEditingPhase] = useState<WorkPhaseTemplate | null>(null);
@@ -67,12 +70,14 @@ export default function WorkPhaseManagementClientPage() {
   
   const fetchAllData = async () => {
     setIsLoading(true);
-    const [phasesData, departmentsData] = await Promise.all([
+    const [phasesData, departmentsData, settingsData] = await Promise.all([
       getWorkPhaseTemplates(),
       getDepartments(),
+      getGlobalSettings(),
     ]);
     setPhases(phasesData);
     setDepartments(departmentsData);
+    setSettings(settingsData);
     setIsLoading(false);
   };
 
@@ -306,8 +311,8 @@ export default function WorkPhaseManagementClientPage() {
 
                             <TableCell className="font-medium">{phase.name}</TableCell>
                             <TableCell>
-                                <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : phase.type === 'packaging' ? 'outline' : 'destructive'}>
-                                {phase.type === 'production' ? 'Produzione' : phase.type === 'quality' ? 'Qualità' : phase.type === 'packaging' ? 'Packaging' : 'Preparazione'}
+                                <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : phase.type === 'packaging' ? 'outline' : phase.type === 'preparation' ? 'destructive' : 'default'}>
+                                {settings?.phaseTypes.find(p => p.id === phase.type)?.label || phase.type}
                                 </Badge>
                             </TableCell>
                             <TableCell className="text-center">
@@ -402,28 +407,19 @@ export default function WorkPhaseManagementClientPage() {
                             <RadioGroup
                                 onValueChange={(value) => {
                                   field.onChange(value);
-                                  const isTimeTracked = value === 'preparation' || value === 'production';
+                                  const phaseType = settings?.phaseTypes.find(p => p.id === value);
+                                  const isTimeTracked = phaseType ? phaseType.macroArea === 'PREPARAZIONE' || phaseType.macroArea === 'PRODUZIONE' : true;
                                   form.setValue('tracksTime', isTimeTracked);
                                 }}
                                 defaultValue={field.value}
                                 className="flex flex-col space-y-1"
                             >
-                                <FormItem className="flex items-center space-x-3 space-y-0">
-                                    <FormControl><RadioGroupItem value="preparation" /></FormControl>
-                                    <FormLabel className="font-normal">Preparazione</FormLabel>
-                                </FormItem>
-                                <FormItem className="flex items-center space-x-3 space-y-0">
-                                    <FormControl><RadioGroupItem value="production" /></FormControl>
-                                    <FormLabel className="font-normal">Produzione</FormLabel>
-                                </FormItem>
-                                <FormItem className="flex items-center space-x-3 space-y-0">
-                                    <FormControl><RadioGroupItem value="quality" /></FormControl>
-                                    <FormLabel className="font-normal">Controllo Qualità</FormLabel>
-                                </FormItem>
-                                <FormItem className="flex items-center space-x-3 space-y-0">
-                                    <FormControl><RadioGroupItem value="packaging" /></FormControl>
-                                    <FormLabel className="font-normal">Packaging</FormLabel>
-                                </FormItem>
+                                {settings?.phaseTypes.map(pt => (
+                                    <FormItem key={pt.id} className="flex items-center space-x-3 space-y-0">
+                                        <FormControl><RadioGroupItem value={pt.id} /></FormControl>
+                                        <FormLabel className="font-normal">{pt.label}</FormLabel>
+                                    </FormItem>
+                                ))}
                             </RadioGroup>
                             </FormControl>
                             <FormMessage />
@@ -475,7 +471,11 @@ export default function WorkPhaseManagementClientPage() {
                       </FormItem>
                       )}
                     />
-                    {form.watch('type') === 'preparation' && (
+                    {(() => {
+                        const watchType = form.watch('type');
+                        const watchPhaseType = settings?.phaseTypes.find(p => p.id === watchType);
+                        return watchPhaseType?.macroArea === 'PREPARAZIONE';
+                    })() && (
                     <div className="space-y-4">
                         <FormField
                         control={form.control}
@@ -606,11 +606,10 @@ export default function WorkPhaseManagementClientPage() {
                           <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
                             {departments
                               .filter((d: Department) => {
-                                const phaseType = form.watch('type');
-                                if (phaseType === 'preparation') return d.macroAreas?.includes('PREPARAZIONE');
-                                if (phaseType === 'production') return d.macroAreas?.includes('PRODUZIONE');
-                                if (phaseType === 'quality' || phaseType === 'packaging') return d.macroAreas?.includes('QLTY_PACK');
-                                return false;
+                                const phaseTypeId = form.watch('type');
+                                const pt = settings?.phaseTypes.find(p => p.id === phaseTypeId);
+                                if (!pt) return false;
+                                return d.macroAreas?.includes(pt.macroArea);
                               })
                               .map((dept: Department) => (
                                 <FormField

@@ -2,7 +2,7 @@
 import { Timestamp } from 'firebase/firestore';
 
 export type UnitOfMeasure = 'n' | 'mt' | 'kg';
-export type PhaseType = 'preparation' | 'production' | 'quality' | 'packaging';
+export type PhaseType = string; // Dynamically loaded from GlobalSettings
 export type MacroArea = 'PREPARAZIONE' | 'PRODUZIONE' | 'QLTY_PACK';
 
 export interface Department {
