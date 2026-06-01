@@ -33,20 +33,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   operatorRef.current = operator;
 
   const fullLogout = useCallback(async () => {
-    const currentOperator = operatorRef.current;
+    try {
+      await firebaseLogout();
+      await fetch('/api/auth/session', { method: 'DELETE' });
+    } catch (e) {
+      console.error("Error during logout api calls", e);
+    }
     
-    await firebaseLogout();
-    await fetch('/api/auth/session', { method: 'DELETE' });
-    
-    // On logout, we don't clear material sessions anymore, as they are now persistent.
-    localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
-    
-    setUser(null);
-    setOperator(null);
-    storeOperator(null); // This clears the operator from storage
-    
-    router.replace('/');
-  }, [router]);
+    if (typeof window !== 'undefined') {
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/';
+    }
+  }, []);
 
 
   const fetchOperatorProfile = useCallback(async (firebaseUser: User): Promise<Operator | null> => {
