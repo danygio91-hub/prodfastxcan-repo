@@ -285,7 +285,10 @@ export async function getCurrentDefaultMaster() {
             .get();
         if (snap.empty) return null;
         
-        return snap.docs[0].data();
+        const data = snap.docs[0].data();
+        
+        // SSSoT: Firebase Timestamp must be serialized for Client Components
+        return JSON.parse(JSON.stringify(data));
     } catch (error) {
         console.error("Error getting current default master:", error);
         return null;
@@ -331,37 +334,15 @@ export async function saveDefaultCompanyAllocation(
  */
 export async function getWeeklyBoardData(year: number, week: number) {
     try {
-        const paddedWeek = week.toString().padStart(2, '0');
-        const currentKey = `${year}_${paddedWeek}`;
+        // Carichiamo TUTTI i master (essendo pochi, è velocissimo) e le eccezioni recenti
+        const mastersSnap = await adminDb.collection("defaultCapacityAssignments").orderBy("validFromKey", "desc").get();
+        const masters = mastersSnap.docs.map(d => d.data());
 
-        // 1. Carica Master Default Applicabile (<= currentKey)
-        const masterSnap = await adminDb.collection("defaultCapacityAssignments")
-            .where("validFromKey", "<=", currentKey)
-            .orderBy("validFromKey", "desc")
-            .limit(1)
-            .get();
+        const exceptionsSnap = await adminDb.collection("weeklyCapacityAssignments").where("year", ">=", year - 1).get();
+        const exceptions = exceptionsSnap.docs.map(d => d.data());
 
-        let masterDistributions: any[] = [];
-        if (!masterSnap.empty) {
-            masterDistributions = masterSnap.docs[0].data().distributions || [];
-        }
-
-        // 2. Carica Eccezioni (Allocazioni specifiche della settimana)
-        const exceptionsSnap = await adminDb.collection("weeklyCapacityAssignments")
-            .where("year", "==", year)
-            .where("week", "==", week)
-            .get();
-
-        // 2.5 Carica Impostazioni Produzione
         const settingsSnap = await adminDb.collection('system').doc('productionSettings').get();
         const settings = settingsSnap.exists ? settingsSnap.data() as ProductionSettings : { capacityBufferPercent: 85 };
-
-        // 3. Merge: Sostituisci il Master con le Eccezioni se presenti
-        const exceptionsData = exceptionsSnap.docs.reduce((acc, d) => {
-            const data = d.data();
-            acc[data.departmentId] = data;
-            return acc;
-        }, {} as Record<string, any>);
 
         const finalAllocations: Record<string, { operatorId: string, hours: number }[]> = {};
 
@@ -374,17 +355,44 @@ export async function getWeeklyBoardData(year: number, week: number) {
             return [];
         }
 
-        // Pre-fill with master
-        masterDistributions.forEach(dist => {
-            const key = `${year}_${week}_${dist.departmentId}`;
-            finalAllocations[key] = dist.assignments || [];
-        });
+        // Il tabellone renderizza più settimane in avanti. Calcoliamo un set di 12 settimane.
+        let currY = year;
+        let currW = week;
+        
+        for (let i = 0; i < 12; i++) {
+            const paddedW = currW.toString().padStart(2, '0');
+            const virtualKey = `${currY}_${paddedW}`;
 
-        // Apply exceptions (overrides)
-        Object.values(exceptionsData).forEach(data => {
-            const key = `${year}_${week}_${data.departmentId}`;
-            finalAllocations[key] = formatAssignments(data);
-        });
+            // 1. Master Applicabile (il più recente minore o uguale a virtualKey)
+            const master = masters.find(m => m.validFromKey <= virtualKey);
+            const masterDistributions = master ? (master.distributions || []) : [];
+
+            // 2. Eccezioni
+            const weekExceptions = exceptions.filter(e => e.year === currY && e.week === currW);
+            const exceptionsData = weekExceptions.reduce((acc, e) => {
+                acc[e.departmentId] = e;
+                return acc;
+            }, {} as Record<string, any>);
+
+            // 3. Pre-fill Master
+            masterDistributions.forEach((dist: any) => {
+                const key = `${currY}_${currW}_${dist.departmentId}`;
+                finalAllocations[key] = dist.assignments || [];
+            });
+
+            // 4. Override Eccezioni
+            Object.values(exceptionsData).forEach(data => {
+                const key = `${currY}_${currW}_${data.departmentId}`;
+                finalAllocations[key] = formatAssignments(data);
+            });
+
+            // Step avanti
+            currW++;
+            if (currW > 52) { // Salto base all'anno successivo
+                currW = 1;
+                currY++;
+            }
+        }
 
         const allocations = finalAllocations;
 
