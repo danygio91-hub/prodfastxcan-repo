@@ -41,6 +41,7 @@ import { getOverallStatus } from '@/lib/types';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { MRPSemaphore } from '@/components/mrp/MRPSemaphore';
 import { ProcessedJob, isPreparationPhase, isProductionPhase, isQualityPackagingPhase } from './ssot-utils';
+import { exportScaletta } from '@/lib/export-scaletta';
 
 interface WeeklyCapacityBoardProps {
     jobOrders: JobOrder[];
@@ -805,8 +806,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                             variant="outline" 
                                                             size="sm"
                                                             className="h-7 w-7 p-0 rounded-lg bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
-                                                            onClick={async () => {
-                                                                const { exportScaletta } = await import('@/lib/export-scaletta');
+                                                            onClick={() => {
                                                                 exportScaletta(weekJobs, dept.id, week.label);
                                                             }}
                                                         >
