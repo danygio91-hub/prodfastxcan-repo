@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import PwaInstaller from '@/components/PwaInstaller';
 import NextTopLoader from 'nextjs-toploader';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AutoUpdater } from '@/components/AutoUpdater';
 
 const ptSans = PT_Sans({
   subsets: ['latin'],
@@ -58,6 +59,7 @@ export default function RootLayout({
                     <NextTopLoader color="#0ea5e9" showSpinner={false} />
                     {children}
                     <Toaster />
+                    <AutoUpdater />
                     <PwaInstaller />
                   </TooltipProvider>
                 </ThemeProvider>
