@@ -1209,14 +1209,14 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
 
                 const weightedExpectedMinutes = (hasValidTime && totalQty > 0) 
                     ? (totalExpectedTime / totalQty) 
-                    : p1.expectedMinutesPerPiece;
+                    : (p1.expectedMinutesPerPiece ?? 0);
 
                 return {
                     ...p1,
                     status: 'pending' as const,
                     workPeriods: [],
                     materialConsumptions: [],
-                    expectedMinutesPerPiece: weightedExpectedMinutes
+                    expectedMinutesPerPiece: weightedExpectedMinutes ?? 0
                 };
             });
 
@@ -1241,8 +1241,12 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
             dataConsegnaFinale: firstJob.dataConsegnaFinale || '',
         };
 
+        // SANITIZZAZIONE TOTALE: Rimuove chiavi undefined native non gestite da Firebase
+        const safeGroupPayload = JSON.parse(JSON.stringify(newGroup));
+        // Ripristino l'oggetto Timestamp nativo
+        safeGroupPayload.createdAt = admin.firestore.Timestamp.now();
 
-        batch.set(groupRef, newGroup);
+        batch.set(groupRef, safeGroupPayload);
         jobIds.forEach(id => batch.update(adminDb.collection("jobOrders").doc(id), { workGroupId: newGroupId }));
         
         await batch.commit();
