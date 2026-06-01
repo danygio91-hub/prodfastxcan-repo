@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { 
     Users, Timer, Info, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, 
     Boxes, Package, Factory, Scissors, Calendar, Hash, PackageX, Search, XCircle,
-    CalendarCheck, ChevronDown, ChevronUp, Box, Pause, Pencil, Wand2
+    CalendarCheck, ChevronDown, ChevronUp, Box, Pause, Pencil, Wand2, Download
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -58,6 +58,7 @@ interface WeeklyCapacityBoardProps {
     onJumpToDate?: (d: Date) => void;
     onOpenBacklog?: () => void;
     onStatusAdvance: (jobId: string) => void;
+    onUpdateSequence?: (jobId: string, seq: number) => void;
     onManageAllocations: (deptId: string, week: number, year: number) => void;
     onJobClick: (jobId: string, macroArea: string) => void;
     onQuickView: (job: JobOrder) => void;
@@ -112,7 +113,8 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
     globalSettings,
     isSimulationMode,
     onSimulationModeChange,
-    processedJobs = []
+    processedJobs = [],
+    onUpdateSequence
 }, ref) => {
     const computedJobsRef = useRef<Record<string, JobOrder[]>>({});
 
@@ -692,10 +694,38 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                     // Salva esattamente le commesse renderizzate per l'export SSoT
                                     computedJobsRef.current[`${week.year}_${week.weekNum}_${dept.id}`] = weekJobs.map(pj => pj.job);
 
+                                    // Hybrid Smart Sorting
+                                    weekJobs.sort((a, b) => {
+                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
+                                        
+                                        // Priorità 1 (Stato): Completato in fondo
+                                        const aFinished = a.isFinished[macroArea] ? 1 : 0;
+                                        const bFinished = b.isFinished[macroArea] ? 1 : 0;
+                                        if (aFinished !== bFinished) return aFinished - bFinished;
+                                        
+                                        // Priorità 2 (Data Scadenza): Dalla più in ritardo alla più lontana
+                                        const dateA = a.job.dataConsegnaFinale && a.job.dataConsegnaFinale !== 'N/D' ? a.job.dataConsegnaFinale : '9999-99-99';
+                                        const dateB = b.job.dataConsegnaFinale && b.job.dataConsegnaFinale !== 'N/D' ? b.job.dataConsegnaFinale : '9999-99-99';
+                                        const dateDiff = dateA.localeCompare(dateB);
+                                        if (dateDiff !== 0) return dateDiff;
+                                        
+                                        // Priorità 3 (Sequenza Giornaliera)
+                                        const seqA = a.job.dailySequence || 0;
+                                        const seqB = b.job.dailySequence || 0;
+                                        return seqA - seqB;
+                                    });
+
                                     const totalLoad = weekJobs.reduce((acc, pj) => {
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
                                         return acc + pj.computedResidual[macroArea];
                                     }, 0);
+                                    
+                                    const totalWorked = weekJobs.reduce((acc, pj) => {
+                                        const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
+                                        const mrpData = getJobMRPData(pj.job, dept.id, macroArea, articles, phaseTemplates);
+                                        return acc + mrpData.done;
+                                    }, 0);
+
                                     const isOverloaded = capacityHours > 0 && totalLoad > capacityHours;
 
                                     const totalJobs = weekJobs.length;
@@ -713,48 +743,47 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                 isOverloaded ? "border-red-900/50 bg-red-950/20 shadow-red-900/20" : ""
                                             )}
                                         >
-                                            <CardHeader className="p-4 bg-slate-950/50 border-b border-slate-800 flex flex-row items-center justify-between gap-4">
-                                                <div className="flex flex-col">
-                                                    <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{week.label}</span>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <TooltipProvider>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <Button 
-                                                                        variant="ghost" 
-                                                                        size="sm" 
-                                                                        className="h-7 px-2 hover:bg-blue-600 hover:text-white rounded-lg gap-2 text-slate-400 font-black text-[10px] uppercase transition-all"
-                                                                        onClick={() => onManageAllocations(dept.id, week.weekNum, week.year)}
-                                                                    >
-                                                                        <Users className="h-3 w-3" />
-                                                                        {weekAssignments.length} Opt.
-                                                                    </Button>
-                                                                </TooltipTrigger>
-                                                                {weekAssignments.length > 0 && (
-                                                                    <TooltipContent className="bg-slate-900 border-slate-700 p-3 shadow-2xl rounded-xl min-w-[180px]">
-                                                                        <h4 className="text-[10px] font-black uppercase text-slate-500 mb-2 border-b border-slate-800 pb-1">Operatori Assegnati</h4>
-                                                                        <div className="space-y-2">
-                                                                            {weekAssignments.map(a => {
-                                                                                const op = operators.find(o => o.id === a.operatorId);
-                                                                                return (
-                                                                                    <div key={a.operatorId} className="flex justify-between items-center gap-4">
-                                                                                        <span className="text-[10px] font-bold text-slate-200">{op?.nome || '???'}</span>
-                                                                                        <Badge className="bg-blue-600/20 text-blue-400 border-none text-[9px] font-black h-4 px-1">{a.hours}h</Badge>
-                                                                                    </div>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    </TooltipContent>
-                                                                )}
-                                                            </Tooltip>
-                                                        </TooltipProvider>
-                                                        <span className="text-[10px] font-bold text-slate-400">({capacityHours}h)</span>
+                                            <CardHeader className="p-4 bg-slate-950/50 border-b border-slate-800 flex flex-col justify-between gap-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{week.label}</span>
+                                                        <div className="flex items-center gap-2 mt-1">
+                                                            <TooltipProvider>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Button 
+                                                                            variant="ghost" 
+                                                                            size="sm" 
+                                                                            className="h-7 px-2 hover:bg-blue-600 hover:text-white rounded-lg gap-2 text-slate-400 font-black text-[10px] uppercase transition-all"
+                                                                            onClick={() => onManageAllocations(dept.id, week.weekNum, week.year)}
+                                                                        >
+                                                                            <Users className="h-3 w-3" />
+                                                                            {weekAssignments.length} Opt.
+                                                                        </Button>
+                                                                    </TooltipTrigger>
+                                                                    {weekAssignments.length > 0 && (
+                                                                        <TooltipContent className="bg-slate-900 border-slate-700 p-3 shadow-2xl rounded-xl min-w-[180px]">
+                                                                            <h4 className="text-[10px] font-black uppercase text-slate-500 mb-2 border-b border-slate-800 pb-1">Operatori Assegnati</h4>
+                                                                            <div className="space-y-2">
+                                                                                {weekAssignments.map(a => {
+                                                                                    const op = operators.find(o => o.id === a.operatorId);
+                                                                                    return (
+                                                                                        <div key={a.operatorId} className="flex justify-between items-center gap-4">
+                                                                                            <span className="text-[10px] font-bold text-slate-200">{op?.nome || '???'}</span>
+                                                                                            <Badge className="bg-blue-600/20 text-blue-400 border-none text-[9px] font-black h-4 px-1">{a.hours}h</Badge>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        </TooltipContent>
+                                                                    )}
+                                                                </Tooltip>
+                                                            </TooltipProvider>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div className="flex flex-col items-end">
-                                                    <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-2">
                                                         <Select value={statusFilter} onValueChange={setStatusFilter}>
-                                                            <SelectTrigger className="h-7 w-[130px] bg-slate-900 border-slate-800 text-[9px] font-black uppercase text-slate-400 rounded-lg">
+                                                            <SelectTrigger className="h-7 w-[100px] bg-slate-900 border-slate-800 text-[9px] font-black uppercase text-slate-400 rounded-lg">
                                                                 <div className="flex items-center gap-2">
                                                                     <Filter className="h-3 w-3 text-slate-500" />
                                                                     <SelectValue placeholder="Filtro" />
@@ -770,21 +799,46 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                                 <SelectItem value="COMPLETATA" className="text-[10px] font-bold uppercase text-emerald-500">COMPLETATA</SelectItem>
                                                             </SelectContent>
                                                         </Select>
+                                                        
+                                                        {/* Export Button */}
+                                                        <Button 
+                                                            variant="outline" 
+                                                            size="sm"
+                                                            className="h-7 w-7 p-0 rounded-lg bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                                                            onClick={async () => {
+                                                                const { exportScaletta } = await import('@/lib/export-scaletta');
+                                                                exportScaletta(weekJobs, dept.id, week.label);
+                                                            }}
+                                                        >
+                                                            <Download className="h-3 w-3" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
 
-                                                        <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/50 rounded-md px-2 py-0.5" title={`${completedJobs} completate / ${openJobs} aperte`}>
-                                                            <Boxes className="h-3 w-3 text-slate-500" />
-                                                            <span className="text-[10px] font-black text-emerald-500">{completedJobs}</span>
-                                                            <span className="text-[10px] text-slate-600 font-black">/</span>
-                                                            <span className="text-[10px] font-black text-slate-400">{totalJobs}</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-1">
-                                                            {isOverloaded && <AlertTriangle className="h-3.5 w-3.5 text-red-600" />}
-                                                            <span className={cn("text-sm font-black italic tracking-tighter", isOverloaded ? "text-red-600 animate-pulse" : "text-blue-600")}>
-                                                                {totalLoad.toFixed(1)}h
-                                                            </span>
+                                                <div className="flex items-center justify-between gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800/50 shadow-inner w-full">
+                                                    <div className="flex items-center gap-1.5 w-1/3">
+                                                        <div className="flex flex-col items-center flex-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+                                                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Capacità</span>
+                                                            <span className="text-[11px] font-black text-slate-300">{capacityHours}h</span>
                                                         </div>
                                                     </div>
-                                                    <Progress value={totalJobs > 0 ? (completedJobs / totalJobs) * 100 : 0} className={cn("h-1.5 w-16 mt-1.5", isOverloaded ? "[&>div]:bg-red-500" : "[&>div]:bg-blue-600")} />
+                                                    <div className="flex items-center gap-1.5 w-1/3">
+                                                        <div className={cn(
+                                                            "flex flex-col items-center flex-1 border rounded-lg p-1 transition-all",
+                                                            isOverloaded ? "bg-red-950/40 border-red-900/50" : "bg-slate-900 border-slate-800"
+                                                        )}>
+                                                            <span className={cn("text-[8px] font-black uppercase tracking-tighter flex items-center gap-1", isOverloaded ? "text-red-400 animate-pulse" : "text-slate-500")}>
+                                                                {isOverloaded && <AlertTriangle className="h-2 w-2" />} Previsto
+                                                            </span>
+                                                            <span className={cn("text-[11px] font-black", isOverloaded ? "text-red-500" : "text-blue-500")}>{totalLoad.toFixed(1)}h</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 w-1/3">
+                                                        <div className="flex flex-col items-center flex-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+                                                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Lavorato</span>
+                                                            <span className="text-[11px] font-black text-emerald-500">{totalWorked.toFixed(1)}h</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </CardHeader>
                                             <CardContent className="p-3 space-y-3 min-h-[250px] bg-transparent flex-1">
@@ -826,6 +880,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                                 mrpTimelines={mrpTimelines}
                                                                 globalSettings={globalSettings}
                                                                 isAreaFinished={pj.isFinished[cardMacroArea]}
+                                                                onUpdateSequence={onUpdateSequence}
                                                             />
                                                         </div>
                                                     );
@@ -980,12 +1035,13 @@ function JobCompactCard(props: {
     rawMaterials: any[],
     mrpTimelines: Map<string, MRPTimelineEntry[]>,
     globalSettings: any,
-    isAreaFinished: boolean
+    isAreaFinished: boolean,
+    onUpdateSequence?: (jobId: string, seq: number) => void
 }) {
     const { 
         job, load, fatte, onAdvance, onToggleExclude, onQuickView, onEdit, onClick, 
         macroArea, semaphoreStatus, isTechnicalDelay, totalLoad, 
-        linkedODLs = [], rawMaterials, mrpTimelines, globalSettings, isAreaFinished
+        linkedODLs = [], rawMaterials, mrpTimelines, globalSettings, isAreaFinished, onUpdateSequence
     } = props;
 
     const { toast } = useToast();
@@ -1139,7 +1195,7 @@ function JobCompactCard(props: {
                     </div>
                 )}
 
-                <div className="flex items-center gap-2 min-w-0 max-w-[45%]">
+                <div className="flex items-center gap-2 min-w-0 max-w-[35%]">
                     <span className="text-[11px] font-black text-blue-400 uppercase truncate whitespace-nowrap shrink-0">
                         {job.cliente}
                     </span>
@@ -1158,6 +1214,18 @@ function JobCompactCard(props: {
                     <span className="text-[9px] font-black text-slate-500">{job.numeroODLInterno || 'N/D'}</span>
                 </div>
 
+                {/* Progress Bar Fatto / Previsto -> Residuo */}
+                <div className="hidden lg:flex flex-col gap-0.5 min-w-[90px] ml-4 shrink-0">
+                    <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-tighter">
+                        <span className="text-emerald-500">{fatte.toFixed(1)}h</span>
+                        <span className="text-slate-500">/</span>
+                        <span className="text-blue-500">{totalLoad.toFixed(1)}h</span>
+                        <span className="text-slate-600 mx-0.5">→</span>
+                        <span className="text-red-400">{load.toFixed(1)}h</span>
+                    </div>
+                    <Progress value={totalLoad > 0 ? (fatte / totalLoad) * 100 : 0} className="h-1 bg-slate-800 [&>div]:bg-emerald-500" />
+                </div>
+
                 <div className="flex-grow" />
 
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/50 border border-slate-800 rounded-lg shrink-0">
@@ -1166,6 +1234,30 @@ function JobCompactCard(props: {
                         {contextualDate ? format(contextualDate, 'dd MMM', { locale: it }) : 'N/D'}
                     </span>
                 </div>
+
+                {/* Sequence UI */}
+                {onUpdateSequence && (
+                    <div className="flex items-center bg-slate-950 border border-slate-800 rounded-md overflow-hidden shrink-0 ml-1" onClick={e => e.stopPropagation()}>
+                        <div 
+                            className="flex items-center justify-center w-5 h-7 bg-slate-900 hover:bg-slate-800 cursor-pointer border-r border-slate-800 transition-colors"
+                            onClick={() => onUpdateSequence(job.id, (job.dailySequence || 0) + 1)}
+                        >
+                            <ChevronDown className="h-3 w-3 text-slate-400" />
+                        </div>
+                        <input 
+                            type="number" 
+                            className="w-8 h-7 bg-transparent text-[10px] font-black text-center text-blue-400 outline-none appearance-none"
+                            value={job.dailySequence || 0}
+                            onChange={(e) => onUpdateSequence(job.id, parseInt(e.target.value) || 0)}
+                        />
+                        <div 
+                            className="flex items-center justify-center w-5 h-7 bg-slate-900 hover:bg-slate-800 cursor-pointer border-l border-slate-800 transition-colors"
+                            onClick={() => onUpdateSequence(job.id, (job.dailySequence || 0) - 1)}
+                        >
+                            <ChevronUp className="h-3 w-3 text-slate-400" />
+                        </div>
+                    </div>
+                )}
 
                 <div className="flex items-center gap-1.5 shrink-0 px-1 border-l border-slate-800 ml-1">
                     <MRPSemaphore 

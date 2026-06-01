@@ -41,7 +41,8 @@ import {
     saveMassiveAllocation,
     selfHealJobPhases,
     saveDefaultCompanyAllocation,
-    getCurrentDefaultMaster
+    getCurrentDefaultMaster,
+    updateJobDailySequence
 } from './weekly-actions';
 import { getWorkCycles } from '../data-management/actions';
 import { updateJobDeliveryDate, updateJobDepartment, forceCloseAndExclude } from './actions';
@@ -351,6 +352,24 @@ export default function ResourcePlanningClientPage() {
                 j.id === jobId ? { ...j, status: res.newStatus } : j
             );
             setBoardData({ ...boardData, jobOrders: updatedJobs, unassignedJobs: updatedUnassigned });
+        }
+    };
+
+    const handleUpdateSequence = async (jobId: string, seq: number) => {
+        // Optimistic UI Update
+        const updatedJobs = boardData.jobOrders.map(j => 
+            j.id === jobId ? { ...j, dailySequence: seq } : j
+        );
+        const updatedUnassigned = boardData.unassignedJobs.map(j => 
+            j.id === jobId ? { ...j, dailySequence: seq } : j
+        );
+        setBoardData(prev => ({ ...prev, jobOrders: updatedJobs, unassignedJobs: updatedUnassigned }));
+
+        const res = await updateJobDailySequence(jobId, seq, uid);
+        if (!res.success) {
+            toast({ title: 'Errore', description: res.message, variant: 'destructive' });
+            // Revert state on error by reloading
+            loadData();
         }
     };
 
@@ -729,6 +748,7 @@ export default function ResourcePlanningClientPage() {
                             onJumpToDate={handleSearchJump}
                             onOpenBacklog={() => setIsBacklogOpen(true)}
                             onStatusAdvance={handleStatusAdvance}
+                            onUpdateSequence={handleUpdateSequence}
                             onManageAllocations={(deptId, week, year) => {
                                 setSelectedSlot({ deptId, week, year });
                                 setIsLoanDialogOpen(true);

@@ -226,6 +226,28 @@ export async function advanceJobStatus(jobId: string, nextStatus?: string, uid?:
     }
 }
 
+export async function updateJobDailySequence(jobId: string, sequence: number, uid: string) {
+    try {
+        await ensureAdmin(uid);
+        
+        // Uso obbligatorio di getItemRefAndSnap per sicurezza ID legacy
+        const { itemRef: jobRef, itemSnap: jobSnap } = await getItemRefAndSnap(adminDb, jobId);
+        if (!jobSnap.exists) throw new Error("Commessa non trovata.");
+
+        await jobRef.update({
+            dailySequence: sequence,
+            updatedAt: admin.firestore.Timestamp.now(),
+            updatedBy: uid
+        });
+
+        revalidatePath('/admin/resource-planning');
+        return { success: true };
+    } catch (error) {
+        console.error("Error updating job daily sequence:", error);
+        return { success: false, message: "Errore durante l'aggiornamento della sequenza." };
+    }
+}
+
 /**
  * Esegue la migrazione silenziosa dei vecchi stati (planned, production, etc.)
  * verso i nuovi 7 stati della pipeline logistica.

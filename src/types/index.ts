@@ -154,6 +154,7 @@ export interface JobOrder {
   updatedAt?: any;
   isSuspended?: boolean;
   hasMaterialShortage?: boolean;
+  dailySequence?: number;
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
