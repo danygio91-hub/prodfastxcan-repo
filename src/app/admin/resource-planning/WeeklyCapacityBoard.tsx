@@ -718,13 +718,14 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
 
                                     const totalLoad = weekJobs.reduce((acc, pj) => {
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
-                                        return acc + pj.computedResidual[macroArea];
+                                        const mrpData = getJobMRPData(pj.job, dept.id, macroArea, articles, phaseTemplates);
+                                        return acc + mrpData.residual;
                                     }, 0);
                                     
                                     const totalWorked = weekJobs.reduce((acc, pj) => {
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
                                         const mrpData = getJobMRPData(pj.job, dept.id, macroArea, articles, phaseTemplates);
-                                        return acc + mrpData.done;
+                                        return acc + mrpData.tracked;
                                     }, 0);
 
                                     const isOverloaded = capacityHours > 0 && totalLoad > capacityHours;
@@ -916,6 +917,7 @@ export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' |
     let totalExpected = 0;
     let totalDone = 0;
     let totalResidual = 0;
+    let totalTracked = 0;
 
     const jobStatus = job.status?.toUpperCase() || '';
     const derivedStatus = getDerivedJobStatus(job) || '';
@@ -960,6 +962,8 @@ export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' |
             }, 0);
             realTimeMins = realTimeMs / 60000;
         }
+
+        totalTracked += realTimeMins;
 
         if (logicalState === 'A') {
             totalDone += 0;
@@ -1014,7 +1018,8 @@ export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' |
     return {
         residual: isNaN(totalResidual) ? 0 : totalResidual / 60,
         done: isNaN(totalDone) ? 0 : totalDone / 60,
-        expected: isNaN(totalExpected) ? 0 : totalExpected / 60
+        expected: isNaN(totalExpected) ? 0 : totalExpected / 60,
+        tracked: isNaN(totalTracked) ? 0 : totalTracked / 60
     };
 }
 
