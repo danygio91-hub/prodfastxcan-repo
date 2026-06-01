@@ -29,10 +29,9 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
             return;
         }
 
-        const allowedStatuses = ["completed", "production", "suspended", "paused", "CHIUSO", "FINE_PRODUZIONE", "QLTY_PACK", "IN_PRODUZIONE"];
+        // NESSUNA WHITELIST GLOBALE (VERA QUARANTENA: il filtro avviene a livello di singola fase)
         const jobs = jobsSnap.docs
             .map(doc => doc.data() as JobOrder)
-            .filter(j => allowedStatuses.includes(j.status || ''))
             .sort((a, b) => (b.ordinePF || '').localeCompare(a.ordinePF || ''));
 
         // 3. Setup settings and templates (Use cache if provided)
@@ -87,12 +86,16 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
 
             if (job.workGroupId && groupsMap.has(job.workGroupId)) {
                 const group = groupsMap.get(job.workGroupId)!;
-                phasesWithDetails = (group.phases || []).map(gp => ({ 
-                    phase: gp, 
-                    timeMs: (group.totalQuantity > 0 ? (calculateMs(gp) / group.totalQuantity) * job.qta : 0) 
-                }));
+                phasesWithDetails = (group.phases || [])
+                    .filter(gp => gp.status === 'completed')
+                    .map(gp => ({ 
+                        phase: gp, 
+                        timeMs: (group.totalQuantity > 0 ? (calculateMs(gp) / group.totalQuantity) * job.qta : 0) 
+                    }));
             } else {
-                phasesWithDetails = (job.phases || []).map(p => ({ phase: p, timeMs: calculateMs(p) }));
+                phasesWithDetails = (job.phases || [])
+                    .filter(p => p.status === 'completed')
+                    .map(p => ({ phase: p, timeMs: calculateMs(p) }));
             }
 
             phasesWithDetails.forEach(p => {
