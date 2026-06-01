@@ -817,27 +817,27 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                                 </div>
 
                                                 <div className="flex items-center justify-between gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800/50 shadow-inner w-full">
-                                                    <div className="flex items-center gap-1.5 w-1/3">
-                                                        <div className="flex flex-col items-center flex-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
-                                                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Capacità</span>
-                                                            <span className="text-[11px] font-black text-slate-300">{capacityHours}h</span>
+                                                    <div className="flex items-center gap-1.5 w-1/3 h-full">
+                                                        <div className="flex flex-col items-center justify-center flex-1 bg-slate-900 border border-slate-800 rounded-lg py-1 px-2 gap-0.5">
+                                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Capacità</span>
+                                                            <span className="text-xl font-extrabold text-slate-200">{capacityHours}h</span>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-1.5 w-1/3">
+                                                    <div className="flex items-center gap-1.5 w-1/3 h-full">
                                                         <div className={cn(
-                                                            "flex flex-col items-center flex-1 border rounded-lg p-1 transition-all",
+                                                            "flex flex-col items-center justify-center flex-1 border rounded-lg py-1 px-2 gap-0.5 transition-all",
                                                             isOverloaded ? "bg-red-950/40 border-red-900/50" : "bg-slate-900 border-slate-800"
                                                         )}>
-                                                            <span className={cn("text-[8px] font-black uppercase tracking-tighter flex items-center gap-1", isOverloaded ? "text-red-400 animate-pulse" : "text-slate-500")}>
-                                                                {isOverloaded && <AlertTriangle className="h-2 w-2" />} Previsto
+                                                            <span className={cn("text-[10px] font-black uppercase tracking-wider flex items-center gap-1", isOverloaded ? "text-red-400 animate-pulse" : "text-slate-400")}>
+                                                                {isOverloaded && <AlertTriangle className="h-3 w-3" />} Previsto
                                                             </span>
-                                                            <span className={cn("text-[11px] font-black", isOverloaded ? "text-red-500" : "text-blue-500")}>{totalLoad.toFixed(1)}h</span>
+                                                            <span className={cn("text-xl font-extrabold", isOverloaded ? "text-red-500" : "text-blue-400")}>{totalLoad.toFixed(1)}h</span>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-1.5 w-1/3">
-                                                        <div className="flex flex-col items-center flex-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
-                                                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">Lavorato</span>
-                                                            <span className="text-[11px] font-black text-emerald-500">{totalWorked.toFixed(1)}h</span>
+                                                    <div className="flex items-center gap-1.5 w-1/3 h-full">
+                                                        <div className="flex flex-col items-center justify-center flex-1 bg-slate-900 border border-slate-800 rounded-lg py-1 px-2 gap-0.5">
+                                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Lavorato</span>
+                                                            <span className="text-xl font-extrabold text-emerald-400">{totalWorked.toFixed(1)}h</span>
                                                         </div>
                                                     </div>
                                                 </div>
