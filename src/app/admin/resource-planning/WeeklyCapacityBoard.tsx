@@ -704,9 +704,19 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                         const bFinished = b.isFinished[macroArea] ? 1 : 0;
                                         if (aFinished !== bFinished) return aFinished - bFinished;
                                         
-                                        // Priorità 2 (Data Scadenza): Dalla più in ritardo alla più lontana
-                                        const dateA = a.job.dataConsegnaFinale && a.job.dataConsegnaFinale !== 'N/D' ? a.job.dataConsegnaFinale : '9999-99-99';
-                                        const dateB = b.job.dataConsegnaFinale && b.job.dataConsegnaFinale !== 'N/D' ? b.job.dataConsegnaFinale : '9999-99-99';
+                                        // Priorità 2 (Data Scadenza): Dalla più in ritardo alla più lontana (Context Aware)
+                                        let dateA = a.job.dataConsegnaFinale && a.job.dataConsegnaFinale !== 'N/D' ? a.job.dataConsegnaFinale : '9999-99-99';
+                                        let dateB = b.job.dataConsegnaFinale && b.job.dataConsegnaFinale !== 'N/D' ? b.job.dataConsegnaFinale : '9999-99-99';
+                                        
+                                        if (macroArea === 'PREP') {
+                                            if (a.job.dataFinePreparazione && a.job.dataFinePreparazione !== 'N/D') {
+                                                dateA = a.job.dataFinePreparazione;
+                                            }
+                                            if (b.job.dataFinePreparazione && b.job.dataFinePreparazione !== 'N/D') {
+                                                dateB = b.job.dataFinePreparazione;
+                                            }
+                                        }
+
                                         const dateDiff = dateA.localeCompare(dateB);
                                         if (dateDiff !== 0) return dateDiff;
                                         
