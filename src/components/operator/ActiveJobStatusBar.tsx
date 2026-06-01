@@ -71,13 +71,14 @@ export default function ActiveJobStatusBar() {
         toast({ variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo." });
         return;
     }
-    
-    try {
-        const { handlePhaseScanResult } = await import('@/app/scan-job/actions');
-        await handlePhaseScanResult(activeJob.id, phaseId, operator.id, true);
-        toast({ title: "Fase Completata", description: `La tua attività è terminata.` });
-    } catch (e) {
-        toast({ variant: "destructive", title: "Errore", description: "Impossibile completare la fase." });
+
+    // CENTRALIZZAZIONE BIVIO: Delega al form principale per eventuali modali (es. Qualità o Imballo)
+    const event = new CustomEvent('requestPhaseCompletion', { detail: { phaseId: phaseToUpdate.id } });
+    window.dispatchEvent(event);
+
+    // Se l'operatore non si trova nella pagina di scansione, redirigi passando il parametro per aprire il modale se necessario
+    if (window.location.pathname !== '/scan-job') {
+        window.location.href = `/scan-job?declare=${phaseId}`;
     }
   };
 

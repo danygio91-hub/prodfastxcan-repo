@@ -155,13 +155,7 @@ const PhaseCard = ({ phase, job, handlers, isGlobalProcessing }: { phase: JobPha
               <Button 
                 size="sm" 
                 disabled={isGlobalProcessing}
-                onClick={() => {
-                  if (phase.type === 'quality' || phase.type === 'packaging') {
-                    handlers.handleOpenDeclarationDialog(phase);
-                  } else {
-                    handlers.handleCompletePhase(phase.id);
-                  }
-                }} 
+                onClick={() => handlers.handleRequestPhaseCompletion(phase.id)} 
                 className={cn(
                   "h-8 w-full sm:w-auto text-xs font-bold shadow-md",
                   (phase.type === 'quality' || phase.type === 'packaging') ? "bg-amber-500 hover:bg-amber-600" : "bg-green-600 hover:bg-green-700"
@@ -461,11 +455,44 @@ export default function ScanJobPage() {
     }
   };
 
-  const handleOpenDeclarationDialog = (phase: JobPhase) => {
+  const handleOpenDeclarationDialog = useCallback((phase: JobPhase) => {
     setPhaseForDeclaration(phase);
     if (phase.type === 'quality') setIsQualityDialogOpen(true);
     else if (phase.type === 'packaging') setIsPackagingDialogOpen(true);
-  };
+  }, []);
+
+  // FUNZIONE CENTRALIZZATA: Gestisce il bivio tra Chiusura Diretta e Apertura Modal Dichiarazione
+  const handleRequestPhaseCompletion = useCallback((phaseId: string) => {
+    const phase = activeJob?.phases.find(p => p.id === phaseId);
+    if (!phase) return;
+    
+    if (phase.type === 'quality' || phase.type === 'packaging') {
+        handleOpenDeclarationDialog(phase);
+    } else {
+        handleCompletePhase(phase.id);
+    }
+  }, [activeJob, handleOpenDeclarationDialog]);
+
+  // Listener globale per intercettare la richiesta di completamento dal banner (ActiveJobStatusBar)
+  useEffect(() => {
+    const handleEvent = (e: any) => {
+        handleRequestPhaseCompletion(e.detail.phaseId);
+    };
+    window.addEventListener('requestPhaseCompletion', handleEvent);
+    return () => window.removeEventListener('requestPhaseCompletion', handleEvent);
+  }, [handleRequestPhaseCompletion]);
+
+  // Intercetta URL params se l'utente è stato reindirizzato da un'altra pagina cliccando sul banner
+  useEffect(() => {
+    if (activeJob) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const declarePhaseId = urlParams.get('declare');
+        if (declarePhaseId) {
+            handleRequestPhaseCompletion(declarePhaseId);
+            window.history.replaceState({}, document.title, '/scan-job');
+        }
+    }
+  }, [activeJob, handleRequestPhaseCompletion]);
 
   const handleConfirmQuality = async (result: 'OK' | 'NON_OK', note?: string) => {
     if (!activeJob || !operator || !phaseForDeclaration) return;
@@ -743,7 +770,7 @@ export default function ScanJobPage() {
                   <CardHeader><CardTitle>Fasi Lavorazione</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
                     {(activeJob.phases || []).sort((a,b) => a.sequence - b.sequence).map(p => (
-                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog, handleOpenDeclarationDialog}} isGlobalProcessing={isProcessingAction || jobLoading} />
+                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog, handleOpenDeclarationDialog, handleRequestPhaseCompletion}} isGlobalProcessing={isProcessingAction || jobLoading} />
                     ))}
                   </CardContent>
                 </Card>
