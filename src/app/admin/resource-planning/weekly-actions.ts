@@ -275,36 +275,100 @@ export async function migrateJobOrderStatuses(uid: string) {
 }
 
 /**
+ * Salva l'impostazione "Aziendale Standard" che vale di default per le settimane future
+ */
+export async function saveDefaultCompanyAllocation(
+    year: number,
+    week: number,
+    distributions: { departmentId: string, assignments: { operatorId: string, hours: number }[] }[],
+    uid: string
+) {
+    try {
+        await ensureAdmin(uid);
+        
+        const paddedWeek = week.toString().padStart(2, '0');
+        const validFromKey = `${year}_${paddedWeek}`;
+        
+        const docRef = adminDb.collection("defaultCapacityAssignments").doc(`version_${validFromKey}`);
+        
+        await docRef.set({
+            validFromKey,
+            year,
+            week,
+            distributions,
+            updatedAt: admin.firestore.Timestamp.now(),
+            updatedBy: uid
+        });
+
+        revalidatePath('/admin/resource-planning');
+        return { success: true };
+    } catch (error) {
+        console.error("Error saving default allocation:", error);
+        return { success: false, message: "Errore durante il salvataggio del default aziendale." };
+    }
+}
+
+/**
  * Recupera i dati aggregati per il Tabellone Master Settimanale
  */
 export async function getWeeklyBoardData(year: number, week: number) {
     try {
-        // 1. Carica Allocazioni
-        const allocationsSnap = await adminDb.collection("weeklyCapacityAssignments")
+        const paddedWeek = week.toString().padStart(2, '0');
+        const currentKey = `${year}_${paddedWeek}`;
+
+        // 1. Carica Master Default Applicabile (<= currentKey)
+        const masterSnap = await adminDb.collection("defaultCapacityAssignments")
+            .where("validFromKey", "<=", currentKey)
+            .orderBy("validFromKey", "desc")
+            .limit(1)
+            .get();
+
+        let masterDistributions: any[] = [];
+        if (!masterSnap.empty) {
+            masterDistributions = masterSnap.docs[0].data().distributions || [];
+        }
+
+        // 2. Carica Eccezioni (Allocazioni specifiche della settimana)
+        const exceptionsSnap = await adminDb.collection("weeklyCapacityAssignments")
             .where("year", "==", year)
             .where("week", "==", week)
             .get();
 
-        // 2. Carica Impostazioni Produzione
+        // 2.5 Carica Impostazioni Produzione
         const settingsSnap = await adminDb.collection('system').doc('productionSettings').get();
         const settings = settingsSnap.exists ? settingsSnap.data() as ProductionSettings : { capacityBufferPercent: 85 };
-        
-        // Riduciamo le allocazioni a un record per ID documento esatto (anno_settimana_reparto)
-        const allocations = allocationsSnap.docs.reduce((acc, d) => {
+
+        // 3. Merge: Sostituisci il Master con le Eccezioni se presenti
+        const exceptionsData = exceptionsSnap.docs.reduce((acc, d) => {
             const data = d.data();
-            const key = `${data.year}_${data.week}_${data.departmentId}`;
-            
-            // Migrazione dati: se abbiamo operatorIds ma non assignments, mappiamo a 40h (o il limite attuale)
-            if (data.assignments) {
-                acc[key] = data.assignments;
-            } else if (data.operatorIds) {
-                const limit = Math.round((8 * (settings.capacityBufferPercent / 100)) * 5);
-                acc[key] = (data.operatorIds || []).map((id: string) => ({ operatorId: id, hours: limit }));
-            } else {
-                acc[key] = [];
-            }
+            acc[data.departmentId] = data;
             return acc;
-        }, {} as Record<string, { operatorId: string, hours: number }[]>);
+        }, {} as Record<string, any>);
+
+        const finalAllocations: Record<string, { operatorId: string, hours: number }[]> = {};
+
+        const formatAssignments = (data: any) => {
+            if (data.assignments) return data.assignments;
+            if (data.operatorIds) {
+                const limit = Math.round((8 * (settings.capacityBufferPercent / 100)) * 5);
+                return (data.operatorIds || []).map((id: string) => ({ operatorId: id, hours: limit }));
+            }
+            return [];
+        }
+
+        // Pre-fill with master
+        masterDistributions.forEach(dist => {
+            const key = `${year}_${week}_${dist.departmentId}`;
+            finalAllocations[key] = dist.assignments || [];
+        });
+
+        // Apply exceptions (overrides)
+        Object.values(exceptionsData).forEach(data => {
+            const key = `${year}_${week}_${data.departmentId}`;
+            finalAllocations[key] = formatAssignments(data);
+        });
+
+        const allocations = finalAllocations;
 
         // 3. Carica Dati per MRP (Graceful Degradation)
         let rawMaterials: any[] = [];

@@ -39,7 +39,8 @@ import {
     migrateJobOrderStatuses, 
     getPlanningWorkPhaseTemplates,
     saveMassiveAllocation,
-    selfHealJobPhases
+    selfHealJobPhases,
+    saveDefaultCompanyAllocation
 } from './weekly-actions';
 import { getWorkCycles } from '../data-management/actions';
 import { updateJobDeliveryDate, updateJobDepartment, forceCloseAndExclude } from './actions';
@@ -406,6 +407,22 @@ export default function ResourcePlanningClientPage() {
         }
     };
 
+    const handleSaveDefault = async () => {
+        const distributions: { departmentId: string, assignments: { operatorId: string, hours: number }[] }[] = [];
+        displayDepts.forEach(dept => {
+            const key = `${currentYear}_${currentWeek}_${dept.id}`;
+            const assignments = boardData.allocations[key] || [];
+            distributions.push({ departmentId: dept.id, assignments });
+        });
+        
+        const res = await saveDefaultCompanyAllocation(currentYear, currentWeek, distributions, uid);
+        if (res.success) {
+            toast({ title: "Standard Aziendale Salvato", description: "L'impostazione predefinita è stata salvata con successo." });
+        } else {
+            toast({ title: "Errore", description: res.message || "Errore nel salvataggio dello standard.", variant: "destructive" });
+        }
+    };
+
     const handleRequestAssignment = (jobId: string, suggestedDate?: string, deptId?: string, macroArea: string = 'CORE') => {
         const dateToUse = suggestedDate || format(new Date(), 'yyyy-MM-dd');
         
@@ -549,7 +566,7 @@ export default function ResourcePlanningClientPage() {
                                             <span className="text-slate-400 text-[11px]">Cap: {globalMetrics.capacity}h</span>
                                         </div>
                                     </div>
-                                    <Progress value={globalMetrics.capacity > 0 ? (globalMetrics.load / globalMetrics.capacity)*100 : 0} className="h-2 w-full bg-slate-800 [&>div]:bg-blue-500 shadow-inner" />
+                                    <Progress value={globalMetrics.capacity > 0 ? (globalMetrics.load / globalMetrics.capacity)*100 : 0} className={cn("h-2 w-full bg-slate-800 shadow-inner", globalMetrics.load > globalMetrics.capacity ? "[&>div]:bg-red-500" : "[&>div]:bg-blue-500")} />
                                 </div>
                             </div>
                         </div>
@@ -752,6 +769,7 @@ export default function ResourcePlanningClientPage() {
                     currentAllocations={boardData.allocations}
                     weeklyLimit={weeklyLimitHours}
                     onSave={handleMassiveSave}
+                    onSaveDefault={handleSaveDefault}
                 />
 
                 {pendingMove && (
