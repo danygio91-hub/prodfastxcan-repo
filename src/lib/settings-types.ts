@@ -31,7 +31,7 @@ export interface GlobalSettings {
   rawMaterialTypes: RawMaterialTypeConfig[];
   unitsOfMeasure: string[];
   productionProblemTypes: { id: string, label: string }[];
-  phaseTypes: { id: string, label: string, isExternalRouting: boolean, isTerminal: boolean, macroArea: 'PREPARAZIONE' | 'PRODUZIONE' | 'QLTY_PACK' }[];
+  phaseTypes: { id: string, label: string, isExternalRouting: boolean, isTerminal: boolean, macroArea: 'PREPARAZIONE' | 'PRODUZIONE' | 'QLTY_PACK' | 'ESTERNA' }[];
   materialSessionCategories: string[];
   jobOrderQrCodeRule?: string; // e.g. "{ordinePF}@{details}@{qta}"
   smartCodeSettings?: SmartCodeSettings;

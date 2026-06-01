@@ -105,7 +105,7 @@ export default function GlobalParametersPage() {
     });
   };
 
-  const updatePhaseType = (index: number, updates: Partial<{ id: string, label: string, isExternalRouting: boolean, isTerminal: boolean, macroArea: 'PREPARAZIONE' | 'PRODUZIONE' | 'QLTY_PACK' }>) => {
+  const updatePhaseType = (index: number, updates: Partial<{ id: string, label: string, isExternalRouting: boolean, isTerminal: boolean, macroArea: 'PREPARAZIONE' | 'PRODUZIONE' | 'QLTY_PACK' | 'ESTERNA' }>) => {
     if (!settings) return;
     const newList = [...settings.phaseTypes];
     newList[index] = { ...newList[index], ...updates };
@@ -317,6 +317,7 @@ export default function GlobalParametersPage() {
                                     <SelectItem value="PREPARAZIONE">Preparazione</SelectItem>
                                     <SelectItem value="PRODUZIONE">Produzione</SelectItem>
                                     <SelectItem value="QLTY_PACK">Qualità & Packaging</SelectItem>
+                                    <SelectItem value="ESTERNA">Nessuna / Lavorazione Esterna</SelectItem>
                                   </SelectContent>
                                 </Select>
                             </div>

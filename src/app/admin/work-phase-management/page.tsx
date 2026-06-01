@@ -37,7 +37,7 @@ const workPhaseSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
-  departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
+  departmentCodes: z.array(z.string()).default([]),
   type: z.string({ required_error: 'Specificare il tipo di fase' }),
   tracksTime: z.boolean().default(true).optional(),
   requiresMaterialScan: z.boolean().default(false).optional(),
@@ -114,6 +114,12 @@ export default function WorkPhaseManagementClientPage() {
   }
 
   const onSubmit = async (values: WorkPhaseFormValues) => {
+    const phaseTypeObj = settings?.phaseTypes.find(p => p.id === values.type);
+    if (phaseTypeObj?.macroArea !== 'ESTERNA' && values.departmentCodes.length === 0) {
+        toast({ title: 'Errore Validazione', description: 'Selezionare almeno un reparto di competenza.', variant: 'destructive' });
+        return;
+    }
+
     const formData = new FormData();
     if (values.id) formData.append('id', values.id);
     formData.append('name', values.name);
@@ -592,6 +598,11 @@ export default function WorkPhaseManagementClientPage() {
                     )}
                     </div>
                     )}
+                    {(() => {
+                        const phaseTypeId = form.watch('type');
+                        const pt = settings?.phaseTypes.find(p => p.id === phaseTypeId);
+                        return pt?.macroArea !== 'ESTERNA';
+                    })() && (
                     <FormField
                       control={form.control}
                       name="departmentCodes"
@@ -608,7 +619,7 @@ export default function WorkPhaseManagementClientPage() {
                               .filter((d: Department) => {
                                 const phaseTypeId = form.watch('type');
                                 const pt = settings?.phaseTypes.find(p => p.id === phaseTypeId);
-                                if (!pt) return false;
+                                if (!pt || pt.macroArea === 'ESTERNA') return false;
                                 return d.macroAreas?.includes(pt.macroArea);
                               })
                               .map((dept: Department) => (
@@ -645,6 +656,7 @@ export default function WorkPhaseManagementClientPage() {
                         </FormItem>
                       )}
                     />
+                    )}
                     <DialogFooter>
                     <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>
                     <Button type="submit" disabled={isPending}>
