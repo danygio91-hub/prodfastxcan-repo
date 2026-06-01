@@ -48,3 +48,4 @@ export function exportScaletta(jobs: { job: JobOrder }[], deptId: string, weekLa
     
     XLSX.writeFile(workbook, fileName);
 }
+

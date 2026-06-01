@@ -1195,93 +1195,49 @@ function JobCompactCard(props: {
                     </div>
                 )}
 
-                <div className="flex items-center gap-2 min-w-0 max-w-[35%]">
-                    <span className="text-[11px] font-black text-blue-400 uppercase truncate whitespace-nowrap shrink-0">
+                <div className="flex items-center gap-2 flex-1 min-w-0 pr-4">
+                    <span className="text-[11px] font-black text-blue-400 uppercase truncate whitespace-nowrap shrink-0 max-w-[30%]">
                         {job.cliente}
                     </span>
-                    <span className="text-slate-700 font-bold">•</span>
-                    <span className="text-[10px] font-bold text-slate-100 uppercase truncate whitespace-nowrap">
+                    <span className="text-slate-700 font-bold shrink-0">•</span>
+                    <span className="text-[10px] font-bold text-slate-100 uppercase truncate whitespace-nowrap shrink-0 max-w-[30%]">
                         {job.ordinePF || 'N/D'}
                     </span>
-                    <span className="text-slate-700 font-bold">•</span>
-                    <span className="text-[10px] font-black text-slate-200 uppercase truncate tracking-tight">
+                    <span className="text-slate-700 font-bold shrink-0">•</span>
+                    <span className="text-[10px] font-black text-slate-200 uppercase truncate tracking-tight flex-1">
                         {job.details}
                     </span>
                 </div>
 
-                <div className="hidden xl:flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/30 border border-slate-800/50 rounded-lg ml-2 shrink-0">
+                <div className="hidden xl:flex items-center justify-center gap-1.5 px-2 py-0.5 bg-slate-900/30 border border-slate-800/50 rounded-lg shrink-0 w-[90px]">
                     <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest">ODL:</span>
-                    <span className="text-[9px] font-black text-slate-500">{job.numeroODLInterno || 'N/D'}</span>
+                    <span className="text-[9px] font-black text-slate-500 truncate">{job.numeroODLInterno || 'N/D'}</span>
                 </div>
 
-                {/* Progress Bar Fatto / Previsto -> Residuo */}
-                <div className="hidden lg:flex flex-col gap-0.5 min-w-[90px] ml-4 shrink-0">
-                    <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-tighter">
-                        <span className="text-emerald-500">{fatte.toFixed(1)}h</span>
-                        <span className="text-slate-500">/</span>
-                        <span className="text-blue-500">{totalLoad.toFixed(1)}h</span>
-                        <span className="text-slate-600 mx-0.5">→</span>
-                        <span className="text-red-400">{load.toFixed(1)}h</span>
-                    </div>
-                    <Progress value={totalLoad > 0 ? (fatte / totalLoad) * 100 : 0} className="h-1 bg-slate-800 [&>div]:bg-emerald-500" />
-                </div>
-
-                <div className="flex-grow" />
-
-                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/50 border border-slate-800 rounded-lg shrink-0">
-                    <Calendar className={cn("h-3 w-3", isOverdue ? "text-red-500" : "text-slate-400")} />
-                    <span className={cn("text-[9px] font-black uppercase tracking-tight", isOverdue ? "text-red-500 font-black" : "text-slate-400")}>
+                <div className="flex items-center justify-center gap-1.5 px-2 py-0.5 bg-slate-900/50 border border-slate-800 rounded-lg shrink-0 w-[85px]">
+                    <Calendar className={cn("h-3 w-3 shrink-0", isOverdue ? "text-red-500" : "text-slate-400")} />
+                    <span className={cn("text-[9px] font-black uppercase tracking-tight truncate", isOverdue ? "text-red-500 font-black" : "text-slate-400")}>
                         {contextualDate ? format(contextualDate, 'dd MMM', { locale: it }) : 'N/D'}
                     </span>
                 </div>
 
-                {/* Sequence UI */}
-                {onUpdateSequence && (
-                    <div className="flex items-center bg-slate-950 border border-slate-800 rounded-md overflow-hidden shrink-0 ml-1" onClick={e => e.stopPropagation()}>
-                        <div 
-                            className="flex items-center justify-center w-5 h-7 bg-slate-900 hover:bg-slate-800 cursor-pointer border-r border-slate-800 transition-colors"
-                            onClick={() => onUpdateSequence(job.id, (job.dailySequence || 0) + 1)}
-                        >
-                            <ChevronDown className="h-3 w-3 text-slate-400" />
-                        </div>
-                        <input 
-                            type="number" 
-                            className="w-8 h-7 bg-transparent text-[10px] font-black text-center text-blue-400 outline-none appearance-none"
-                            value={job.dailySequence || 0}
-                            onChange={(e) => onUpdateSequence(job.id, parseInt(e.target.value) || 0)}
-                        />
-                        <div 
-                            className="flex items-center justify-center w-5 h-7 bg-slate-900 hover:bg-slate-800 cursor-pointer border-l border-slate-800 transition-colors"
-                            onClick={() => onUpdateSequence(job.id, (job.dailySequence || 0) - 1)}
-                        >
-                            <ChevronUp className="h-3 w-3 text-slate-400" />
-                        </div>
-                    </div>
-                )}
-
-                <div className="flex items-center gap-1.5 shrink-0 px-1 border-l border-slate-800 ml-1">
-                    <MRPSemaphore 
-                        job={job} 
-                        mrpTimelines={mrpTimelines} 
-                        size="md"
-                    />
-
+                <div className="flex items-center justify-center gap-1.5 shrink-0 w-[50px] border-l border-slate-800">
+                    <MRPSemaphore job={job} mrpTimelines={mrpTimelines} size="md" />
                     <TooltipProvider delayDuration={100}>
                         {isOverdue && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500 cursor-help animate-pulse" />
+                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500 cursor-help animate-pulse shrink-0" />
                                 </TooltipTrigger>
                                 <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[9px] font-black text-amber-400 uppercase tracking-widest">
                                     Ritardo Consegna
                                 </TooltipContent>
                             </Tooltip>
                         )}
-
                         {linkedODLs.length > 0 && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <Hash className="h-3.5 w-3.5 text-indigo-400 cursor-help" />
+                                    <Hash className="h-3.5 w-3.5 text-indigo-400 cursor-help shrink-0" />
                                 </TooltipTrigger>
                                 <TooltipContent side="top" className="bg-slate-900 border-slate-700">
                                     <div className="flex flex-col gap-1 text-[9px]">
@@ -1298,64 +1254,70 @@ function JobCompactCard(props: {
                     </TooltipProvider>
                 </div>
 
-                <Badge variant="outline" className="text-[9px] font-black px-1.5 h-6 bg-slate-900/40 text-slate-300 border-slate-800 shrink-0">
-                    {job.qta} PZ
-                </Badge>
-
-                <div className="flex flex-col items-end justify-center px-2 py-1 bg-blue-600/10 border border-blue-500/20 rounded-lg shrink-0 min-w-[90px]">
-                    <div className="flex items-center gap-1.5">
-                        {isEstimated ? (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Wand2 className="h-3 w-3 text-blue-400 animate-pulse" />
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" className="bg-slate-900 border-slate-700 text-[8px] font-black text-blue-400 uppercase tracking-widest">
-                                        Tempo Stimato (Smart Remainder)
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        ) : (
-                            <Timer className="h-3 w-3 text-blue-400" />
-                        )}
-                        <span className={cn(
-                            "text-[10px] font-black uppercase tracking-tight",
-                            isEstimated ? "text-blue-400/80 italic" : "text-blue-300"
-                        )}>
-                            Residuo: {load.toFixed(1)}h
-                        </span>
-                    </div>
-                    {totalLoad > 0 && (
-                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter mt-0.5">
-                            Fatte: {fatte.toFixed(1)}h / Prev: {totalLoad.toFixed(1)}h
-                        </span>
-                    )}
+                <div className="flex items-center justify-center shrink-0 w-[55px]">
+                    <Badge variant="outline" className="text-[9px] font-black px-1.5 h-6 bg-slate-900/40 text-slate-300 border-slate-800 shrink-0 w-full justify-center truncate">
+                        {job.qta} PZ
+                    </Badge>
                 </div>
 
-                <Button 
-                    variant="ghost" 
-                    className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-800/50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all shrink-0 ml-1"
-                    onClick={(e) => { 
-                        e.stopPropagation(); 
-                        onEdit(); 
-                    }}
-                >
-                    <Pencil className="h-3.5 w-3.5" />
-                </Button>
+                {/* Progress Bar Fatto / Previsto -> Residuo */}
+                <div className="hidden lg:flex flex-col justify-center gap-0.5 w-[110px] shrink-0">
+                    <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-tighter w-full">
+                        <span className="text-emerald-500">{fatte.toFixed(1)}h</span>
+                        <span className="text-slate-500">/</span>
+                        <span className="text-blue-500">{totalLoad.toFixed(1)}h</span>
+                        <span className="text-slate-600 mx-0.5 shrink-0">→</span>
+                        <span className={cn(isEstimated ? "text-blue-400/80 italic" : "text-red-400")}>{load.toFixed(1)}h</span>
+                    </div>
+                    <Progress value={totalLoad > 0 ? (fatte / totalLoad) * 100 : 0} className="h-1.5 w-full bg-slate-800 [&>div]:bg-emerald-500" />
+                </div>
 
-                <Button 
-                    variant="ghost" 
-                    className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-800/50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all shrink-0"
-                    onClick={(e) => { 
-                        e.stopPropagation(); 
-                        if (job.workGroupId) {
-                            toast({ title: "Gestito in Gruppo", description: "Dettagli limitati in pianificazione settimanale.", variant: "default" });
-                        }
-                        onQuickView(); 
-                    }}
-                >
-                    <ChevronRight className="h-4 w-4" />
-                </Button>
+                {/* Sequence UI */}
+                {onUpdateSequence ? (
+                    <div className="flex items-center bg-slate-950 border border-slate-800 rounded-md overflow-hidden shrink-0 w-[70px]" onClick={e => e.stopPropagation()}>
+                        <div 
+                            className="flex items-center justify-center w-5 h-7 bg-slate-900 hover:bg-slate-800 cursor-pointer border-r border-slate-800 transition-colors shrink-0"
+                            onClick={() => onUpdateSequence(job.id, (job.dailySequence || 0) + 1)}
+                        >
+                            <ChevronDown className="h-3 w-3 text-slate-400" />
+                        </div>
+                        <input 
+                            type="number" 
+                            className="w-full h-7 bg-transparent text-[10px] font-black text-center text-blue-400 outline-none appearance-none"
+                            value={job.dailySequence || 0}
+                            onChange={(e) => onUpdateSequence(job.id, parseInt(e.target.value) || 0)}
+                        />
+                        <div 
+                            className="flex items-center justify-center w-5 h-7 bg-slate-900 hover:bg-slate-800 cursor-pointer border-l border-slate-800 transition-colors shrink-0"
+                            onClick={() => onUpdateSequence(job.id, (job.dailySequence || 0) - 1)}
+                        >
+                            <ChevronUp className="h-3 w-3 text-slate-400" />
+                        </div>
+                    </div>
+                ) : <div className="w-[70px] shrink-0" />}
+
+                <div className="flex items-center justify-end gap-1 shrink-0 w-[60px]">
+                    <Button 
+                        variant="ghost" 
+                        className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-800/50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all shrink-0"
+                        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                    >
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        className="h-7 w-7 p-0 flex items-center justify-center rounded-lg bg-slate-800/50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all shrink-0"
+                        onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if (job.workGroupId) {
+                                toast({ title: "Gestito in Gruppo", description: "Dettagli limitati in pianificazione settimanale.", variant: "default" });
+                            }
+                            onQuickView(); 
+                        }}
+                    >
+                        <ChevronRight className="h-4 w-4" />
+                    </Button>
+                </div>
             </div>
         </div>
     );
