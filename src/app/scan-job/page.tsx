@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw, FastForward, Clock, Skull, Zap, AlertCircle } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View, RefreshCw, FastForward, Clock, Skull, Zap, AlertCircle, Truck } from 'lucide-react';
 
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
@@ -35,6 +35,7 @@ import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
+import { useMasterData } from '@/contexts/MasterDataProvider';
 import { cn } from '@/lib/utils';
 import MaterialAssociationDialog from './MaterialAssociationDialog';
 import { useCameraStream } from '@/hooks/use-camera-stream';
@@ -67,10 +68,14 @@ function getPhaseIcon(status: JobPhase['status'], type?: string) {
 
 const PhaseCard = ({ phase, job, handlers, isGlobalProcessing }: { phase: JobPhase, job: JobOrder, handlers: any, isGlobalProcessing?: boolean }) => {
     const { operator } = useAuth();
+    const { globalSettings } = useMasterData();
     if (!operator) return null;
     const isSuper = operator.role === 'supervisor' || operator.role === 'admin';
     const operatorReparti = operator.reparto || [];
-    const hasPerm = isSuper || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
+    
+    const isExternal = globalSettings?.phaseTypes.find(pt => pt.id === phase.type)?.isExternalRouting;
+    
+    const hasPerm = isSuper || isExternal || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
     const isOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
     
     // START POLICY: Can start if ready (N started) OR if it's a prep phase
@@ -114,7 +119,11 @@ const PhaseCard = ({ phase, job, handlers, isGlobalProcessing }: { phase: JobPha
             </div>
           </div>
           
-          {isOwner && <p className="text-[10px] text-green-600 font-bold mt-2 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/> SEI ATTIVO IN QUESTA FASE</p>}
+          {isExternal && phase.status === 'in-progress' && (
+              <p className="text-[10px] text-teal-600 font-bold mt-2 flex items-center gap-1">In Lavorazione Esterna dal {phase.workPeriods?.[0]?.start ? new Date(phase.workPeriods[0].start).toLocaleDateString() : ''}</p>
+          )}
+          
+          {isOwner && !isExternal && <p className="text-[10px] text-green-600 font-bold mt-2 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/> SEI ATTIVO IN QUESTA FASE</p>}
           
           <div className="mt-2 space-y-1 text-xs text-muted-foreground border-t pt-2 border-muted">
             {(phase.materialConsumptions || []).length > 0 ? (
@@ -131,56 +140,73 @@ const PhaseCard = ({ phase, job, handlers, isGlobalProcessing }: { phase: JobPha
           </div>
 
           <div className="mt-3 flex flex-col sm:flex-row flex-wrap gap-2">
-            {hasPerm && phase.type === 'preparation' && phase.status !== 'completed' && phase.status !== 'skipped' && (
-              <Button size="sm" variant="secondary" className="h-8 w-full sm:w-auto text-xs font-bold" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)} disabled={isGlobalProcessing}>Associa Materiale</Button>
-            )}
-            
-            {canStart && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} className="h-8 w-full sm:w-auto text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-sm transition-all active:scale-95">
-              {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />} Avvia
-            </Button>}
-            
-            {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-blue-600 border-blue-200 bg-blue-50/50">
-              {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Combine className="mr-2 h-4 w-4" />} Partecipa
-            </Button>}
-            
-            {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-orange-600 border-orange-200">
-              {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Pausa
-            </Button>}
-            
-            {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-yellow-600 border-yellow-200 bg-yellow-50/50">
-              {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Riprendi
-            </Button>}
-            
-            {canComplete && (
-              <Button 
-                size="sm" 
-                disabled={isGlobalProcessing}
-                onClick={() => handlers.handleRequestPhaseCompletion(phase.id)} 
-                className={cn(
-                  "h-8 w-full sm:w-auto text-xs font-bold shadow-md",
-                  (phase.type === 'quality' || phase.type === 'packaging') ? "bg-amber-500 hover:bg-amber-600" : "bg-green-600 hover:bg-green-700"
-                )}
-              >
-                {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (phase.type === 'quality' || phase.type === 'packaging' ? 'Dichiara' : 'Completa')}
-              </Button>
-            )}
-
-            {isCompleteBlockedByPrev && (
-               <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="cursor-not-allowed w-full sm:w-auto">
-                      <Button size="sm" disabled className="h-8 w-full sm:w-auto text-xs font-bold opacity-50">Completa</Button>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="bg-slate-900 text-white border-none text-[10px]">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="h-3 w-3 text-amber-500" />
-                      In attesa di chiusura fase precedente: {prev?.name}
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            {isExternal ? (
+                <>
+                    {hasPerm && phase.status === 'pending' && (
+                        <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} className="h-8 w-full sm:w-auto text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-sm transition-all active:scale-95">
+                            {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />} Spedisci a Fornitore
+                        </Button>
+                    )}
+                    {hasPerm && phase.status === 'in-progress' && (
+                        <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} disabled={isGlobalProcessing} className="h-8 w-full sm:w-auto text-xs font-bold bg-green-600 hover:bg-green-700 text-white shadow-sm transition-all active:scale-95">
+                            {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />} Dichiara Rientro
+                        </Button>
+                    )}
+                </>
+            ) : (
+                <>
+                    {hasPerm && phase.type === 'preparation' && phase.status !== 'completed' && phase.status !== 'skipped' && (
+                      <Button size="sm" variant="secondary" className="h-8 w-full sm:w-auto text-xs font-bold" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)} disabled={isGlobalProcessing}>Associa Materiale</Button>
+                    )}
+                    
+                    {canStart && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} className="h-8 w-full sm:w-auto text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-sm transition-all active:scale-95">
+                      {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />} Avvia
+                    </Button>}
+                    
+                    {canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-blue-600 border-blue-200 bg-blue-50/50">
+                      {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Combine className="mr-2 h-4 w-4" />} Partecipa
+                    </Button>}
+                    
+                    {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-orange-600 border-orange-200">
+                      {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Pausa
+                    </Button>}
+                    
+                    {canResume && !canJoin && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} disabled={isGlobalProcessing} variant="outline" className="h-8 w-full sm:w-auto text-xs font-bold text-yellow-600 border-yellow-200 bg-yellow-50/50">
+                      {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Riprendi
+                    </Button>}
+                    
+                    {canComplete && (
+                      <Button 
+                        size="sm" 
+                        disabled={isGlobalProcessing}
+                        onClick={() => handlers.handleRequestPhaseCompletion(phase.id)} 
+                        className={cn(
+                          "h-8 w-full sm:w-auto text-xs font-bold shadow-md",
+                          (phase.type === 'quality' || phase.type === 'packaging') ? "bg-amber-500 hover:bg-amber-600" : "bg-green-600 hover:bg-green-700"
+                        )}
+                      >
+                        {isGlobalProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (phase.type === 'quality' || phase.type === 'packaging' ? 'Dichiara' : 'Completa')}
+                      </Button>
+                    )}
+        
+                    {isCompleteBlockedByPrev && (
+                       <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="cursor-not-allowed w-full sm:w-auto">
+                              <Button size="sm" disabled className="h-8 w-full sm:w-auto text-xs font-bold opacity-50">Completa</Button>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="bg-slate-900 text-white border-none text-[10px]">
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="h-3 w-3 text-amber-500" />
+                              In attesa di chiusura fase precedente: {prev?.name}
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                </>
             )}
           </div>
       </Card>

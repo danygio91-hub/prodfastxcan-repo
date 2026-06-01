@@ -5,12 +5,13 @@ import React from 'react';
 import Link from 'next/link';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { useMasterData } from '@/contexts/MasterDataProvider';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { updateJob, updateWorkGroup, updateOperatorStatus } from '@/app/scan-job/actions';
-import { Play, Pause, Check, Activity } from 'lucide-react';
+import { Play, Pause, Check, Activity, Truck } from 'lucide-react';
 import type { JobOrder, JobPhase, WorkGroup } from '@/types';
 import { cn } from '@/lib/utils';
 import { getDerivedJobStatus } from '@/lib/job-status';
@@ -18,6 +19,7 @@ import { getDerivedJobStatus } from '@/lib/job-status';
 export default function ActiveJobStatusBar() {
   const { activeJob, isLoading, isStatusBarHighlighted } = useActiveJob();
   const { operator } = useAuth();
+  const { globalSettings } = useMasterData();
   const { toast } = useToast();
 
   const handleUpdateJobOrGroup = async (updatedJobOrGroup: JobOrder | WorkGroup) => {
@@ -132,6 +134,7 @@ export default function ActiveJobStatusBar() {
   }
 
   const isMyWorkActive = myRelevantPhase.status === 'in-progress' && (myRelevantPhase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
+  const isExternal = globalSettings?.phaseTypes.find(pt => pt.id === myRelevantPhase.type)?.isExternalRouting;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none">
@@ -148,35 +151,68 @@ export default function ActiveJobStatusBar() {
                           ? <span className="h-2 w-2 rounded-full bg-white animate-pulse flex-shrink-0"></span>
                           : <span className="h-2 w-2 rounded-full bg-orange-600 flex-shrink-0"></span>
                        }
-                       <span className="truncate">{isMyWorkActive ? 'Fase Attiva:' : 'Fase in Pausa:'} {myRelevantPhase.name}</span>
+                       {isExternal ? (
+                          <span className="truncate">{isMyWorkActive ? 'In Lavorazione Esterna:' : 'Pronto per Spedizione:'} {myRelevantPhase.name}</span>
+                       ) : (
+                          <span className="truncate">{isMyWorkActive ? 'Fase Attiva:' : 'Fase in Pausa:'} {myRelevantPhase.name}</span>
+                       )}
                     </p>
                 </div>
                 <div className="flex items-center justify-end gap-2">
                     <div className="flex items-center gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="icon" 
-                          className={cn("h-9 w-9", 
-                            isMyWorkActive ? "bg-white/20 border-white/30 text-white hover:bg-white/30" : "bg-black/5 border-black/10 text-black/70 hover:bg-black/10"
-                          )}
-                          onClick={() => handlePauseResume(myRelevantPhase.id)} 
-                          disabled={activeJob.isProblemReported}
-                        >
-                          {isMyWorkActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                          <span className="sr-only">{isMyWorkActive ? 'Pausa' : 'Riprendi'}</span>
-                        </Button>
+                        {isExternal ? (
+                            <>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className={cn("h-9", 
+                                    isMyWorkActive ? "bg-white/20 border-white/30 text-white hover:bg-white/30" : "bg-black/5 border-black/10 text-black/70 hover:bg-black/10"
+                                  )}
+                                  onClick={() => handlePauseResume(myRelevantPhase.id)} 
+                                  disabled={activeJob.isProblemReported || isMyWorkActive}
+                                >
+                                  <Truck className="mr-2 h-4 w-4" />
+                                  Spedisci a Fornitore
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className={cn("h-9", isMyWorkActive ? "bg-white/20 border-white/30 text-white hover:bg-white/30" : "bg-black/5 border-black/10 text-black/70 hover:bg-black/10")}
+                                    onClick={() => handleCompletePhase(myRelevantPhase.id)} 
+                                    disabled={activeJob.isProblemReported || !isMyWorkActive}
+                                 >
+                                    <Check className="mr-2 h-4 w-4" />
+                                    Dichiara Rientro
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <Button 
+                                  variant="outline" 
+                                  size="icon" 
+                                  className={cn("h-9 w-9", 
+                                    isMyWorkActive ? "bg-white/20 border-white/30 text-white hover:bg-white/30" : "bg-black/5 border-black/10 text-black/70 hover:bg-black/10"
+                                  )}
+                                  onClick={() => handlePauseResume(myRelevantPhase.id)} 
+                                  disabled={activeJob.isProblemReported}
+                                >
+                                  {isMyWorkActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                                  <span className="sr-only">{isMyWorkActive ? 'Pausa' : 'Riprendi'}</span>
+                                </Button>
 
-                        <Button 
-                            variant="outline" 
-                            size="icon" 
-                            className={cn("h-9 w-9", isMyWorkActive ? "bg-white/20 border-white/30 text-white hover:bg-white/30" : "bg-black/5 border-black/10 text-black/70 hover:bg-black/10")}
-                            onClick={() => handleCompletePhase(myRelevantPhase.id)} 
-                            disabled={activeJob.isProblemReported || !isMyWorkActive} // Can only complete if active
-                            title="Completa la tua attività per questa fase"
-                         >
-                            <Check className="h-4 w-4" />
-                            <span className="sr-only">Completa</span>
-                        </Button>
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className={cn("h-9 w-9", isMyWorkActive ? "bg-white/20 border-white/30 text-white hover:bg-white/30" : "bg-black/5 border-black/10 text-black/70 hover:bg-black/10")}
+                                    onClick={() => handleCompletePhase(myRelevantPhase.id)} 
+                                    disabled={activeJob.isProblemReported || !isMyWorkActive}
+                                    title="Completa la tua attività per questa fase"
+                                 >
+                                    <Check className="h-4 w-4" />
+                                    <span className="sr-only">Completa</span>
+                                </Button>
+                            </>
+                        )}
                     </div>
                     <Separator orientation="vertical" className="h-6 bg-black/20 hidden sm:block" />
                      <Button asChild variant="default" size="sm" className="h-9 bg-black/10 text-inherit hover:bg-black/20 flex-shrink-0">
