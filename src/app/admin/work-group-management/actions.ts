@@ -54,12 +54,30 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
 }
 
 
-export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false, forceUnlock: boolean = false): Promise<{ success: boolean; message: string; childJobIds?: string[] }> {
+export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false, forceUnlock: boolean = false, callerJobId?: string): Promise<{ success: boolean; message: string; childJobIds?: string[] }> {
   try {
-    if (!groupId) {
+    let groupRef: admin.firestore.DocumentReference | null = null;
+    try {
+        if (groupId && typeof groupId === 'string' && groupId.trim() !== '') {
+            groupRef = adminDb.collection('workGroups').doc(groupId);
+        }
+    } catch (e) {
+        console.warn("Invalid groupId path:", groupId);
+        groupRef = null;
+    }
+
+    if (!groupRef) {
+        if (callerJobId) {
+             const tid = callerJobId.replace(/\//g, '-');
+             await adminDb.collection('jobOrders').doc(tid).update({
+                 workGroupId: admin.firestore.FieldValue.delete(),
+                 isGrouped: false
+             });
+             revalidatePath('/scan-job');
+             return { success: true, message: "Dati gruppo corrotti. La commessa è stata sbloccata." };
+        }
         return { success: false, message: "ID Gruppo mancante o non valido." };
     }
-    const groupRef = adminDb.collection('workGroups').doc(groupId);
 
     // 1. ANALISI STATO OPERATORI: Recupera chi ha il gruppo aperto o timer attivi
     const opsSnap = await adminDb.collection("operators").get();
@@ -87,6 +105,18 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
             await batch.commit();
             return { success: true, message: "Gruppo non trovato, ma commesse orfane ripristinate con successo." };
         }
+        
+        // FAIL-SAFE for the specific caller job if it wasn't caught by the query
+        if (callerJobId) {
+             const tid = callerJobId.replace(/\//g, '-');
+             await adminDb.collection('jobOrders').doc(tid).update({
+                 workGroupId: admin.firestore.FieldValue.delete(),
+                 isGrouped: false
+             });
+             revalidatePath('/scan-job');
+             return { success: true, message: "Gruppo non trovato. La commessa è stata forzatamente sbloccata." };
+        }
+        
         return { success: false, message: "Gruppo di lavoro non trovato." };
     }
     const gDataRaw = groupSnap.data() as WorkGroup;

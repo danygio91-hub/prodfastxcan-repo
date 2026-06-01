@@ -385,7 +385,7 @@ export default function ScanJobPage() {
     }
 
     setIsDissolving(true);
-    const result = await dissolveWorkGroup(activeJob.workGroupId, false, force);
+    const result = await dissolveWorkGroup(activeJob.workGroupId || "", false, force, activeJob.id);
     if (result.success) {
         toast({ title: force ? "Sblocco Forzato Completato" : "Gruppo Scollegato", description: "Le commesse sono tornate individuali." });
         
