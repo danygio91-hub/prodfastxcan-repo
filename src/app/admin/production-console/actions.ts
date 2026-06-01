@@ -436,11 +436,11 @@ async function internalForceCompleteJob(transaction: admin.firestore.Transaction
 
     transaction.update(itemRef, updates);
     
-    // Se è un gruppo, propaghiamo alle commesse figlie
     if (isGroup) {
-        (item.jobOrderIds || []).forEach(id => {
-            transaction.update(adminDb.collection('jobOrders').doc(id), updates);
-        });
+        for (const id of item.jobOrderIds || []) {
+            const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id, transaction);
+            transaction.update(childRef, updates);
+        }
     }
 
     // Sanatoria Impegni Manuali: Cerca impegni collegati a questo ODL e annullali (senza storno stock)
@@ -533,11 +533,11 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
       if (isGroup) {
           const gData = itemData as WorkGroup;
           getActiveOperators(gData.phases || []);
-          (gData.jobOrderIds || []).forEach(id => {
-              const jRef = adminDb.collection('jobOrders').doc(id);
+          for (const id of gData.jobOrderIds || []) {
+              const { itemRef: jRef } = await getItemRefAndSnap(adminDb, id, transaction);
               const updatedPhases: JobPhase[] = (gData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
               transaction.update(jRef, { status: 'In Pianificazione', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: admin.firestore.FieldValue.delete() });
-          });
+          }
           transaction.delete(itemRef);
       } else {
           const jData = itemData as JobOrder;
@@ -583,7 +583,12 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
           const dummyJobForStatus = { ...itemData };
           const newStatus = isAct ? 'In Lavorazione' : getOverallStatus(dummyJobForStatus as any);
           transaction.update(itemRef, { status: newStatus, overallEndTime: admin.firestore.FieldValue.delete(), forcedCompletion: admin.firestore.FieldValue.delete() });
-          if (isGroup) { (itemData.jobOrderIds || []).forEach(id => { transaction.update(adminDb.collection('jobOrders').doc(id), { status: newStatus, overallEndTime: admin.firestore.FieldValue.delete(), forcedCompletion: admin.firestore.FieldValue.delete() }); }); }
+          if (isGroup) { 
+              for (const id of itemData.jobOrderIds || []) { 
+                  const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id, transaction);
+                  transaction.update(childRef, { status: newStatus, overallEndTime: admin.firestore.FieldValue.delete(), forcedCompletion: admin.firestore.FieldValue.delete() }); 
+              } 
+          }
       });
       revalidatePath('/admin/production-console');
       await pulseOperatorsForJob(itemId);
@@ -606,7 +611,10 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
         const gSnap = await itemRef.get();
         const gData = gSnap.data() as WorkGroup;
         const batch = adminDb.batch();
-        (gData.jobOrderIds || []).forEach(id => batch.update(adminDb.collection('jobOrders').doc(id), { phases: finalPhases, status: newStatus }));
+        for (const id of gData.jobOrderIds || []) {
+            const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id);
+            batch.update(childRef, { phases: finalPhases, status: newStatus });
+        }
         await batch.commit();
     }
     revalidatePath('/admin/production-console');
@@ -666,7 +674,12 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
       phases[idx].materialReady = false;
       const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: (opSnap.data() as any)?.nome || 'Admin', problemNotes: notes || '' };
       t.update(itemRef, up);
-      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(adminDb.collection('jobOrders').doc(id), up));
+      if (isGroup) {
+          for (const id of itemData.jobOrderIds || []) {
+              const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id, t);
+              t.update(childRef, up);
+          }
+      }
     });
     revalidatePath('/admin/production-console');
     await pulseOperatorsForJob(itemId);
@@ -693,7 +706,12 @@ export async function resolveMaterialMissing(itemId: string, phaseId: string, ui
       const up: any = { phases };
       if (!anyLeft && !otherProb) { up.isProblemReported = false; up.problemType = admin.firestore.FieldValue.delete(); up.problemReportedBy = admin.firestore.FieldValue.delete(); }
       t.update(itemRef, up);
-      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(adminDb.collection('jobOrders').doc(id), up));
+      if (isGroup) {
+          for (const id of itemData.jobOrderIds || []) {
+              const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id, t);
+              t.update(childRef, up);
+          }
+      }
     });
     revalidatePath('/admin/production-console');
     await pulseOperatorsForJob(itemId);
@@ -721,9 +739,10 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
         t.update(itemRef, updatePayload);
         if (isGroup) {
             const data = snap.data() as WorkGroup;
-            (data.jobOrderIds || []).forEach(id => { 
-                t.update(adminDb.collection('jobOrders').doc(id), updatePayload); 
-            });
+            for (const id of data.jobOrderIds || []) { 
+                const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id, t);
+                t.update(childRef, updatePayload); 
+            }
         }
     });
     
@@ -756,9 +775,10 @@ export async function updateJobPrepDate(itemId: string, newDate: string, uid: st
         t.update(itemRef, updatePayload);
         if (isGroup) {
             const data = snap.data() as WorkGroup;
-            (data.jobOrderIds || []).forEach(id => { 
-                t.update(adminDb.collection('jobOrders').doc(id), updatePayload); 
-            });
+            for (const id of data.jobOrderIds || []) { 
+                const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id, t);
+                t.update(childRef, updatePayload); 
+            }
         }
     });
     
@@ -1035,13 +1055,11 @@ export async function editOperatorWorkPeriodTime(
 ): Promise<{ success: boolean; message: string }> {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-
     try {
         let articleCodeToUpdate = '';
 
         await adminDb.runTransaction(async (t) => {
-            const snap = await t.get(itemRef);
+            const { itemRef, itemSnap: snap } = await getItemRefAndSnap(adminDb, jobId, t);
             if (!snap.exists) throw new Error("Elemento non trovato.");
             const itemData = snap.data() as JobOrder | WorkGroup;
             
@@ -1063,9 +1081,10 @@ export async function editOperatorWorkPeriodTime(
 
             if (isGroup) {
                 const groupData = itemData as WorkGroup;
-                (groupData.jobOrderIds || []).forEach(id => {
-                    t.update(adminDb.collection('jobOrders').doc(id), { phases, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-                });
+                for (const id of groupData.jobOrderIds || []) {
+                    const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id, t);
+                    t.update(childRef, { phases, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+                }
                 articleCodeToUpdate = groupData.details;
             } else {
                 articleCodeToUpdate = (itemData as JobOrder).details;
@@ -1086,11 +1105,9 @@ export async function editOperatorWorkPeriodTime(
 export async function reopenOperatorPhase(jobId: string, phaseId: string, operatorId: string, uid: string): Promise<{ success: boolean; message: string }> {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
-
     try {
         await adminDb.runTransaction(async (t) => {
-            const snap = await t.get(itemRef);
+            const { itemRef, itemSnap: snap } = await getItemRefAndSnap(adminDb, jobId, t);
             if (!snap.exists) throw new Error("Elemento non trovato.");
             const itemData = snap.data() as JobOrder | WorkGroup;
             
@@ -1117,9 +1134,10 @@ export async function reopenOperatorPhase(jobId: string, phaseId: string, operat
             t.update(itemRef, updates);
 
             if (isGroup) {
-                (itemData.jobOrderIds || []).forEach(id => {
-                    t.update(adminDb.collection('jobOrders').doc(id), updates);
-                });
+                for (const id of itemData.jobOrderIds || []) {
+                    const { itemRef: childRef } = await getItemRefAndSnap(adminDb, id, t);
+                    t.update(childRef, updates);
+                }
             }
 
             t.update(adminDb.collection('operators').doc(operatorId), {
