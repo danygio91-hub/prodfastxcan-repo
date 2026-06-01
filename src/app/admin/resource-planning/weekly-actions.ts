@@ -7,7 +7,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, Operator, OperatorAssignment, Department, MacroArea, Article, ProductionSettings } from '@/types';
 import { startOfWeek, format, parseISO } from 'date-fns';
 import { convertTimestampsToDates } from '@/lib/utils';
-import { fetchInChunks } from '@/lib/firestore-utils';
+import { fetchInChunks, getItemRefAndSnap } from '@/lib/firestore-utils';
 import type { WorkPhaseTemplate } from '@/types';
 import { getOverallStatus } from '@/lib/types';
 import { createPhasesFromCycle } from '../data-management/actions';
@@ -19,8 +19,7 @@ import { createPhasesFromCycle } from '../data-management/actions';
 export async function selfHealJobPhases(jobId: string, articleCode: string, uid: string) {
     try {
         await ensureAdmin(uid);
-        const jobRef = adminDb.collection("jobOrders").doc(jobId);
-        const jobSnap = await jobRef.get();
+        const { itemRef: jobRef, itemSnap: jobSnap } = await getItemRefAndSnap(adminDb, jobId);
         if (!jobSnap.exists) throw new Error("Commessa non trovata.");
         
         const jobData = jobSnap.data() as JobOrder;
@@ -162,8 +161,7 @@ export async function advanceJobStatus(jobId: string, nextStatus?: string, uid?:
         if (!uid) throw new Error("Utente non specificato per operazione riservata.");
         await ensureAdmin(uid);
         
-        const docRef = adminDb.collection("jobOrders").doc(jobId);
-        const doc = await docRef.get();
+        const { itemRef: docRef, itemSnap: doc } = await getItemRefAndSnap(adminDb, jobId);
         if (!doc.exists) throw new Error("Commessa non trovata");
         
         const data = doc.data() as JobOrder;

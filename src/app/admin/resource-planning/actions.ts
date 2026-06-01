@@ -9,8 +9,7 @@ import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Art
 import { startOfWeek, endOfWeek, format, parseISO, eachDayOfInterval } from 'date-fns';
 import { getProductionTimeAnalysisMap } from '../production-console/actions';
 import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
-import { fetchInChunks } from '@/lib/firestore-utils';
-
+import { fetchInChunks, getItemRefAndSnap } from '@/lib/firestore-utils';
 
 
 /**
@@ -398,7 +397,8 @@ export async function assignJobToDate(jobId: string, assignedDate: string | null
         if (departmentId) {
             updateData.department = departmentId;
         }
-        await adminDb.collection("jobOrders").doc(jobId).update(updateData);
+        const { itemRef } = await getItemRefAndSnap(adminDb, jobId);
+        await itemRef.update(updateData);
         return { success: true };
     } catch (e) {
         return { success: false, message: "Errore durante il salvataggio della data." };
@@ -411,10 +411,10 @@ export async function assignJobToDate(jobId: string, assignedDate: string | null
 export async function bulkAssignJobsToDate(jobIds: string[], assignedDate: string | null) {
   try {
     const batch = adminDb.batch();
-    jobIds.forEach(id => {
-      const ref = adminDb.collection("jobOrders").doc(id);
-      batch.update(ref, { assignedDate: assignedDate });
-    });
+    for (const id of jobIds) {
+      const { itemRef } = await getItemRefAndSnap(adminDb, id);
+      batch.update(itemRef, { assignedDate: assignedDate });
+    }
     await batch.commit();
     return { success: true };
   } catch (error) {
@@ -429,7 +429,7 @@ export async function bulkAssignJobsToDate(jobIds: string[], assignedDate: strin
 export async function toggleJobPriority(jobId: string, value: boolean) {
     try {
         await ensureAdmin();
-        const docRef = adminDb.collection("jobOrders").doc(jobId);
+        const { itemRef: docRef } = await getItemRefAndSnap(adminDb, jobId);
         await docRef.update({ 
             isPriority: value,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -446,7 +446,8 @@ export async function toggleJobPriority(jobId: string, value: boolean) {
  */
 export async function updateJobSortOrder(jobId: string, sortIndex: number) {
     try {
-        await adminDb.collection("jobOrders").doc(jobId).update({
+        const { itemRef } = await getItemRefAndSnap(adminDb, jobId);
+        await itemRef.update({
             sortIndex: sortIndex
         });
         return { success: true };
@@ -461,10 +462,10 @@ export async function updateJobSortOrder(jobId: string, sortIndex: number) {
 export async function bulkUpdateJobSortOrder(updates: { id: string, sortIndex: number }[]) {
     try {
         const batch = adminDb.batch();
-        updates.forEach(u => {
-            const ref = adminDb.collection("jobOrders").doc(u.id);
-            batch.update(ref, { sortIndex: u.sortIndex });
-        });
+        for (const u of updates) {
+            const { itemRef } = await getItemRefAndSnap(adminDb, u.id);
+            batch.update(itemRef, { sortIndex: u.sortIndex });
+        }
         await batch.commit();
         return { success: true };
     } catch (error) {
@@ -481,7 +482,8 @@ export async function updateJobDeliveryDate(jobId: string, newDate: string, fiel
         const normalized = normalizeDateStr(newDate);
         if (!normalized) throw new Error("Data non valida.");
 
-        await adminDb.collection("jobOrders").doc(jobId).update({
+        const { itemRef } = await getItemRefAndSnap(adminDb, jobId);
+        await itemRef.update({
             [fieldName]: normalized,
             updatedAt: admin.firestore.Timestamp.now()
         });
@@ -501,7 +503,8 @@ export async function updateJobDeliveryDate(jobId: string, newDate: string, fiel
  */
 export async function updateJobDepartment(jobId: string, newDeptId: string, uid?: string) {
     try {
-        await adminDb.collection("jobOrders").doc(jobId).update({
+        const { itemRef } = await getItemRefAndSnap(adminDb, jobId);
+        await itemRef.update({
             department: newDeptId,
             updatedAt: admin.firestore.Timestamp.now()
         });
@@ -518,7 +521,8 @@ export async function updateJobDepartment(jobId: string, newDeptId: string, uid?
 export async function forceCloseAndExclude(jobId: string, uid?: string) {
     try {
         if (uid) await ensureAdmin(uid);
-        await adminDb.collection("jobOrders").doc(jobId).update({
+        const { itemRef } = await getItemRefAndSnap(adminDb, jobId);
+        await itemRef.update({
             status: 'CHIUSO',
             excludedFromPackingList: true,
             overallEndTime: admin.firestore.Timestamp.now(),
@@ -537,7 +541,8 @@ export async function forceCloseAndExclude(jobId: string, uid?: string) {
 export async function toggleExcludeFromPackingList(jobId: string, value: boolean, uid?: string) {
     try {
         if (uid) await ensureAdmin(uid);
-        await adminDb.collection("jobOrders").doc(jobId).update({
+        const { itemRef } = await getItemRefAndSnap(adminDb, jobId);
+        await itemRef.update({
             excludedFromPackingList: value,
             updatedAt: admin.firestore.Timestamp.now()
         });
