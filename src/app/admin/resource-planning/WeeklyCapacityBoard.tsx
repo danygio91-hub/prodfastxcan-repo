@@ -41,7 +41,7 @@ import { getOverallStatus } from '@/lib/types';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { MRPSemaphore } from '@/components/mrp/MRPSemaphore';
 import { ProcessedJob, isPreparationPhase, isProductionPhase, isQualityPackagingPhase } from './ssot-utils';
-import { exportScaletta } from '@/lib/export-scaletta';
+import { exportScaletta } from '../../../lib/export-scaletta';
 
 interface WeeklyCapacityBoardProps {
     jobOrders: JobOrder[];
@@ -724,8 +724,8 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                     
                                     const totalWorked = weekJobs.reduce((acc, pj) => {
                                         const macroArea = dept.id === 'PREP' ? 'PREP' : dept.id === 'PACK' ? 'PACK' : 'CORE';
-                                        const mrpData = getJobMRPData(pj.job, dept.id, macroArea, articles, phaseTemplates);
-                                        return acc + mrpData.tracked;
+                                        const mrpData = getJobMRPData(pj.job, dept.id, macroArea, articles, phaseTemplates, week.start);
+                                        return acc + mrpData.weekTracked;
                                     }, 0);
 
                                     const isOverloaded = capacityHours > 0 && totalLoad > capacityHours;
@@ -901,7 +901,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
 
 export default WeeklyCapacityBoard;
 
-export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' | 'CORE' | 'PACK', articles: Article[], phaseTemplates: WorkPhaseTemplate[]) {
+export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' | 'CORE' | 'PACK', articles: Article[], phaseTemplates: WorkPhaseTemplate[], weekStart?: Date) {
     const article = articles.find(a => a.code?.trim().toUpperCase() === job.details?.trim().toUpperCase());
     const phaseTimes = article?.phaseTimes || {};
     
@@ -918,6 +918,7 @@ export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' |
     let totalDone = 0;
     let totalResidual = 0;
     let totalTracked = 0;
+    let weekTrackedMinsTotal = 0;
 
     const jobStatus = job.status?.toUpperCase() || '';
     const derivedStatus = getDerivedJobStatus(job) || '';
@@ -951,19 +952,34 @@ export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' |
         totalExpected += expectedMins;
 
         let realTimeMins = 0;
+        let localWeekTrackedMins = 0;
 
         if (jobPhase && jobPhase.workPeriods) {
+            let wStartMs = 0;
+            let wEndMs = 0;
+            if (weekStart) {
+                wStartMs = weekStart.getTime();
+                // Assumiamo settimana esatta di 7 giorni
+                wEndMs = wStartMs + 7 * 24 * 60 * 60 * 1000 - 1;
+            }
+
             const realTimeMs = jobPhase.workPeriods.reduce((sum, wp) => {
                 if (!wp.start || !wp.end) return sum;
                 const start = (typeof wp.start === 'object' && 'seconds' in wp.start) ? new Date(wp.start.seconds * 1000) : new Date(wp.start as string);
                 const end = (typeof wp.end === 'object' && 'seconds' in wp.end) ? new Date(wp.end.seconds * 1000) : new Date(wp.end as string);
                 const diff = end.getTime() - start.getTime();
+                
+                if (weekStart && start.getTime() >= wStartMs && start.getTime() <= wEndMs) {
+                    localWeekTrackedMins += diff > 0 ? (diff / 60000) : 0;
+                }
+
                 return diff > 0 ? sum + diff : sum;
             }, 0);
             realTimeMins = realTimeMs / 60000;
         }
 
         totalTracked += realTimeMins;
+        weekTrackedMinsTotal += localWeekTrackedMins;
 
         if (logicalState === 'A') {
             totalDone += 0;
@@ -1019,7 +1035,8 @@ export function getJobMRPData(job: JobOrder, deptId: string, macroArea: 'PREP' |
         residual: isNaN(totalResidual) ? 0 : totalResidual / 60,
         done: isNaN(totalDone) ? 0 : totalDone / 60,
         expected: isNaN(totalExpected) ? 0 : totalExpected / 60,
-        tracked: isNaN(totalTracked) ? 0 : totalTracked / 60
+        tracked: isNaN(totalTracked) ? 0 : totalTracked / 60,
+        weekTracked: isNaN(weekTrackedMinsTotal) ? 0 : weekTrackedMinsTotal / 60
     };
 }
 
