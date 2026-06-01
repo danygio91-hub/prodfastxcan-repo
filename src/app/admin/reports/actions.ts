@@ -10,6 +10,7 @@ import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
 import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
+import { getItemRefAndSnap } from '@/lib/firestore-utils';
 
 function formatDuration(ms: number): string {
   if (ms < 0) ms = 0;
@@ -241,7 +242,8 @@ export async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; 
 }
 
 export async function getJobDetailReport(jobId: string) {
-    const jobSnap = await adminDb.collection("jobOrders").doc(jobId).get();
+    const decodedId = decodeURIComponent(jobId);
+    const { itemSnap: jobSnap } = await getItemRefAndSnap(adminDb, decodedId);
     if (!jobSnap.exists) return null;
     let jobDetail = convertTimestampsToDates(jobSnap.data()) as JobOrder;
     const { totalMs, phasesWithDetails } = await getJobTimeData(jobDetail);
@@ -260,7 +262,8 @@ export async function getJobDetailReport(jobId: string) {
 
 export async function updateWorkPeriodsForPhase(jobId: string, phaseId: string, updatedPeriods: WorkPeriod[], uid: string) {
     await ensureAdmin(uid);
-    const jobRef = adminDb.collection("jobOrders").doc(jobId);
+    const decodedId = decodeURIComponent(jobId);
+    const { itemRef: jobRef } = await getItemRefAndSnap(adminDb, decodedId);
     await adminDb.runTransaction(async (t) => {
         const snap = await t.get(jobRef);
         if (!snap.exists) throw new Error("Non trovata.");

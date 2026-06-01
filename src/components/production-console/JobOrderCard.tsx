@@ -380,7 +380,7 @@ export default function JobOrderCard({
                                     <Tooltip>
                                         <TooltipTrigger asChild>
                                             <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                                <Link href={`/admin/reports/${jobOrder.id}`}><CheckSquare className="h-4 w-4" /></Link>
+                                                <Link href={`/admin/reports/${encodeURIComponent(jobOrder.id)}`}><CheckSquare className="h-4 w-4" /></Link>
                                             </Button>
                                         </TooltipTrigger>
                                         <TooltipContent><p>Vedi Dettagli Report</p></TooltipContent>

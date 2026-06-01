@@ -414,7 +414,7 @@ export default function ReportsClientPage({
                                 <TableCell className="max-w-[200px] truncate">{job.operators}</TableCell>
                                 <TableCell>
                                     <Button asChild variant="outline" size="sm">
-                                    <Link href={`/admin/reports/${job.id}`}>
+                                    <Link href={`/admin/reports/${encodeURIComponent(job.id)}`}>
                                         Vedi Dettagli
                                         <ChevronRight className="ml-2 h-4 w-4" />
                                     </Link>
