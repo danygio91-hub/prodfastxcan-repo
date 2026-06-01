@@ -4,7 +4,7 @@ import * as admin from 'firebase-admin';
 import type { JobOrder, WorkGroup, JobPhase, WorkPhaseTemplate, Article, PhaseType } from '@/types';
 import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
 
-export async function updateArticleHistoricalTimes(articleCode: string, cachedData?: { templates?: Map<string, PhaseType>, minMs?: number }) {
+export async function updateArticleHistoricalTimes(articleCode: string, cachedData?: { templates?: Map<string, PhaseType>, minMs?: number, minSampleForOutliers?: number, maxMedianDeviationPercent?: number }) {
     if (!articleCode) return;
     const trimmedCode = articleCode.trim();
 
@@ -36,10 +36,15 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
 
         // 3. Setup settings and templates (Use cache if provided)
         let MIN_MS = cachedData?.minMs;
-        if (MIN_MS === undefined) {
+        let MIN_SAMPLE = cachedData?.minSampleForOutliers;
+        let MAX_DEVIATION_PERCENT = cachedData?.maxMedianDeviationPercent;
+
+        if (MIN_MS === undefined || MIN_SAMPLE === undefined || MAX_DEVIATION_PERCENT === undefined) {
             const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
-            const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
-            MIN_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
+            const timeSettings = settingsDoc.exists ? settingsDoc.data() : {} as any;
+            MIN_MS = MIN_MS ?? (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
+            MIN_SAMPLE = MIN_SAMPLE ?? (timeSettings.minSampleForOutliers || 5);
+            MAX_DEVIATION_PERCENT = MAX_DEVIATION_PERCENT ?? (timeSettings.maxMedianDeviationPercent || 300);
         }
         
         let typeMap = cachedData?.templates;
@@ -120,11 +125,11 @@ export async function updateArticleHistoricalTimes(articleCode: string, cachedDa
         const averagePhaseTimes = Object.entries(phaseData).map(([key, d]) => {
             let validRecords = d.records;
             
-            // Outlier Filter (300% tolleranza) solo se N >= 5
-            if (validRecords.length >= 5) {
+            // Outlier Filter dinamico
+            if (validRecords.length >= MIN_SAMPLE!) {
                 const minPerPieceArr = validRecords.map(r => r.min / r.qta).sort((a, b) => a - b);
                 const median = minPerPieceArr[Math.floor(minPerPieceArr.length / 2)];
-                const maxAllowed = median * 4; // > 300% tolleranza (media + 300%)
+                const maxAllowed = median * (MAX_DEVIATION_PERCENT! / 100);
                 
                 validRecords = validRecords.filter(r => (r.min / r.qta) <= maxAllowed);
             }

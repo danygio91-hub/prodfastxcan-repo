@@ -725,8 +725,10 @@ export async function migrateAllArticleHistoricalTimes(uid: string): Promise<{ s
 
         // PRE-LOAD CACHE: Get settings and templates once
         const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
-        const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
+        const timeSettings = settingsDoc.exists ? settingsDoc.data() : {} as any;
         const minMs = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
+        const minSampleForOutliers = timeSettings.minSampleForOutliers || 5;
+        const maxMedianDeviationPercent = timeSettings.maxMedianDeviationPercent || 300;
 
         const tSnap = await adminDb.collection("workPhaseTemplates").get();
         const templates = new Map<string, PhaseType>();
@@ -735,7 +737,7 @@ export async function migrateAllArticleHistoricalTimes(uid: string): Promise<{ s
             if (name) templates.set(name, d.data().type);
         });
 
-        const cachedData = { templates, minMs };
+        const cachedData = { templates, minMs, minSampleForOutliers, maxMedianDeviationPercent };
         
         console.log(`Starting bulk migration for ${articlesSnap.size} articles...`);
 

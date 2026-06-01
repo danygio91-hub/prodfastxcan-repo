@@ -11,6 +11,8 @@ const CONFIG_COLLECTION = 'configuration';
 
 export interface TimeTrackingSettings {
   minimumPhaseDurationSeconds: number;
+  minSampleForOutliers: number;
+  maxMedianDeviationPercent: number;
 }
 
 export async function getTimeTrackingSettings(): Promise<TimeTrackingSettings> {
@@ -23,6 +25,8 @@ export async function getTimeTrackingSettings(): Promise<TimeTrackingSettings> {
   // Default policy
   return { 
     minimumPhaseDurationSeconds: 10,
+    minSampleForOutliers: 5,
+    maxMedianDeviationPercent: 300,
   };
 }
 

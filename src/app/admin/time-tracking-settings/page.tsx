@@ -24,6 +24,16 @@ const settingsSchema = z.object({
     .int("Il valore deve essere un numero intero.")
     .min(0, "Il valore non può essere negativo.")
     .max(300, "Il valore non può superare 300 secondi."),
+  minSampleForOutliers: z.coerce
+    .number()
+    .int("Il valore deve essere un numero intero.")
+    .min(1, "Il campione minimo deve essere almeno 1.")
+    .max(100, "Il campione non può superare 100."),
+  maxMedianDeviationPercent: z.coerce
+    .number()
+    .int("Il valore deve essere un numero intero.")
+    .min(100, "La tolleranza deve essere almeno 100%.")
+    .max(1000, "La tolleranza non può superare 1000%."),
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
@@ -31,6 +41,8 @@ type SettingsFormValues = z.infer<typeof settingsSchema>;
 export default function TimeTrackingSettingsPage() {
   const [settings, setSettings] = useState<TimeTrackingSettings>({ 
       minimumPhaseDurationSeconds: 10,
+      minSampleForOutliers: 5,
+      maxMedianDeviationPercent: 300,
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -41,6 +53,8 @@ export default function TimeTrackingSettingsPage() {
     resolver: zodResolver(settingsSchema),
     defaultValues: {
       minimumPhaseDurationSeconds: 10,
+      minSampleForOutliers: 5,
+      maxMedianDeviationPercent: 300,
     },
   });
 
@@ -109,22 +123,56 @@ export default function TimeTrackingSettingsPage() {
                       <Skeleton className="h-10 w-full" />
                     </div>
                   ) : (
-                    <FormField
-                      control={form.control}
-                      name="minimumPhaseDurationSeconds"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Soglia minima di durata fase (in secondi)</FormLabel>
-                          <FormControl>
-                            <Input type="number" placeholder="Es. 10" {...field} />
-                          </FormControl>
-                          <FormDescription>
-                            Una fase completata in meno di questo tempo renderà il calcolo totale per quella commessa "non affidabile".
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <div className="space-y-4">
+                      <FormField
+                        control={form.control}
+                        name="minimumPhaseDurationSeconds"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Soglia minima di durata fase (in secondi)</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="Es. 10" {...field} />
+                            </FormControl>
+                            <FormDescription>
+                              Una fase completata in meno di questo tempo renderà il calcolo totale per quella commessa "non affidabile".
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="minSampleForOutliers"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Campione Minimo Statistico</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="Es. 5" {...field} />
+                            </FormControl>
+                            <FormDescription>
+                              Numero minimo di registrazioni necessarie prima di attivare l'esclusione automatica delle anomalie (es. 5).
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="maxMedianDeviationPercent"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Soglia Tolleranza Scostamento (%)</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="Es. 200" {...field} />
+                            </FormControl>
+                            <FormDescription>
+                              Limite massimo consentito rispetto al tempo mediano. Es: 200%. Se il tempo mediano è 2 minuti, i tempi superiori a 4 minuti verranno scartati.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                   )}
                 </CardContent>
                 <CardFooter>
