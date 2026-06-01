@@ -392,16 +392,16 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
         return jobLoad > cumulativeCapacity;
     };
 
-    const deptColors: Record<string, { tab: string, border: string, bg: string }> = {
-        'PREP': { tab: 'data-[state=active]:bg-amber-600 data-[state=active]:text-white text-amber-500', border: 'border-amber-500/30', bg: 'bg-amber-500/10' },
-        'PACK': { tab: 'data-[state=active]:bg-slate-600 data-[state=active]:text-white text-slate-400', border: 'border-slate-500/30', bg: 'bg-slate-600/10' },
-        'CG': { tab: 'data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-emerald-500', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10' },
-        'CP': { tab: 'data-[state=active]:bg-orange-600 data-[state=active]:text-white text-orange-500', border: 'border-orange-500/30', bg: 'bg-orange-500/10' },
-        'BF': { tab: 'data-[state=active]:bg-sky-600 data-[state=active]:text-white text-sky-500', border: 'border-sky-500/30', bg: 'bg-sky-500/10' },
+    const deptColors: Record<string, { tab: string, border: string, bg: string, text: string }> = {
+        'PREP': { tab: 'data-[state=active]:bg-amber-600 data-[state=active]:text-white text-amber-500', border: 'border-amber-500/30', bg: 'bg-amber-500/10', text: 'text-amber-500' },
+        'PACK': { tab: 'data-[state=active]:bg-slate-600 data-[state=active]:text-white text-slate-400', border: 'border-slate-500/30', bg: 'bg-slate-600/10', text: 'text-slate-400' },
+        'CG': { tab: 'data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-emerald-500', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10', text: 'text-emerald-500' },
+        'CP': { tab: 'data-[state=active]:bg-orange-600 data-[state=active]:text-white text-orange-500', border: 'border-orange-500/30', bg: 'bg-orange-500/10', text: 'text-orange-500' },
+        'BF': { tab: 'data-[state=active]:bg-sky-600 data-[state=active]:text-white text-sky-500', border: 'border-sky-500/30', bg: 'bg-sky-500/10', text: 'text-sky-500' },
     };
 
     const getColors = (id: string, code?: string) => {
-        return deptColors[id] || deptColors[code || ''] || { tab: 'data-[state=active]:bg-blue-600 text-blue-500', border: 'border-slate-800', bg: 'bg-slate-900' };
+        return deptColors[id] || deptColors[code || ''] || { tab: 'data-[state=active]:bg-blue-600 text-blue-500', border: 'border-slate-800', bg: 'bg-slate-900', text: 'text-blue-500' };
     };
 
     return (
@@ -748,7 +748,7 @@ const WeeklyCapacityBoard = forwardRef<WeeklyCapacityBoardRef, WeeklyCapacityBoa
                                             <CardHeader className="p-4 bg-slate-950/50 border-b border-slate-800 flex flex-col justify-between gap-3">
                                                 <div className="flex items-center justify-between">
                                                     <div className="flex flex-col">
-                                                        <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{week.label}</span>
+                                                        <span className={cn("text-[10px] font-black uppercase tracking-widest", colors.text)}>{week.label}</span>
                                                         <div className="flex items-center gap-2 mt-1">
                                                             <TooltipProvider>
                                                                 <Tooltip>

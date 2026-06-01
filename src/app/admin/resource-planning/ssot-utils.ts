@@ -143,28 +143,36 @@ export function processJobsSSoT(
             referenceDate = realTodayStart;
         }
 
-        let virtualWeekBase = startOfDay(startOfWeek(referenceDate || realTodayStart, { weekStartsOn: 1 }));
-
-        // NUOVA LOGICA ROLLOVER AGGRESSIVA (Richiesta Audit Cliente - REVERSION)
-        // Il rollover si basa ESCLUSIVAMENTE sullo stato globale per gestire articoli senza tempi target (residuo 0.0h)
+        // CREIAMO FUNZIONE PER APPLICARE LE REGOLE DI ROLLOVER AD UNA DATA SPECIFICA
         const isJobOpen = !isClosedGlobally && !isCancelled;
 
-        if (isJobOpen) {
-            // A. Rollover Standard Arretrati -> Settimana Corrente
-            if (virtualWeekBase < realTodayStart) {
-                virtualWeekBase = realTodayStart;
+        const applyRollover = (baseDate: Date | null) => {
+            let week = startOfDay(startOfWeek(baseDate || realTodayStart, { weekStartsOn: 1 }));
+            if (isJobOpen) {
+                if (week < realTodayStart) {
+                    week = realTodayStart;
+                }
+                if (isSimulationMode && week <= realTodayStart) {
+                    week = addWeeks(realTodayStart, 1);
+                }
             }
-            
-            // B. Rollover Simulation (Check-up Friday): Arretrati e Settimana Corrente -> Settimana Successiva
-            if (isSimulationMode && virtualWeekBase <= realTodayStart) {
-                virtualWeekBase = addWeeks(realTodayStart, 1);
+            if (isJobOpen && week < currentBoardStart) {
+                week = currentBoardStart;
             }
-        }
+            return week;
+        };
 
-        // Clamping visivo alla board corrente per gli arretrati non ancora "rollati" oltre
-        if (isJobOpen && virtualWeekBase < currentBoardStart) {
-            virtualWeekBase = currentBoardStart;
+        const virtualWeekBase = applyRollover(referenceDate);
+
+        // Calcola baseDate specifico per Preparazione se esiste dataFinePreparazione
+        let prepReferenceDate: Date | null = referenceDate;
+        if (job.dataFinePreparazione && job.dataFinePreparazione !== 'N/D') {
+            const parsed = parseRobustDate(job.dataFinePreparazione);
+            if (parsed && !isNaN(parsed.getTime())) {
+                prepReferenceDate = parsed;
+            }
         }
+        const prepVirtualWeekBase = applyRollover(prepReferenceDate);
 
         const getAreaVirtualWeek = (area: 'PREP' | 'CORE' | 'PACK', isFin: boolean) => {
             if (isFin) {
@@ -173,6 +181,8 @@ export function processJobsSSoT(
                     return startOfDay(startOfWeek(compDate, { weekStartsOn: 1 }));
                 }
             }
+            
+            if (area === 'PREP') return prepVirtualWeekBase;
             return virtualWeekBase;
         };
 
