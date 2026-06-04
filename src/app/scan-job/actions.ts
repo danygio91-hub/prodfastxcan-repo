@@ -511,6 +511,47 @@ export async function handlePhaseScanResult(
     anomalyData?: { hasAnomaly: boolean, anomalyType: string, anomalyNote?: string },
     packagingUpdates?: { jobId: string, actualQty: number }[]
 ) {
+    if (!isCompletion) {
+        // GLOBAL PRE-TRANSACTION CHECK (Operator Ubiquity Check)
+        // Find if this operator has any open work periods across ALL active jobs/groups
+        const statusesToCheck = ['IN_PREPARAZIONE', 'IN_PRODUZIONE', 'PRONTO_PROD', 'FINE_PRODUZIONE', 'in-progress', 'production', 'paused', 'suspended'];
+        
+        const activeJobsQuery = await adminDb.collection('jobOrders')
+            .where('status', 'in', statusesToCheck)
+            .get();
+            
+        for (const doc of activeJobsQuery.docs) {
+            const jobDoc = doc.data() as JobOrder;
+            for (const p of (jobDoc.phases || [])) {
+                for (const wp of (p.workPeriods || [])) {
+                    if (wp.operatorId === opId && wp.end === null) {
+                        // Ignore if it's the exact same phase (e.g. rapid double click retry)
+                        if (doc.id === jobId.replace(/\//g, '-') && p.id === phaseId) continue;
+                        
+                        throw new Error(`Impossibile iniziare: hai già un'attività in corso sulla commessa ${jobDoc.ordinePF || doc.id} (Fase: ${p.name}). Devi prima metterla in pausa o concluderla.`);
+                    }
+                }
+            }
+        }
+
+        const activeGroupsQuery = await adminDb.collection('workGroups')
+            .where('status', 'in', statusesToCheck)
+            .get();
+
+        for (const doc of activeGroupsQuery.docs) {
+            const groupDoc = doc.data() as WorkGroup;
+            for (const p of (groupDoc.phases || [])) {
+                for (const wp of (p.workPeriods || [])) {
+                    if (wp.operatorId === opId && wp.end === null) {
+                        if (doc.id === jobId && p.id === phaseId) continue;
+                        
+                        throw new Error(`Impossibile iniziare: hai già un'attività in corso sul gruppo ${doc.id} (Fase: ${p.name}). Devi prima metterla in pausa o concluderla.`);
+                    }
+                }
+            }
+        }
+    }
+
     const isGroup = jobId.startsWith('group-');
     await adminDb.runTransaction(async (transaction) => {
         let itemRef;
@@ -629,13 +670,14 @@ export async function handlePhaseScanResult(
             } else {
                 // Handle Start/Join
                 
-                // GLOBAL LOCK ATOMICO IN ENTRATA
                 const opSnap = await transaction.get(adminDb.collection('operators').doc(opId));
                 if (opSnap.exists) {
                     const opData = opSnap.data();
-                    // Blocca SOLO se l'operatore ha una fase attualmente attiva in un'altra commessa
-                    if (opData && opData.activeJobId && opData.activePhaseName && opData.activeJobId !== (data.ordinePF || jobId)) {
-                        throw new Error(`L'operatore è già assegnato a un'altra commessa (${opData.activeJobId}).`);
+                    // Blocca se l'operatore ha una fase attualmente attiva ovunque
+                    if (opData && opData.activeJobId && opData.activePhaseName) {
+                        if (opData.activeJobId !== (data.ordinePF || jobId) || opData.activePhaseName !== phs[idx].name) {
+                            throw new Error(`Impossibile iniziare: hai già un'attività in corso sulla commessa ${opData.activeJobId} (Fase: ${opData.activePhaseName}). Devi prima metterla in pausa o concluderla.`);
+                        }
                     }
                 }
                 
