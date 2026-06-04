@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ClipboardList, PlusCircle, Search, Trash2, Edit, Upload, Loader2, BarChart3, Copy, XCircle, RefreshCcw, Timer, FileEdit, Save, FileSpreadsheet } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ClipboardList, PlusCircle, Search, Trash2, Edit, Upload, Loader2, BarChart3, Copy, XCircle, RefreshCcw, Timer, FileEdit, Save, FileSpreadsheet, Download } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -96,6 +97,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
   const [hasMore, setHasMore] = useState(initialArticles.length >= 50);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedArticleIds, setSelectedArticleIds] = useState<Set<string>>(new Set());
 
   const lastSearchTermRef = useRef(debouncedSearchTerm);
 
@@ -178,6 +180,53 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
     if (result.success) {
       router.refresh();
     }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedArticleIds(new Set(articles.map(a => a.id)));
+    } else {
+      setSelectedArticleIds(new Set());
+    }
+  };
+
+  const handleSelectArticle = (id: string, checked: boolean) => {
+    const newSelected = new Set(selectedArticleIds);
+    if (checked) {
+      newSelected.add(id);
+    } else {
+      newSelected.delete(id);
+    }
+    setSelectedArticleIds(newSelected);
+  };
+
+  const handleExportBOM = () => {
+    const articlesToExport = articles.filter(a => selectedArticleIds.has(a.id));
+    const flatBOM: any[] = [];
+
+    for (const article of articlesToExport) {
+      if (!article.billOfMaterials || article.billOfMaterials.length === 0) continue;
+      for (const item of article.billOfMaterials) {
+        flatBOM.push({
+          "Articolo Padre": article.code,
+          "Componente": item.component,
+          "Q.tà per Pz": item.quantity,
+          "L. Taglio (mm)": item.lunghezzaTaglioMm || "",
+          "Note": item.note || ""
+        });
+      }
+    }
+
+    if (flatBOM.length === 0) {
+      toast({ title: "Nessun dato", description: "Gli articoli selezionati non hanno componenti nella distinta base." });
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(flatBOM);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet");
+    XLSX.writeFile(wb, "BOM_Esportate.xlsx");
+    toast({ title: "Esportazione Completata", description: `Esportate ${flatBOM.length} righe BOM per ${articlesToExport.length} articoli.` });
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -376,6 +425,17 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Importa BOM
             </Button>
+            
+            <Button 
+                onClick={handleExportBOM} 
+                variant="outline" 
+                size="sm" 
+                disabled={selectedArticleIds.size === 0} 
+                className="bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/50 text-blue-700 dark:text-blue-400 h-9 px-3"
+            >
+              <Download className="mr-2 h-4 w-4" /> Esporta BOM Flat ({selectedArticleIds.size})
+            </Button>
+
             <div className="relative w-full sm:w-48 lg:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Cerca..." className="pl-9 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -391,6 +451,13 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12 text-center">
+                        <Checkbox 
+                            checked={articles.length > 0 && selectedArticleIds.size === articles.length} 
+                            onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
+                            aria-label="Seleziona tutti"
+                        />
+                    </TableHead>
                     <TableHead>Codice Articolo</TableHead>
                     <TableHead>N° Componenti</TableHead>
                     <TableHead>Ciclo Predefinito</TableHead>
@@ -403,6 +470,13 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
                   ) : articles.length > 0 ? (
                     articles.map((article) => (
                       <TableRow key={article.code}>
+                        <TableCell className="text-center">
+                            <Checkbox 
+                                checked={selectedArticleIds.has(article.id)} 
+                                onCheckedChange={(checked) => handleSelectArticle(article.id, checked as boolean)}
+                                aria-label={`Seleziona ${article.code}`}
+                            />
+                        </TableCell>
                         <TableCell>
                           <ContextMenu>
                             <ContextMenuTrigger className="font-medium hover:text-primary hover:underline cursor-pointer">{article.code}</ContextMenuTrigger>
