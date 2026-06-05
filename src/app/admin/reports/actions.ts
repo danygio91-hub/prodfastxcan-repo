@@ -32,17 +32,23 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
 }
 
 async function fetchRelevantJobsAndGroups(completedLimit = 400) {
-    const activeJobsQuery = adminDb.collection("jobOrders").where("status", "in", ["production", "suspended", "paused", "IN_PRODUZIONE", "FINE_PRODUZIONE", "FINE PRODUZIONE", "QLTY_PACK", "CHIUSO"]).get();
+    const activeJobsQuery1 = adminDb.collection("jobOrders").where("status", "in", ["production", "suspended", "paused", "IN_PRODUZIONE", "FINE_PRODUZIONE", "FINE PRODUZIONE", "QLTY_PACK", "CHIUSO", "In Lavorazione", "In Pianificazione"]).get();
+    const activeJobsQuery2 = adminDb.collection("jobOrders").where("status", "in", ["DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "in_preparazione", "da_iniziare", "pronto_prod", "In Attesa"]).get();
     const completedJobsQuery = adminDb.collection("jobOrders").where("status", "==", "completed").limit(completedLimit).get();
     
-    const activeGroupsQuery = adminDb.collection("workGroups").where("status", "in", ["production", "suspended", "paused", "IN_PRODUZIONE", "FINE_PRODUZIONE", "FINE PRODUZIONE", "QLTY_PACK", "CHIUSO"]).get();
+    const activeGroupsQuery = adminDb.collection("workGroups").where("status", "in", ["production", "suspended", "paused", "IN_PRODUZIONE", "FINE_PRODUZIONE", "FINE PRODUZIONE", "QLTY_PACK", "CHIUSO", "In Lavorazione", "In Pianificazione"]).get();
     const completedGroupsQuery = adminDb.collection("workGroups").where("status", "==", "completed").limit(Math.max(100, Math.floor(completedLimit / 4))).get();
 
-    const [activeJobs, completedJobs, activeGroups, completedGroups] = await Promise.all([
-        activeJobsQuery, completedJobsQuery, activeGroupsQuery, completedGroupsQuery
+    const [activeJobs1, activeJobs2, completedJobs, activeGroups, completedGroups] = await Promise.all([
+        activeJobsQuery1, activeJobsQuery2, completedJobsQuery, activeGroupsQuery, completedGroupsQuery
     ]);
 
-    const jobs = [...activeJobs.docs, ...completedJobs.docs].map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    const jobsMap = new Map<string, JobOrder>();
+    activeJobs1.docs.forEach(d => jobsMap.set(d.id, convertTimestampsToDates(d.data()) as JobOrder));
+    activeJobs2.docs.forEach(d => jobsMap.set(d.id, convertTimestampsToDates(d.data()) as JobOrder));
+    completedJobs.docs.forEach(d => jobsMap.set(d.id, convertTimestampsToDates(d.data()) as JobOrder));
+    
+    const jobs = Array.from(jobsMap.values());
     const groups = [...activeGroups.docs, ...completedGroups.docs].map(doc => convertTimestampsToDates(doc.data()) as WorkGroup);
 
     return { jobs, groups };

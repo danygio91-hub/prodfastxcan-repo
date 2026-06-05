@@ -141,8 +141,8 @@ export default function OperatorCommandCenter({ children }: { children: React.Re
                               {displayStatus}
                             </Badge>
                             {isActive && op.activeJobId && (
-                              <span className="text-slate-400 truncate max-w-[150px] sm:max-w-[200px]" title={`${op.activeJobId} - ${op.activePhaseName}`}>
-                                {op.activePhaseName}
+                              <span className="text-slate-400 truncate max-w-[150px] sm:max-w-[200px]" title={`${decodeURIComponent(op.activeJobId)} - ${op.activePhaseName}`}>
+                                {op.activePhaseName} - {decodeURIComponent(op.activeJobId)}
                               </span>
                             )}
                           </div>

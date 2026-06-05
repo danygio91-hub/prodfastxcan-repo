@@ -952,22 +952,26 @@ export async function getRawMaterialsByCodes(codes: string[]): Promise<RawMateri
 export async function getOperatorDashboardData(operatorId: string, activeJobId?: string | null, activePhaseName?: string | null) {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
+    // Buffer per assorbire differenze di fuso orario (es. CEST vs UTC)
+    startOfToday.setHours(startOfToday.getHours() - 6);
 
     const timeline: any[] = [];
     const activeOrPausedJobs: any[] = [];
 
     // Fetch recently updated jobs AND jobs in active/custom statuses to guarantee we don't miss anything
-    const [recentSnap, activeSnap] = await Promise.all([
+    const [recentSnap, activeSnap1, activeSnap2] = await Promise.all([
         adminDb.collection('jobOrders').where('updatedAt', '>=', admin.firestore.Timestamp.fromDate(startOfToday)).get(),
-        adminDb.collection('jobOrders').where('status', 'in', ['production', 'suspended', 'paused', 'FINE PRODUZIONE', 'QLTY_PACK', 'IN_PRODUZIONE', 'FINE_PRODUZIONE']).get()
+        adminDb.collection('jobOrders').where('status', 'in', ['production', 'suspended', 'paused', 'FINE PRODUZIONE', 'QLTY_PACK', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'CHIUSO', 'In Lavorazione', 'In Pianificazione']).get(),
+        adminDb.collection('jobOrders').where('status', 'in', ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'in_preparazione', 'da_iniziare', 'pronto_prod', 'In Attesa']).get()
     ]);
 
     const allDocs = new Map();
     recentSnap.docs.forEach(d => allDocs.set(d.id, d.data()));
-    activeSnap.docs.forEach(d => allDocs.set(d.id, d.data()));
+    activeSnap1.docs.forEach(d => allDocs.set(d.id, d.data()));
+    activeSnap2.docs.forEach(d => allDocs.set(d.id, d.data()));
 
     // Ensure we have the operator's active job even if it's old and not updated
-    const sanitizedActiveJobId = activeJobId ? activeJobId.replace(/\//g, '-') : null;
+    const sanitizedActiveJobId = activeJobId ? decodeURIComponent(activeJobId) : null;
 
     if (sanitizedActiveJobId && !allDocs.has(sanitizedActiveJobId)) {
         const isGroup = sanitizedActiveJobId.startsWith('group-');
