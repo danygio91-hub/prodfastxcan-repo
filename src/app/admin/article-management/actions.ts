@@ -433,9 +433,83 @@ export async function bulkUpdateArticleSettings(updates: Partial<Article>[]) {
 export async function saveArticleStandardTimes(articleId: string, data: Partial<Article>) {
     try {
         await adminDb.collection('articles').doc(articleId).set(data, { merge: true });
+        
+        // --- MASS SYNC ACTION: Update Open Job Orders ---
+        try {
+            const phaseTemplates = await getWorkPhaseTemplates();
+            const phaseMap = new Map(phaseTemplates.map(p => [p.name.toUpperCase().trim(), p.id]));
+            
+            const jobsSnap = await adminDb.collection('jobOrders')
+                .where('details', '==', articleId)
+                .get();
+
+            if (!jobsSnap.empty) {
+                const chunks: admin.firestore.QueryDocumentSnapshot[] = [];
+                jobsSnap.docs.forEach(d => chunks.push(d));
+
+                while (chunks.length > 0) {
+                    const batch = adminDb.batch();
+                    const currentChunk = chunks.splice(0, 450);
+                    let hasUpdates = false;
+
+                    currentChunk.forEach(doc => {
+                        const job = doc.data() as JobOrder;
+                        const status = (job.status || '').toUpperCase();
+                        
+                        // Sync only if not strictly closed
+                        const isClosed = status === 'CHIUSO' || status === 'COMPLETATA' || status === 'SHIPPED';
+                        
+                        if (!isClosed) {
+                            let jobModified = false;
+                            
+                            const srcTimes = (job.workCycleId && job.workCycleId === data.secondaryWorkCycleId) 
+                                ? data.phaseTimesSecondary 
+                                : data.phaseTimes;
+
+                            const updatedPhases = (job.phases || []).map(p => {
+                                const tplId = phaseMap.get((p.name || '').toUpperCase().trim());
+                                let newExpected = p.expectedMinutesPerPiece;
+                                
+                                if (tplId && srcTimes && srcTimes[tplId]) {
+                                    const targetMin = srcTimes[tplId].expectedMinutesPerPiece;
+                                    if (targetMin !== undefined && targetMin !== p.expectedMinutesPerPiece) {
+                                        newExpected = targetMin;
+                                        jobModified = true;
+                                    }
+                                }
+                                return { ...p, expectedMinutesPerPiece: newExpected };
+                            });
+
+                            const expectedDef = (job.workCycleId && job.workCycleId === data.secondaryWorkCycleId)
+                                ? data.expectedMinutesSecondary
+                                : data.expectedMinutesDefault;
+
+                            if (jobModified || (expectedDef !== undefined && expectedDef !== job.expectedMinutesDefault)) {
+                                const updatePayload: any = { phases: updatedPhases };
+                                if (expectedDef !== undefined) {
+                                    updatePayload.expectedMinutesDefault = expectedDef;
+                                }
+                                batch.update(doc.ref, updatePayload);
+                                hasUpdates = true;
+                            }
+                        }
+                    });
+
+                    if (hasUpdates) {
+                        await batch.commit();
+                    }
+                }
+            }
+        } catch (syncErr) {
+            console.error("Error during mass sync of job expected times:", syncErr);
+        }
+        // ------------------------------------------------
+        
         revalidatePath('/admin/article-management');
-        return { success: true, message: 'Standard Tempi e Cicli aggiornati con successo.' };
+        revalidatePath('/admin/resource-planning');
+        return { success: true, message: 'Standard Tempi e Cicli aggiornati. Commesse sincronizzate con successo.' };
     } catch (e) {
+        console.error("Error saving article standard times:", e);
         return { success: false, message: 'Errore durante il salvataggio.' };
     }
 }
