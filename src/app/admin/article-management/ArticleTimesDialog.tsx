@@ -66,8 +66,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
     const [activeView, setActiveView] = useState<'default' | 'secondary'>('default');
     const [primaryCycleId, setPrimaryCycleId] = useState<string>('manual');
     const [secondaryCycleId, setSecondaryCycleId] = useState<string>('manual');
-    const [expectedTotalDefault, setExpectedTotalDefault] = useState<number>(0);
-    const [expectedTotalSecondary, setExpectedTotalSecondary] = useState<number>(0);
+    const [expectedTotalDefault, setExpectedTotalDefault] = useState<number | string>("");
+    const [expectedTotalSecondary, setExpectedTotalSecondary] = useState<number | string>("");
     const [localPhaseTimesDefault, setLocalPhaseTimesDefault] = useState<Record<string, ArticlePhaseTime>>({});
     const [localPhaseTimesSecondary, setLocalPhaseTimesSecondary] = useState<Record<string, ArticlePhaseTime>>({});
 
@@ -81,8 +81,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
 
                     setPrimaryCycleId(primaryId);
                     setSecondaryCycleId(secondaryId);
-                    setExpectedTotalDefault(article.expectedMinutesDefault || 0);
-                    setExpectedTotalSecondary(article.expectedMinutesSecondary || 0);
+                    setExpectedTotalDefault(article.expectedMinutesDefault || "");
+                    setExpectedTotalSecondary(article.expectedMinutesSecondary || "");
                     
                     const roundTo3 = (v: any) => {
                         const parsed = parseFloat(v);
@@ -314,8 +314,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         const data: Partial<Article> = {
             workCycleId: primaryCycleId,
             secondaryWorkCycleId: secondaryCycleId,
-            expectedMinutesDefault: activeView === 'default' && stats.isExpectedComplete ? stats.totalExpected : expectedTotalDefault,
-            expectedMinutesSecondary: activeView === 'secondary' && stats.isExpectedComplete ? stats.totalExpected : expectedTotalSecondary,
+            expectedMinutesDefault: activeView === 'default' && stats.isExpectedComplete ? stats.totalExpected : (parseFloat(expectedTotalDefault as string) || 0),
+            expectedMinutesSecondary: activeView === 'secondary' && stats.isExpectedComplete ? stats.totalExpected : (parseFloat(expectedTotalSecondary as string) || 0),
             phaseTimes: parseTimes(localPhaseTimesDefault),
             phaseTimesSecondary: parseTimes(localPhaseTimesSecondary),
         };
@@ -361,10 +361,15 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                         <Label className="text-xs font-bold uppercase text-muted-foreground">Tempo Previsto Totale (min/pz)</Label>
                                         <div className="relative">
                                             <Input
-                                                type="number" step="0.01" className="text-lg font-black font-mono h-12"
+                                                type="number" step="0.01" 
+                                                className="text-lg font-black font-mono h-12 appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                                placeholder="Es. 1.5"
                                                 value={activeView === 'default' ? expectedTotalDefault : expectedTotalSecondary}
                                                 onChange={(e) => {
-                                                    const val = parseFloat(e.target.value) || 0;
+                                                    const rawVal = e.target.value;
+                                                    const val = rawVal === "" ? "" : parseFloat(rawVal) || 0;
+                                                    const calcVal = val === "" ? 0 : val;
+                                                    
                                                     const cycleId = activeView === 'default' ? primaryCycleId : secondaryCycleId;
                                                     const currentTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
                                                     
@@ -386,7 +391,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                                                     };
                                                                 } else {
                                                                     // Condizione B: Fallback Teorico
-                                                                    const calculated = (val * (weight || 0)) / 100;
+                                                                    const calculated = (calcVal * (weight || 0)) / 100;
                                                                     const roundedVal = Math.round(calculated * 1000) / 1000;
                                                                     newTimes[templateId] = {
                                                                         ...phaseData,
@@ -403,6 +408,12 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                                     } else {
                                                         setExpectedTotalSecondary(val);
                                                         setLocalPhaseTimesSecondary(newTimes);
+                                                    }
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        handleSave();
                                                     }
                                                 }}
                                             />
