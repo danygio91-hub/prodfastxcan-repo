@@ -358,31 +358,68 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                         </Select>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label className="text-xs font-bold uppercase text-muted-foreground">Tempo Previsto Totale (min)</Label>
+                                        <Label className="text-xs font-bold uppercase text-muted-foreground">Tempo Previsto Totale (min/pz)</Label>
                                         <div className="relative">
                                             <Input
                                                 type="number" step="0.01" className="text-lg font-black font-mono h-12"
                                                 value={activeView === 'default' ? expectedTotalDefault : expectedTotalSecondary}
                                                 onChange={(e) => {
                                                     const val = parseFloat(e.target.value) || 0;
-                                                    if (activeView === 'default') setExpectedTotalDefault(val);
-                                                    else setExpectedTotalSecondary(val);
+                                                    const cycleId = activeView === 'default' ? primaryCycleId : secondaryCycleId;
+                                                    const currentTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
+                                                    
+                                                    const newTimes = { ...currentTimes };
+                                                    const cycle = workCycles.find(c => c.id === cycleId);
+                                                    
+                                                    if (cycle && cycle.phaseTemplateIds) {
+                                                        cycle.phaseTemplateIds.forEach((templateId, index) => {
+                                                            const weight = cycle.phaseWeights ? cycle.phaseWeights[index] : 0;
+                                                            const phaseData = newTimes[templateId];
+                                                            
+                                                            if (phaseData && phaseData.enabled !== false) {
+                                                                if (phaseData.detectedMinutesPerPiece && phaseData.detectedMinutesPerPiece > 0) {
+                                                                    // Condizione A: Vince lo Storico Reale
+                                                                    const roundedVal = Math.round(phaseData.detectedMinutesPerPiece * 1000) / 1000;
+                                                                    newTimes[templateId] = {
+                                                                        ...phaseData,
+                                                                        expectedMinutesPerPiece: roundedVal.toString() as any
+                                                                    };
+                                                                } else {
+                                                                    // Condizione B: Fallback Teorico
+                                                                    const calculated = (val * (weight || 0)) / 100;
+                                                                    const roundedVal = Math.round(calculated * 1000) / 1000;
+                                                                    newTimes[templateId] = {
+                                                                        ...phaseData,
+                                                                        expectedMinutesPerPiece: roundedVal > 0 ? roundedVal.toString() as any : ""
+                                                                    };
+                                                                }
+                                                            }
+                                                        });
+                                                    }
+
+                                                    if (activeView === 'default') {
+                                                        setExpectedTotalDefault(val);
+                                                        setLocalPhaseTimesDefault(newTimes);
+                                                    } else {
+                                                        setExpectedTotalSecondary(val);
+                                                        setLocalPhaseTimesSecondary(newTimes);
+                                                    }
                                                 }}
                                             />
-                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs">min</span>
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs">min/pz</span>
                                         </div>
-                                        {stats.isExpectedComplete && <p className="text-[10px] text-green-600 font-bold animate-pulse">Auto-update a {stats.totalExpected.toFixed(2)} min</p>}
+                                        {stats.isExpectedComplete && <p className="text-[10px] text-green-600 font-bold animate-pulse">Auto-update a {stats.totalExpected.toFixed(2)} min/pz</p>}
                                     </div>
                                 </CardContent>
                             </Card>
                             <div className="lg:col-span-8 grid grid-cols-2 gap-4">
                                 <div className="p-4 border rounded-lg flex flex-col items-center justify-center bg-muted/10">
                                     <span className="text-[10px] uppercase font-black text-muted-foreground">Somma Fasi</span>
-                                    <span className="text-2xl font-black font-mono">{stats.totalExpected.toFixed(4)} min</span>
+                                    <span className="text-2xl font-black font-mono">{stats.totalExpected.toFixed(4)} min/pz</span>
                                 </div>
                                 <div className="p-4 border rounded-lg flex flex-col items-center justify-center bg-muted/10">
                                     <span className="text-[10px] uppercase font-black text-muted-foreground">Tempo Medio Storico</span>
-                                    <span className="text-2xl font-black font-mono text-muted-foreground">{stats.totalDetected.toFixed(4)} min</span>
+                                    <span className="text-2xl font-black font-mono text-muted-foreground">{stats.totalDetected.toFixed(4)} min/pz</span>
                                 </div>
                             </div>
                         </div>
@@ -399,7 +436,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                 <TableRow>
                                     <TableHead className="w-[50px]">Attiva</TableHead>
                                     <TableHead>Fase</TableHead>
-                                    <TableHead className="text-right">Storico (min)</TableHead>
+                                    <TableHead className="text-right">Storico (min/pz)</TableHead>
                                     <TableHead className="text-right w-[180px]">Target (min/pz)</TableHead>
                                 </TableRow>
                             </TableHeader>
