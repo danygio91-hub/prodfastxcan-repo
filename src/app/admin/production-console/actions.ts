@@ -982,67 +982,92 @@ export async function getOperatorDashboardData(operatorId: string, activeJobId?:
     }
 
     allDocs.forEach((jobData, id) => {
-        (jobData.phases || []).forEach((phase: any) => {
-            let isOperatorActiveInPhase = false;
-            let unclosedWpStart: any = null;
+        try {
+            (jobData.phases || []).forEach((phase: any) => {
+                let isOperatorActiveInPhase = false;
+                let unclosedWpStart: any = null;
 
-            (phase.workPeriods || []).forEach((wp: any, wpIndex: number) => {
-                if (wp.operatorId === operatorId) {
-                    const wpStart = wp.start ? (wp.start.toDate ? wp.start.toDate() : new Date(wp.start)) : null;
-                    
-                    if (!wp.end) {
-                        isOperatorActiveInPhase = true;
-                        unclosedWpStart = wpStart;
+                (phase.workPeriods || []).forEach((wp: any, wpIndex: number) => {
+                    if (wp.operatorId === operatorId) {
+                        try {
+                            const wpStart = wp.start ? (wp.start.toDate ? wp.start.toDate() : new Date(wp.start)) : null;
+                            const wpEnd = wp.end ? (wp.end.toDate ? wp.end.toDate() : new Date(wp.end)) : null;
+
+                            if (!wp.end) {
+                                isOperatorActiveInPhase = true;
+                                unclosedWpStart = wpStart;
+                            }
+                            
+                            if (wpStart && !isNaN(wpStart.getTime()) && (!wp.end || wpStart >= startOfToday)) {
+                                timeline.push({
+                                    jobId: id,
+                                    jobOrderPF: jobData.ordinePF,
+                                    details: jobData.details,
+                                    phaseId: phase.id,
+                                    phaseName: phase.name,
+                                    phaseStatus: phase.status,
+                                    workPeriodIndex: wpIndex,
+                                    start: wpStart.toISOString(),
+                                    end: (wpEnd && !isNaN(wpEnd.getTime())) ? wpEnd.toISOString() : null,
+                                });
+                            }
+                        } catch (err) {
+                            console.error(`Errore nel parsing log per operatore ${operatorId} su job ${id}:`, err);
+                        }
                     }
-                    
-                    if (wpStart && (!wp.end || wpStart >= startOfToday)) {
-                        timeline.push({
-                            jobId: id,
-                            jobOrderPF: jobData.ordinePF,
-                            details: jobData.details,
-                            phaseId: phase.id,
-                            phaseName: phase.name,
-                            phaseStatus: phase.status,
-                            workPeriodIndex: wpIndex,
-                            start: wpStart.toISOString(),
-                            end: wp.end ? (wp.end.toDate ? wp.end.toDate().toISOString() : new Date(wp.end).toISOString()) : null,
-                        });
+                });
+
+                // If this is the operator's officially active/paused phase, OR they are actively working on it
+                if ((sanitizedActiveJobId === id && phase.name === activePhaseName) || isOperatorActiveInPhase) {
+                    try {
+                        const calculateMs = (p: any) => (p.workPeriods || []).reduce((acc: number, w: any) => {
+                            if (!w.start) return acc;
+                            try {
+                                const start = w.start.toDate ? w.start.toDate() : new Date(w.start);
+                                const end = w.end ? (w.end.toDate ? w.end.toDate() : new Date(w.end)) : new Date();
+                                if (isNaN(start.getTime()) || isNaN(end.getTime())) return acc;
+                                return acc + Math.max(0, end.getTime() - start.getTime());
+                            } catch (e) {
+                                return acc;
+                            }
+                        }, 0);
+
+                        const detectedMinutes = calculateMs(phase) / 60000;
+                        const expectedMinutes = (phase.expectedMinutesPerPiece || 0) * (jobData.qta || jobData.totalQuantity || 0);
+
+                        if (!activeOrPausedJobs.some(j => j.jobId === id && j.phaseId === phase.id)) {
+                            // Find the very first workPeriod start time for this operator in this phase
+                            const firstWpForOp = (phase.workPeriods || []).find((w: any) => w.operatorId === operatorId && w.start);
+                            let globalSessionStart = null;
+                            if (firstWpForOp && firstWpForOp.start) {
+                                try {
+                                    const stDate = firstWpForOp.start.toDate ? firstWpForOp.start.toDate() : new Date(firstWpForOp.start);
+                                    if (!isNaN(stDate.getTime())) {
+                                        globalSessionStart = stDate.toISOString();
+                                    }
+                                } catch(e) {}
+                            }
+
+                            activeOrPausedJobs.push({
+                                jobId: id,
+                                jobOrderPF: jobData.ordinePF || jobData.cliente,
+                                details: jobData.details,
+                                phaseId: phase.id,
+                                phaseName: phase.name,
+                                phaseStatus: phase.status,
+                                expectedMinutes,
+                                detectedMinutes,
+                                sessionStart: globalSessionStart
+                            });
+                        }
+                    } catch (err) {
+                        console.error(`Errore calcolo tempi fase ${phase.id} job ${id}:`, err);
                     }
                 }
             });
-
-            // If this is the operator's officially active/paused phase, OR they are actively working on it
-            if ((sanitizedActiveJobId === id && phase.name === activePhaseName) || isOperatorActiveInPhase) {
-                const calculateMs = (p: any) => (p.workPeriods || []).reduce((acc: number, w: any) => {
-                    if (!w.start) return acc;
-                    const start = w.start.toDate ? w.start.toDate() : new Date(w.start);
-                    const end = w.end ? (w.end.toDate ? w.end.toDate() : new Date(w.end)) : new Date();
-                    return acc + Math.max(0, end.getTime() - start.getTime());
-                }, 0);
-
-                const detectedMinutes = calculateMs(phase) / 60000;
-                const expectedMinutes = (phase.expectedMinutesPerPiece || 0) * (jobData.qta || jobData.totalQuantity || 0);
-
-                if (!activeOrPausedJobs.some(j => j.jobId === id && j.phaseId === phase.id)) {
-                    // Find the very first workPeriod start time for this operator in this phase
-                    const firstWpForOp = (phase.workPeriods || []).find((w: any) => w.operatorId === operatorId && w.start);
-                    const globalSessionStart = firstWpForOp && firstWpForOp.start ? 
-                        (firstWpForOp.start.toDate ? firstWpForOp.start.toDate().toISOString() : new Date(firstWpForOp.start).toISOString()) : null;
-
-                    activeOrPausedJobs.push({
-                        jobId: id,
-                        jobOrderPF: jobData.ordinePF || jobData.cliente,
-                        details: jobData.details,
-                        phaseId: phase.id,
-                        phaseName: phase.name,
-                        phaseStatus: phase.status,
-                        expectedMinutes,
-                        detectedMinutes,
-                        sessionStart: globalSessionStart
-                    });
-                }
-            }
-        });
+        } catch (jobErr) {
+            console.error(`Errore elaborazione job ${id}:`, jobErr);
+        }
     });
 
     timeline.sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime());
