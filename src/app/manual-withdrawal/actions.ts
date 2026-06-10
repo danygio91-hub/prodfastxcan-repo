@@ -24,7 +24,7 @@ const manualWithdrawalSchema = z.object({
 
 export async function logManualWithdrawal(
   data: z.infer<typeof manualWithdrawalSchema>
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial }> {
   const validated = manualWithdrawalSchema.safeParse(data);
   if (!validated.success) return { success: false, message: 'Dati non validi.' };
   
@@ -121,9 +121,13 @@ export async function logManualWithdrawal(
         // anche qualora associati ad uno o più jobOrderPFs.
     });
 
+    const newMatSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
+    const updatedMaterial = newMatSnap.exists ? { id: newMatSnap.id, ...newMatSnap.data() } as RawMaterial : undefined;
+
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/reports');
-    return { success: true, message: isFinished ? `Lotto esaurito e scaricato.` : `Scarico registrato.` };
+    revalidatePath('/manual-withdrawal');
+    return { success: true, message: isFinished ? `Lotto esaurito e scaricato.` : `Scarico registrato.`, updatedMaterial };
   } catch (error) {
      console.error("Manual withdrawal error:", error);
      const message = error instanceof Error ? error.message : "Errore durante la registrazione.";

@@ -284,7 +284,15 @@ export default function ManualWithdrawalPage() {
     });
 
     if (result.success) {
-      resetFlow();
+      if (isFinished) {
+          resetFlow();
+      } else if (result.updatedMaterial) {
+          setScannedMaterial(result.updatedMaterial);
+          getLotInfoForMaterial(result.updatedMaterial.id).then(setAllLots);
+          form.setValue('quantity', undefined);
+      } else {
+          resetFlow();
+      }
     }
     setIsSubmitting(false);
   };

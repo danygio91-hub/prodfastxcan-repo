@@ -45,9 +45,15 @@ import PauseReasonDialog, { PauseReason } from '@/components/production-console/
 import AttachmentViewerDialog from '@/components/production-console/AttachmentViewerDialog';
 
 function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
+  if (!workPeriods || !Array.isArray(workPeriods)) return "0s";
   let total = 0;
-  workPeriods.forEach(p => { if (p.end) total += new Date(p.end).getTime() - new Date(p.start).getTime(); });
-  if (total === 0) return workPeriods.some(p => p.end === null) ? "Iniziata" : "0s";
+  workPeriods.forEach(p => { 
+    if (p && p.end && p.start) {
+      const diff = new Date(p.end).getTime() - new Date(p.start).getTime();
+      if (!isNaN(diff) && diff > 0) total += diff;
+    }
+  });
+  if (total === 0 || isNaN(total)) return workPeriods.some(p => p && p.end === null) ? "Iniziata" : "0s";
   const h = Math.floor(total / 3600000);
   const m = Math.floor((total % 3600000) / 60000);
   const s = Math.floor((total % 60000) / 1000);
@@ -73,7 +79,7 @@ const PhaseCard = ({ phase, job, handlers, isGlobalProcessing }: { phase: JobPha
     const isSuper = operator.role === 'supervisor' || operator.role === 'admin';
     const operatorReparti = operator.reparto || [];
     
-    const isExternal = globalSettings?.phaseTypes.find(pt => pt.id === phase.type)?.isExternalRouting;
+    const isExternal = globalSettings?.phaseTypes?.find(pt => pt.id === phase.type)?.isExternalRouting;
     
     const hasPerm = isSuper || isExternal || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
     const isOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
@@ -120,7 +126,7 @@ const PhaseCard = ({ phase, job, handlers, isGlobalProcessing }: { phase: JobPha
           </div>
           
           {isExternal && phase.status === 'in-progress' && (
-              <p className="text-[10px] text-teal-600 font-bold mt-2 flex items-center gap-1">In Lavorazione Esterna dal {phase.workPeriods?.[0]?.start ? new Date(phase.workPeriods[0].start).toLocaleDateString() : ''}</p>
+              <p className="text-[10px] text-teal-600 font-bold mt-2 flex items-center gap-1">In Lavorazione Esterna dal {(phase.workPeriods && phase.workPeriods.length > 0 && phase.workPeriods[0]?.start) ? new Date(phase.workPeriods[0].start).toLocaleDateString() : ''}</p>
           )}
           
           {isOwner && !isExternal && <p className="text-[10px] text-green-600 font-bold mt-2 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/> SEI ATTIVO IN QUESTA FASE</p>}

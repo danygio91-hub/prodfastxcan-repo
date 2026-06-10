@@ -96,8 +96,12 @@ export default function ActiveJobStatusBar() {
   const myLastPausedPhase = [...(activeJob.phases || [])]
       .filter(p => p.status === 'paused' && (p.workPeriods || []).some(wp => wp.operatorId === operator.id))
       .sort((a,b) => {
-          const aLastEnd = Math.max(...(a.workPeriods || []).filter(wp => wp.end).map(wp => new Date(wp.end!).getTime()));
-          const bLastEnd = Math.max(...(b.workPeriods || []).filter(wp => wp.end).map(wp => new Date(wp.end!).getTime()));
+          const aEnds = (a.workPeriods || []).filter(wp => wp.end).map(wp => new Date(wp.end!).getTime());
+          const aLastEnd = aEnds.length > 0 ? Math.max(...aEnds) : 0;
+          
+          const bEnds = (b.workPeriods || []).filter(wp => wp.end).map(wp => new Date(wp.end!).getTime());
+          const bLastEnd = bEnds.length > 0 ? Math.max(...bEnds) : 0;
+          
           return bLastEnd - aLastEnd;
       })[0];
   
@@ -134,7 +138,7 @@ export default function ActiveJobStatusBar() {
   }
 
   const isMyWorkActive = myRelevantPhase.status === 'in-progress' && (myRelevantPhase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
-  const isExternal = globalSettings?.phaseTypes.find(pt => pt.id === myRelevantPhase.type)?.isExternalRouting;
+  const isExternal = globalSettings?.phaseTypes?.find(pt => pt.id === myRelevantPhase.type)?.isExternalRouting;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none">

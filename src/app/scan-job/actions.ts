@@ -1029,6 +1029,9 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 await resolveJobBOMCommitmentsByType(jobIds, [material.type], transaction);
             }
         });
+        
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
         return { success: true, message: isFinished ? "Materiale segnato come esaurito e magazzino azzerato." : "Sessione chiusa e magazzino aggiornato." };
     } catch (e) {
         console.error("Close material session error:", e);
@@ -1135,6 +1138,9 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
             await resolveJobBOMCommitmentByMaterialCode(finalJobIds, material.code, t);
             await resolveJobBOMCommitmentsByType(finalJobIds, [material.type], t);
         });
+        
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
         return { success: true, message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato." };
     } catch (e) { 
         console.error("Log tubi/guaina error:", e);
