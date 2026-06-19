@@ -160,17 +160,20 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
 
             // 2. CALCULATIONS
             let consumedWeight = 0;
-            const batch = session.lotto ? (material.batches || []).find(b => b.lotto === session.lotto) : null;
+            const batchBatches = session.lotto ? (material.batches || []).filter(b => b.lotto === session.lotto) : [];
+            const totalBatchNetQuantity = batchBatches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+            const totalBatchTareWeight = batchBatches.reduce((sum, b) => sum + (b.tareWeight || 0), 0);
+
             const lotWithdrawals = session.lotto 
                 ? withdrawals.filter(w => w.lotto === session.lotto && w.status !== 'cancelled')
                 : [];
             
             const totalWithdrawnSoFar = lotWithdrawals.reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
-            const currentRealNet = Math.max(0, (batch?.netQuantity || 0) - totalWithdrawnSoFar);
-            const currentRealGross = currentRealNet + (batch?.tareWeight || 0);
+            const currentRealNet = Math.max(0, totalBatchNetQuantity - totalWithdrawnSoFar);
+            const currentRealGross = currentRealNet + totalBatchTareWeight;
 
             if (isFinished && session.lotto) {
-                if (!batch) throw new Error("Lotto non trovato durante il saldo finale.");
+                if (batchBatches.length === 0) throw new Error("Lotto non trovato durante il saldo finale.");
                 consumedWeight = currentRealNet; // Everything that was left is now consumed
             } else {
                 // SSoT VALIDATION: Compare input Gross vs Real-time Calculated Gross
@@ -189,7 +192,7 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 hasConversion: false
             } as any;
 
-            const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+            let { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
                 material,
                 config,
                 consumedWeight, 
@@ -208,14 +211,20 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
 
             // UNLOCK LOGIC
             if (session.lotto) {
-                const bIdx = updatedBatches.findIndex(b => b.lotto === session.lotto);
-                if (bIdx !== -1) {
-                    // Clear the lock
-                    updatedBatches[bIdx].activeSessionId = null;
-                    
-                    if (isFinished) {
-                        updatedBatches[bIdx].isExhausted = true;
+                let found = false;
+                updatedBatches = updatedBatches.map(b => {
+                    if (b.lotto === session.lotto) {
+                        found = true;
+                        const updated = { ...b, activeSessionId: null };
+                        if (isFinished) {
+                            updated.isExhausted = true;
+                        }
+                        return updated;
                     }
+                    return b;
+                });
+                
+                if (found) {
                     matUpdates.batches = updatedBatches;
                 }
             } else {

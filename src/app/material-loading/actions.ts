@@ -115,31 +115,52 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               }
           }
 
-          // Create batch object carefully avoiding undefined
-          const newBatch: any = {
-            id: `batch-load-${Date.now()}`,
-            date: new Date(date).toISOString(),
-            ddt: ddt || 'CARICO_RAPIDO',
-            netQuantity: unitsToAdd, 
-            tareWeight: formTare ?? tareWeight,
-            grossWeight: formGross ?? (netWeightKg + tareWeight),
-            tareName: tareName || 'Nessuna Tara',
-            lotto: lotto || null,
-          };
-          
-          if (purchaseOrderId) newBatch.purchaseOrderId = purchaseOrderId;
-          if (validPackagingId) newBatch.packagingId = validPackagingId;
-          
           const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
           const newWeightKg = (material.currentWeightKg || 0) + netWeightKg;
-          
-          transaction.update(materialRef, { 
-              batches: admin.firestore.FieldValue.arrayUnion(newBatch),
-              currentStockUnits: newStockUnits,
-              currentWeightKg: newWeightKg,
-          });
 
-          return { ...material, batches: [...existingBatches, newBatch], currentStockUnits: newStockUnits, currentWeightKg: newWeightKg };
+          const existingBatchIndex = lotto ? existingBatches.findIndex((b: any) => b.lotto === lotto) : -1;
+          let updatedBatches = [...existingBatches];
+
+          if (existingBatchIndex !== -1) {
+              const existingBatch = updatedBatches[existingBatchIndex];
+              updatedBatches[existingBatchIndex] = {
+                  ...existingBatch,
+                  netQuantity: Number(((existingBatch.netQuantity || 0) + unitsToAdd).toFixed(3)),
+                  grossWeight: Number(((existingBatch.grossWeight || 0) + (formGross ?? (netWeightKg + tareWeight))).toFixed(3)),
+                  isExhausted: false
+              };
+              
+              transaction.update(materialRef, { 
+                  batches: updatedBatches,
+                  currentStockUnits: newStockUnits,
+                  currentWeightKg: newWeightKg,
+              });
+          } else {
+              // Create batch object carefully avoiding undefined
+              const newBatch: any = {
+                id: `batch-load-${Date.now()}`,
+                date: new Date(date).toISOString(),
+                ddt: ddt || 'CARICO_RAPIDO',
+                netQuantity: unitsToAdd, 
+                tareWeight: formTare ?? tareWeight,
+                grossWeight: formGross ?? (netWeightKg + tareWeight),
+                tareName: tareName || 'Nessuna Tara',
+                lotto: lotto || null,
+              };
+              
+              if (purchaseOrderId) newBatch.purchaseOrderId = purchaseOrderId;
+              if (validPackagingId) newBatch.packagingId = validPackagingId;
+              
+              updatedBatches.push(newBatch);
+              
+              transaction.update(materialRef, { 
+                  batches: updatedBatches,
+                  currentStockUnits: newStockUnits,
+                  currentWeightKg: newWeightKg,
+              });
+          }
+
+          return { ...material, batches: updatedBatches, currentStockUnits: newStockUnits, currentWeightKg: newWeightKg };
       });
       
       revalidatePath('/admin/raw-material-management');
