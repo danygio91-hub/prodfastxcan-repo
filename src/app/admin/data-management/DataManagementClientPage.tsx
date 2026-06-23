@@ -676,16 +676,62 @@ export default function DataManagementClientPage({
                 ) : (
                   <Accordion type="single" collapsible className="w-full">
                     {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries], idx) => {
-                      const shortageEntry = entries.find(e => e.entry.status === 'RED') || entries.find(e => e.entry.status === 'LATE') || entries.find(e => e.entry.status === 'LOW_STOCK');
                       const materialName = rawMaterials.find(m => m.code.toUpperCase() === matCode)?.description || '';
+                      
+                      const pendingPOs = purchaseOrders.filter(po => {
+                          const status = (po.status as string || '').toLowerCase();
+                          if (status === 'completed' || status === 'cancelled' || status === 'received') return false;
+                          const poMaterialCode = (po.materialCode || '').toUpperCase().trim();
+                          return poMaterialCode === matCode || (po as any).materialId === matCode;
+                      });
+
+                      const entriesWithVisual = entries.map(item => {
+                          const jobDate = item.job?.dataFinePreparazione || item.job?.dataConsegnaFinale;
+                          const isNegative = item.entry.projectedBalance < 0;
+                          const isLowStock = item.entry.status === 'LOW_STOCK';
+                          
+                          let visualStatus: 'RED' | 'LATE' | 'LOW_STOCK' | 'GREEN' = isNegative ? 'RED' : isLowStock ? 'LOW_STOCK' : 'GREEN';
+                          
+                          if (visualStatus === 'RED') {
+                              const hasFuturePO = pendingPOs.some(po => {
+                                  let poDateRaw = po.expectedDeliveryDate;
+                                  let poDate = new Date();
+                                  if (poDateRaw && typeof poDateRaw === 'object' && 'toDate' in (poDateRaw as any)) {
+                                      poDate = (poDateRaw as any).toDate();
+                                  } else if (poDateRaw) {
+                                      poDate = new Date(poDateRaw);
+                                  } else {
+                                      poDate.setDate(poDate.getDate() + 30);
+                                  }
+                                  poDate.setUTCHours(0,0,0,0);
+                                  
+                                  let jDate = jobDate ? new Date(jobDate) : new Date();
+                                  jDate.setUTCHours(0,0,0,0);
+                                  
+                                  const poQty = Number(po.quantity || 0) - Number(po.receivedQuantity || 0);
+                                  return poDate >= jDate && poQty > 0;
+                              });
+
+                              if (hasFuturePO) {
+                                  visualStatus = 'LATE';
+                              }
+                          }
+                          
+                          return { ...item, visualStatus, jobDate };
+                      });
+
+                      const worstVisualStatus = entriesWithVisual.some(e => e.visualStatus === 'RED') ? 'RED' : 
+                                                entriesWithVisual.some(e => e.visualStatus === 'LATE') ? 'LATE' : 
+                                                entriesWithVisual.some(e => e.visualStatus === 'LOW_STOCK') ? 'LOW_STOCK' : 'GREEN';
+
                       return (
                         <AccordionItem key={matCode} value={matCode}>
                           <AccordionTrigger className="hover:no-underline px-2 hover:bg-muted/50 rounded-md transition-colors">
                             <div className="flex flex-col items-start text-left w-full">
                                 <div className="flex items-center justify-between w-full pr-4">
                                     <span className="font-bold text-sm">{matCode}</span>
-                                    <Badge variant={shortageEntry?.entry.status === 'RED' ? 'destructive' : 'secondary'} className={shortageEntry?.entry.status === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : shortageEntry?.entry.status === 'LOW_STOCK' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
-                                      {shortageEntry?.entry.status === 'RED' ? 'MANCANTE' : shortageEntry?.entry.status === 'LATE' ? 'IN RITARDO' : 'SOTTO SCORTA'}
+                                    <Badge variant={worstVisualStatus === 'RED' ? 'destructive' : 'secondary'} className={worstVisualStatus === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : worstVisualStatus === 'LOW_STOCK' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
+                                      {worstVisualStatus === 'RED' ? 'MANCANTE' : worstVisualStatus === 'LATE' ? 'IN RITARDO' : 'SOTTO SCORTA'}
                                     </Badge>
                                 </div>
                                 <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
@@ -693,20 +739,18 @@ export default function DataManagementClientPage({
                           </AccordionTrigger>
                           <AccordionContent className="px-2 pt-2 pb-4">
                             <div className="space-y-3">
-                              {entries.map((item, i) => {
-                                const jobDate = item.job?.dataFinePreparazione || item.job?.dataConsegnaFinale;
-                                const isNegative = item.entry.projectedBalance < 0;
-                                const isLowStock = item.entry.status === 'LOW_STOCK';
+                              {entriesWithVisual.map((item, i) => {
+                                const { jobDate, visualStatus, entry, job } = item;
                                 return (
-                                  <div key={i} className={cn("p-2 rounded-md border text-sm", isNegative ? "border-red-200 bg-red-50/30" : isLowStock ? "border-orange-200 bg-orange-50/30" : "border-border bg-muted/20")}>
+                                  <div key={i} className={cn("p-2 rounded-md border text-sm", visualStatus === 'RED' ? "border-red-200 bg-red-50/30" : visualStatus === 'LATE' ? "border-amber-200 bg-amber-50/30" : visualStatus === 'LOW_STOCK' ? "border-orange-200 bg-orange-50/30" : "border-border bg-muted/20")}>
                                     <div className="flex justify-between items-center mb-1">
                                       <span className="font-semibold text-xs">{jobDate ? format(parseISO(jobDate), "dd/MM/yyyy") : 'N/D'}</span>
-                                      <span className="text-xs font-mono">{item.job?.ordinePF || item.job?.id || 'N/D'}</span>
+                                      <span className="text-xs font-mono">{job?.ordinePF || job?.id || 'N/D'}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-xs">
-                                      <span className="text-muted-foreground">Fabbisogno: {item.entry.requiredQty.toFixed(2)}</span>
-                                      <span className={cn("font-bold", isNegative ? "text-red-600" : isLowStock ? "text-orange-600" : "text-emerald-600")}>
-                                        Stock Proiettato: {item.entry.projectedBalance.toFixed(2)}
+                                      <span className="text-muted-foreground">Fabbisogno: {entry.requiredQty.toFixed(2)}</span>
+                                      <span className={cn("font-bold", visualStatus === 'RED' ? "text-red-600" : visualStatus === 'LATE' ? "text-amber-600" : visualStatus === 'LOW_STOCK' ? "text-orange-600" : "text-emerald-600")}>
+                                        Stock Proiettato: {entry.projectedBalance.toFixed(2)}
                                       </span>
                                     </div>
                                   </div>
