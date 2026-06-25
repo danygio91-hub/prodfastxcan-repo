@@ -931,35 +931,44 @@ export async function saveSmartJobOrder(data: {
             }
         }
 
-        // 1. Article Upsert
+        // 1. Prepare Article and Phases
         const articleRef = adminDb.collection("articles").doc(articleCode.toUpperCase().trim());
         const articleSnap = await articleRef.get();
+        const article = articleSnap.exists ? articleSnap.data() as Article : null;
+
+        // Create phases and distribute times
+        let phases = await createPhasesFromCycle(workCycleId);
         
+        if (expectedMinutes && expectedMinutes > 0) {
+            console.log(`[SAVE_SMART] Triggering distribution for ${expectedMinutes} mins`);
+            const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
+            phases = distributeTheoreticalTimes(expectedMinutes, phases, historicalAverages, qta);
+            console.log(`[SAVE_SMART] Post-distribution phases[0]:`, JSON.stringify(phases[0], null, 2));
+        }
+
+        // Generate phaseTimes map for the Article
+        const phaseTimes: Record<string, any> = {};
+        phases.forEach(p => {
+            phaseTimes[p.id] = {
+                expectedMinutesPerPiece: p.expectedMinutesPerPiece || 0,
+                detectedMinutesPerPiece: 0,
+                enabled: true
+            };
+        });
+
         const articleData: Partial<Article> = {
             id: articleCode.toUpperCase().trim(),
             code: articleCode.toUpperCase().trim(),
             workCycleId: workCycleId,
             billOfMaterials: billOfMaterials || [],
             expectedMinutesDefault: expectedMinutes,
+            phaseTimes: phaseTimes,
         };
 
         if (!articleSnap.exists) {
             await articleRef.set(articleData);
         } else {
             await articleRef.update(articleData);
-        }
-
-        // 2. Job Creation
-        let phases = await createPhasesFromCycle(workCycleId);
-        
-        // SMART REMAINDER ACTIVATION (Creation)
-        if (expectedMinutes && expectedMinutes > 0) {
-            console.log(`[SAVE_SMART] Triggering distribution for ${expectedMinutes} mins`);
-            const article = articleSnap.exists ? articleSnap.data() as Article : null;
-            const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
-        if (expectedMinutes > 0) {
-            phases = distributeTheoreticalTimes(expectedMinutes, phases, historicalAverages, qta);
-        }    console.log(`[SAVE_SMART] Post-distribution phases[0]:`, JSON.stringify(phases[0], null, 2));
         }
 
         const globalSettingsSnap = await adminDb.collection("settings").doc("global").get();
