@@ -20,14 +20,15 @@ export default async function AdminDataManagementCommessePage() {
   const manualCommitments = await getManualCommitments();
   const purchaseOrders = await getPurchaseOrders();
 
-  const [cycles, departments, requiredData, activeSessionsSnap] = await Promise.all([
+  const [cycles, departments, requiredData, activeSessionsSnap, allArticlesSnap] = await Promise.all([
     getWorkCycles(),
     getDepartments(),
     getRequiredDataForJobs([...planned, ...production, ...completed], manualCommitments),
-    adminDb.collection("materialSessions").where("status", "==", "open").get()
+    adminDb.collection("materialSessions").where("status", "==", "open").get(),
+    adminDb.collection("articles").select("code", "workCycleId", "secondaryWorkCycleId").get()
   ]);
 
-  const articles = requiredData.articles;
+  const articles = allArticlesSnap.docs.map((doc: QueryDocumentSnapshot) => ({ ...doc.data(), id: doc.id }));
   const rawMaterials = requiredData.materials;
   const activeSessions = activeSessionsSnap.docs.map((doc: QueryDocumentSnapshot) => ({ ...doc.data(), id: doc.id }));
 

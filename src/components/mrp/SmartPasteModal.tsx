@@ -40,6 +40,8 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
+  console.log('Articles in modal:', articles?.length);
+
   const productionDepartments = useMemo(() => 
     departments.filter(d => d.macroAreas?.includes('PRODUZIONE') || d.code === 'MAG'),
   [departments]);
