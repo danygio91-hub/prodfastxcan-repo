@@ -77,10 +77,11 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
         // Tab separated
         const columns = line.split('\t').map(c => c.trim());
         
-        // Expected: Codice Articolo | Quantità | Data Consegna Finale
-        const articleCode = (columns[0] || '').replace(/[\r\n\t]/g, '').trim().toUpperCase();
-        const qtaRaw = columns[1] || '0';
-        const dateRaw = columns[2] || '';
+        // Expected: Ordine PF | Codice Articolo | Quantità | Data Consegna Finale
+        const ordinePF = (columns[0] || '').replace(/[\r\n\t]/g, '').trim();
+        const articleCode = (columns[1] || '').replace(/[\r\n\t]/g, '').trim().toUpperCase();
+        const qtaRaw = columns[2] || '0';
+        const dateRaw = columns[3] || '';
 
         const quantity = parseFloat(qtaRaw.replace(',', '.'));
         const isQtaValid = !isNaN(quantity) && quantity > 0;
@@ -91,7 +92,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
             quantity: isQtaValid ? quantity : 0,
             deliveryDateRaw: dateRaw,
             deliveryDateParsed: parseEuropeanDate(dateRaw),
-            ordinePF: '',
+            ordinePF: ordinePF,
             department: defaultDept,
             prepDateParsed: null,
         });
@@ -187,7 +188,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
                 <div className="bg-muted/50 p-4 rounded-md border text-sm text-muted-foreground">
                     Copia le righe da Excel e incollale nel box sottostante.<br/>
                     <strong>Formato colonne atteso (separato da Tab):</strong> <br/>
-                    <code className="text-primary font-bold">Codice Articolo | Quantità | Data Consegna Finale (GG/MM/AAAA)</code>
+                    <code className="text-primary font-bold">Ordine PF | Codice Articolo | Quantità | Data Consegna Finale (GG/MM/AAAA)</code>
                 </div>
                 <Textarea 
                     value={pasteText}
