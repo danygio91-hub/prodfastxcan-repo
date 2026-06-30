@@ -1568,13 +1568,9 @@ export async function getOptimizedODLData(jobId: string) {
     let article: Partial<Article> | null = null;
     if (job.details) {
         const articleSnap = await adminDb.collection("articles")
-            .doc(job.details.toUpperCase())
-            .select('code', 'phaseTimes', 'billOfMaterials')
-            .get();
+            .where(admin.firestore.FieldPath.documentId(), "==", job.details.toUpperCase()).select("code", "phaseTimes", "billOfMaterials").limit(1).get();
             
-        if (articleSnap.exists) {
-            article = articleSnap.data() as Partial<Article>;
-        }
+        if (!articleSnap.empty) { article = articleSnap.docs[0].data() as Partial<Article>; }
     }
 
     // 2. Fetch Materials with chunking and .select()
