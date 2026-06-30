@@ -63,6 +63,7 @@ import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { MRPSemaphore } from '@/components/mrp/MRPSemaphore';
 import { SmartJobModal } from '@/components/mrp/SmartJobModal';
+import { SmartPasteModal } from '@/components/mrp/SmartPasteModal';
 import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 
 const manualCreateSchema = z.object({
@@ -317,6 +318,7 @@ export default function DataManagementClientPage({
   const [articleSuggestions, setArticleSuggestions] = useState<Article[]>([]);
   const [isSearchingArticles, setIsSearchingArticles] = useState(false);
   const [isSmartJobModalOpen, setIsSmartJobModalOpen] = useState(false);
+  const [isSmartPasteModalOpen, setIsSmartPasteModalOpen] = useState(false);
   const [isEditStandardModalOpen, setIsEditStandardModalOpen] = useState(false);
   const [jobToEdit, setJobToEdit] = useState<JobOrder | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -899,7 +901,7 @@ export default function DataManagementClientPage({
               </Button>
               <Button 
                 variant="outline"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setIsSmartPasteModalOpen(true)}
                 className="gap-2 border-primary/20 text-primary hover:bg-primary/5"
               >
                 <Upload className="h-4 w-4" />
@@ -1273,6 +1275,12 @@ export default function DataManagementClientPage({
         }} 
         settings={globalSettings} 
         initialJob={jobToEdit}
+      />
+      <SmartPasteModal
+        isOpen={isSmartPasteModalOpen}
+        onClose={() => setIsSmartPasteModalOpen(false)}
+        articles={articles}
+        departments={departments}
       />
       <EditStandardJobModal
         isOpen={isEditStandardModalOpen}

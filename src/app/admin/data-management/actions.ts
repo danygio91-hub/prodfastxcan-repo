@@ -1432,3 +1432,125 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
     }
 }
 
+export async function saveSmartPastedJobOrders(data: {
+    ordinePF: string;
+    details: string; // Article code
+    qta: number;
+    dataConsegnaFinale: string;
+    dataFinePreparazione: string;
+    department: string;
+}[]) {
+    try {
+        const [articlesSnap, cyclesSnap, templatesSnap, globalSettingsSnap, rawMaterialsSnap] = await Promise.all([
+            adminDb.collection("articles").get(), 
+            adminDb.collection("workCycles").get(),
+            adminDb.collection("workPhaseTemplates").get(),
+            adminDb.collection("settings").doc("global").get(),
+            adminDb.collection("rawMaterials").get()
+        ]);
+        
+        const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
+        const rawMaterialsList = rawMaterialsSnap.docs.map(doc => doc.data() as RawMaterial);
+        
+        const articlesMap = new Map(articlesSnap.docs
+            .filter(d => d.data()?.code)
+            .map(d => [String(d.data().code).toUpperCase().trim(), d.data() as Article])
+        );
+        
+        const templatesMap = new Map(templatesSnap.docs.map(d => [d.id, d.data() as WorkPhaseTemplate]));
+
+        const newJobs: JobOrder[] = [];
+        
+        // Bulk existence check for job ids
+        const allPotentialIds = data.map(row => sanitizeDocumentId(row.ordinePF)).filter(id => id !== '');
+        const uniqueIds = [...new Set(allPotentialIds)];
+        const existingJobsList = uniqueIds.length > 0 ? await fetchInChunks<JobOrder>(adminDb.collection("jobOrders"), admin.firestore.FieldPath.documentId(), uniqueIds) : [];
+        const existingIdsSet = new Set(existingJobsList.map(j => j.id));
+
+        for (const row of data) {
+            const sanitizedId = sanitizeDocumentId(row.ordinePF);
+            if (existingIdsSet.has(sanitizedId)) {
+                return { success: false, message: `La commessa ${row.ordinePF} esiste già.` };
+            }
+
+            const articleCode = row.details.toUpperCase().trim();
+            const articleData = articlesMap.get(articleCode);
+            if (!articleData) {
+                return { success: false, message: `L'articolo ${articleCode} non esiste in anagrafica.` };
+            }
+
+            const workCycleId = articleData.workCycleId || '';
+            let phases = workCycleId ? await createPhasesFromCycle(workCycleId, templatesMap) : [];
+
+            // 2. Propagazione Tempi (phaseTimes)
+            const expectedMins = articleData.expectedMinutesDefault;
+            if (expectedMins && expectedMins > 0 && phases.length > 0) {
+                const historicalAverages = articleData.historicalTimes?.averagePhaseTimes || [];
+                phases = distributeTheoreticalTimes(expectedMins, phases, historicalAverages, row.qta);
+            }
+
+            const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => {
+                const compCode = item.component.toUpperCase().trim();
+                const material = rawMaterialsList.find(m => m.code.toUpperCase() === compCode);
+                const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+                const requiresCut = typeConfig?.requiresCutLength !== false;
+
+                const req = calculateBOMRequirement(
+                    row.qta,
+                    { 
+                        quantity: item.quantity, 
+                        lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
+                        unit: item.unit 
+                    },
+                    material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
+                    typeConfig || { defaultUnit: item.unit }
+                );
+
+                return { 
+                    ...item, 
+                    component: compCode,
+                    status: 'pending', 
+                    isFromTemplate: true,
+                    lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
+                    fabbisognoTotale: req.totalInBaseUnits,
+                    pesoStimato: req.weightKg
+                };
+            });
+
+            newJobs.push({
+                id: sanitizedId,
+                status: 'IN_PIANIFICAZIONE',
+                postazioneLavoro: 'Da Assegnare',
+                cliente: 'N/D', 
+                ordinePF: row.ordinePF,
+                numeroODL: 'N/D',
+                numeroODLInterno: null,
+                details: articleCode,
+                qta: row.qta,
+                billOfMaterials: jobBOM,
+                phases: phases,
+                dataConsegnaFinale: row.dataConsegnaFinale,
+                dataFinePreparazione: row.dataFinePreparazione,
+                department: row.department,
+                workCycleId: workCycleId,
+                expectedMinutesDefault: articleData.expectedMinutesDefault || 0,
+                createdAt: admin.firestore.Timestamp.now(),
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+        }
+
+        const batch = adminDb.batch();
+        newJobs.forEach(j => batch.set(adminDb.collection("jobOrders").doc(j.id), JSON.parse(JSON.stringify(j))));
+        await batch.commit();
+
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/production-console');
+        return { success: true, message: `${newJobs.length} commesse create con successo.` };
+    } catch (error) {
+        console.error("Error in saveSmartPastedJobOrders:", error);
+        return { success: false, message: error instanceof Error ? error.message : "Errore interno durante il salvataggio." };
+    }
+}
+
+
