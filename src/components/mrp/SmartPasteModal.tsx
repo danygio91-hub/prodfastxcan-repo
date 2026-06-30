@@ -76,7 +76,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
         const columns = line.split('\t').map(c => c.trim());
         
         // Expected: Codice Articolo | Quantità | Data Consegna Finale
-        const articleCode = columns[0] || '';
+        const articleCode = (columns[0] || '').replace(/[\r\n\t]/g, '').trim().toUpperCase();
         const qtaRaw = columns[1] || '0';
         const dateRaw = columns[2] || '';
 
@@ -242,8 +242,13 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
                                             />
                                         </TableCell>
                                         <TableCell>
-                                            <div className="flex flex-col">
-                                                <span className={`font-mono text-sm font-bold ${!row.articleExists ? 'text-red-600' : ''}`}>{row.articleCode || '(Vuoto)'}</span>
+                                            <div className="flex flex-col gap-1">
+                                                <Input 
+                                                    value={row.articleCode} 
+                                                    onChange={(e) => updateRow(row.id, 'articleCode', e.target.value.replace(/[\r\n\t]/g, '').trimStart().toUpperCase())}
+                                                    placeholder="Codice Articolo"
+                                                    className={`h-8 text-xs font-mono font-bold ${!row.articleExists ? 'border-red-300 bg-red-50 text-red-600 focus-visible:ring-red-500' : ''}`}
+                                                />
                                                 {!row.articleExists && <span className="text-[10px] text-red-500 leading-tight">Articolo inesistente</span>}
                                             </div>
                                         </TableCell>
