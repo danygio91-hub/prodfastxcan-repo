@@ -1553,4 +1553,55 @@ export async function saveSmartPastedJobOrders(data: {
     }
 }
 
+export async function getOptimizedODLData(jobId: string) {
+    const decodedId = decodeURIComponent(jobId);
+    const jobSnap = await adminDb.collection("jobOrders").doc(decodedId).get();
+    
+    if (!jobSnap.exists) {
+        return null;
+    }
 
+    const job = convertTimestampsToDates(jobSnap.data()) as JobOrder;
+    job.id = jobSnap.id;
+
+    // 1. Fetch Article with .select() to reduce payload
+    let article: Partial<Article> | null = null;
+    if (job.details) {
+        const articleSnap = await adminDb.collection("articles")
+            .doc(job.details.toUpperCase())
+            .select('code', 'phaseTimes', 'billOfMaterials')
+            .get();
+            
+        if (articleSnap.exists) {
+            article = articleSnap.data() as Partial<Article>;
+        }
+    }
+
+    // 2. Fetch Materials with chunking and .select()
+    const materials: Partial<RawMaterial>[] = [];
+    const materialCodes = new Set<string>();
+    
+    if (job.billOfMaterials) {
+        job.billOfMaterials.forEach(item => {
+            if (item.component) materialCodes.add(item.component.toUpperCase().trim());
+        });
+    }
+
+    const uniqueMaterials = Array.from(materialCodes);
+    if (uniqueMaterials.length > 0) {
+        const CHUNK_SIZE = 30;
+        for (let i = 0; i < uniqueMaterials.length; i += CHUNK_SIZE) {
+            const chunk = uniqueMaterials.slice(i, i + CHUNK_SIZE);
+            const materialsSnap = await adminDb.collection("rawMaterials")
+                .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+                .select('code', 'type', 'unitOfMeasure')
+                .get();
+            
+            materialsSnap.forEach(doc => {
+                materials.push({ id: doc.id, ...doc.data() } as Partial<RawMaterial>);
+            });
+        }
+    }
+
+    return { job, article, materials };
+}

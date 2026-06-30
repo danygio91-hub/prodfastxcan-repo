@@ -4,8 +4,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, AlertCircle, Printer } from 'lucide-react';
-import { getJobDetailReport } from '@/app/admin/reports/actions';
-import { getRequiredDataForJobs } from '@/app/admin/data-management/actions';
+import { getOptimizedODLData } from '@/app/admin/data-management/actions';
 import { Button } from '@/components/ui/button';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import type { JobOrder, RawMaterial, Article } from '@/types';
@@ -37,8 +36,8 @@ function PrintPageContent() {
       }
 
       try {
-        const [jobData, odlConfig, globalSettings, depts] = await Promise.all([
-          getJobDetailReport(jobId),
+        const [odlData, odlConfig, globalSettings, depts] = await Promise.all([
+          getOptimizedODLData(jobId),
           getODLConfig(),
           getGlobalSettings(),
           getDepartments()
@@ -50,15 +49,10 @@ function PrintPageContent() {
           setQrRule(globalSettings.jobOrderQrCodeRule);
         }
 
-        if (jobData) {
-          const typedJob = jobData as unknown as JobOrder;
-          setJob(typedJob);
-          
-          const req = await getRequiredDataForJobs([typedJob]);
-          
-          const matchedArticle = req.articles.find(a => a.code.toUpperCase() === typedJob.details.toUpperCase());
-          setArticle(matchedArticle || null);
-          setMaterials(req.materials);
+        if (odlData && odlData.job) {
+          setJob(odlData.job);
+          setArticle(odlData.article as Article | null);
+          setMaterials(odlData.materials as RawMaterial[]);
         } else {
           setError('Commessa non trovata.');
         }
