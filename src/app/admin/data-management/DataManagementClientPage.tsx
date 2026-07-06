@@ -732,8 +732,8 @@ export default function DataManagementClientPage({
                             <div className="flex flex-col items-start text-left w-full">
                                 <div className="flex items-center justify-between w-full pr-4">
                                     <span className="font-bold text-sm">{matCode}</span>
-                                    <Badge variant={worstVisualStatus === 'RED' ? 'destructive' : 'secondary'} className={worstVisualStatus === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : worstVisualStatus === 'LOW_STOCK' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
-                                      {worstVisualStatus === 'RED' ? 'MANCANTE' : worstVisualStatus === 'LATE' ? 'IN RITARDO' : 'SOTTO SCORTA'}
+                                    <Badge variant={worstVisualStatus === 'RED' ? 'destructive' : 'secondary'} className={worstVisualStatus === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : worstVisualStatus === 'LOW_STOCK' ? 'bg-cyan-500 hover:bg-cyan-600 text-white' : ''}>
+                                      {worstVisualStatus === 'RED' ? 'MANCANTE' : worstVisualStatus === 'LATE' ? 'IN RITARDO' : 'SOTTOSCORTA'}
                                     </Badge>
                                 </div>
                                 <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
@@ -744,14 +744,14 @@ export default function DataManagementClientPage({
                               {entriesWithVisual.map((item, i) => {
                                 const { jobDate, visualStatus, entry, job } = item;
                                 return (
-                                  <div key={i} className={cn("p-2 rounded-md border text-sm", visualStatus === 'RED' ? "border-red-200 bg-red-50/30" : visualStatus === 'LATE' ? "border-amber-200 bg-amber-50/30" : visualStatus === 'LOW_STOCK' ? "border-orange-200 bg-orange-50/30" : "border-border bg-muted/20")}>
+                                  <div key={i} className={cn("p-2 rounded-md border text-sm", visualStatus === 'RED' ? "border-red-200 bg-red-50/30" : visualStatus === 'LATE' ? "border-amber-200 bg-amber-50/30" : visualStatus === 'LOW_STOCK' ? "border-cyan-200 bg-cyan-50/30" : "border-border bg-muted/20")}>
                                     <div className="flex justify-between items-center mb-1">
                                       <span className="font-semibold text-xs">{jobDate ? format(parseISO(jobDate), "dd/MM/yyyy") : 'N/D'}</span>
                                       <span className="text-xs font-mono">{job?.ordinePF || job?.id || 'N/D'}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-xs">
                                       <span className="text-muted-foreground">Fabbisogno: {entry.requiredQty.toFixed(2)}</span>
-                                      <span className={cn("font-bold", visualStatus === 'RED' ? "text-red-600" : visualStatus === 'LATE' ? "text-amber-600" : visualStatus === 'LOW_STOCK' ? "text-orange-600" : "text-emerald-600")}>
+                                      <span className={cn("font-bold", visualStatus === 'RED' ? "text-red-600" : visualStatus === 'LATE' ? "text-amber-600" : visualStatus === 'LOW_STOCK' ? "text-cyan-600" : "text-emerald-600")}>
                                         Stock Proiettato: {entry.projectedBalance.toFixed(2)}
                                       </span>
                                     </div>

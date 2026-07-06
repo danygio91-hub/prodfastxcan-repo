@@ -499,10 +499,10 @@ export default function RawMaterialManagementClientPage({
               <CardContent>
                 <div className="overflow-x-auto">
                   <Table>
-                    <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>UOM</TableHead><TableHead>Stock</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                    <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>UOM</TableHead><TableHead>Stock</TableHead><TableHead>Sottoscorta</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {isSearching ? (
-                        <TableRow><TableCell colSpan={7} className="text-center h-32"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></TableCell></TableRow>
+                        <TableRow><TableCell colSpan={9} className="text-center h-32"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></TableCell></TableRow>
                       ) : (rawMaterials.map((m) => {
                         const s = materialStatus.find(st => st.id === m.id);
                         return (
@@ -511,6 +511,7 @@ export default function RawMaterialManagementClientPage({
                             <TableCell className="truncate max-w-[200px] text-xs text-muted-foreground">{m.description}</TableCell>
                             <TableCell className="text-xs font-medium text-muted-foreground uppercase">{m.unitOfMeasure}</TableCell>
                             <TableCell className="font-semibold">{formatDisplayStock(s ? s.stock : m.currentStockUnits, m.unitOfMeasure)}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{m.minStockLevel ? formatDisplayStock(m.minStockLevel, m.unitOfMeasure) : '-'}</TableCell>
                             <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
                             <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
                             <TableCell><button onClick={() => handleOpenOrderedDetails(m.code)} className="text-blue-600 hover:underline">{s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}</button></TableCell>

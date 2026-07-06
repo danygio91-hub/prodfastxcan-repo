@@ -338,7 +338,7 @@ export function calculateMRPTimelines(
                     if (currentBalanceAtSim - cumulativePO >= -0.001) {
                         if (currentBalanceAtSim < safeStock) {
                             status = 'LOW_STOCK';
-                            details.push("⚠️ SOTTO SCORTA MINIMA." + dbg);
+                            details.push("⚠️ SOTTOSCORTA." + dbg);
                         } else {
                             status = 'GREEN';
                             details.push("✅ DISPONIBILE (Stock fisico)." + dbg);
@@ -349,7 +349,7 @@ export function calculateMRPTimelines(
                         supplyArrivalDate = lastPO?.date;
                         if (currentBalanceAtSim < safeStock) {
                             status = 'LOW_STOCK';
-                            details.push(`⚠️ SOTTO SCORTA MINIMA (Coperto da PO in arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}).` + dbg);
+                            details.push(`⚠️ SOTTOSCORTA (Coperto da PO in arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}).` + dbg);
                         } else {
                             details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}.` + dbg);
                         }
@@ -451,7 +451,7 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
         } else if (finalStatus === 'LOW_STOCK') {
             const lowStockEntry = group.entries.find(e => e.status === 'LOW_STOCK');
             const arrivalStr = lowStockEntry?.supplyArrivalDate ? ` (Coperto da PO in arrivo il ${new Date(lowStockEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })})` : '';
-            newDetails.push(`⚠️ SOTTO SCORTA MINIMA${arrivalStr}. ${debugString}`);
+            newDetails.push(`⚠️ SOTTOSCORTA${arrivalStr}. ${debugString}`);
             newDetails.push("Pianificare riassortimento.");
         } else if (finalStatus === 'AMBER') {
             const amberEntry = group.entries.find(e => e.status === 'AMBER' && e.supplyArrivalDate);
