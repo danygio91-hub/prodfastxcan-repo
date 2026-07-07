@@ -564,9 +564,22 @@ export default function DataManagementClientPage({
   };
 
   const handleUpdateCycleLocal = async (jobId: string, cycleId: string) => {
-    const res = await updateJobOrderCycle(jobId, cycleId);
-    toast({ title: res.message });
-    router.refresh();
+    const updateState = (prev: JobOrder[]) => prev.map(j => j.id === jobId ? { ...j, workCycleId: cycleId } : j);
+    setPlannedJobOrders(updateState);
+    setProductionJobOrders(updateState);
+    setCompletedJobOrders(updateState);
+
+    try {
+      const res = await updateJobOrderCycle(jobId, cycleId);
+      toast({ title: res.message });
+      if (!res.success) throw new Error(res.message);
+      router.refresh();
+    } catch (e: any) {
+      setPlannedJobOrders(initialPlanned);
+      setProductionJobOrders(initialProduction);
+      setCompletedJobOrders(initialCompleted);
+      toast({ variant: "destructive", title: "Errore", description: e.message || "Impossibile aggiornare il ciclo" });
+    }
   };
 
   const handleUpdateDateLocal = async (jobId: string, date: Date | undefined) => {
@@ -577,9 +590,22 @@ export default function DataManagementClientPage({
       // STOP Loop: update only if changed
       if (job && job.dataConsegnaFinale === newDateStr) return;
 
-      await updateJobOrderDeliveryDate(jobId, newDateStr);
-      toast({ title: "Data consegna aggiornata" });
-      router.refresh();
+      const updateState = (prev: JobOrder[]) => prev.map(j => j.id === jobId ? { ...j, dataConsegnaFinale: newDateStr } : j);
+      setPlannedJobOrders(updateState);
+      setProductionJobOrders(updateState);
+      setCompletedJobOrders(updateState);
+
+      try {
+        const res = await updateJobOrderDeliveryDate(jobId, newDateStr);
+        toast({ title: "Data consegna aggiornata" });
+        if (!res.success) throw new Error(res.message);
+        router.refresh();
+      } catch (e: any) {
+        setPlannedJobOrders(initialPlanned);
+        setProductionJobOrders(initialProduction);
+        setCompletedJobOrders(initialCompleted);
+        toast({ variant: "destructive", title: "Errore", description: e.message || "Impossibile aggiornare la data di consegna" });
+      }
     }
   };
 
@@ -595,22 +621,62 @@ export default function DataManagementClientPage({
          toast({ variant: "destructive", title: "Validazione fallita", description: "La data preparazione non può superare la consegna." });
          return;
       }
-      await updateJobOrderPrepDate(jobId, newPrepStr);
-      toast({ title: "Data preparazione aggiornata" });
-      router.refresh();
+
+      const updateState = (prev: JobOrder[]) => prev.map(j => j.id === jobId ? { ...j, dataFinePreparazione: newPrepStr } : j);
+      setPlannedJobOrders(updateState);
+      setProductionJobOrders(updateState);
+      setCompletedJobOrders(updateState);
+
+      try {
+        const res = await updateJobOrderPrepDate(jobId, newPrepStr);
+        toast({ title: "Data preparazione aggiornata" });
+        if (!res.success) throw new Error(res.message);
+        router.refresh();
+      } catch (e: any) {
+        setPlannedJobOrders(initialPlanned);
+        setProductionJobOrders(initialProduction);
+        setCompletedJobOrders(initialCompleted);
+        toast({ variant: "destructive", title: "Errore", description: e.message || "Impossibile aggiornare la data di preparazione" });
+      }
     }
   };
 
   const handleActionLocal = async (id: string, type: 'start' | 'cancel') => {
-    const res = type === 'start' ? await createODL(id) : await cancelODL(id);
-    toast({ title: res.message });
-    router.refresh();
+    const updateState = (prev: JobOrder[]) => prev.map(j => j.id === id ? { ...j, status: type === 'start' ? 'DA_INIZIARE' : 'IN_PIANIFICAZIONE' } : j);
+    setPlannedJobOrders(updateState);
+    setProductionJobOrders(updateState);
+    setCompletedJobOrders(updateState);
+
+    try {
+      const res = type === 'start' ? await createODL(id) : await cancelODL(id);
+      toast({ title: res.message });
+      if (!res.success) throw new Error(res.message);
+      router.refresh();
+    } catch (e: any) {
+      setPlannedJobOrders(initialPlanned);
+      setProductionJobOrders(initialProduction);
+      setCompletedJobOrders(initialCompleted);
+      toast({ variant: "destructive", title: "Errore", description: e.message || "Impossibile eseguire l'azione" });
+    }
   };
 
   const handleUpdateOdlLocal = async (jobId: string, newOdl: string) => {
-    const res = await updateJobOrderOdlNumber(jobId, newOdl);
-    toast({ title: res.message, variant: res.success ? 'default' : 'destructive' });
-    if (res.success) router.refresh();
+    const updateState = (prev: JobOrder[]) => prev.map(j => j.id === jobId ? { ...j, numeroODLInterno: newOdl } : j);
+    setPlannedJobOrders(updateState);
+    setProductionJobOrders(updateState);
+    setCompletedJobOrders(updateState);
+
+    try {
+      const res = await updateJobOrderOdlNumber(jobId, newOdl);
+      toast({ title: res.message, variant: res.success ? 'default' : 'destructive' });
+      if (!res.success) throw new Error(res.message);
+      router.refresh();
+    } catch (e: any) {
+      setPlannedJobOrders(initialPlanned);
+      setProductionJobOrders(initialProduction);
+      setCompletedJobOrders(initialCompleted);
+      toast({ variant: "destructive", title: "Errore", description: e.message || "Impossibile aggiornare il numero ODL" });
+    }
   };
 
   const handleDownloadTemplate = () => {

@@ -506,6 +506,8 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
     data.jobsToUpdate.forEach(j => batch.set(adminDb.collection("jobOrders").doc(j.id), j, { merge: true }));
     await batch.commit();
     revalidatePath('/admin/data-management');
+    revalidatePath('/admin/production-console');
+    revalidatePath('/admin/resource-planning');
     return { success: true, message: 'Caricamento completato.' };
 }
 
@@ -692,6 +694,8 @@ export async function updateJobOrderOdlNumber(jobId: string, newOdl: string) {
     try {
         await adminDb.collection("jobOrders").doc(jobId).update({ numeroODLInterno: newOdl });
         revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+        revalidatePath('/admin/resource-planning');
         return { success: true, message: 'N° ODL aggiornato.' };
     } catch (error) {
         console.error("Error updating ODL:", error);
