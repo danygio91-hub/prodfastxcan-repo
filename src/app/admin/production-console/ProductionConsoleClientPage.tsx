@@ -284,7 +284,7 @@ export default function ProductionConsoleClientPage() {
           if (activeFilter !== 'all') {
              if (activeFilter === 'LIVE') f = f.filter(isJobLive);
              else if (activeFilter === 'ACTIVE') {
-                 const activeStatuses = ['DA INIZIARE', 'IN PREP.', 'PRONTO PROD.', 'IN PROD.', 'FINE PROD.', 'QLTY & PACK'];
+                 const activeStatuses = ['DA_INIZIARE', 'IN_PREPARAZIONE', 'PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK'];
                  f = f.filter(i => activeStatuses.includes(getDerivedJobStatus(i)));
              }
              else f = f.filter(i => getDerivedJobStatus(i) === activeFilter);
@@ -675,12 +675,12 @@ export default function ProductionConsoleClientPage() {
                   <div className="h-6 w-px bg-slate-800 mx-2" />
                   
                   {[
-                    { label: 'DA INIZIARE', value: 'DA INIZIARE', color: 'bg-slate-400', icon: Package2 },
-                    { label: 'IN PREP.', value: 'IN PREP.', color: 'bg-amber-500', icon: Timer },
-                    { label: 'PRONTO PROD.', value: 'PRONTO PROD.', color: 'bg-emerald-500', icon: PlayCircle },
-                    { label: 'IN PROD.', value: 'IN PROD.', color: 'bg-blue-600', icon: Factory },
-                    { label: 'FINE PROD.', value: 'FINE PROD.', color: 'bg-purple-600', icon: CheckCircle2 },
-                    { label: 'QLTY & PACK', value: 'QLTY & PACK', color: 'bg-pink-600', icon: Boxes },
+                    { label: 'DA INIZIARE', value: 'DA_INIZIARE', color: 'bg-slate-400', icon: Package2 },
+                    { label: 'IN PREP.', value: 'IN_PREPARAZIONE', color: 'bg-amber-500', icon: Timer },
+                    { label: 'PRONTO PROD.', value: 'PRONTO_PROD', color: 'bg-emerald-500', icon: PlayCircle },
+                    { label: 'IN PROD.', value: 'IN_PRODUZIONE', color: 'bg-blue-600', icon: Factory },
+                    { label: 'FINE PROD.', value: 'FINE_PRODUZIONE', color: 'bg-purple-600', icon: CheckCircle2 },
+                    { label: 'QLTY & PACK', value: 'QLTY_PACK', color: 'bg-pink-600', icon: Boxes },
                   ].map(f => (
                     <Button 
                       key={f.value} 
