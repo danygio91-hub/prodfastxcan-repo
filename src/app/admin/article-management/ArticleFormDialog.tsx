@@ -59,7 +59,7 @@ type ArticleFormValues = z.infer<typeof articleSchema>;
 
 interface ArticleFormDialogProps {
   isOpen: boolean;
-  onClose: (refresh?: boolean) => void;
+  onClose: (refresh?: boolean, updatedArticle?: Article) => void;
   article: Article | null;
 }
 
@@ -250,7 +250,21 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      onClose(true);
+      const docId = (data.code || '').toUpperCase();
+      const updatedArticle: Article = {
+        ...(article || {} as Article),
+        id: docId,
+        code: docId,
+        billOfMaterials: (filteredData.billOfMaterials || []) as Article['billOfMaterials'],
+        workCycleId: filteredData.workCycleId,
+        secondaryWorkCycleId: filteredData.secondaryWorkCycleId,
+        attachments: filteredData.attachments || [],
+        packagingType: data.packagingType,
+        packingInstructions: data.packingInstructions,
+        unitWeightKg: data.unitWeightKg,
+        packagingTareWeightKg: data.packagingTareWeightKg,
+      };
+      onClose(true, updatedArticle);
     }
     setIsPending(false);
   };

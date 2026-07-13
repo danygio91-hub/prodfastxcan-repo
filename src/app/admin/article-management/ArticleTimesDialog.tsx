@@ -27,7 +27,7 @@ import { Card, CardContent } from '@/components/ui/card';
 
 interface ArticleTimesDialogProps {
     isOpen: boolean;
-    onClose: (refresh?: boolean) => void;
+    onClose: (refresh?: boolean, updatedArticle?: Article) => void;
     article: Article | null;
     phaseTemplates: WorkPhaseTemplate[];
 }
@@ -322,7 +322,13 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
 
         const result = await saveArticleStandardTimes(article.id, data);
         toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
-        if (result.success) onClose(true);
+        if (result.success) {
+            const updatedArticle: Article = {
+                ...article,
+                ...data,
+            };
+            onClose(true, updatedArticle);
+        }
         setIsPending(false);
     };
 

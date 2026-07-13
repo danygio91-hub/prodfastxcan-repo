@@ -158,15 +158,28 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
     setIsTimesOpen(true);
   };
 
-  const handleFormClose = (refresh: boolean = false) => {
+  const handleFormClose = (refresh: boolean = false, updatedArticle?: Article) => {
     setIsFormOpen(false);
     setEditingArticle(null);
+    if (updatedArticle) {
+      setArticles(prev => {
+        const exists = prev.some(a => a.id === updatedArticle.id);
+        if (exists) {
+          return prev.map(a => a.id === updatedArticle.id ? { ...a, ...updatedArticle } : a);
+        } else {
+          return [updatedArticle, ...prev];
+        }
+      });
+    }
     if (refresh) router.refresh();
   }
 
-  const handleTimesClose = (refresh: boolean = false) => {
+  const handleTimesClose = (refresh: boolean = false, updatedArticle?: Article) => {
     setIsTimesOpen(false);
     setEditingArticle(null);
+    if (updatedArticle) {
+      setArticles(prev => prev.map(a => a.id === updatedArticle.id ? { ...a, ...updatedArticle } : a));
+    }
     if (refresh) router.refresh();
   };
 
@@ -178,6 +191,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
+      setArticles(prev => prev.filter(a => a.id !== articleId));
       router.refresh();
     }
   };
