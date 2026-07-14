@@ -24,6 +24,7 @@ interface SmartPasteModalProps {
 
 export interface ParsedRow {
   id: string;
+  cliente: string;
   articleCode: string;
   quantity: number;
   deliveryDateRaw: string;
@@ -77,17 +78,19 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
         // Tab separated
         const columns = line.split('\t').map(c => c.trim());
         
-        // Expected: Ordine PF | Codice Articolo | Quantità | Data Consegna Finale
-        const ordinePF = (columns[0] || '').replace(/[\r\n\t]/g, '').trim();
-        const articleCode = (columns[1] || '').replace(/[\r\n\t]/g, '').trim().toUpperCase();
-        const qtaRaw = columns[2] || '0';
-        const dateRaw = columns[3] || '';
+        // Expected: Cliente | Ordine PF | Codice Articolo | Quantità | Data Consegna Finale
+        const cliente = (columns[0] || '').replace(/[\r\n\t]/g, '').trim();
+        const ordinePF = (columns[1] || '').replace(/[\r\n\t]/g, '').trim();
+        const articleCode = (columns[2] || '').replace(/[\r\n\t]/g, '').trim().toUpperCase();
+        const qtaRaw = columns[3] || '0';
+        const dateRaw = columns[4] || '';
 
         const quantity = parseFloat(qtaRaw.replace(',', '.'));
         const isQtaValid = !isNaN(quantity) && quantity > 0;
 
         newRows.push({
             id: `row-${Date.now()}-${index}`,
+            cliente: cliente,
             articleCode: articleCode,
             quantity: isQtaValid ? quantity : 0,
             deliveryDateRaw: dateRaw,
@@ -132,14 +135,15 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
         const hasDate = r.deliveryDateParsed !== null;
         const hasQta = r.quantity > 0;
         const hasPF = r.ordinePF.trim() !== '';
+        const hasCliente = r.cliente.trim() !== '';
 
-        const isValidRow = articleExists && hasDate && hasQta && hasPF;
+        const isValidRow = articleExists && hasDate && hasQta && hasPF && hasCliente;
         if (!isValidRow) {
             allValid = false;
             invalidCount++;
         }
 
-        return { ...r, articleExists, hasDate, hasQta, hasPF, isValidRow };
+        return { ...r, articleExists, hasDate, hasQta, hasPF, hasCliente, isValidRow };
     });
 
     return { validatedRows, allValid: allValid && rows.length > 0, invalidCount };
@@ -151,6 +155,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
       
       try {
           const payload = validationState.validatedRows.map(r => ({
+              cliente: r.cliente,
               ordinePF: r.ordinePF,
               details: r.articleCode,
               qta: r.quantity,
@@ -188,7 +193,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
                 <div className="bg-muted/50 p-4 rounded-md border text-sm text-muted-foreground">
                     Copia le righe da Excel e incollale nel box sottostante.<br/>
                     <strong>Formato colonne atteso (separato da Tab):</strong> <br/>
-                    <code className="text-primary font-bold">Ordine PF | Codice Articolo | Quantità | Data Consegna Finale (GG/MM/AAAA)</code>
+                    <code className="text-primary font-bold">Cliente | Ordine PF | Codice Articolo | Quantità | Data Consegna Finale (GG/MM/AAAA)</code>
                 </div>
                 <Textarea 
                     value={pasteText}
@@ -221,6 +226,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
                             <TableHeader className="bg-muted/50 sticky top-0 z-10 shadow-sm">
                                 <TableRow>
                                     <TableHead className="w-[50px]"></TableHead>
+                                    <TableHead className="w-[150px]">Cliente <span className="text-destructive">*</span></TableHead>
                                     <TableHead className="w-[150px]">Ordine PF <span className="text-destructive">*</span></TableHead>
                                     <TableHead className="w-[200px]">Articolo</TableHead>
                                     <TableHead className="w-[100px]">Quantità</TableHead>
@@ -235,6 +241,14 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
                                     <TableRow key={row.id} className={!row.isValidRow ? 'bg-red-50/50 hover:bg-red-50/80 border-l-4 border-l-red-500' : ''}>
                                         <TableCell className="text-center">
                                             {row.isValidRow ? <CheckCircle2 className="h-4 w-4 text-emerald-500 mx-auto" /> : <AlertCircle className="h-4 w-4 text-red-500 mx-auto" />}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input 
+                                                value={row.cliente} 
+                                                onChange={(e) => updateRow(row.id, 'cliente', e.target.value)}
+                                                placeholder="Cliente"
+                                                className={`h-8 text-xs ${!row.hasCliente ? 'border-red-300 bg-red-50 focus-visible:ring-red-500' : ''}`}
+                                            />
                                         </TableCell>
                                         <TableCell>
                                             <Input 

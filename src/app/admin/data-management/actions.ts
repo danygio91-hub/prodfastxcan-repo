@@ -1437,6 +1437,7 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
 }
 
 export async function saveSmartPastedJobOrders(data: {
+    cliente: string;
     ordinePF: string;
     details: string; // Article code
     qta: number;
@@ -1525,7 +1526,7 @@ export async function saveSmartPastedJobOrders(data: {
                 id: sanitizedId,
                 status: 'IN_PIANIFICAZIONE',
                 postazioneLavoro: 'Da Assegnare',
-                cliente: 'N/D', 
+                cliente: row.cliente ? row.cliente.trim() : 'N/D', 
                 ordinePF: row.ordinePF,
                 numeroODL: 'N/D',
                 numeroODLInterno: null,
