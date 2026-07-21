@@ -426,7 +426,7 @@ export default function DataManagementClientPage({
     const criticals = new Map<string, { entry: MRPTimelineEntry, job: JobOrder | undefined }[]>();
     
     mrpTimelines.forEach((entries, matCode) => {
-      if (entries.some(e => e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK')) {
+      if (entries.some(e => e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK' || e.status === 'ORDERED')) {
         const mappedEntries = entries.map(entry => {
           const job = allJobsUnfiltered.find(j => j.id === entry.jobId);
           return { entry, job };
@@ -757,8 +757,12 @@ export default function DataManagementClientPage({
                           const jobDate = item.job?.dataFinePreparazione || item.job?.dataConsegnaFinale;
                           const isNegative = item.entry.projectedBalance < 0;
                           const isLowStock = item.entry.status === 'LOW_STOCK';
+                          const isOrdered = item.entry.status === 'ORDERED';
                           
-                          let visualStatus: 'RED' | 'LATE' | 'LOW_STOCK' | 'GREEN' = isNegative ? 'RED' : isLowStock ? 'LOW_STOCK' : 'GREEN';
+                          let visualStatus: 'RED' | 'LATE' | 'ORDERED' | 'LOW_STOCK' | 'GREEN' = 
+                              isNegative ? 'RED' : 
+                              isOrdered ? 'ORDERED' :
+                              isLowStock ? 'LOW_STOCK' : 'GREEN';
                           
                           if (visualStatus === 'RED') {
                               const hasFuturePO = pendingPOs.some(po => {
@@ -790,6 +794,7 @@ export default function DataManagementClientPage({
 
                       const worstVisualStatus = entriesWithVisual.some(e => e.visualStatus === 'RED') ? 'RED' : 
                                                 entriesWithVisual.some(e => e.visualStatus === 'LATE') ? 'LATE' : 
+                                                entriesWithVisual.some(e => e.visualStatus === 'ORDERED') ? 'ORDERED' : 
                                                 entriesWithVisual.some(e => e.visualStatus === 'LOW_STOCK') ? 'LOW_STOCK' : 'GREEN';
 
                       return (
@@ -798,8 +803,8 @@ export default function DataManagementClientPage({
                             <div className="flex flex-col items-start text-left w-full">
                                 <div className="flex items-center justify-between w-full pr-4">
                                     <span className="font-bold text-sm">{matCode}</span>
-                                    <Badge variant={worstVisualStatus === 'RED' ? 'destructive' : 'secondary'} className={worstVisualStatus === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : worstVisualStatus === 'LOW_STOCK' ? 'bg-cyan-500 hover:bg-cyan-600 text-white' : ''}>
-                                      {worstVisualStatus === 'RED' ? 'MANCANTE' : worstVisualStatus === 'LATE' ? 'IN RITARDO' : 'SOTTOSCORTA'}
+                                    <Badge variant={worstVisualStatus === 'RED' ? 'destructive' : 'secondary'} className={worstVisualStatus === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : worstVisualStatus === 'ORDERED' ? 'bg-indigo-500 hover:bg-indigo-600 text-white' : worstVisualStatus === 'LOW_STOCK' ? 'bg-cyan-500 hover:bg-cyan-600 text-white' : ''}>
+                                      {worstVisualStatus === 'RED' ? 'MANCANTE' : worstVisualStatus === 'LATE' ? 'IN RITARDO' : worstVisualStatus === 'ORDERED' ? 'ORDINATO' : 'SOTTOSCORTA'}
                                     </Badge>
                                 </div>
                                 <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
@@ -810,14 +815,14 @@ export default function DataManagementClientPage({
                               {entriesWithVisual.map((item, i) => {
                                 const { jobDate, visualStatus, entry, job } = item;
                                 return (
-                                  <div key={i} className={cn("p-2 rounded-md border text-sm", visualStatus === 'RED' ? "border-red-200 bg-red-50/30" : visualStatus === 'LATE' ? "border-amber-200 bg-amber-50/30" : visualStatus === 'LOW_STOCK' ? "border-cyan-200 bg-cyan-50/30" : "border-border bg-muted/20")}>
+                                  <div key={i} className={cn("p-2 rounded-md border text-sm", visualStatus === 'RED' ? "border-red-200 bg-red-50/30" : visualStatus === 'LATE' ? "border-amber-200 bg-amber-50/30" : visualStatus === 'ORDERED' ? "border-indigo-200 bg-indigo-50/30" : visualStatus === 'LOW_STOCK' ? "border-cyan-200 bg-cyan-50/30" : "border-border bg-muted/20")}>
                                     <div className="flex justify-between items-center mb-1">
                                       <span className="font-semibold text-xs">{jobDate ? format(parseISO(jobDate), "dd/MM/yyyy") : 'N/D'}</span>
                                       <span className="text-xs font-mono">{job?.ordinePF || job?.id || 'N/D'}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-xs">
                                       <span className="text-muted-foreground">Fabbisogno: {entry.requiredQty.toFixed(2)}</span>
-                                      <span className={cn("font-bold", visualStatus === 'RED' ? "text-red-600" : visualStatus === 'LATE' ? "text-amber-600" : visualStatus === 'LOW_STOCK' ? "text-cyan-600" : "text-emerald-600")}>
+                                      <span className={cn("font-bold", visualStatus === 'RED' ? "text-red-600" : visualStatus === 'LATE' ? "text-amber-600" : visualStatus === 'ORDERED' ? "text-indigo-600" : visualStatus === 'LOW_STOCK' ? "text-cyan-600" : "text-emerald-600")}>
                                         Stock Proiettato: {entry.projectedBalance.toFixed(2)}
                                       </span>
                                     </div>

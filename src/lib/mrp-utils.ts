@@ -8,7 +8,7 @@ export interface MRPTimelineEntry {
     jobId: string;
     materialCode: string;
     requiredQty: number;
-    status: 'GREEN' | 'LOW_STOCK' | 'AMBER' | 'LATE' | 'RED';
+    status: 'GREEN' | 'LOW_STOCK' | 'ORDERED' | 'AMBER' | 'LATE' | 'RED';
     projectedBalance: number;
     supplyArrivalDate?: string; 
     details: string[]; 
@@ -344,15 +344,10 @@ export function calculateMRPTimelines(
                             details.push("✅ DISPONIBILE (Stock fisico)." + dbg);
                         }
                     } else {
-                        status = 'AMBER';
+                        status = 'ORDERED';
                         const lastPO = [...events].filter(e => e.type === 'PO' && e.date <= currentEvent.date).pop();
                         supplyArrivalDate = lastPO?.date;
-                        if (currentBalanceAtSim < safeStock) {
-                            status = 'LOW_STOCK';
-                            details.push(`⚠️ SOTTOSCORTA (Coperto da PO in arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}).` + dbg);
-                        } else {
-                            details.push(`🟡 COPERTO DA ORDINE: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}.` + dbg);
-                        }
+                        details.push(`💜 ORDINATO: Coperto da PO in arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}.` + dbg);
                     }
                 } else {
                     if (absoluteFinalBalance >= -0.001 && totalPO > 0) {
@@ -416,10 +411,11 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
     groups.forEach((group, code) => {
         const totalQty = group.entries.reduce((sum, e) => sum + (e.requiredQty || 0), 0);
         
-        // Priorità Stato: RED > LATE > LOW_STOCK > AMBER > GREEN
+        // Priorità Stato: RED > LATE > ORDERED > LOW_STOCK > AMBER > GREEN
         let finalStatus: MRPTimelineEntry['status'] = 'GREEN';
         if (group.entries.some(e => e.status === 'RED')) finalStatus = 'RED';
         else if (group.entries.some(e => e.status === 'LATE')) finalStatus = 'LATE';
+        else if (group.entries.some(e => e.status === 'ORDERED')) finalStatus = 'ORDERED';
         else if (group.entries.some(e => e.status === 'LOW_STOCK')) finalStatus = 'LOW_STOCK';
         else if (group.entries.some(e => e.status === 'AMBER')) finalStatus = 'AMBER';
 
@@ -448,6 +444,10 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
             const lateEntry = group.entries.find(e => e.status === 'LATE' && e.supplyArrivalDate);
             newDetails.push(`🟠 IN RITARDO: In arrivo il ${lateEntry?.supplyArrivalDate ? new Date(lateEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'futuro'}. ${debugString}`);
             newDetails.push("Verificare se è possibile anticipare la consegna.");
+        } else if (finalStatus === 'ORDERED') {
+            const orderedEntry = group.entries.find(e => e.status === 'ORDERED' && e.supplyArrivalDate);
+            newDetails.push(`💜 ORDINATO: In arrivo il ${orderedEntry?.supplyArrivalDate ? new Date(orderedEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}. ${debugString}`);
+            newDetails.push("Monitorare fornitore.");
         } else if (finalStatus === 'LOW_STOCK') {
             const lowStockEntry = group.entries.find(e => e.status === 'LOW_STOCK');
             const arrivalStr = lowStockEntry?.supplyArrivalDate ? ` (Coperto da PO in arrivo il ${new Date(lowStockEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })})` : '';

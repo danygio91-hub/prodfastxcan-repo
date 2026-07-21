@@ -111,7 +111,8 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
 
         const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
         const isLate = !isRed && componentEntries.some(ce => ce.entry.status === 'LATE');
-        const isAmber = !isRed && !isLate && componentEntries.some(ce => ce.entry.status === 'AMBER');
+        const isOrdered = !isRed && !isLate && componentEntries.some(ce => ce.entry.status === 'ORDERED');
+        const isAmber = !isRed && !isLate && !isOrdered && componentEntries.some(ce => ce.entry.status === 'AMBER');
         const isFrozen = componentEntries.some(ce => ce.entry.isFrozen);
         
         const aggregatedEntries = aggregateMRPRequirements(componentEntries);
@@ -141,6 +142,7 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
 
         if (isRed) return { color: 'text-red-500', icon: XCircle, label: 'MANCANZA MATERIALI', details: combinedDetails };
         if (isLate) return { color: 'text-orange-600', icon: AlertTriangle, label: 'IN RITARDO', details: combinedDetails };
+        if (isOrdered) return { color: 'text-indigo-500 dark:text-indigo-400', icon: AlertTriangle, label: 'ORDINATO', details: combinedDetails };
         if (isAmber) return { color: 'text-yellow-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };
         
         return { 

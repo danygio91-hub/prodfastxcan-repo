@@ -412,6 +412,8 @@ export default function MrpSimulationClientPage({
         switch (status) {
             case 'RED': return <AlertTriangle className="h-5 w-5 text-destructive" />;
             case 'LATE': return <Clock className="h-5 w-5 text-orange-500" />;
+            case 'ORDERED': return <CheckCircle2 className="h-5 w-5 text-indigo-500" />;
+            case 'LOW_STOCK': return <AlertTriangle className="h-5 w-5 text-cyan-500" />;
             case 'AMBER': return <CheckCircle2 className="h-5 w-5 text-yellow-500" />;
             case 'GREEN': return <CheckCircle2 className="h-5 w-5 text-green-500" />;
             default: return null;
@@ -570,7 +572,7 @@ export default function MrpSimulationClientPage({
                                                                     idx === 0 ? "font-semibold" : 
                                                                     detailLine.includes('❌') ? "text-destructive font-semibold" : 
                                                                     detailLine.includes('🟠') ? "text-orange-600" : 
-                                                                    detailLine.includes('🟡') ? "text-yellow-600" : 
+                                                                    detailLine.includes('💜') ? "text-indigo-600 font-semibold" : detailLine.includes('⚠️') ? "text-cyan-600 font-semibold" : detailLine.includes('🟡') ? "text-yellow-600" : 
                                                                     "text-muted-foreground"
                                                                 }
                                                             >
