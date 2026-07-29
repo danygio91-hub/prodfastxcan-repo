@@ -747,7 +747,7 @@ export default function DataManagementClientPage({
                       const enhancedMaterials = Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries]) => {
                           const material = rawMaterials.find(m => m.code.toUpperCase() === matCode);
                           const materialName = material?.description || '';
-                          const materialType = (material?.category || materialName.split(' ')[0] || 'ALTRO').toUpperCase();
+                          const materialType = ((material as any)?.category || materialName.split(' ')[0] || 'ALTRO').toUpperCase();
                           
                           const pendingPOs = purchaseOrders.filter(po => {
                               const status = (po.status as string || '').toLowerCase();
@@ -864,7 +864,7 @@ export default function DataManagementClientPage({
                           ))}
                         </div>
                       ));
-                    })}
+                    })()}
                   </Accordion>
                 )}
               </div>
