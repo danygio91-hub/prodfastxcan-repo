@@ -127,33 +127,28 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   }, [toast]);
 
   const refreshData = useCallback(async () => {
-     if (searchTerm.length >= 2) {
-        setIsDataLoading(true);
-        const results = await getAllGroupedBatches(searchTerm);
-        setGroupedBatches(results);
-        setIsDataLoading(false);
-      } else {
-        setGroupedBatches([]);
-      }
-     if (isHistoryDialogOpen && historyDialogData) {
+    setIsDataLoading(true);
+    const results = await getAllGroupedBatches();
+    setGroupedBatches(results);
+    setIsDataLoading(false);
+
+    if (isHistoryDialogOpen && historyDialogData) {
       await handleOpenHistoryDialog(historyDialogData.material, historyDialogData.lotto, true);
     }
-  }, [searchTerm, isHistoryDialogOpen, historyDialogData, handleOpenHistoryDialog]);
+  }, [isHistoryDialogOpen, historyDialogData, handleOpenHistoryDialog]);
 
   useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      if (searchTerm.length >= 2) {
-        setIsDataLoading(true);
-        getAllGroupedBatches(searchTerm).then(results => {
-          setGroupedBatches(results);
-          setIsDataLoading(false);
-        });
-      } else {
-        setGroupedBatches([]);
-      }
-    }, 500);
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm]);
+    // La ricerca ora è gestita interamente lato client tramite il filter qui sotto
+  }, []);
+
+  const filteredBatches = groupedBatches.filter(material => {
+    if (!searchTerm || searchTerm.length < 2) return true;
+    const term = searchTerm.toLowerCase();
+    const matchesMaterial = material.materialCode.toLowerCase().includes(term) || 
+                            material.materialDescription.toLowerCase().includes(term);
+    const matchesLot = material.lots.some(lot => lot.lotto.toLowerCase().includes(term));
+    return matchesMaterial || matchesLot;
+  });
 
   const handleDeleteBatch = async () => {
     if (!batchToDelete) return;
@@ -203,8 +198,8 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                  <Loader2 className="h-5 w-5 animate-spin" />
                  <span>Caricamento lotti...</span>
                </div>
-             ) : groupedBatches.length > 0 ? (
-              groupedBatches.map((group) => (
+             ) : filteredBatches.length > 0 ? (
+              filteredBatches.map((group) => (
                 <AccordionItem value={group.materialId} key={group.materialId} className="border rounded-lg bg-card shadow-sm">
                   <AccordionTrigger className="p-4 hover:no-underline">
                     <div className="flex-1 text-left">
