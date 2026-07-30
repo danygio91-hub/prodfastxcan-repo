@@ -43,24 +43,69 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
         return [];
     }
 
-    let q = materialsCol.limit(100);
+    let materials: RawMaterial[] = [];
 
     if (searchTermLower) {
-        // Use prefix matching for optimized server-side filtering
-        q = q.where('code_normalized', '>=', searchTermLower)
-             .where('code_normalized', '<=', searchTermLower + '\uf8ff');
+        // Query 1: Find by material code (limit 20)
+        const materialsQuery = materialsCol
+            .where('code_normalized', '>=', searchTermLower)
+            .where('code_normalized', '<=', searchTermLower + '\uf8ff')
+            .limit(20)
+            .get();
+
+        // Query 2: Find by lot number using inventoryRecords which has lotto as a root field (limit 20)
+        // Since searchTerm might be uppercase lot, let's just search case sensitive or assume lotto is stored exactly.
+        // Actually, user types searchTerm which might be lowercase, but lots might be uppercase.
+        // Let's use searchTerm directly for lot since lotto doesn't have a normalized field, but usually they are uppercase.
+        // We'll search by the exact searchTerm but we can try upper and lower?
+        // Let's just search by searchTerm upper for lotto as standard.
+        const searchTermUpper = searchTerm!.trim().toUpperCase();
+        const lotQuery = adminDb.collection('inventoryRecords')
+            .where('lotto', '>=', searchTermUpper)
+            .where('lotto', '<=', searchTermUpper + '\uf8ff')
+            .limit(20)
+            .get();
+
+        const [materialsSnap, lotSnap] = await Promise.all([materialsQuery, lotQuery]);
+        
+        const materialsMap = new Map<string, RawMaterial>();
+        materialsSnap.docs.forEach(doc => {
+            materialsMap.set(doc.id, { id: doc.id, ...doc.data() } as RawMaterial);
+        });
+
+        // Collect materialIds from lot matches that we don't already have
+        const missingMaterialIds = new Set<string>();
+        lotSnap.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.materialId && !materialsMap.has(data.materialId)) {
+                missingMaterialIds.add(data.materialId);
+            }
+        });
+
+        // Fetch missing materials found via lot search
+        if (missingMaterialIds.size > 0) {
+            const missingIdsArray = Array.from(missingMaterialIds);
+            for (let i = 0; i < missingIdsArray.length; i += 10) {
+                const chunk = missingIdsArray.slice(i, i + 10);
+                const extraMaterialsSnap = await materialsCol.where(admin.firestore.FieldPath.documentId(), 'in', chunk).get();
+                extraMaterialsSnap.docs.forEach(doc => {
+                    materialsMap.set(doc.id, { id: doc.id, ...doc.data() } as RawMaterial);
+                });
+            }
+        }
+
+        materials = Array.from(materialsMap.values());
     } else {
-        // Default sort for the main list
-        q = q.orderBy('code_normalized').limit(50);
+        // Default sort for the main list (should not be reached if length < 2, but just in case)
+        const q = materialsCol.orderBy('code_normalized').limit(50);
+        const materialsSnapshot = await q.get();
+        materials = materialsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RawMaterial));
     }
 
-    materialsSnapshot = await q.get();
-
-    if (materialsSnapshot.empty) {
+    if (materials.length === 0) {
         return [];
     }
 
-    const materials = materialsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RawMaterial));
     const materialIds = materials.map(m => m.id);
     
     // Fetch withdrawals ONLY for the materials we are about to display

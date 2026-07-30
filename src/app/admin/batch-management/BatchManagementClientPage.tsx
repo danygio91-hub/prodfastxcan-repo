@@ -127,32 +127,34 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   }, [toast]);
 
   const refreshData = useCallback(async () => {
-    setIsDataLoading(true);
-    const results = await getAllGroupedBatches();
-    setGroupedBatches(results);
-    setIsDataLoading(false);
+    if (searchTerm.length >= 2) {
+      setIsDataLoading(true);
+      const results = await getAllGroupedBatches(searchTerm);
+      setGroupedBatches(results);
+      setIsDataLoading(false);
+    } else {
+      setGroupedBatches([]);
+    }
     
     if (isHistoryDialogOpen && historyDialogData) {
       await handleOpenHistoryDialog(historyDialogData.material, historyDialogData.lotto, true);
     }
-  }, [isHistoryDialogOpen, historyDialogData, handleOpenHistoryDialog]);
+  }, [searchTerm, isHistoryDialogOpen, historyDialogData, handleOpenHistoryDialog]);
 
   useEffect(() => {
-    if (initialGroupedBatches.length === 0) {
-      refreshData();
-    }
-  }, [refreshData, initialGroupedBatches.length]);
-
-  const filteredGroups = groupedBatches.filter(group => {
-    const term = searchTerm.toLowerCase().trim();
-    if (!term) return true;
-
-    const matchMaterial = group.materialCode?.toLowerCase().includes(term) || 
-                          group.materialDescription?.toLowerCase().includes(term);
-    const matchLot = group.lots?.some(lot => lot.lotto?.toLowerCase().includes(term));
-
-    return matchMaterial || matchLot;
-  });
+    const delayDebounceFn = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        getAllGroupedBatches(searchTerm).then(results => {
+          setGroupedBatches(results);
+          setIsDataLoading(false);
+        });
+      } else {
+        setGroupedBatches([]);
+      }
+    }, 500);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm]);
 
   const handleDeleteBatch = async () => {
     if (!batchToDelete) return;
@@ -202,8 +204,8 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                  <Loader2 className="h-5 w-5 animate-spin" />
                  <span>Caricamento lotti...</span>
                </div>
-             ) : filteredGroups.length > 0 ? (
-              filteredGroups.map((group) => (
+             ) : groupedBatches.length > 0 ? (
+              groupedBatches.map((group) => (
                 <AccordionItem value={group.materialId} key={group.materialId} className="border rounded-lg bg-card shadow-sm">
                   <AccordionTrigger className="p-4 hover:no-underline">
                     <div className="flex-1 text-left">
@@ -306,7 +308,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                 ))
             ) : (
               <div className="text-center py-10 text-muted-foreground">
-                Nessun lotto trovato.
+                {searchTerm.length < 2 ? "Digita almeno 2 caratteri per cercare." : "Nessun lotto trovato."}
               </div>
             )}
           </Accordion>
