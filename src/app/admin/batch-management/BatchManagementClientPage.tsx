@@ -127,26 +127,55 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   }, [toast]);
 
   const refreshData = useCallback(async () => {
-    setIsDataLoading(true);
-    const results = await getAllGroupedBatches();
-    setGroupedBatches(results);
-    setIsDataLoading(false);
-
-    if (isHistoryDialogOpen && historyDialogData) {
+     if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        // Prima prova: ricerca server-side per codice materiale
+        let results = await getAllGroupedBatches(searchTerm);
+        // Se nessun risultato, potrebbe essere una ricerca per numero lotto:
+        // carichiamo tutti i materiali e lasciamo che il filtro locale trovi il match.
+        if (results.length === 0) {
+          results = await getAllGroupedBatches();
+        }
+        setGroupedBatches(results);
+        setIsDataLoading(false);
+      } else {
+        setGroupedBatches([]);
+      }
+     if (isHistoryDialogOpen && historyDialogData) {
       await handleOpenHistoryDialog(historyDialogData.material, historyDialogData.lotto, true);
     }
-  }, [isHistoryDialogOpen, historyDialogData, handleOpenHistoryDialog]);
+  }, [searchTerm, isHistoryDialogOpen, historyDialogData, handleOpenHistoryDialog]);
 
   useEffect(() => {
-    // La ricerca ora è gestita interamente lato client tramite il filter qui sotto
-  }, []);
+    const delayDebounceFn = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        // Prima prova: ricerca server-side per codice materiale
+        getAllGroupedBatches(searchTerm).then(results => {
+          if (results.length === 0) {
+            // Seconda prova: carica tutti e filtra localmente per lotto
+            return getAllGroupedBatches();
+          }
+          return results;
+        }).then(results => {
+          setGroupedBatches(results);
+          setIsDataLoading(false);
+        });
+      } else {
+        setGroupedBatches([]);
+      }
+    }, 500);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm]);
 
+  // Filtro locale: oltre al match server-side per codice materiale,
+  // permette di trovare materiali anche cercando il numero lotto annidato.
   const filteredBatches = groupedBatches.filter(material => {
     if (!searchTerm || searchTerm.length < 2) return true;
     const term = searchTerm.toLowerCase();
-    const matchesMaterial = material.materialCode.toLowerCase().includes(term) || 
-                            material.materialDescription.toLowerCase().includes(term);
-    const matchesLot = material.lots.some(lot => lot.lotto.toLowerCase().includes(term));
+    const matchesMaterial = material.materialCode?.toLowerCase().includes(term) || 
+                            material.materialDescription?.toLowerCase().includes(term);
+    const matchesLot = material.lots?.some(lot => lot.lotto?.toLowerCase().includes(term)) ?? false;
     return matchesMaterial || matchesLot;
   });
 
