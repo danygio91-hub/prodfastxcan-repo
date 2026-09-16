@@ -32,8 +32,7 @@ export function calculateMRPTimelines(
 ): Map<string, MRPTimelineEntry[]> {
     try {
         const timelines = new Map<string, MRPTimelineEntry[]>();
-
-        // Mappa delle sessioni attive per codice materiale (ottimizzazione)
+        
         const sessionsByMaterial = new Map<string, any[]>();
         activeSessions.forEach(s => {
             if (s.status !== 'open') return;
@@ -41,74 +40,47 @@ export function calculateMRPTimelines(
             if (!sessionsByMaterial.has(code)) sessionsByMaterial.set(code, []);
             sessionsByMaterial.get(code)!.push(s);
         });
-        
-        // Data di oggi per normalizzazione Overdue
-        const now = new Date();
-        const today08 = new Date(now);
-        today08.setUTCHours(8, 0, 0, 0);
-        const today08ISO = today08.toISOString();
+
+        const MRP_ACTIVE_STATUSES = [
+            "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
+            "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
+            "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
+            "Manca Materiale", "Problema", "Sospesa", "planned", "In Pianificazione", "IN_PIANIFICAZIONE", "IN_ATTESA",
+            "PRODUCTION", "PAUSED", "SUSPENDED", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO",
+            "PREP", "ATTIVO", "ACTIVE", "IN_PROGRESS", "IN_LAVORAZIONE", "CONFIRMED"
+        ].map(s => s.trim().toUpperCase());
 
         rawMaterials.forEach(mat => {
             if (!mat || !mat.code) return;
-            const matCode = (mat.code || '').toUpperCase().trim();
+            const matCode = mat.code.toUpperCase().trim();
             const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-            
-            // 1. Inizializzazione Balance (SSoT: Deve usare currentStockUnits idratato)
-            let startingStock = (Number(mat.currentStockUnits) || Number(mat.stock)) || 0;
-            
-            // TASSATIVO (BUG 1): Rimuovi fallback su campo legacy 'stock' per evitare stock allucinati.
-            // Se le batches idratate dicono 0, allora è 0.
-            const initialPhysicalStock = startingStock;
+            const safeStock = Number(mat.minStockLevel) || 0;
 
-            // 2. Creazione Timeline Eventi per questo materiale
-            const events: {
-                date: string;
-                qty: number; // Positivo per PO, Negativo per Demand
-                type: 'PO' | 'DEMAND' | 'COMMITMENT';
-                id: string;
-                odl?: string;
-                isFrozen?: boolean;
-            }[] = [];
+            // STEP 1: Isolamento e Sanitizzazione
+            const rawStock = Number(mat.currentStockUnits ?? mat.stock ?? 0);
+            const initialStock = rawStock < 0 ? 0 : rawStock;
+            let currentBalance = initialStock;
 
-            // A. PO (Supply) - Solo Pendenti
-            const matchedPOs = purchaseOrders
-                .filter(po => {
-                    if (!po) return false;
-                    const status = (po.status as string || '').toLowerCase();
-                    // FIX 1 (Bypass String Mismatch): Filtro lasco già applicato in actions, 
-                    // ma rinforziamo qui per sicurezza in caso di chiamate da altre fonti.
-                    if (status === 'completed' || status === 'cancelled' || status === 'received') return false;
-                    
-                    const poMaterialCode = (po.materialCode || (po as any).codiceArticolo || (po as any).code || '').toUpperCase().trim();
-                    const matIdMatch = (po as any).materialId && (po as any).materialId === mat.id;
-                    
-                    // FIX 2 (Bypass Missing materialId): Fallback su Codice Materiale se ID non presente o non matchante
-                    const matCodeMatch = poMaterialCode === matCode;
-                    
-                    const isMatch = matIdMatch || matCodeMatch;
+            // STEP 2: Normalizzazione Eventi
+            const events: { type: 'SUPPLY' | 'DEMAND', date: string, qty: number, data: any, id: string, isFrozen?: boolean }[] = [];
 
-                    if (matCode === '28X1L53R' && isMatch) {
-                        console.log(`MRP DEBUG [28X1L53R] - Trovato PO Matchante: ID=${po.id}, Code=${poMaterialCode}, Qty=${po.quantity}, Received=${po.receivedQuantity}, Status=${po.status}`);
-                    }
+            // 2A. SUPPLY (Purchase Orders)
+            purchaseOrders.forEach(po => {
+                if (!po) return;
+                const status = (po.status as string || '').toLowerCase();
+                if (status === 'completed' || status === 'cancelled' || status === 'received') return;
+                
+                const poMaterialCode = (po.materialCode || (po as any).codiceArticolo || (po as any).code || '').toUpperCase().trim();
+                const matIdMatch = (po as any).materialId && (po as any).materialId === mat.id;
+                const matCodeMatch = poMaterialCode === matCode;
+                
+                if (!(matIdMatch || matCodeMatch)) return;
 
-                    return isMatch;
-                });
+                const qty = (Number(po.quantity) || 0) - (Number(po.receivedQuantity) || 0);
+                if (qty <= 0) return;
 
-            if (matCode === '28X1L53R') {
-                const totalQty = matchedPOs.reduce((sum, po) => sum + ((Number(po.quantity) || 0) - (Number(po.receivedQuantity) || 0)), 0);
-                console.log(`MRP DEBUG [28X1L53R] - PO Totali Pendenti trovati: ${matchedPOs.length}, Qty Totale: ${totalQty}`);
-                console.log("RAW POs passati a MRP:", purchaseOrders.filter(p => {
-                    const c = (p.materialCode || (p as any).codiceArticolo || (p as any).code || '').toUpperCase().trim();
-                    return c === '28X1L53R' || (p as any).materialId === mat.id;
-                }));
-            }
-
-            if (matCode === '50X005X33FR' && matchedPOs.length === 0) {
-                console.warn(`MRP WARNING [50X005X33FR] - Nessun PO pendente trovato per questo materiale! Verificare stati PO e codici materiale.`);
-            }
-
-            matchedPOs.forEach(po => {
-                    // Parsing robusto della data (gestisce String, Timestamp o Date)
+                let eventDateStr: string;
+                try {
                     let poDateRaw = po.expectedDeliveryDate;
                     let poDate: Date;
                     
@@ -117,62 +89,42 @@ export function calculateMRPTimelines(
                     } else if (poDateRaw) {
                         poDate = new Date(poDateRaw);
                     } else {
-                        poDate = new Date();
-                        poDate.setDate(poDate.getDate() + 30);
+                        poDate = new Date(NaN); 
                     }
 
-                    // REGOLA OVERDUE ASSOLUTA: Se data < oggi (mezzanotte), FORZA a oggi ore 08:00
-                    const todayMidnight = new Date(now);
-                    todayMidnight.setUTCHours(0, 0, 0, 0);
-                    
-                    let finalDateISO: string;
-                    if (isNaN(poDate.getTime())) {
-                        // Bypass totale su date invalide (Anti-Drop): le forziamo sempre a oggi
-                        finalDateISO = new Date().toISOString(); 
+                    const todayMidnight = new Date();
+                    todayMidnight.setHours(0, 0, 0, 0);
+
+                    if (isNaN(poDate.getTime()) || poDate < todayMidnight) {
+                        const fallbackDate = new Date();
+                        fallbackDate.setUTCHours(8, 0, 0, 0);
+                        eventDateStr = fallbackDate.toISOString();
                     } else {
-                        // Forza comunque l'orario alle 08:00 per coerenza intraday
-                        const d = new Date(poDate);
-                        d.setUTCHours(8, 0, 0, 0);
-                        finalDateISO = d.toISOString();
+                        const safeDate = new Date(poDate);
+                        safeDate.setUTCHours(8, 0, 0, 0);
+                        eventDateStr = safeDate.toISOString();
                     }
-                    
-                    const residuo = (Number(po.quantity) || 0) - (Number(po.receivedQuantity) || 0);
+                } catch (e) {
+                    const fallbackDate = new Date();
+                    fallbackDate.setUTCHours(8, 0, 0, 0);
+                    eventDateStr = fallbackDate.toISOString();
+                }
 
-                    events.push({
-                        date: finalDateISO,
-                        qty: residuo,
-                        type: 'PO',
-                        id: po.id
-                    });
-                });
+                events.push({ type: 'SUPPLY', date: eventDateStr, qty, data: po, id: po.id });
+            });
 
-            // B. Commesse (Demand)
-            // SSoT Active Statuses (Deve matchare Magazzino Live e includere varianti)
-            const MRP_ACTIVE_STATUSES = [
-                "DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", 
-                "Da Iniziare", "In Preparazione", "Pronto per Produzione", "In Lavorazione", "Fine Produzione", "Pronto per Finitura",
-                "DA INIZIARE", "IN PREP.", "PRONTO PROD.", "IN PROD.", "FINE PROD.", "QLTY & PACK", "PRONTO",
-                "Manca Materiale", "Problema", "Sospesa", "planned", "In Pianificazione", "IN_PIANIFICAZIONE", "IN_ATTESA",
-                "PRODUCTION", "PAUSED", "SUSPENDED", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO",
-                "PREP", "ATTIVO", "ACTIVE", "IN_PROGRESS", "IN_LAVORAZIONE", "CONFIRMED"
-            ].map(s => s.trim().toUpperCase());
-
+            // 2B. DEMAND (Commesse)
             allJobs.forEach(job => {
                 const status = (job.status || '').trim().toUpperCase();
                 const isVolatile = job.id.startsWith('VOLATILE');
                 const derivedStatus = getDerivedJobStatus(job);
                 
-                // [MRP COMMITMENT DROP] 
-                // Se la Preparazione è finita (PRONTO_PROD o successivi), l'IMPEGNO teorico decade a 0.
-                // Questo elimina i "Ghost Commitments" sulle commesse già avviate in produzione.
                 const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
                 const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) || 
                                      ['PRONTO', 'PRONTO PROD', 'IN PROD', 'FINE PROD'].includes(status);
 
+                let isFrozen = false;
                 if (!isVolatile && isPrepFinished) {
-                    // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
-                    // Se la commessa è agganciata a una sessione officina aperta per questo materiale, 
-                    // l'impegno NON deve essere abbattuto (viene "congelato" fino a chiusura sessione).
                     const matSessions = sessionsByMaterial.get(matCode) || [];
                     const hasActiveSession = matSessions.some(s => {
                         const ids = s.linkedJobOrderIds || [];
@@ -182,211 +134,172 @@ export function calculateMRPTimelines(
                                (job.numeroODLInterno && ids.includes(job.numeroODLInterno));
                     });
 
-                    if (!hasActiveSession) {
-                        return;
-                    }
-                    // Se ha una sessione attiva, prosegue e aggiunge l'evento demand (impegno congelato)
+                    if (!hasActiveSession) return;
+                    isFrozen = true;
                 }
 
-                // Fallback di sicurezza: se non è CHIUSA/PASSATA PREP, deve essere in uno degli stati attivi
-                if (!isVolatile && !MRP_ACTIVE_STATUSES.includes(status)) {
-                    return;
-                }
+                if (!isVolatile && !isFrozen && !MRP_ACTIVE_STATUSES.includes(status)) return;
 
                 (job.billOfMaterials || []).forEach(item => {
                     if (item.status !== 'withdrawn' && (item.component || '').toUpperCase().trim() === matCode) {
-                        // [MRP SSoT CALCULATION] Use the shared utility to match Warehouse UI logic exactly
-                        const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
                         const req = calculateBOMRequirement(job.qta, item, mat, config as any);
-                        
-                        // Priorità 1: Valore pre-calcolato se presente (SSoT Sync)
-                        // Priorità 2: Calcolo real-time tramite utility ufficiale
-                        let finalQty = (item.fabbisognoTotale !== undefined && item.fabbisognoTotale !== null) 
+                        const finalQty = (item.fabbisognoTotale !== undefined && item.fabbisognoTotale !== null) 
                             ? Number(item.fabbisognoTotale) 
                             : req.totalInBaseUnits;
-
-                        const demandQtyBase = finalQty;
-                        const demandDate = job.dataFinePreparazione || job.dataConsegnaFinale || '9999-12-31';
                         
-                        // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
-                        const matSessions = sessionsByMaterial.get(matCode) || [];
-                        const hasActiveSession = matSessions.some(s => {
-                            const ids = s.linkedJobOrderIds || [];
-                            const pfs = s.linkedJobOrderPFs || [];
-                            return ids.includes(job.id) || 
-                                   (job.ordinePF && (ids.includes(job.ordinePF) || pfs.includes(job.ordinePF))) ||
-                                   (job.numeroODLInterno && ids.includes(job.numeroODLInterno));
-                        });
+                        if (finalQty <= 0) return;
 
-                        // PRIORITÀ INTRADAY: Forza DEMAND alle 16:00 UTC (dopo i PO delle 08:00)
-                        const dWithTime = new Date(demandDate);
-                        dWithTime.setUTCHours(16, 0, 0, 0);
+                        let eventDateStr: string;
+                        try {
+                            const demandDateRaw = job.dataFinePreparazione || job.dataConsegnaFinale;
+                            let demandDate = new Date(demandDateRaw || Date.now());
+                            const todayMidnight = new Date();
+                            todayMidnight.setHours(0, 0, 0, 0);
+                            
+                            if (isNaN(demandDate.getTime()) || demandDate < todayMidnight) {
+                                const fallbackDate = new Date();
+                                fallbackDate.setUTCHours(16, 0, 0, 0);
+                                eventDateStr = fallbackDate.toISOString();
+                            } else {
+                                const safeDate = new Date(demandDate);
+                                safeDate.setUTCHours(16, 0, 0, 0);
+                                eventDateStr = safeDate.toISOString();
+                            }
+                        } catch (e) {
+                            const fallbackDate = new Date();
+                            fallbackDate.setUTCHours(16, 0, 0, 0);
+                            eventDateStr = fallbackDate.toISOString();
+                        }
 
-                        events.push({
-                            date: dWithTime.toISOString(),
-                            qty: -Number(demandQtyBase),
-                            type: 'DEMAND',
-                            id: job.id,
-                            odl: job.numeroODLInterno || job.ordinePF || '',
-                            isFrozen: hasActiveSession
-                        });
+                        events.push({ type: 'DEMAND', date: eventDateStr, qty: finalQty, data: job, id: job.id, isFrozen });
                     }
                 });
             });
 
-            // C. Manual Commitments (Demand)
+            // 2C. DEMAND (Manual Commitments)
             manualCommitments.filter(c => c && c.status === 'pending').forEach(c => {
+                let finalQty = 0;
                 const art = articles.find(a => a && a.code.toUpperCase() === (c.articleCode || '').toUpperCase());
+                
                 if (art) {
                     (art.billOfMaterials || []).forEach(item => {
                         if ((item.component || '').toUpperCase().trim() === matCode) {
-                            // ALIGNMENT (Live Warehouse Logic): Usa la stessa logica dei manual commitments del Magazzino Live
                             const req = calculateBOMRequirement(c.quantity, item, mat, config as any);
-                            const demandDate = c.deliveryDate || '9999-12-31';
-                            
-                            // PRIORITÀ INTRADAY: Forza DEMAND alle 16:00 UTC
-                            const dWithTime = new Date(demandDate);
-                            dWithTime.setUTCHours(16, 0, 0, 0);
-
-                            events.push({
-                                date: dWithTime.toISOString(),
-                                qty: -Number(req.totalInBaseUnits),
-                                type: 'DEMAND',
-                                id: c.id,
-                                odl: `COMMIT-${c.id.substring(0, 5)}`
-                            });
+                            finalQty += Number(req.totalInBaseUnits);
                         }
                     });
-                } else {
-                    // Se il codice del commitment manuale corrisponde direttamente al materiale
-                    if ((c.articleCode || '').toUpperCase().trim() === matCode) {
-                        const demandDate = c.deliveryDate || '9999-12-31';
-                        const dWithTime = new Date(demandDate);
-                        dWithTime.setUTCHours(16, 0, 0, 0);
-
-                        events.push({
-                            date: dWithTime.toISOString(),
-                            qty: -Number(c.quantity),
-                            type: 'DEMAND',
-                            id: c.id,
-                            odl: `DIRECT-${c.id.substring(0, 5)}`
-                        });
-                    }
+                } else if ((c.articleCode || '').toUpperCase().trim() === matCode) {
+                    finalQty = Number(c.quantity);
                 }
+
+                if (finalQty <= 0) return;
+
+                let eventDateStr: string;
+                try {
+                    let demandDate = new Date(c.deliveryDate || Date.now());
+                    const todayMidnight = new Date();
+                    todayMidnight.setHours(0, 0, 0, 0);
+
+                    if (isNaN(demandDate.getTime()) || demandDate < todayMidnight) {
+                        const fallbackDate = new Date();
+                        fallbackDate.setUTCHours(16, 0, 0, 0);
+                        eventDateStr = fallbackDate.toISOString();
+                    } else {
+                        const safeDate = new Date(demandDate);
+                        safeDate.setUTCHours(16, 0, 0, 0);
+                        eventDateStr = safeDate.toISOString();
+                    }
+                } catch(e) {
+                    const fallbackDate = new Date();
+                    fallbackDate.setUTCHours(16, 0, 0, 0);
+                    eventDateStr = fallbackDate.toISOString();
+                }
+
+                events.push({ type: 'DEMAND', date: eventDateStr, qty: finalQty, data: c, id: c.id });
             });
 
-            // 3. Ordinamento Cronologico Rigoroso (Stabilità garantita da ID e Tipo)
+            // STEP 3: Ordinamento Infallibile
             events.sort((a, b) => {
-                const dateCompare = a.date.localeCompare(b.date);
-                if (dateCompare !== 0) return dateCompare;
-                // Priorità intraday a parità di orario: PO prima di Demand
-                if (a.type === 'PO' && b.type !== 'PO') return -1;
-                if (b.type === 'PO' && a.type !== 'PO') return 1;
+                const dateA = new Date(a.date).getTime();
+                const dateB = new Date(b.date).getTime();
+                if (dateA !== dateB) return dateA - dateB;
+                
+                if (a.type === 'SUPPLY' && b.type === 'DEMAND') return -1;
+                if (a.type === 'DEMAND' && b.type === 'SUPPLY') return 1;
+                
                 return a.id.localeCompare(b.id);
             });
 
-            // 4. Loop di Calcolo (LOGICA PURA & GLASS-BOX DEBUG)
+            // STEP 4: Simulazione e Snapshot
             const materialEntries: MRPTimelineEntry[] = [];
-            
-            // Calcolo Totali Distinti (Supply, Real Demand [Jobs + Commitments], Simulated Demand)
-            const totalPO = events.filter(e => e.type === 'PO').reduce((sum, e) => sum + (Number(e.qty) || 0), 0);
-            const totalRealJobDemand = events.filter(e => !e.id.startsWith('VOLATILE') && (e.type === 'DEMAND' || e.type === 'COMMITMENT')).reduce((sum, e) => sum + Math.abs(Number(e.qty) || 0), 0);
-            const totalSimQtyDemand = events.filter(e => e.id.startsWith('VOLATILE')).reduce((sum, e) => sum + Math.abs(Number(e.qty) || 0), 0);
-            const totalDemand = totalRealJobDemand + totalSimQtyDemand;
+            let wentBelowZero = false;
 
-            // Per ogni evento DEMAND (commessa), simuliamo il fabbisogno specifico
-            events.forEach((currentEvent) => {
-                if (currentEvent.type === 'PO') return; // Saltiamo i PO come target di analisi diretta
+            const totalPO = events.filter(e => e.type === 'SUPPLY').reduce((acc, e) => acc + e.qty, 0);
+            const totalSimQtyDemand = events.filter(e => e.type === 'DEMAND' && e.id.startsWith('VOLATILE')).reduce((sum, e) => sum + e.qty, 0);
 
-                const simQty = Math.abs(Number(currentEvent.qty) || 0);
-                
-                // Bilancio Finale Assoluto per questa specifica commessa 
-                // (Stock + Tutti i PO - Tutte le Demand precedenti e attuali)
-                const absoluteFinalBalance = initialPhysicalStock + totalPO - totalDemand;
+            events.forEach(ev => {
+                if (ev.type === 'SUPPLY') {
+                    currentBalance += ev.qty;
+                } else if (ev.type === 'DEMAND') {
+                    currentBalance -= ev.qty;
+                    if (currentBalance < -0.001) wentBelowZero = true;
 
-                let runningBalance = initialPhysicalStock;
-                let currentBalanceAtSim = 0;
-                let coveringPODate: string | null = null;
-                let foundThisEvent = false;
-
-                // Loop Cronologico per determinare stato al momento del bisogno e PO di recupero
-                for (let ev of events) {
-                    runningBalance += (Number(ev.qty) || 0);
-                    
-                    // Se l'evento è quello che stiamo analizzando (stesso ID e data)
-                    if (ev.id === currentEvent.id && ev.date === currentEvent.date && !foundThisEvent) {
-                        currentBalanceAtSim = runningBalance;
-                        foundThisEvent = true;
-                    } else if (foundThisEvent && ev.type === 'PO' && ev.date > currentEvent.date) {
-                        // Se siamo già passati dal bisogno ed è un PO futuro, è un potenziale recupero
-                        if (!coveringPODate) coveringPODate = ev.date;
-                    }
+                    materialEntries.push({
+                        jobId: ev.id,
+                        materialCode: matCode,
+                        requiredQty: ev.qty,
+                        status: 'GREEN', // Segnaposto, aggiornato in STEP 5
+                        projectedBalance: currentBalance,
+                        details: [],
+                        totalPO: totalPO,
+                        totalSimQty: totalSimQtyDemand,
+                        isFrozen: ev.isFrozen
+                    });
                 }
+            });
 
-                if (matCode === '28X1L53R') {
-                    console.log("MRP EVAL STATUS [" + matCode + "]:", { currentBalanceAtSim, absoluteFinalBalance, totalPO, initialPhysicalStock, totalDemand });
-                }
+            // STEP 5: Valutazione Stato Finale
+            const absoluteFinalBalance = currentBalance;
+            let finalGlobalStatus: MRPTimelineEntry['status'] = 'GREEN';
+            let globalMessage = "";
 
-                // Glass-Box Debug String (Updated: Explicitly show SimQty)
-                const dbg = ` [DBG: Stk=${initialPhysicalStock.toFixed(2)}, PO=${totalPO.toFixed(2)}, Job=${totalRealJobDemand.toFixed(2)}, Sim=${totalSimQtyDemand.toFixed(2)}, Cur=${currentBalanceAtSim.toFixed(2)}, Fin=${absoluteFinalBalance.toFixed(2)}]`;
-
-                let status: MRPTimelineEntry['status'] = 'RED';
-                let supplyArrivalDate: string | undefined = undefined;
-                const details: string[] = [];
-
-                if (currentEvent.isFrozen) {
-                    details.push("⏳ In attesa chiusura Sessione Officina");
-                }
-
-                details.push(`Fabbisogno: ${simQty.toFixed(2)} ${mat.unitOfMeasure}`);
-
-                const cumulativePO = events
-                    .filter(e => e.type === 'PO' && e.date <= currentEvent.date)
-                    .reduce((sum, e) => sum + Number(e.qty), 0);
-
-                const safeStock = Number(mat.minStockLevel) || 0;
-
-                if (currentBalanceAtSim >= -0.001) {
-                    if (currentBalanceAtSim - cumulativePO >= -0.001) {
-                        if (currentBalanceAtSim < safeStock) {
-                            status = 'LOW_STOCK';
-                            details.push("⚠️ SOTTOSCORTA." + dbg);
-                        } else {
-                            status = 'GREEN';
-                            details.push("✅ DISPONIBILE (Stock fisico)." + dbg);
-                        }
-                    } else {
-                        status = 'ORDERED';
-                        const lastPO = [...events].filter(e => e.type === 'PO' && e.date <= currentEvent.date).pop();
-                        supplyArrivalDate = lastPO?.date;
-                        details.push(`💜 ORDINATO: Coperto da PO in arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}.` + dbg);
-                    }
+            if (!wentBelowZero) {
+                if (absoluteFinalBalance < safeStock) {
+                    finalGlobalStatus = 'LOW_STOCK';
+                    globalMessage = "⚠️ SOTTOSCORTA.";
                 } else {
-                    if (absoluteFinalBalance >= -0.001) {
-                         status = 'LATE';
-                         supplyArrivalDate = coveringPODate || undefined;
-                         details.push(`🟠 IN RITARDO: Merce in arrivo o in piazzale, ma tempi non allineati.` + dbg);
-                    } else {
-                         status = 'RED';
-                         details.push("❌ MANCANTE: VERO mancante globale. Stock e ordini totali insufficienti." + dbg);
-                    }
+                    finalGlobalStatus = 'GREEN';
+                    globalMessage = "✅ DISPONIBILE (Stock fisico o ampiamente coperto).";
                 }
+            } else {
+                if (absoluteFinalBalance >= -0.001) {
+                    finalGlobalStatus = 'LATE';
+                    globalMessage = "🟠 IN RITARDO: La merce arriva, ma i tempi non sono allineati al bisogno.";
+                } else {
+                    finalGlobalStatus = 'RED';
+                    globalMessage = "❌ MANCANTE: Mancante reale e permanente, stock e ordini insufficienti.";
+                }
+            }
 
-                materialEntries.push({
-                    jobId: currentEvent.id,
-                    materialCode: matCode,
-                    requiredQty: simQty,
-                    status,
-                    projectedBalance: currentBalanceAtSim,
-                    supplyArrivalDate,
-                    details,
-                    totalSimQty: totalSimQtyDemand,
-                    totalPO: totalPO,
-                    isFrozen: currentEvent.isFrozen
-                });
-
-                if (matCode === '50X005X33FR' || matCode === '100X020TUBFR') {
-                    console.log(`MRP DEBUG [${matCode}] - Status: ${status} | Job: ${currentEvent.id} | ${dbg}`);
+            materialEntries.forEach(entry => {
+                entry.status = finalGlobalStatus;
+                
+                if (entry.isFrozen) {
+                    entry.details.push("⏳ In attesa chiusura Sessione Officina");
+                }
+                entry.details.push(`Fabbisogno: ${entry.requiredQty.toFixed(2)} ${mat.unitOfMeasure}`);
+                entry.details.push(globalMessage);
+                
+                const dbg = ` [DBG: Init=${initialStock.toFixed(2)}, PO=${totalPO.toFixed(2)}, CurBalance=${entry.projectedBalance.toFixed(2)}, FinalBalance=${absoluteFinalBalance.toFixed(2)}]`;
+                entry.details.push(dbg);
+                
+                if (finalGlobalStatus === 'LATE') {
+                    // Trova il primo PO successivo alla data di questa DEMAND
+                    const targetDemandDate = events.find(ev => ev.id === entry.jobId)?.date;
+                    const nextSupply = events.find(e => e.type === 'SUPPLY' && new Date(e.date).getTime() > new Date(targetDemandDate || 0).getTime());
+                    if (nextSupply) {
+                        entry.supplyArrivalDate = nextSupply.date;
+                    }
                 }
             });
 

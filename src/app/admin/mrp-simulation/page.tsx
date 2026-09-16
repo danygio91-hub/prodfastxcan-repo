@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 import MrpSimulationClientPage from './MrpSimulationClientPage';
 import { getPlannedJobOrders, getProductionJobOrders, getCompletedJobOrders, getRequiredDataForJobs } from '../data-management/actions';
 import { getManualCommitments } from '../raw-material-management/actions';
-import { getPurchaseOrders, getAllPendingPurchaseOrders } from '../purchase-orders/actions';
+import { getTargetedPOs } from '../purchase-orders/actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { getDrafts } from './actions';
 import { adminDb } from '@/lib/firebase-admin';
@@ -64,7 +64,12 @@ export default async function AdminMrpSimulationPage() {
     const allJobs = [...planned, ...production];
 
     const manualCommitments = await getManualCommitments();
-    const purchaseOrders = await getAllPendingPurchaseOrders();
+    
+    // Identifichiamo i materiali necessari
+    const requiredData = await getRequiredDataForJobs(allJobs, manualCommitments);
+    const materialCodes = requiredData.materials.map((m: any) => m.code);
+    
+    const purchaseOrders = await getTargetedPOs(materialCodes);
     const globalSettings = await getGlobalSettings();
     const drafts = await getDrafts();
 

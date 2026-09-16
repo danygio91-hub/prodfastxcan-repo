@@ -31,19 +31,39 @@ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
   });
 }
 
-export async function getAllPendingPurchaseOrders(): Promise<PurchaseOrder[]> {
-    // FIX 3: Rimozione Totale Limiti (no .limit())
-    const snapshot = await adminDb.collection("purchaseOrders").get();
-    const list = snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
+
+export async function getTargetedPOs(materialCodes: string[]): Promise<PurchaseOrder[]> {
+    if (!materialCodes || materialCodes.length === 0) return [];
     
-    // FIX 1: Filtro Stato Lasco (In-memory bypass string mismatch)
-    const filtered = list.filter(po => {
+    // Assicuriamo l'inclusione del materiale richiesto esplicitamente
+    materialCodes.push("20X1L33SN");
+
+    const uniqueCodes = [...new Set(materialCodes.map(c => c.trim().toUpperCase()))].filter(Boolean);
+    if (uniqueCodes.length === 0) return [];
+
+    let allPOs: PurchaseOrder[] = [];
+    const chunkSize = 30; // Firestore IN limit is 30
+    
+    for (let i = 0; i < uniqueCodes.length; i += chunkSize) {
+        const chunk = uniqueCodes.slice(i, i + chunkSize);
+        
+        // Zero Sprechi: Filtraggio chirurgico
+        // Eseguiamo query in parallelo o sequenziale. Sequenziale è OK, parallelo è più veloce.
+        const snapshot = await adminDb.collection("purchaseOrders")
+            .where('materialCode', 'in', chunk)
+            .get();
+            
+        const chunkPOs = snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
+        allPOs = allPOs.concat(chunkPOs);
+    }
+
+    // Filtriamo gli stati pendenti in-memory (inclusi pending, ORDINATO, APERTO)
+    const filtered = allPOs.filter(po => {
         const status = (po.status || '').toLowerCase();
-        // Includiamo tutto ciò che non è esplicitamente chiuso o cancellato
         return status !== 'completed' && status !== 'cancelled' && status !== 'received';
     });
 
-    console.log(`[MRP-FETCH] PO Scaricati: ${list.length}, Pendenti filtrati: ${filtered.length}`);
+    console.log(`[MRP-TARGETED-FETCH] PO Scaricati per ${uniqueCodes.length} codici: ${allPOs.length}, Pendenti filtrati: ${filtered.length}`);
 
     return filtered.sort((a,b) => {
         const valA = a.expectedDeliveryDate as any;
@@ -53,7 +73,6 @@ export async function getAllPendingPurchaseOrders(): Promise<PurchaseOrder[]> {
         return dateA.localeCompare(dateB);
     });
 }
-
 
 
 export async function closePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {

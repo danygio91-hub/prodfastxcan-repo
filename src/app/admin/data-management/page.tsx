@@ -4,7 +4,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { getPlannedJobOrders, getProductionJobOrders, getCompletedJobOrders, getWorkCycles, getRequiredDataForJobs, getDepartments } from './actions';
 import { getManualCommitments } from '../raw-material-management/actions';
-import { getPurchaseOrders } from '../purchase-orders/actions';
+import { getTargetedPOs } from '../purchase-orders/actions';
 import { adminDb } from '@/lib/firebase-admin';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -18,7 +18,6 @@ export default async function AdminDataManagementCommessePage() {
   const completed = await getCompletedJobOrders();
 
   const manualCommitments = await getManualCommitments();
-  const purchaseOrders = await getPurchaseOrders();
 
   const [cycles, departments, requiredData, activeSessionsSnap, allArticlesSnap] = await Promise.all([
     getWorkCycles(),
@@ -28,8 +27,13 @@ export default async function AdminDataManagementCommessePage() {
     adminDb.collection("articles").select("code", "workCycleId", "secondaryWorkCycleId").get()
   ]);
 
-  const articles = allArticlesSnap.docs.map((doc: QueryDocumentSnapshot) => ({ ...doc.data(), id: doc.id }));
   const rawMaterials = requiredData.materials;
+  
+  // Estrai i codici necessari
+  const materialCodes = rawMaterials.map((m: any) => m.code);
+  const purchaseOrders = await getTargetedPOs(materialCodes);
+
+  const articles = allArticlesSnap.docs.map((doc: QueryDocumentSnapshot) => ({ ...doc.data(), id: doc.id }));
   const activeSessions = activeSessionsSnap.docs.map((doc: QueryDocumentSnapshot) => ({ ...doc.data(), id: doc.id }));
 
   return (
