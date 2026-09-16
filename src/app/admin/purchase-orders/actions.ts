@@ -19,7 +19,8 @@ function convertTimestampsToDates(obj: any): any {
 
 export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
   // FIX 3: Rimozione Limite 200 per garantire visibilità totale
-  const snapshot = await adminDb.collection("purchaseOrders").orderBy("createdAt", "desc").get();
+  // FIX CRITICO: Rimozione orderBy("createdAt", "desc") per evitare che Firestore nasconda i documenti privi del campo createdAt!
+  const snapshot = await adminDb.collection("purchaseOrders").get();
   const list = snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
   return list.sort((a,b) => {
     const valA = a.expectedDeliveryDate as any;

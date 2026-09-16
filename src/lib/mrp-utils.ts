@@ -54,7 +54,7 @@ export function calculateMRPTimelines(
             const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
             
             // 1. Inizializzazione Balance (SSoT: Deve usare currentStockUnits idratato)
-            let startingStock = Number(mat.currentStockUnits ?? mat.stock ?? 0);
+            let startingStock = (Number(mat.currentStockUnits) || Number(mat.stock)) || 0;
             
             // TASSATIVO (BUG 1): Rimuovi fallback su campo legacy 'stock' per evitare stock allucinati.
             // Se le batches idratate dicono 0, allora è 0.
@@ -79,7 +79,7 @@ export function calculateMRPTimelines(
                     // ma rinforziamo qui per sicurezza in caso di chiamate da altre fonti.
                     if (status === 'completed' || status === 'cancelled' || status === 'received') return false;
                     
-                    const poMaterialCode = (po.materialCode || '').toUpperCase().trim();
+                    const poMaterialCode = (po.materialCode || (po as any).codiceArticolo || (po as any).code || '').toUpperCase().trim();
                     const matIdMatch = (po as any).materialId && (po as any).materialId === mat.id;
                     
                     // FIX 2 (Bypass Missing materialId): Fallback su Codice Materiale se ID non presente o non matchante
@@ -87,12 +87,21 @@ export function calculateMRPTimelines(
                     
                     const isMatch = matIdMatch || matCodeMatch;
 
-                    if (matCode === '50X005X33FR' && isMatch) {
-                        console.log(`MRP DEBUG [50X005X33FR] - Trovato PO Matchante: ID=${po.id}, Code=${po.materialCode}, Qty=${po.quantity}, Status=${po.status}`);
+                    if (matCode === '28X1L53R' && isMatch) {
+                        console.log(`MRP DEBUG [28X1L53R] - Trovato PO Matchante: ID=${po.id}, Code=${poMaterialCode}, Qty=${po.quantity}, Received=${po.receivedQuantity}, Status=${po.status}`);
                     }
 
                     return isMatch;
                 });
+
+            if (matCode === '28X1L53R') {
+                const totalQty = matchedPOs.reduce((sum, po) => sum + ((Number(po.quantity) || 0) - (Number(po.receivedQuantity) || 0)), 0);
+                console.log(`MRP DEBUG [28X1L53R] - PO Totali Pendenti trovati: ${matchedPOs.length}, Qty Totale: ${totalQty}`);
+                console.log("RAW POs passati a MRP:", purchaseOrders.filter(p => {
+                    const c = (p.materialCode || (p as any).codiceArticolo || (p as any).code || '').toUpperCase().trim();
+                    return c === '28X1L53R' || (p as any).materialId === mat.id;
+                }));
+            }
 
             if (matCode === '50X005X33FR' && matchedPOs.length === 0) {
                 console.warn(`MRP WARNING [50X005X33FR] - Nessun PO pendente trovato per questo materiale! Verificare stati PO e codici materiale.`);
@@ -117,8 +126,9 @@ export function calculateMRPTimelines(
                     todayMidnight.setUTCHours(0, 0, 0, 0);
                     
                     let finalDateISO: string;
-                    if (poDate < todayMidnight || isNaN(poDate.getTime())) {
-                        finalDateISO = today08ISO;
+                    if (isNaN(poDate.getTime())) {
+                        // Bypass totale su date invalide (Anti-Drop): le forziamo sempre a oggi
+                        finalDateISO = new Date().toISOString(); 
                     } else {
                         // Forza comunque l'orario alle 08:00 per coerenza intraday
                         const d = new Date(poDate);
@@ -126,9 +136,11 @@ export function calculateMRPTimelines(
                         finalDateISO = d.toISOString();
                     }
                     
+                    const residuo = (Number(po.quantity) || 0) - (Number(po.receivedQuantity) || 0);
+
                     events.push({
                         date: finalDateISO,
-                        qty: Number(po.quantity || 0) - Number(po.receivedQuantity || 0),
+                        qty: residuo,
                         type: 'PO',
                         id: po.id
                     });
@@ -267,30 +279,26 @@ export function calculateMRPTimelines(
             events.sort((a, b) => {
                 const dateCompare = a.date.localeCompare(b.date);
                 if (dateCompare !== 0) return dateCompare;
-                // A parità di data: Supply (PO) prima di Demand
+                // Priorità intraday a parità di orario: PO prima di Demand
                 if (a.type === 'PO' && b.type !== 'PO') return -1;
-                if (a.type !== 'PO' && b.type === 'PO') return 1;
+                if (b.type === 'PO' && a.type !== 'PO') return 1;
                 return a.id.localeCompare(b.id);
             });
-
-            if (matCode === '50X005X33FR') {
-                console.log(`MRP DEBUG [50X005X33FR] - Sorted Events:`, events.map(e => `${e.date} | ${e.type} | ${e.qty}`));
-            }
 
             // 4. Loop di Calcolo (LOGICA PURA & GLASS-BOX DEBUG)
             const materialEntries: MRPTimelineEntry[] = [];
             
             // Calcolo Totali Distinti (Supply, Real Demand [Jobs + Commitments], Simulated Demand)
-            const totalPO = events.filter(e => e.type === 'PO').reduce((sum, e) => sum + Number(e.qty), 0);
-            const totalRealJobDemand = events.filter(e => !e.id.startsWith('VOLATILE') && (e.type === 'DEMAND' || e.type === 'COMMITMENT')).reduce((sum, e) => sum + Math.abs(Number(e.qty)), 0);
-            const totalSimQtyDemand = events.filter(e => e.id.startsWith('VOLATILE')).reduce((sum, e) => sum + Math.abs(Number(e.qty)), 0);
+            const totalPO = events.filter(e => e.type === 'PO').reduce((sum, e) => sum + (Number(e.qty) || 0), 0);
+            const totalRealJobDemand = events.filter(e => !e.id.startsWith('VOLATILE') && (e.type === 'DEMAND' || e.type === 'COMMITMENT')).reduce((sum, e) => sum + Math.abs(Number(e.qty) || 0), 0);
+            const totalSimQtyDemand = events.filter(e => e.id.startsWith('VOLATILE')).reduce((sum, e) => sum + Math.abs(Number(e.qty) || 0), 0);
             const totalDemand = totalRealJobDemand + totalSimQtyDemand;
 
             // Per ogni evento DEMAND (commessa), simuliamo il fabbisogno specifico
             events.forEach((currentEvent) => {
                 if (currentEvent.type === 'PO') return; // Saltiamo i PO come target di analisi diretta
 
-                const simQty = Math.abs(Number(currentEvent.qty));
+                const simQty = Math.abs(Number(currentEvent.qty) || 0);
                 
                 // Bilancio Finale Assoluto per questa specifica commessa 
                 // (Stock + Tutti i PO - Tutte le Demand precedenti e attuali)
@@ -303,7 +311,7 @@ export function calculateMRPTimelines(
 
                 // Loop Cronologico per determinare stato al momento del bisogno e PO di recupero
                 for (let ev of events) {
-                    runningBalance += Number(ev.qty);
+                    runningBalance += (Number(ev.qty) || 0);
                     
                     // Se l'evento è quello che stiamo analizzando (stesso ID e data)
                     if (ev.id === currentEvent.id && ev.date === currentEvent.date && !foundThisEvent) {
@@ -313,6 +321,10 @@ export function calculateMRPTimelines(
                         // Se siamo già passati dal bisogno ed è un PO futuro, è un potenziale recupero
                         if (!coveringPODate) coveringPODate = ev.date;
                     }
+                }
+
+                if (matCode === '28X1L53R') {
+                    console.log("MRP EVAL STATUS [" + matCode + "]:", { currentBalanceAtSim, absoluteFinalBalance, totalPO, initialPhysicalStock, totalDemand });
                 }
 
                 // Glass-Box Debug String (Updated: Explicitly show SimQty)
@@ -350,13 +362,13 @@ export function calculateMRPTimelines(
                         details.push(`💜 ORDINATO: Coperto da PO in arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}.` + dbg);
                     }
                 } else {
-                    if (absoluteFinalBalance >= -0.001 && totalPO > 0) {
+                    if (absoluteFinalBalance >= -0.001) {
                          status = 'LATE';
                          supplyArrivalDate = coveringPODate || undefined;
-                         details.push(`🟠 IN RITARDO: In arrivo il ${supplyArrivalDate ? new Date(supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'futuro'}.` + dbg);
+                         details.push(`🟠 IN RITARDO: Merce in arrivo o in piazzale, ma tempi non allineati.` + dbg);
                     } else {
                          status = 'RED';
-                         details.push("❌ MANCANTE: Stock e ordini totali insufficienti." + dbg);
+                         details.push("❌ MANCANTE: VERO mancante globale. Stock e ordini totali insufficienti." + dbg);
                     }
                 }
 
@@ -441,9 +453,10 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
             newDetails.push(`❌ MANCANTE: Stock e ordini totali insufficienti. ${debugString}`);
             newDetails.push("VERIFICARE PIANO ACQUISTI.");
         } else if (finalStatus === 'LATE') {
-            const lateEntry = group.entries.find(e => e.status === 'LATE' && e.supplyArrivalDate);
-            newDetails.push(`🟠 IN RITARDO: In arrivo il ${lateEntry?.supplyArrivalDate ? new Date(lateEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'futuro'}. ${debugString}`);
-            newDetails.push("Verificare se è possibile anticipare la consegna.");
+            const lateEntry = group.entries.find(e => e.status === 'LATE');
+            const arrivalStr = lateEntry?.supplyArrivalDate ? ` (Arrivo previsto: ${new Date(lateEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })})` : '';
+            newDetails.push(`🟠 IN RITARDO: Merce in arrivo o in piazzale, ma tempi non allineati${arrivalStr}. ${debugString}`);
+            newDetails.push("Verificare carico a magazzino o anticipare consegna.");
         } else if (finalStatus === 'ORDERED') {
             const orderedEntry = group.entries.find(e => e.status === 'ORDERED' && e.supplyArrivalDate);
             newDetails.push(`💜 ORDINATO: In arrivo il ${orderedEntry?.supplyArrivalDate ? new Date(orderedEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}. ${debugString}`);
