@@ -410,7 +410,11 @@ export default function DataManagementClientPage({
     return { sSotPlanned: planned, sSotProduction: prod, sSotCompleted: comp };
   }, [allJobsUnfiltered]);
 
+  const isDataLoading = rawMaterials.length === 0 || articles.length === 0;
+
   const mrpTimelines = useMemo(() => {
+    if (isDataLoading) return new Map<string, MRPTimelineEntry[]>();
+    
     return calculateMRPTimelines(
       [...sSotPlanned, ...sSotProduction],
       rawMaterials,
@@ -420,11 +424,13 @@ export default function DataManagementClientPage({
       globalSettings,
       activeSessions
     );
-  }, [sSotPlanned, sSotProduction, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings]);
+  }, [isDataLoading, sSotPlanned, sSotProduction, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings, activeSessions]);
 
   const criticalMaterialsTimeline = useMemo(() => {
     const criticals = new Map<string, { entry: MRPTimelineEntry, job: JobOrder | undefined }[]>();
     
+    if (isDataLoading) return criticals;
+
     mrpTimelines.forEach((entries, matCode) => {
       if (entries.some(e => e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK' || e.status === 'ORDERED')) {
         const mappedEntries = entries.map(entry => {
@@ -736,7 +742,12 @@ export default function DataManagementClientPage({
               </SheetHeader>
               
               <div className="mt-6">
-                {criticalMaterialsTimeline.size === 0 ? (
+                {isDataLoading ? (
+                  <div className="text-center p-6 text-muted-foreground flex flex-col items-center justify-center space-y-4">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p className="font-medium animate-pulse">Sincronizzazione Magazzino in corso...</p>
+                  </div>
+                ) : criticalMaterialsTimeline.size === 0 ? (
                   <div className="text-center p-6 text-muted-foreground bg-green-50 rounded-lg border border-green-100">
                     <CheckCircle2 className="h-8 w-8 mx-auto text-green-500 mb-2" />
                     Nessun materiale critico per le commesse visualizzate.
@@ -1027,19 +1038,25 @@ export default function DataManagementClientPage({
 
       {pdfData && <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}><ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} config={odlConfig} qrRule={qrRule} globalSettings={globalSettings} /></div>}
 
-      <Tabs defaultValue="planned">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({sSotPlanned.length})</TabsTrigger>
-          <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({sSotProduction.length})</TabsTrigger>
-          <TabsTrigger value="completed"><CheckCircle2 className="mr-2 h-4 w-4" />Conclusi ({sSotCompleted.length})</TabsTrigger>
-        </TabsList>
+      {isDataLoading ? (
+        <div className="flex flex-col items-center justify-center py-20 space-y-4 bg-muted/20 rounded-lg border border-dashed">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-muted-foreground font-medium animate-pulse">Caricamento e sincronizzazione dati MRP in corso...</p>
+        </div>
+      ) : (
+        <Tabs defaultValue="planned">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({sSotPlanned.length})</TabsTrigger>
+            <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({sSotProduction.length})</TabsTrigger>
+            <TabsTrigger value="completed"><CheckCircle2 className="mr-2 h-4 w-4" />Conclusi ({sSotCompleted.length})</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="planned">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} />
-              </div>
+          <TabsContent value="planned">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} />
+                </div>
               {selectedRows.length > 0 && (
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ({selectedRows.length})</Button>
@@ -1206,6 +1223,7 @@ export default function DataManagementClientPage({
           </Card>
         </TabsContent>
       </Tabs>
+      )}
 
 
       <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>

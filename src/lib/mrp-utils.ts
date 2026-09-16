@@ -54,7 +54,7 @@ export function calculateMRPTimelines(
             const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
             
             // 1. Inizializzazione Balance (SSoT: Deve usare currentStockUnits idratato)
-            let startingStock = Number(mat.currentStockUnits || 0);
+            let startingStock = Number(mat.currentStockUnits ?? mat.stock ?? 0);
             
             // TASSATIVO (BUG 1): Rimuovi fallback su campo legacy 'stock' per evitare stock allucinati.
             // Se le batches idratate dicono 0, allora è 0.
