@@ -130,8 +130,8 @@ export default function ReportsClientPage({
   const filteredAndGroupedWithdrawals = useMemo(() => {
     const filtered = searchTerm
         ? withdrawalsReport.filter(w =>
-            w.jobOrderPFs.join(', ').toLowerCase().includes(searchTerm.toLowerCase()) ||
-            w.materialCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (w.jobOrderPFs || []).join(', ').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (w.materialCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (w.operatorName || '').toLowerCase().includes(searchTerm.toLowerCase())
         )
         : withdrawalsReport;
@@ -154,8 +154,8 @@ export default function ReportsClientPage({
     }
     const lowercasedFilter = jobsSearchTerm.toLowerCase();
     return jobsReport.filter(job =>
-      job.id.toLowerCase().includes(lowercasedFilter) ||
-      job.details.toLowerCase().includes(lowercasedFilter)
+      (job.id || '').toLowerCase().includes(lowercasedFilter) ||
+      (job.details || '').toLowerCase().includes(lowercasedFilter)
     );
   }, [jobsReport, jobsSearchTerm]);
 
@@ -233,8 +233,8 @@ export default function ReportsClientPage({
     const list = specificWithdrawals || withdrawalsReport;
     const dataToExport = list.map(w => ({
       'Tipo Materiale': w.materialType || 'Sconosciuto',
-      'Commessa/e': w.jobOrderPFs.join(', '),
-      'Materiale': w.materialCode,
+      'Commessa/e': (w.jobOrderPFs || []).join(', '),
+      'Materiale': w.materialCode || '-',
       'Lotto': w.lotto || '-',
       'Consumo (n)': w.materialUnitOfMeasure === 'n' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'n') : '',
       'Consumo (mt)': w.materialUnitOfMeasure === 'mt' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'mt') : '',
@@ -317,7 +317,7 @@ export default function ReportsClientPage({
   
   const getWithdrawalProvenance = (w: EnrichedMaterialWithdrawal) => {
     if (w.source === 'session' || w.sessionId) return { label: 'Sessione Materiale', color: 'text-blue-400' };
-    if (w.source === 'manual' || w.jobOrderPFs.includes('SCARICO_MANUALE') || (w.jobIds && w.jobIds.length === 0)) return { label: 'Scarico Manuale', color: 'text-orange-400' };
+    if (w.source === 'manual' || (w.jobOrderPFs || []).includes('SCARICO_MANUALE') || (w.jobIds && w.jobIds.length === 0)) return { label: 'Scarico Manuale', color: 'text-orange-400' };
     if (w.source === 'production') return { label: 'Scarico Produzione', color: 'text-emerald-400' };
     return { label: 'Produzione', color: 'text-muted-foreground' };
   };
