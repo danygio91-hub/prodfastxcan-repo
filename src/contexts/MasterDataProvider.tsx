@@ -23,6 +23,7 @@ interface MasterDataContextType {
     settings: ProductionSettings | null;
     globalSettings: GlobalSettings | null;
     workingHours: WorkingHoursConfig | null;
+    standardTheoreticalHours: number;
     isLoading: boolean;
     refreshMasterData: () => Promise<void>;
 }
@@ -115,6 +116,21 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
         loadMasterData();
     }, [loadMasterData]);
 
+    const standardTheoreticalHours = React.useMemo(() => {
+        let dailyMins = 0;
+        if (workingHours?.shifts && workingHours.shifts.length > 0) {
+            workingHours.shifts.forEach(shift => {
+                const [startH, startM] = shift.startTime.split(':').map(Number);
+                const [endH, endM] = shift.endTime.split(':').map(Number);
+                const diff = (endH * 60 + endM) - (startH * 60 + startM);
+                dailyMins += Math.max(0, diff - (shift.breakMinutes || 0));
+            });
+        }
+        if (dailyMins === 0) dailyMins = 480;
+        const eff = (workingHours?.efficiencyPercentage || 95) / 100;
+        return Number(((dailyMins / 60) * eff).toFixed(2));
+    }, [workingHours]);
+
     const value = {
         operators,
         articles,
@@ -125,6 +141,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
         settings,
         globalSettings,
         workingHours,
+        standardTheoreticalHours,
         isLoading,
         refreshMasterData: loadMasterData
     };

@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import type { JobOrder, Operator, OperatorAssignment, Article, ProductionSettings } from '@/types';
+import React, { useState, useMemo, useEffect } from 'react';
+import type { JobOrder, Operator, OperatorAssignment, Article, ProductionSettings, CalendarException } from '@/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { startOfWeek, addDays, addWeeks, addMonths, differenceInMinutes, differenceInDays, format, startOfDay } from 'date-fns';
@@ -16,6 +16,7 @@ import { Loader2, RefreshCcw, Save } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { bulkUpdateJobOrders } from '@/app/admin/production-console/actions';
+import { getCalendarExceptions } from '@/app/admin/attendance-calendar/actions';
 
 interface GanttBoardProps {
   jobOrders: JobOrder[];
@@ -24,14 +25,16 @@ interface GanttBoardProps {
   settings: ProductionSettings;
   articles: Article[];
   timelineStartProp?: Date;
+  exceptions?: CalendarException[];
 }
 
-export default function GanttBoard({ jobOrders, operators, assignments, settings, articles, timelineStartProp }: GanttBoardProps) {
+export default function GanttBoard({ jobOrders, operators, assignments, settings, articles, timelineStartProp, exceptions }: GanttBoardProps) {
 
   const [viewMode, setViewMode] = useState<'daily'|'weekly'|'monthly'>('weekly');
   const [isCalculating, setIsCalculating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [localJobs, setLocalJobs] = useState<JobOrder[]>(jobOrders);
+  const [activeExceptions, setActiveExceptions] = useState<CalendarException[]>(exceptions || []);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -39,10 +42,20 @@ export default function GanttBoard({ jobOrders, operators, assignments, settings
     setLocalJobs(jobOrders);
   }, [jobOrders]);
 
+  useEffect(() => {
+    if (exceptions && exceptions.length > 0) {
+      setActiveExceptions(exceptions);
+    } else {
+      getCalendarExceptions().then(setActiveExceptions).catch(err => {
+        console.error("GanttBoard: Errore caricamento eccezioni calendario:", err);
+      });
+    }
+  }, [exceptions]);
+
   const handleRecalculate = async () => {
     setIsCalculating(true);
     try {
-        const scheduler = new GanttScheduler(operators, assignments, settings);
+        const scheduler = new GanttScheduler(operators, assignments, settings, activeExceptions);
         const updatedJobs = await Promise.all(localJobs.map(async (job) => {
             // Only reschedule if not completed
             const isCompleted = (job.phases || []).every(p => p.status === 'completed');

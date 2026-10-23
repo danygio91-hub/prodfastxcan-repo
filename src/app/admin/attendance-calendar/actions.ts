@@ -85,15 +85,17 @@ export async function getWeeklyCapacityReport(targetDateIso: string, weeks: numb
     ]);
 
     let dailyStandardMinutes = 0;
-    config.shifts.forEach(shift => {
+    (config.shifts || []).forEach(shift => {
         const [startH, startM] = shift.startTime.split(':').map(Number);
         const [endH, endM] = shift.endTime.split(':').map(Number);
         const diff = (endH * 60 + endM) - (startH * 60 + startM);
         dailyStandardMinutes += Math.max(0, diff - (shift.breakMinutes || 0));
     });
+    // Fallback Standard Teorico: se non sono configurati turni specifici, usa 8 ore (480 min)
+    if (dailyStandardMinutes === 0) dailyStandardMinutes = 480;
 
-    const efficiencyFactor = (config.efficiencyPercentage || 100) / 100;
-    const dailyEffectiveHours = (dailyStandardMinutes / 60) * efficiencyFactor;
+    const efficiencyFactor = (config.efficiencyPercentage || 95) / 100;
+    const dailyEffectiveHours = Number(((dailyStandardMinutes / 60) * efficiencyFactor).toFixed(2)); // Es. 7.60h standard
 
     const report: OperatorCapacity[] = operators
         .filter(op => op.role !== 'admin' && op.isReal !== false)
@@ -102,7 +104,7 @@ export async function getWeeklyCapacityReport(targetDateIso: string, weeks: numb
             const dailyCapacities: DailyCapacity[] = daysInWeek.map(day => {
                 const dateStr = format(day, 'yyyy-MM-dd');
                 const dayOfWeek = day.getDay() === 0 ? 7 : day.getDay();
-                const isWorkingDay = config.workingDays.includes(dayOfWeek);
+                const isWorkingDay = (config.workingDays || [1, 2, 3, 4, 5]).includes(dayOfWeek);
                 const holidayCheck = isItalianHoliday(day);
                 
                 const dayExceptions = exceptions.filter(ex => 
@@ -113,6 +115,7 @@ export async function getWeeklyCapacityReport(targetDateIso: string, weeks: numb
                     })
                 );
 
+                // Iniezione automatica della Capacità Teorica Standard (es. 7.60h)
                 let effectiveHours = (isWorkingDay && !holidayCheck.isHoliday) ? dailyEffectiveHours : 0;
                 
                 // Add holiday as a virtual exception for display if needed
@@ -131,6 +134,7 @@ export async function getWeeklyCapacityReport(targetDateIso: string, weeks: numb
                     });
                 }
                 
+                // Sottrazione eccezioni registrate (ferie/malattie/permessi)
                 dayExceptions.forEach(ex => {
                     if (ex.hoursLost !== undefined && ex.hoursLost !== null) {
                         effectiveHours = Math.max(0, effectiveHours - ex.hoursLost);
@@ -146,7 +150,7 @@ export async function getWeeklyCapacityReport(targetDateIso: string, weeks: numb
                     dayName: format(day, 'EEEE', { locale: it }),
                     isWorkingDay,
                     standardHours: isWorkingDay ? dailyStandardMinutes / 60 : 0,
-                    effectiveHours,
+                    effectiveHours: Number(effectiveHours.toFixed(2)),
                     exceptions: dayExceptions
                 };
             });
@@ -155,11 +159,71 @@ export async function getWeeklyCapacityReport(targetDateIso: string, weeks: numb
                 operatorId: op.id,
                 operatorName: op.nome,
                 dailyCapacities,
-                totalWeeklyHours
+                totalWeeklyHours: Number(totalWeeklyHours.toFixed(2))
             };
         });
 
     return JSON.parse(JSON.stringify(report));
+}
+
+/**
+ * Fornisce al Gantt e alla pianificazione le ore disponibili per ciascun operatore.
+ * Se per la giornata odierna (o specificata) non esiste una conferma manuale,
+ * inietta automaticamente la Capacità Teorica Standard (7.60h di default) meno eventuali eccezioni già registrate.
+ */
+export async function getGanttDailyCapacity(targetDateStr?: string): Promise<Record<string, number>> {
+    const dateStr = targetDateStr || format(new Date(), 'yyyy-MM-dd');
+    const targetDate = parseISO(dateStr);
+    const dayOfWeek = targetDate.getDay() === 0 ? 7 : targetDate.getDay();
+
+    const [config, operators, exceptions] = await Promise.all([
+        getWorkingHoursConfig(),
+        getOperators(),
+        getCalendarExceptions()
+    ]);
+
+    let dailyStandardMinutes = 0;
+    (config.shifts || []).forEach(shift => {
+        const [startH, startM] = shift.startTime.split(':').map(Number);
+        const [endH, endM] = shift.endTime.split(':').map(Number);
+        const diff = (endH * 60 + endM) - (startH * 60 + startM);
+        dailyStandardMinutes += Math.max(0, diff - (shift.breakMinutes || 0));
+    });
+    if (dailyStandardMinutes === 0) dailyStandardMinutes = 480;
+
+    const efficiencyFactor = (config.efficiencyPercentage || 95) / 100;
+    const standardTheoreticalHours = Number(((dailyStandardMinutes / 60) * efficiencyFactor).toFixed(2)); // Es. 7.60h standard
+
+    const isWorkingDay = (config.workingDays || [1, 2, 3, 4, 5]).includes(dayOfWeek);
+    const holidayCheck = isItalianHoliday(targetDate);
+
+    const capacities: Record<string, number> = {};
+
+    operators
+        .filter(op => op.role !== 'admin' && op.isReal !== false)
+        .forEach(op => {
+            const dayExceptions = exceptions.filter(ex => 
+                (ex.targetId === op.id || ex.resourceType === 'company') && 
+                isWithinInterval(targetDate, { 
+                    start: startOfDay(parseISO(ex.startDate)), 
+                    end: endOfDay(parseISO(ex.endDate)) 
+                })
+            );
+
+            let effectiveHours = (isWorkingDay && !holidayCheck.isHoliday) ? standardTheoreticalHours : 0;
+
+            dayExceptions.forEach(ex => {
+                if (ex.hoursLost !== undefined && ex.hoursLost !== null) {
+                    effectiveHours = Math.max(0, effectiveHours - ex.hoursLost);
+                } else {
+                    effectiveHours = 0;
+                }
+            });
+
+            capacities[op.id] = Number(effectiveHours.toFixed(2));
+        });
+
+    return capacities;
 }
 
 export async function checkAttendanceDeclared(dateStr: string): Promise<boolean> {

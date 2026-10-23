@@ -195,8 +195,8 @@ export default function AttendanceCalendarPage() {
           </header>
 
           <Tabs defaultValue="capacity" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 max-w-md">
-                <TabsTrigger value="capacity">Vista Capacità</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 max-w-lg">
+                <TabsTrigger value="capacity">Capacità Operativa Settimanale</TabsTrigger>
                 <TabsTrigger value="registry">Registro Eccezioni</TabsTrigger>
             </TabsList>
 

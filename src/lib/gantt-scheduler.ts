@@ -1,6 +1,6 @@
-import { JobOrder, Operator, JobPhase, Article, OperatorAssignment, ProductionSettings } from '@/types';
+import { JobOrder, Operator, JobPhase, Article, OperatorAssignment, ProductionSettings, CalendarException } from '@/types';
 import { subtractWorkingMinutes, snapToPreviousWorkingTime } from './calendar-utils';
-import { isBefore, isAfter, max, min, format } from 'date-fns';
+import { isBefore, isAfter, max, min, format, parseISO, startOfDay, setHours, setMinutes, setSeconds } from 'date-fns';
 
 export interface TimeSlot {
   start: Date;
@@ -99,13 +99,44 @@ export class GanttScheduler {
   assignments: OperatorAssignment[];
   calendars: Map<string, OperatorCalendar> = new Map();
   settings: ProductionSettings;
+  exceptions: CalendarException[];
 
-  constructor(operators: Operator[], assignments: OperatorAssignment[], settings: ProductionSettings) {
+  constructor(
+    operators: Operator[], 
+    assignments: OperatorAssignment[], 
+    settings: ProductionSettings,
+    exceptions: CalendarException[] = []
+  ) {
     this.operators = operators;
     this.assignments = assignments;
     this.settings = settings;
+    this.exceptions = exceptions;
+
     operators.forEach(op => {
-      this.calendars.set(op.id, new OperatorCalendar(op.id));
+      const cal = new OperatorCalendar(op.id);
+
+      // Pre-fill slots with operator exceptions (ferie/malattie/permessi)
+      // I periodi di assenza vengono pre-occupati automaticamente,
+      // garantendo al Gantt piena disponibilità teorica standard sulle giornate lavorative.
+      const opExceptions = exceptions.filter(ex => ex.targetId === op.id || ex.resourceType === 'company');
+      opExceptions.forEach(ex => {
+        try {
+          const exStart = parseISO(ex.startDate);
+          const exEnd = parseISO(ex.endDate);
+          const blockStart = setSeconds(setMinutes(setHours(startOfDay(exStart), 8), 0), 0);
+          const blockEnd = setSeconds(setMinutes(setHours(startOfDay(exEnd), 17), 0), 0);
+          cal.addSlot({
+            start: blockStart,
+            end: blockEnd,
+            jobId: `EXC_${ex.id}`,
+            phaseId: ex.exceptionType || 'absence'
+          });
+        } catch (e) {
+          console.error("Error setting exception slot in scheduler:", e);
+        }
+      });
+
+      this.calendars.set(op.id, cal);
     });
   }
 
