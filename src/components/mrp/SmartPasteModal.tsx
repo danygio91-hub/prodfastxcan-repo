@@ -20,6 +20,7 @@ interface SmartPasteModalProps {
   onClose: () => void;
   articles: Article[];
   departments: Department[];
+  onJobsCreated?: (jobs: any[]) => void;
 }
 
 export interface ParsedRow {
@@ -34,7 +35,7 @@ export interface ParsedRow {
   prepDateParsed: string | null;
 }
 
-export function SmartPasteModal({ isOpen, onClose, articles, departments }: SmartPasteModalProps) {
+export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobsCreated }: SmartPasteModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [pasteText, setPasteText] = useState('');
   const [rows, setRows] = useState<ParsedRow[]>([]);
@@ -167,6 +168,9 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments }: Smar
           const res = await saveSmartPastedJobOrders(payload);
           if (res.success) {
               toast({ title: "Commesse Create", description: res.message });
+              if (onJobsCreated && (res as any).jobs) {
+                  onJobsCreated((res as any).jobs);
+              }
               handleClose();
           } else {
               toast({ variant: "destructive", title: "Errore di Salvataggio", description: res.message });

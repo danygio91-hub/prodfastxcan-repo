@@ -39,9 +39,10 @@ interface SmartJobModalProps {
   onClose: () => void;
   settings: GlobalSettings | null;
   initialJob?: any;
+  onJobSaved?: (savedJob: any) => void;
 }
 
-export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initialJob }: SmartJobModalProps) {
+export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initialJob, onJobSaved }: SmartJobModalProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -177,10 +178,17 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
 
       if (res.success) {
         toast({ title: initialJob ? "Aggiornato" : "Creato", description: res.message });
-        startTransition(() => {
+        if (onJobSaved) {
+          if ((res as any).job) {
+            onJobSaved((res as any).job);
+          }
           onClose();
-          router.refresh();
-        });
+        } else {
+          startTransition(() => {
+            onClose();
+            router.refresh();
+          });
+        }
       } else {
         toast({ variant: "destructive", title: "Errore", description: res.message });
       }

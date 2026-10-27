@@ -74,6 +74,7 @@ import type { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, type MRPTimelineEntry } from '@/lib/mrp-utils';
 import { SmartJobModal } from '@/components/mrp/SmartJobModal';
 import { SmartPasteModal } from '@/components/mrp/SmartPasteModal';
+import { ManualJobModal } from '@/components/mrp/ManualJobModal';
 import { 
   getJobOrders, 
   getTargetedMRPData, 
@@ -81,9 +82,21 @@ import {
   updateJobOdlNumber, 
   updateJobStatus,
   updateJobDeliveryDate,
-  saveQuickJobOrder,
-  saveManualJobOrder
+  saveQuickJobOrder
 } from './actions';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 
 interface ProgrammazioneClientPageProps {
   initialJobs: JobOrder[];
@@ -209,17 +222,6 @@ export default function ProgrammazioneClientPage({
   const [isSmartPasteOpen, setIsSmartPasteOpen] = useState(false);
   const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
 
-  // Form Nuova Commessa Manuale
-  const [manualForm, setManualForm] = useState({
-    cliente: '',
-    ordinePF: '',
-    articleCode: '',
-    qta: 1,
-    department: 'CP',
-    workCycleId: '',
-    dataConsegnaFinale: '',
-  });
-
   // Draft locale per i N° ODL (input rapido)
   const [odlDrafts, setOdlDrafts] = useState<Record<string, string>>({});
   // Draft locale per Data Consegna (inline edit)
@@ -236,6 +238,8 @@ export default function ProgrammazioneClientPage({
     department: 'CP',
   });
   const [isSubmittingQuickRow, setIsSubmittingQuickRow] = useState(false);
+  const [isQuickArticleOpen, setIsQuickArticleOpen] = useState(false);
+  const [quickArticleSearch, setQuickArticleSearch] = useState('');
   const quickRowFirstInputRef = useRef<HTMLInputElement>(null);
 
   // Filtro Reparto (4 Macro-Gruppi)
@@ -444,8 +448,17 @@ export default function ProgrammazioneClientPage({
     return counts;
   }, [jobs, showAllWeeks, selectedWeekNumber, selectedYear]);
 
+  // Filtro Articoli per Autocomplete Riga Rapida
+  const matchingQuickArticles = useMemo(() => {
+    const term = (quickArticleSearch || quickRow.articleCode || '').trim().toUpperCase();
+    if (!term) return articles.slice(0, 30);
+    return articles
+      .filter((a) => a.code.toUpperCase().includes(term) || (a.description && a.description.toUpperCase().includes(term)))
+      .slice(0, 30);
+  }, [articles, quickArticleSearch, quickRow.articleCode]);
+
   // =========================================================================
-  // TARGETED MRP IN BACKGROUND
+  // TARGETED MRP IN BACKGROUND - SCOPE GLOBALE (COMMESSE PIANIFICATE + IN PRODUZIONE)
   // =========================================================================
   const materialsCacheRef = useRef<Map<string, RawMaterial>>(new Map());
   const poCacheRef = useRef<Map<string, PurchaseOrder[]>>(new Map());
@@ -464,11 +477,20 @@ export default function ProgrammazioneClientPage({
     }
   }, [articles]);
 
-  const { visibleMaterialCodes, visibleArticleCodes } = useMemo(() => {
+  // Commesse Globali Attive (Pianificata o In Produzione)
+  const activeGlobalJobs = useMemo(() => {
+    return jobs.filter((j) => {
+      const norm = normalizeJobStatus(j.status);
+      return norm === 'Pianificata' || norm === 'In Produzione';
+    });
+  }, [jobs]);
+
+  // Fabbisogni materiali e articoli sull'intero backlog attivo aziendale
+  const { globalMaterialCodes, globalArticleCodes } = useMemo(() => {
     const matSet = new Set<string>();
     const artSet = new Set<string>();
 
-    sortedAndFilteredJobs.forEach((job) => {
+    activeGlobalJobs.forEach((job) => {
       const bom = job.billOfMaterials || [];
       if (bom.length > 0) {
         bom.forEach((item) => {
@@ -480,18 +502,18 @@ export default function ProgrammazioneClientPage({
     });
 
     return {
-      visibleMaterialCodes: Array.from(matSet),
-      visibleArticleCodes: Array.from(artSet),
+      globalMaterialCodes: Array.from(matSet),
+      globalArticleCodes: Array.from(artSet),
     };
-  }, [sortedAndFilteredJobs]);
+  }, [activeGlobalJobs]);
 
   useEffect(() => {
     let isCancelled = false;
 
-    const missingMaterials = visibleMaterialCodes.filter(
+    const missingMaterials = globalMaterialCodes.filter(
       (code) => !materialsCacheRef.current.has(code)
     );
-    const missingArticles = visibleArticleCodes.filter(
+    const missingArticles = globalArticleCodes.filter(
       (code) => !articlesCacheRef.current.has(code)
     );
 
@@ -538,14 +560,14 @@ export default function ProgrammazioneClientPage({
     return () => {
       isCancelled = true;
     };
-  }, [visibleMaterialCodes, visibleArticleCodes]);
+  }, [globalMaterialCodes, globalArticleCodes]);
 
   const mrpTimelines = useMemo(() => {
-    if (sortedAndFilteredJobs.length === 0) {
+    if (activeGlobalJobs.length === 0) {
       return new Map<string, MRPTimelineEntry[]>();
     }
 
-    const enrichedJobs: JobOrder[] = sortedAndFilteredJobs.map((job) => {
+    const enrichedJobs: JobOrder[] = activeGlobalJobs.map((job) => {
       if ((!job.billOfMaterials || job.billOfMaterials.length === 0) && job.details) {
         const article = articlesCacheRef.current.get(job.details.trim().toUpperCase());
         if (article && article.billOfMaterials && article.billOfMaterials.length > 0) {
@@ -577,9 +599,9 @@ export default function ProgrammazioneClientPage({
       globalSettingsRef.current,
       []
     );
-  }, [sortedAndFilteredJobs, mrpCacheVersion]);
+  }, [activeGlobalJobs, mrpCacheVersion]);
 
-  // Calcolo Mappa Allarmi Critici per Allertatore Intelligente MRP
+  // Calcolo Mappa Allarmi Critici per Allertatore Intelligente MRP su Scope Globale
   const criticalMaterialsTimeline = useMemo(() => {
     const criticals = new Map<string, { entry: MRPTimelineEntry; job: JobOrder | undefined }[]>();
     
@@ -590,7 +612,7 @@ export default function ProgrammazioneClientPage({
 
       if (problematic.length > 0) {
         const mapped = problematic.map(entry => {
-          const job = sortedAndFilteredJobs.find(j => j.id === entry.jobId);
+          const job = activeGlobalJobs.find(j => j.id === entry.jobId);
           return { entry, job };
         });
         criticals.set(matCode, mapped);
@@ -598,7 +620,7 @@ export default function ProgrammazioneClientPage({
     });
 
     return criticals;
-  }, [mrpTimelines, sortedAndFilteredJobs]);
+  }, [mrpTimelines, activeGlobalJobs]);
 
   // Stato Semaforo Singola Commessa con Gestione Visiva Corretta "In Verifica"
   const getJobMRPStatus = useCallback((job: JobOrder): {
@@ -828,12 +850,22 @@ export default function ProgrammazioneClientPage({
       });
 
       if (res.success && res.job) {
-        // Inserimento immediato nella tabella
+        // Inserimento immediato nella tabella (Optimistic UI)
         setJobs(prev => [res.job!, ...prev]);
-        toast({
-          title: "Commessa Creata!",
-          description: `Ordine ${ordinePF} inserito con successo nel secchiello.`,
-        });
+
+        // Verifica se la commessa appartiene alla settimana attualmente visibile a schermo
+        const weekInfo = getJobWeekAndYear(res.job!);
+        if (weekInfo && (weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear)) {
+          toast({
+            title: "Commessa Creata!",
+            description: `Ordine ${ordinePF} inserito per Settimana ${weekInfo.week}/${weekInfo.year}. Non appare nel secchiello corrente (Settimana ${selectedWeekNumber}).`,
+          });
+        } else {
+          toast({
+            title: "Commessa Creata!",
+            description: `Ordine ${ordinePF} inserito con successo nel secchiello.`,
+          });
+        }
 
         // Reset riga rapida
         setQuickRow({
@@ -845,6 +877,7 @@ export default function ProgrammazioneClientPage({
           numeroODLInterno: '',
           department: selectedDept !== 'ALL' ? selectedDept : 'CP',
         });
+        setQuickArticleSearch('');
 
         // Riporta il focus sul primo campo per inserimenti multipli rapidi
         quickRowFirstInputRef.current?.focus();
@@ -859,54 +892,6 @@ export default function ProgrammazioneClientPage({
       });
     } finally {
       setIsSubmittingQuickRow(false);
-    }
-  };
-
-  // Creazione Manuale da Modale
-  const handleSaveManualModal = async () => {
-    const { cliente, ordinePF, articleCode, qta, department, workCycleId, dataConsegnaFinale } = manualForm;
-    if (!cliente.trim() || !ordinePF.trim() || !articleCode.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Dati incompleti",
-        description: "Compila tutti i campi obbligatori.",
-      });
-      return;
-    }
-
-    try {
-      const res = await saveManualJobOrder({
-        cliente,
-        ordinePF,
-        articleCode,
-        qta: Number(qta) || 1,
-        department: department || 'CP',
-        workCycleId: workCycleId || workCycles[0]?.id || '',
-        dataConsegnaFinale,
-      });
-
-      if (res.success) {
-        toast({ title: "Commessa Creata", description: res.message });
-        setIsManualCreateOpen(false);
-        setManualForm({
-          cliente: '',
-          ordinePF: '',
-          articleCode: '',
-          qta: 1,
-          department: 'CP',
-          workCycleId: '',
-          dataConsegnaFinale: '',
-        });
-        handleRefresh();
-      } else {
-        throw new Error(res.message);
-      }
-    } catch (e: any) {
-      toast({
-        variant: "destructive",
-        title: "Errore Creazione",
-        description: e.message || "Impossibile salvare la commessa manuale.",
-      });
     }
   };
 
@@ -1093,14 +1078,14 @@ export default function ProgrammazioneClientPage({
                   )}
                 </Button>
               </SheetTrigger>
-              <SheetContent className="w-[420px] sm:w-[560px] overflow-y-auto">
+              <SheetContent className="w-[420px] sm:w-[580px] overflow-y-auto">
                 <SheetHeader>
                   <SheetTitle className="flex items-center gap-2 text-red-600">
                     <AlertTriangle className="h-5 w-5" />
-                    Allertatore Intelligente MRP
+                    Allertatore Intelligente MRP (Globale)
                   </SheetTitle>
                   <SheetDescription>
-                    Mancanze materiali per le commesse attualmente a schermo nel secchiello.
+                    Mancanze materiali per tutte le {activeGlobalJobs.length} commesse attive aziendali (Pianificate e In Produzione).
                   </SheetDescription>
                 </SheetHeader>
 
@@ -1110,7 +1095,7 @@ export default function ProgrammazioneClientPage({
                       <CheckCircle2 className="h-8 w-8 mx-auto text-emerald-500 mb-2" />
                       <p className="font-semibold text-emerald-600">Nessuna criticità materiali!</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Tutte le commesse visualizzate risultano coperte da giacenza o ordini fornitori.
+                        Tutte le commesse attive risultano coperte da giacenza o ordini fornitori.
                       </p>
                     </div>
                   ) : (
@@ -1129,10 +1114,21 @@ export default function ProgrammazioneClientPage({
                             {entries.map(({ entry, job }, idx) => (
                               <div key={idx} className="bg-muted/40 p-2 rounded border text-[11px] space-y-1">
                                 <div className="flex items-center justify-between font-mono">
-                                  <span className="font-bold">{job?.ordinePF || entry.jobId}</span>
-                                  <span className="text-muted-foreground">{job?.cliente}</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold">{job?.ordinePF || entry.jobId}</span>
+                                    {job && (
+                                      <Badge variant="outline" className="text-[9px] py-0 px-1 font-bold">
+                                        {getJobDepartmentGroup(job)}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <span className="text-muted-foreground truncate max-w-[150px]">{job?.cliente}</span>
                                 </div>
-                                <div className="text-muted-foreground">
+                                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                  <span>Data Cons: <strong className="text-foreground">{job?.dataConsegnaFinale || 'N/D'}</strong></span>
+                                  <span className="font-bold uppercase text-[9px]">{job?.status || 'Pianificata'}</span>
+                                </div>
+                                <div className="text-muted-foreground text-[10.5px]">
                                   {entry.details.join(' • ')}
                                 </div>
                               </div>
@@ -1555,16 +1551,78 @@ export default function ProgrammazioneClientPage({
                     />
                   </td>
 
-                  {/* Articolo */}
+                  {/* Articolo (Autocomplete / Combobox collegato ad Anagrafica Articoli) */}
                   <td className="py-1 px-1.5 align-middle">
-                    <input
-                      type="text"
-                      placeholder="Codice Articolo..."
-                      value={quickRow.articleCode}
-                      onChange={(e) => setQuickRow(prev => ({ ...prev, articleCode: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
-                      className="w-full h-6 px-1.5 font-semibold text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary"
-                    />
+                    <Popover open={isQuickArticleOpen} onOpenChange={setIsQuickArticleOpen}>
+                      <PopoverTrigger asChild>
+                        <div className="relative flex items-center w-full">
+                          <input
+                            type="text"
+                            placeholder="Seleziona Articolo..."
+                            value={quickRow.articleCode}
+                            onChange={(e) => {
+                              const val = e.target.value.toUpperCase();
+                              setQuickRow(prev => ({ ...prev, articleCode: val }));
+                              setQuickArticleSearch(val);
+                              setIsQuickArticleOpen(true);
+                            }}
+                            onClick={() => setIsQuickArticleOpen(true)}
+                            onFocus={() => setIsQuickArticleOpen(true)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !isQuickArticleOpen) {
+                                handleSaveQuickRow();
+                              }
+                            }}
+                            className="w-full h-6 px-1.5 pr-5 font-mono font-bold text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary uppercase tracking-tight"
+                          />
+                          <ArrowUpDown className="h-3 w-3 absolute right-1.5 text-muted-foreground opacity-50 pointer-events-none" />
+                        </div>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[340px] p-0" align="start">
+                        <Command>
+                          <CommandInput
+                            placeholder="Cerca per codice o descrizione..."
+                            value={quickArticleSearch}
+                            onValueChange={setQuickArticleSearch}
+                          />
+                          <CommandList className="max-h-[220px]">
+                            <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
+                            <CommandGroup heading="Anagrafica Articoli">
+                              {matchingQuickArticles.map((a) => (
+                                <CommandItem
+                                  key={a.id}
+                                  value={a.code}
+                                  onSelect={() => {
+                                    const artDept = (a as any).department;
+                                    setQuickRow(prev => ({
+                                      ...prev,
+                                      articleCode: a.code,
+                                      department: (artDept === 'CP' || artDept === 'CG' || artDept === 'BF') ? artDept : prev.department,
+                                    }));
+                                    setIsQuickArticleOpen(false);
+                                  }}
+                                  className="cursor-pointer text-xs flex items-center justify-between py-1.5"
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-mono font-bold text-primary">{a.code}</span>
+                                    {a.description && (
+                                      <span className="text-[10px] text-muted-foreground truncate max-w-[220px]">
+                                        {a.description}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {(a as any).department && (
+                                    <Badge variant="outline" className="text-[9px] px-1 py-0 font-mono">
+                                      {(a as any).department}
+                                    </Badge>
+                                  )}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </td>
 
                   {/* Q.tà */}
@@ -1952,117 +2010,62 @@ export default function ProgrammazioneClientPage({
         {globalSettings && (
           <SmartJobModal
             isOpen={isSmartJobOpen}
-            onClose={() => {
-              setIsSmartJobOpen(false);
-              handleRefresh();
-            }}
+            onClose={() => setIsSmartJobOpen(false)}
             settings={globalSettings}
+            onJobSaved={(newJob) => {
+              setJobs((prev) => {
+                const exists = prev.some((j) => j.id === newJob.id);
+                if (exists) return prev.map((j) => (j.id === newJob.id ? { ...j, ...newJob } : j));
+                return [newJob, ...prev];
+              });
+              const weekInfo = getJobWeekAndYear(newJob);
+              if (weekInfo && (weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear)) {
+                toast({
+                  title: "Commessa Creata",
+                  description: `Ordine ${newJob.ordinePF} inserito per Settimana ${weekInfo.week}/${weekInfo.year}.`,
+                });
+              }
+            }}
           />
         )}
 
         {/* 2. SmartPasteModal (Import da Excel) */}
         <SmartPasteModal
           isOpen={isSmartPasteOpen}
-          onClose={() => {
-            setIsSmartPasteOpen(false);
-            handleRefresh();
-          }}
+          onClose={() => setIsSmartPasteOpen(false)}
           articles={articles}
           departments={departments}
+          onJobsCreated={(newJobs) => {
+            setJobs((prev) => [...newJobs, ...prev]);
+            toast({
+              title: "Commesse Importate",
+              description: `${newJobs.length} commesse inserite con successo.`,
+            });
+          }}
         />
 
-        {/* 3. Nuova Commessa Manuale */}
-        <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <PlusCircle className="h-5 w-5 text-primary" />
-                Nuova Commessa Manuale
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-3 py-2 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold block mb-1">Ordine PF *</label>
-                  <Input
-                    placeholder="Es. 100/PF"
-                    value={manualForm.ordinePF}
-                    onChange={(e) => setManualForm(prev => ({ ...prev, ordinePF: e.target.value }))}
-                    className="h-8 text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold block mb-1">Cliente *</label>
-                  <Input
-                    placeholder="Nome cliente..."
-                    value={manualForm.cliente}
-                    onChange={(e) => setManualForm(prev => ({ ...prev, cliente: e.target.value }))}
-                    className="h-8 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">Codice Articolo *</label>
-                <Input
-                  placeholder="Es. ART-001..."
-                  value={manualForm.articleCode}
-                  onChange={(e) => setManualForm(prev => ({ ...prev, articleCode: e.target.value }))}
-                  className="h-8 text-xs font-mono"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold block mb-1">Quantità</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={manualForm.qta}
-                    onChange={(e) => setManualForm(prev => ({ ...prev, qta: parseInt(e.target.value) || 1 }))}
-                    className="h-8 text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold block mb-1">Reparto</label>
-                  <Select
-                    value={manualForm.department}
-                    onValueChange={(val) => setManualForm(prev => ({ ...prev, department: val }))}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="CP">Connessioni Piccole (CP)</SelectItem>
-                      <SelectItem value="CG">Connessioni Grandi (CG)</SelectItem>
-                      <SelectItem value="BF">Reparto Barre (BF)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold block mb-1">Data Consegna (GG/MM/AAAA)</label>
-                <Input
-                  placeholder="Es. 25/11/2026..."
-                  value={manualForm.dataConsegnaFinale}
-                  onChange={(e) => setManualForm(prev => ({ ...prev, dataConsegnaFinale: e.target.value }))}
-                  className="h-8 text-xs font-mono"
-                />
-              </div>
-            </div>
-
-            <DialogFooter className="gap-2">
-              <Button variant="outline" size="sm" onClick={() => setIsManualCreateOpen(false)}>
-                Annulla
-              </Button>
-              <Button size="sm" onClick={handleSaveManualModal}>
-                Crea Commessa
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {/* 3. Nuova Commessa Manuale (Componente Originale Gestione Dati Commesse) */}
+        <ManualJobModal
+          isOpen={isManualCreateOpen}
+          onClose={() => setIsManualCreateOpen(false)}
+          workCycles={workCycles}
+          departments={departments}
+          onJobCreated={(newJob) => {
+            setJobs((prev) => [newJob, ...prev]);
+            const weekInfo = getJobWeekAndYear(newJob);
+            if (weekInfo && (weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear)) {
+              toast({
+                title: "Commessa Creata",
+                description: `Ordine ${newJob.ordinePF} inserito per Settimana ${weekInfo.week}/${weekInfo.year}. Non appare nel secchiello corrente (Settimana ${selectedWeekNumber}).`,
+              });
+            } else {
+              toast({
+                title: "Commessa Creata",
+                description: `Ordine ${newJob.ordinePF} inserito con successo nel secchiello.`,
+              });
+            }
+          }}
+        />
       </div>
     </TooltipProvider>
   );

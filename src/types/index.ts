@@ -134,6 +134,7 @@ export interface JobOrder {
   jobOrderIds?: string[];
   jobOrderPFs?: string[];
   isPrinted?: boolean;
+  odlPrinted?: boolean;
   assignedDate?: string;
   isPriority?: boolean;
   sortIndex?: number;
@@ -143,6 +144,9 @@ export interface JobOrder {
   actualWeightKg?: number;
   numberOfPackages?: number;
   hasAnomaly?: boolean;
+  isoWeek?: number | null;
+  weekYear?: number | null;
+  targetWeek?: string | null;
   anomalyType?: string;
   anomalyNote?: string;
   dataFinePreparazione?: string;
@@ -260,6 +264,8 @@ export interface ArticlePhaseTime {
 export interface Article {
   id: string;
   code: string;
+  description?: string;
+  department?: string;
   billOfMaterials: BillOfMaterialsItem[];
   phaseTimes?: Record<string, ArticlePhaseTime>;
   phaseTimesSecondary?: Record<string, ArticlePhaseTime>;

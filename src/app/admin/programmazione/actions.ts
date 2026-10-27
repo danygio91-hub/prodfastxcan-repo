@@ -4,11 +4,16 @@ import {
     getJobOrders as fetchAllJobOrders, 
     getDepartments as fetchAllDepartments,
     saveManualJobOrder,
-    getWorkCycles
+    getWorkCycles,
+    createPhasesFromCycle
 } from '@/app/admin/data-management/actions';
 import { adminDb } from '@/lib/firebase-admin';
-import { convertTimestampsToDates } from '@/lib/utils';
-import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle } from '@/types';
+import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
+import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { fetchInChunks } from '@/lib/firestore-utils';
+import { getWeek, getYear } from 'date-fns';
+import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
 export async function getJobOrders(): Promise<JobOrder[]> {
@@ -175,10 +180,27 @@ export async function updateJobStatus(jobId: string, newStatus: string): Promise
 export async function updateJobDeliveryDate(jobId: string, newDate: string): Promise<{ success: boolean; message: string }> {
     try {
         const val = (newDate || '').trim();
-        await adminDb.collection("jobOrders").doc(jobId).update({
+        let isoWeek: number | null = null;
+        let weekYear: number | null = null;
+        let targetWeek: string | null = null;
+        if (val) {
+            const d = parseRobustDate(val) || new Date(val);
+            if (d && !isNaN(d.getTime())) {
+                isoWeek = getWeek(d, { weekStartsOn: 1 });
+                weekYear = getYear(d);
+                targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
+            }
+        }
+
+        const updatePayload: Record<string, any> = {
             dataConsegnaFinale: val,
             updatedAt: new Date().toISOString(),
-        });
+        };
+        if (isoWeek !== null) updatePayload.isoWeek = isoWeek;
+        if (weekYear !== null) updatePayload.weekYear = weekYear;
+        if (targetWeek !== null) updatePayload.targetWeek = targetWeek;
+
+        await adminDb.collection("jobOrders").doc(jobId).update(updatePayload);
         return { success: true, message: 'Data di consegna aggiornata con successo.' };
     } catch (error) {
         console.error("Errore aggiornamento data consegna:", error);
@@ -188,6 +210,7 @@ export async function updateJobDeliveryDate(jobId: string, newDate: string): Pro
 
 /**
  * Inserimento Rapido Commessa da Riga Vuota
+ * Eredita automaticamente la BOM calcolata e i tempi/fasi del ciclo dal codice articolo.
  */
 export async function saveQuickJobOrder(data: {
     ordinePF: string;
@@ -204,7 +227,7 @@ export async function saveQuickJobOrder(data: {
             return { success: false, message: "Compilare Ordine, Cliente, Articolo e Quantità." };
         }
 
-        const sanitizedId = ordinePF.replace(/\//g, '_').trim();
+        const sanitizedId = ordinePF.replace(/\//g, '-').trim();
         const docRef = adminDb.collection("jobOrders").doc(sanitizedId);
         const docSnap = await docRef.get();
         if (docSnap.exists) {
@@ -212,27 +235,101 @@ export async function saveQuickJobOrder(data: {
         }
 
         let phases: any[] = [];
-        let billOfMaterials: any[] = [];
+        let jobBOM: JobBillOfMaterialsItem[] = [];
         let workCycleId = '';
         let targetDept = department || 'CP';
+        let expectedMinutesDefault = 0;
 
         const artSnap = await adminDb.collection("articles").doc(articleCode.toUpperCase().trim()).get();
         if (artSnap.exists) {
             const artData = artSnap.data() as Article;
             workCycleId = artData.workCycleId || '';
             if ((artData as any).department) targetDept = (artData as any).department;
-            if (artData.billOfMaterials && artData.billOfMaterials.length > 0) {
-                billOfMaterials = artData.billOfMaterials.map(item => ({
-                    component: item.component,
-                    quantity: item.quantity,
-                    unit: item.unit,
-                    status: 'pending',
+            expectedMinutesDefault = artData.expectedMinutesDefault || 0;
+
+            // 1. Eredita Ciclo e Fasi con ripartizione tempi teorici
+            if (workCycleId) {
+                phases = await createPhasesFromCycle(workCycleId);
+                if (expectedMinutesDefault > 0 && phases.length > 0) {
+                    const historicalAverages = artData.historicalTimes?.averagePhaseTimes || [];
+                    phases = distributeTheoreticalTimes(expectedMinutesDefault, phases, historicalAverages, Number(qta));
+                }
+            }
+
+            // 2. Eredita BOM (Distinta Base) con calcolo fabbisogno materiali
+            const compCodes = (artData.billOfMaterials || []).map(item => item.component.toUpperCase().trim());
+            const [globalSettingsSnap, rawMaterials] = await Promise.all([
+                adminDb.collection("settings").doc("global").get(),
+                compCodes.length > 0 ? fetchInChunks<RawMaterial>(
+                    adminDb.collection("rawMaterials"),
+                    "code",
+                    compCodes
+                ) : Promise.resolve([])
+            ]);
+            const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
+
+            jobBOM = (artData.billOfMaterials || []).map(item => {
+                const compCode = item.component.toUpperCase().trim();
+                const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
+                const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+                const requiresCut = typeConfig?.requiresCutLength !== false;
+
+                const req = calculateBOMRequirement(
+                    Number(qta),
+                    {
+                        quantity: item.quantity,
+                        lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined,
+                        unit: item.unit
+                    },
+                    material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
+                    typeConfig || { defaultUnit: item.unit }
+                );
+
+                return {
+                    ...item,
+                    component: compCode,
+                    status: 'pending' as const,
                     isFromTemplate: true,
-                }));
+                    lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
+                    fabbisognoTotale: req.totalInBaseUnits,
+                    pesoStimato: req.weightKg
+                };
+            });
+        }
+
+        // 3. Calcolo Settimana ISO da Data Consegna
+        let isoWeek: number | null = null;
+        let weekYear: number | null = null;
+        let targetWeek: string | null = null;
+        if (dataConsegnaFinale) {
+            const d = parseRobustDate(dataConsegnaFinale) || new Date(dataConsegnaFinale);
+            if (d && !isNaN(d.getTime())) {
+                isoWeek = getWeek(d, { weekStartsOn: 1 });
+                weekYear = getYear(d);
+                targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
             }
         }
 
         const now = new Date();
+        const shortYear = now.getFullYear().toString().slice(-2);
+        let odlToAssign: string | null = null;
+        if (numeroODLInterno) {
+            const rawVal = String(numeroODLInterno).trim();
+            const dashIndex = rawVal.indexOf('-');
+            if (dashIndex !== -1) {
+                const numPart = rawVal.substring(0, dashIndex).match(/\d+/)?.[0] || '';
+                const yearPart = rawVal.substring(dashIndex + 1).trim();
+                if (numPart) {
+                    odlToAssign = `${numPart.padStart(4, '0')}-${yearPart}`;
+                }
+            } else {
+                const digits = rawVal.match(/\d+/)?.[0] || '';
+                if (digits) {
+                    odlToAssign = `${digits.padStart(4, '0')}-${shortYear}`;
+                }
+            }
+        }
+
         const newJob: any = {
             id: sanitizedId,
             ordinePF: ordinePF.trim(),
@@ -241,12 +338,16 @@ export async function saveQuickJobOrder(data: {
             qta: Number(qta) || 1,
             department: targetDept,
             dataConsegnaFinale: dataConsegnaFinale || '',
-            numeroODLInterno: numeroODLInterno?.trim() || null,
-            numeroODL: numeroODLInterno?.trim() || 'N/D',
+            numeroODLInterno: odlToAssign,
+            numeroODL: odlToAssign || 'N/D',
             status: 'Pianificata',
             phases,
-            billOfMaterials,
+            billOfMaterials: jobBOM,
             workCycleId,
+            expectedMinutesDefault,
+            isoWeek,
+            weekYear,
+            targetWeek,
             createdAt: now.toISOString(),
             updatedAt: now.toISOString(),
             isPrinted: false,
@@ -260,3 +361,4 @@ export async function saveQuickJobOrder(data: {
         return { success: false, message: e.message || "Errore durante la creazione." };
     }
 }
+

@@ -16,7 +16,7 @@ export default async function ProgrammazionePage() {
     getJobOrders(),
     getDepartments(),
     getWorkCycles(),
-    adminDb.collection("articles").select("code", "workCycleId", "description", "department", "billOfMaterials").get(),
+    adminDb.collection("articles").select("code", "workCycleId", "description", "department", "billOfMaterials", "expectedMinutesDefault").get(),
     adminDb.collection("settings").doc("global").get(),
   ]);
 

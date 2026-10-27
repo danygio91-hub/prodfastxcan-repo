@@ -5,7 +5,8 @@ import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment, Client, BillOfMaterialsItem } from '@/types';
 import * as z from 'zod';
-import { convertTimestampsToDates, normalizeDateStr } from '@/lib/utils';
+import { convertTimestampsToDates, normalizeDateStr, parseRobustDate } from '@/lib/utils';
+import { getWeek, getYear } from 'date-fns';
 import { fetchInChunks } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
@@ -224,7 +225,20 @@ export async function saveManualJobOrder(data: any) {
         }
     }
 
-    const newJob: JobOrder = {
+    const finalDeliveryDate = normalizeDateStr(dataConsegnaFinale) || '';
+    let isoWeek: number | null = null;
+    let weekYear: number | null = null;
+    let targetWeek: string | null = null;
+    if (finalDeliveryDate) {
+        const d = parseRobustDate(finalDeliveryDate) || new Date(finalDeliveryDate);
+        if (d && !isNaN(d.getTime())) {
+            isoWeek = getWeek(d, { weekStartsOn: 1 });
+            weekYear = getYear(d);
+            targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
+        }
+    }
+
+    const newJob: any = {
         id: sanitizedId,
         status: 'IN_PIANIFICAZIONE',
         postazioneLavoro: 'Da Assegnare',
@@ -236,10 +250,14 @@ export async function saveManualJobOrder(data: any) {
         qta: Number(qta),
         billOfMaterials: jobBOM,
         phases: phases,
-        dataConsegnaFinale: normalizeDateStr(dataConsegnaFinale) || '',
+        dataConsegnaFinale: finalDeliveryDate,
         dataFinePreparazione: normalizeDateStr(dataFinePreparazione) || '',
         department: department || "N/D",
         workCycleId: workCycleId || '',
+        expectedMinutesDefault: articleData.expectedMinutesDefault || 0,
+        isoWeek,
+        weekYear,
+        targetWeek,
         createdAt: admin.firestore.Timestamp.now(),
         updatedAt: admin.firestore.Timestamp.now()
     };
@@ -249,7 +267,7 @@ export async function saveManualJobOrder(data: any) {
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');
-        return { success: true, message: 'Commessa creata con successo.' };
+        return { success: true, message: 'Commessa creata con successo.', job: JSON.parse(JSON.stringify(newJob)) };
     } catch (error) {
         return { success: false, message: "Errore durante il salvataggio della commessa." };
     }
@@ -1020,6 +1038,19 @@ export async function saveSmartJobOrder(data: {
             };
         });
 
+        const finalDeliveryDate = normalizeDateStr(dataConsegnaFinale) || '';
+        let isoWeek: number | null = null;
+        let weekYear: number | null = null;
+        let targetWeek: string | null = null;
+        if (finalDeliveryDate) {
+            const d = parseRobustDate(finalDeliveryDate) || new Date(finalDeliveryDate);
+            if (d && !isNaN(d.getTime())) {
+                isoWeek = getWeek(d, { weekStartsOn: 1 });
+                weekYear = getYear(d);
+                targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
+            }
+        }
+
         const newJob: any = {
             id: sanitizedId,
             status: 'IN_PIANIFICAZIONE',
@@ -1032,12 +1063,15 @@ export async function saveSmartJobOrder(data: {
             postazioneLavoro: "Da Assegnare",
             phases: phases,
             billOfMaterials: jobBOM,
-            dataConsegnaFinale: normalizeDateStr(dataConsegnaFinale) || '',
+            dataConsegnaFinale: finalDeliveryDate,
             dataFinePreparazione: normalizeDateStr(dataFinePreparazione) || '',
             workCycleId: workCycleId,
             isSmartJob: true,
             smartCodeParams: fieldValues || {},
             expectedMinutesDefault: expectedMinutes || 0,
+            isoWeek,
+            weekYear,
+            targetWeek,
             createdAt: admin.firestore.Timestamp.now(),
             updatedAt: admin.firestore.Timestamp.now()
         };
@@ -1050,7 +1084,7 @@ export async function saveSmartJobOrder(data: {
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');
 
-        return { success: true, message: 'Commessa Rapida creata con successo.' };
+        return { success: true, message: 'Commessa Rapida creata con successo.', job: finalJobData };
     } catch (error) {
         console.error("Error saving smart job order:", error);
         return { success: false, message: "Errore durante il salvataggio: " + (error instanceof Error ? error.message : "Errore sconosciuto") };
@@ -1527,6 +1561,18 @@ export async function saveSmartPastedJobOrders(data: {
                 };
             });
 
+            let isoWeek: number | null = null;
+            let weekYear: number | null = null;
+            let targetWeek: string | null = null;
+            if (row.dataConsegnaFinale) {
+                const d = parseRobustDate(row.dataConsegnaFinale) || new Date(row.dataConsegnaFinale);
+                if (d && !isNaN(d.getTime())) {
+                    isoWeek = getWeek(d, { weekStartsOn: 1 });
+                    weekYear = getYear(d);
+                    targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
+                }
+            }
+
             newJobs.push({
                 id: sanitizedId,
                 status: 'IN_PIANIFICAZIONE',
@@ -1544,6 +1590,9 @@ export async function saveSmartPastedJobOrders(data: {
                 department: row.department,
                 workCycleId: workCycleId,
                 expectedMinutesDefault: articleData.expectedMinutesDefault || 0,
+                isoWeek,
+                weekYear,
+                targetWeek,
                 createdAt: admin.firestore.Timestamp.now(),
                 updatedAt: admin.firestore.Timestamp.now()
             });
@@ -1556,7 +1605,7 @@ export async function saveSmartPastedJobOrders(data: {
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');
-        return { success: true, message: `${newJobs.length} commesse create con successo.` };
+        return { success: true, message: `${newJobs.length} commesse create con successo.`, jobs: JSON.parse(JSON.stringify(newJobs)) };
     } catch (error) {
         console.error("Error in saveSmartPastedJobOrders:", error);
         return { success: false, message: error instanceof Error ? error.message : "Errore interno durante il salvataggio." };
