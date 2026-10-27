@@ -6,30 +6,33 @@ import {
   ChevronRight, 
   RefreshCw, 
   Search, 
-  Clock, 
-  Layers, 
   Printer, 
   Play, 
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  TrendingUp,
   FileSpreadsheet,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Info,
-  Package,
-  Layers3,
-  CalendarCheck
+  CalendarCheck,
+  PlusCircle,
+  Upload,
+  Combine,
+  BellRing,
+  HelpCircle,
+  Loader2,
+  Zap,
+  CornerDownLeft,
+  CalendarDays,
+  Layers
 } from 'lucide-react';
-import { format, startOfWeek, endOfWeek, getWeek, getYear, addWeeks, subWeeks } from 'date-fns';
+import { format, startOfWeek, endOfWeek, getWeek, getYear, addWeeks, subWeeks, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -43,16 +46,51 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { useToast } from '@/hooks/use-toast';
 import { parseRobustDate, cn } from '@/lib/utils';
-import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article } from '@/types';
+import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, type MRPTimelineEntry } from '@/lib/mrp-utils';
-import { getJobOrders, getTargetedMRPData, toggleJobPrinted } from './actions';
+import { SmartJobModal } from '@/components/mrp/SmartJobModal';
+import { SmartPasteModal } from '@/components/mrp/SmartPasteModal';
+import { 
+  getJobOrders, 
+  getTargetedMRPData, 
+  toggleJobPrinted, 
+  updateJobOdlNumber, 
+  updateJobStatus,
+  updateJobDeliveryDate,
+  saveQuickJobOrder,
+  saveManualJobOrder
+} from './actions';
 
 interface ProgrammazioneClientPageProps {
   initialJobs: JobOrder[];
   initialDepartments: Department[];
+  initialArticles?: Article[];
+  initialWorkCycles?: WorkCycle[];
+  initialGlobalSettings?: GlobalSettings | null;
 }
 
 // 4 Macro-Gruppi Reparti Essenziali
@@ -71,14 +109,12 @@ const MACRO_DEPARTMENTS: MacroDepartment[] = [
   { code: 'BF', label: 'REPARTO BARRE (BF)', badge: 'BF' },
 ];
 
-// Identifica il macro-reparto di una commessa
 export function getJobDepartmentGroup(job: JobOrder): 'CP' | 'CG' | 'BF' | 'OTHER' {
   const d = (job.department || '').toUpperCase().trim();
   if (d === 'CP' || d.includes('PICCOL') || d.includes('CONNESSIONI PICCOLE')) return 'CP';
   if (d === 'CG' || d.includes('GRAND') || d.includes('CONNESSIONI GRANDI')) return 'CG';
   if (d === 'BF' || d.includes('BARRE') || d.includes('REPARTO BARRE')) return 'BF';
 
-  // Controllo anche tra le fasi
   if (job.phases && job.phases.length > 0) {
     for (const p of job.phases) {
       const pDepts = (p.departmentCodes || []).map(c => c.toUpperCase());
@@ -92,7 +128,17 @@ export function getJobDepartmentGroup(job: JobOrder): 'CP' | 'CG' | 'BF' | 'OTHE
   return 'OTHER';
 }
 
-// Calcola le ore stimate per una commessa
+export type JobStatusOption = 'Pianificata' | 'In Produzione' | 'Completato Prod.' | 'Spedito';
+
+export function normalizeJobStatus(status: string | undefined): JobStatusOption {
+  if (!status) return 'Pianificata';
+  const s = status.toUpperCase().trim();
+  if (s.includes('SPEDIT') || s === 'SHIPPED') return 'Spedito';
+  if (s.includes('FINE') || s.includes('COMPLET') || s === 'CLOSED' || s === 'CHIUSO') return 'Completato Prod.';
+  if (s.includes('PROD') || s.includes('LAVORAZ') || s.includes('ATTIV') || s.includes('ACTIVE') || s.includes('IN_PROGRESS')) return 'In Produzione';
+  return 'Pianificata';
+}
+
 function calculateJobHours(job: JobOrder): number {
   if (job.phases && job.phases.length > 0) {
     const totalMinutes = job.phases.reduce((acc, p) => {
@@ -106,11 +152,9 @@ function calculateJobHours(job: JobOrder): number {
   if (job.expectedMinutesDefault && job.expectedMinutesDefault > 0) {
     return Math.round(((job.expectedMinutesDefault * (job.qta || 0)) / 60) * 10) / 10;
   }
-  // Stima di fallback standard (10 min per pezzo se non indicato diversamente)
   return Math.round((((job.qta || 0) * 10) / 60) * 10) / 10;
 }
 
-// Estrae la settimana (1-53) e l'anno da una commessa
 function getJobWeekAndYear(job: JobOrder): { week: number; year: number } | null {
   const targetDateStr = job.assignedDate || job.dataConsegnaFinale;
   if (!targetDateStr) return null;
@@ -122,7 +166,6 @@ function getJobWeekAndYear(job: JobOrder): { week: number; year: number } | null
   };
 }
 
-// Configurazione capacità giornaliera per secchiello
 interface DayCapacityConfig {
   L: number;
   M: number;
@@ -141,32 +184,75 @@ const DEFAULT_CAPACITY: DayCapacityConfig = {
   overtime: 0,
 };
 
+type SortField = 'ordinePF' | 'cliente' | 'dataConsegna';
+
 export default function ProgrammazioneClientPage({
   initialJobs,
   initialDepartments,
+  initialArticles = [],
+  initialWorkCycles = [],
+  initialGlobalSettings = null,
 }: ProgrammazioneClientPageProps) {
   const { toast } = useToast();
 
   // Dati Commesse
   const [jobs, setJobs] = useState<JobOrder[]>(initialJobs || []);
+  const [departments] = useState<Department[]>(initialDepartments || []);
+  const [articles] = useState<Article[]>(initialArticles || []);
+  const [workCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
+  const [globalSettings] = useState<GlobalSettings | null>(initialGlobalSettings);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // 1. Filtro Fisso 4 Macro-Gruppi Reparti
+  // Modali Inserimento
+  const [isSmartJobOpen, setIsSmartJobOpen] = useState(false);
+  const [isSmartPasteOpen, setIsSmartPasteOpen] = useState(false);
+  const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
+
+  // Form Nuova Commessa Manuale
+  const [manualForm, setManualForm] = useState({
+    cliente: '',
+    ordinePF: '',
+    articleCode: '',
+    qta: 1,
+    department: 'CP',
+    workCycleId: '',
+    dataConsegnaFinale: '',
+  });
+
+  // Draft locale per i N° ODL (input rapido)
+  const [odlDrafts, setOdlDrafts] = useState<Record<string, string>>({});
+  // Draft locale per Data Consegna (inline edit)
+  const [dateDrafts, setDateDrafts] = useState<Record<string, string>>({});
+
+  // 2. Riga Vuota Rapida (Top DataGrid)
+  const [quickRow, setQuickRow] = useState({
+    ordinePF: '',
+    cliente: '',
+    articleCode: '',
+    qta: '',
+    dataConsegnaFinale: '',
+    numeroODLInterno: '',
+    department: 'CP',
+  });
+  const [isSubmittingQuickRow, setIsSubmittingQuickRow] = useState(false);
+  const quickRowFirstInputRef = useRef<HTMLInputElement>(null);
+
+  // Filtro Reparto (4 Macro-Gruppi)
   const [selectedDept, setSelectedDept] = useState<MacroDepartmentCode>('ALL');
 
-  // Filtro Settimana (Secchiello Temporale)
+  // Filtro Settimana
   const [currentDateReference, setCurrentDateReference] = useState<Date>(new Date());
   const [showAllWeeks, setShowAllWeeks] = useState(false);
 
-  // Filtro Ricerca Testuale
+  // Filtro Ricerca
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 3. Ordinamento Intestazione
-  const [sortField, setSortField] = useState<'ordinePF' | null>('ordinePF');
+  // Ordinamento Colonne
+  const [sortField, setSortField] = useState<SortField | null>('ordinePF');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // 2. Miniaturizzazione Header Capacità (Input Giornalieri + Straordinari)
-  // Mappato per combinazione reparto-settimana per permettere futuri salvataggi DB
+  // Capacità Giornaliera per Secchiello
   const [capacitiesByBucket, setCapacitiesByBucket] = useState<Record<string, DayCapacityConfig>>({});
 
   const selectedWeekNumber = useMemo(() => {
@@ -196,7 +282,6 @@ export default function ProgrammazioneClientPage({
     }));
   };
 
-  // Formula "Ore Disponibili": (Somma addetti L,M,M,G,V * 7.6h) + Ore Straordinario
   const availableHours = useMemo(() => {
     const { L, M, Me, G, V, overtime } = currentCapacity;
     const totalDailyWorkers = L + M + Me + G + V;
@@ -231,7 +316,7 @@ export default function ProgrammazioneClientPage({
     setShowAllWeeks(false);
   };
 
-  // Ricaricamento Dati
+  // Refresh Commesse
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -242,7 +327,7 @@ export default function ProgrammazioneClientPage({
         description: `Caricate ${updatedJobs.length} commesse dal database.`,
       });
     } catch (error) {
-      console.error("Errore durante il refresh:", error);
+      console.error("Errore refresh:", error);
       toast({
         title: "Errore di caricamento",
         description: "Impossibile aggiornare i dati delle commesse.",
@@ -253,28 +338,24 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // Toggle Ordinamento
-  const handleSortToggle = () => {
-    if (sortField === 'ordinePF') {
+  // Ordinamento Colonne
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
-      setSortField('ordinePF');
+      setSortField(field);
       setSortDirection('asc');
     }
   };
 
-  // 1. Filtraggio Commesse Lato Client
+  // Filtraggio Commesse Lato Client
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
-      // 1. Filtro Reparto (Macro-gruppi CP, CG, BF o TUTTI)
       if (selectedDept !== 'ALL') {
         const group = getJobDepartmentGroup(job);
-        if (group !== selectedDept) {
-          return false;
-        }
+        if (group !== selectedDept) return false;
       }
 
-      // 2. Filtro Settimana
       if (!showAllWeeks) {
         const weekInfo = getJobWeekAndYear(job);
         if (!weekInfo) return false;
@@ -283,13 +364,13 @@ export default function ProgrammazioneClientPage({
         }
       }
 
-      // 3. Filtro Ricerca Testuale
       if (searchQuery.trim() !== '') {
         const q = searchQuery.toLowerCase().trim();
         const matchPf = (job.ordinePF || '').toLowerCase().includes(q);
         const matchCliente = (job.cliente || '').toLowerCase().includes(q);
         const matchArticle = (job.details || '').toLowerCase().includes(q);
-        if (!matchPf && !matchCliente && !matchArticle) {
+        const matchOdl = (job.numeroODLInterno || job.numeroODL || '').toLowerCase().includes(q);
+        if (!matchPf && !matchCliente && !matchArticle && !matchOdl) {
           return false;
         }
       }
@@ -298,21 +379,33 @@ export default function ProgrammazioneClientPage({
     });
   }, [jobs, selectedDept, showAllWeeks, selectedWeekNumber, selectedYear, searchQuery]);
 
-  // Ordinamento dei risultati filtrati
+  // Ordinamento Risultati
   const sortedAndFilteredJobs = useMemo(() => {
     const list = [...filteredJobs];
-    if (sortField === 'ordinePF') {
-      list.sort((a, b) => {
+    if (!sortField) return list;
+
+    list.sort((a, b) => {
+      let res = 0;
+      if (sortField === 'ordinePF') {
         const pfA = String(a.ordinePF || '');
         const pfB = String(b.ordinePF || '');
-        const res = pfA.localeCompare(pfB, undefined, { numeric: true, sensitivity: 'base' });
-        return sortDirection === 'asc' ? res : -res;
-      });
-    }
+        res = pfA.localeCompare(pfB, undefined, { numeric: true, sensitivity: 'base' });
+      } else if (sortField === 'cliente') {
+        const clA = String(a.cliente || '');
+        const clB = String(b.cliente || '');
+        res = clA.localeCompare(clB, undefined, { sensitivity: 'base' });
+      } else if (sortField === 'dataConsegna') {
+        const dateA = a.dataConsegnaFinale ? parseRobustDate(a.dataConsegnaFinale)?.getTime() || 0 : 0;
+        const dateB = b.dataConsegnaFinale ? parseRobustDate(b.dataConsegnaFinale)?.getTime() || 0 : 0;
+        res = dateA - dateB;
+      }
+      return sortDirection === 'asc' ? res : -res;
+    });
+
     return list;
   }, [filteredJobs, sortField, sortDirection]);
 
-  // Conteggi e metriche del Secchiello corrente
+  // Metriche Secchiello
   const bucketMetrics = useMemo(() => {
     const totalJobs = sortedAndFilteredJobs.length;
     const totalPieces = sortedAndFilteredJobs.reduce((acc, j) => acc + (j.qta || 0), 0);
@@ -332,7 +425,7 @@ export default function ProgrammazioneClientPage({
     };
   }, [sortedAndFilteredJobs, availableHours]);
 
-  // Conteggio commesse per ciascun macro-reparto per la settimana attiva
+  // Conteggi per macro-reparti
   const deptCounts = useMemo(() => {
     const counts: Record<MacroDepartmentCode, number> = { ALL: 0, CP: 0, CG: 0, BF: 0 };
     jobs.forEach((job) => {
@@ -352,17 +445,25 @@ export default function ProgrammazioneClientPage({
   }, [jobs, showAllWeeks, selectedWeekNumber, selectedYear]);
 
   // =========================================================================
-  // 4. INIEZIONE MRP MIRATA (TARGETED FETCHING & BACKGROUND CACHE)
+  // TARGETED MRP IN BACKGROUND
   // =========================================================================
   const materialsCacheRef = useRef<Map<string, RawMaterial>>(new Map());
   const poCacheRef = useRef<Map<string, PurchaseOrder[]>>(new Map());
   const articlesCacheRef = useRef<Map<string, Article>>(new Map());
-  const globalSettingsRef = useRef<GlobalSettings | null>(null);
+  const globalSettingsRef = useRef<GlobalSettings | null>(globalSettings);
 
   const [mrpCacheVersion, setMrpCacheVersion] = useState(0);
   const [isMrpLoading, setIsMrpLoading] = useState(false);
 
-  // Estrai i codici materiali e articoli necessari ESCLUSIVAMENTE per le commesse VISIBILI
+  // Inizializza articoli passati da server
+  useEffect(() => {
+    if (articles.length > 0) {
+      articles.forEach(a => {
+        if (a.code) articlesCacheRef.current.set(a.code.trim().toUpperCase(), a);
+      });
+    }
+  }, [articles]);
+
   const { visibleMaterialCodes, visibleArticleCodes } = useMemo(() => {
     const matSet = new Set<string>();
     const artSet = new Set<string>();
@@ -374,7 +475,6 @@ export default function ProgrammazioneClientPage({
           if (item.component) matSet.add(item.component.trim().toUpperCase());
         });
       } else if (job.details) {
-        // Se la commessa non ha la BOM inserita direttamente, consideriamo l'articolo per recuperarla
         artSet.add(job.details.trim().toUpperCase());
       }
     });
@@ -385,7 +485,6 @@ export default function ProgrammazioneClientPage({
     };
   }, [sortedAndFilteredJobs]);
 
-  // Background fetch per materiali mancanti nella cache locale
   useEffect(() => {
     let isCancelled = false;
 
@@ -396,7 +495,6 @@ export default function ProgrammazioneClientPage({
       (code) => !articlesCacheRef.current.has(code)
     );
 
-    // Se tutti i dati necessari sono già in cache, non facciamo query di rete
     if (missingMaterials.length === 0 && missingArticles.length === 0) {
       return;
     }
@@ -407,12 +505,10 @@ export default function ProgrammazioneClientPage({
       .then((data) => {
         if (isCancelled) return;
 
-        // Aggiorna la cache dei materiali
         data.rawMaterials.forEach((m) => {
           if (m.code) materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
         });
 
-        // Aggiorna la cache dei POs raggruppati per materialCode
         data.purchaseOrders.forEach((po) => {
           const code = (po.materialCode || '').trim().toUpperCase();
           if (code) {
@@ -422,7 +518,6 @@ export default function ProgrammazioneClientPage({
           }
         });
 
-        // Aggiorna la cache degli articoli
         data.articles.forEach((a) => {
           if (a.code) articlesCacheRef.current.set(a.code.trim().toUpperCase(), a);
         });
@@ -431,11 +526,10 @@ export default function ProgrammazioneClientPage({
           globalSettingsRef.current = data.globalSettings;
         }
 
-        // Segnala l'aggiornamento della cache per ricalcolare useMemo
         setMrpCacheVersion((v) => v + 1);
       })
       .catch((err) => {
-        console.error("Errore nel caricamento mirato MRP:", err);
+        console.error("Errore caricamento MRP mirato:", err);
       })
       .finally(() => {
         if (!isCancelled) setIsMrpLoading(false);
@@ -446,13 +540,11 @@ export default function ProgrammazioneClientPage({
     };
   }, [visibleMaterialCodes, visibleArticleCodes]);
 
-  // Calcolo delle Timeline MRP tramite `calculateMRPTimelines` di `mrp-utils.ts`
   const mrpTimelines = useMemo(() => {
     if (sortedAndFilteredJobs.length === 0) {
       return new Map<string, MRPTimelineEntry[]>();
     }
 
-    // Prepariamo l'elenco commesse con BOM integrata da articoli se mancante
     const enrichedJobs: JobOrder[] = sortedAndFilteredJobs.map((job) => {
       if ((!job.billOfMaterials || job.billOfMaterials.length === 0) && job.details) {
         const article = articlesCacheRef.current.get(job.details.trim().toUpperCase());
@@ -487,7 +579,28 @@ export default function ProgrammazioneClientPage({
     );
   }, [sortedAndFilteredJobs, mrpCacheVersion]);
 
-  // Calcolo dello Stato Semaforo per singola commessa
+  // Calcolo Mappa Allarmi Critici per Allertatore Intelligente MRP
+  const criticalMaterialsTimeline = useMemo(() => {
+    const criticals = new Map<string, { entry: MRPTimelineEntry; job: JobOrder | undefined }[]>();
+    
+    mrpTimelines.forEach((entries, matCode) => {
+      const problematic = entries.filter(e => 
+        e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK' || e.status === 'ORDERED'
+      );
+
+      if (problematic.length > 0) {
+        const mapped = problematic.map(entry => {
+          const job = sortedAndFilteredJobs.find(j => j.id === entry.jobId);
+          return { entry, job };
+        });
+        criticals.set(matCode, mapped);
+      }
+    });
+
+    return criticals;
+  }, [mrpTimelines, sortedAndFilteredJobs]);
+
+  // Stato Semaforo Singola Commessa con Gestione Visiva Corretta "In Verifica"
   const getJobMRPStatus = useCallback((job: JobOrder): {
     state: 'RED' | 'LATE' | 'GREEN' | 'NO_BOM' | 'LOADING';
     label: string;
@@ -495,7 +608,6 @@ export default function ProgrammazioneClientPage({
     dotClass: string;
     details: string[];
   } => {
-    // 1. Verifica BOM
     let bom = job.billOfMaterials || [];
     if (bom.length === 0 && job.details) {
       const art = articlesCacheRef.current.get(job.details.trim().toUpperCase());
@@ -513,7 +625,7 @@ export default function ProgrammazioneClientPage({
     if (bom.length === 0) {
       return {
         state: 'NO_BOM',
-        label: 'No Distinta',
+        label: 'No BOM',
         badgeClass: 'bg-muted/70 text-muted-foreground border-border',
         dotClass: 'bg-muted-foreground/50',
         details: ['Nessuna distinta base configurata per questo articolo.'],
@@ -534,7 +646,7 @@ export default function ProgrammazioneClientPage({
       };
     }
 
-    // Raccogli le entry MRP dai materiali pendenti
+    // Raccogli entry MRP
     const entries: { component: string; entry?: MRPTimelineEntry }[] = [];
     let hasMissingData = false;
 
@@ -549,20 +661,17 @@ export default function ProgrammazioneClientPage({
       }
     });
 
+    // STATO "IN VERIFICA": Gestione visiva con loader pulsante se dati non ancora caricati
     if (entries.length === 0 && (hasMissingData || isMrpLoading)) {
       return {
         state: 'LOADING',
-        label: 'In Verifica...',
-        badgeClass: 'bg-muted text-muted-foreground border-border animate-pulse',
-        dotClass: 'bg-muted-foreground',
-        details: ['Caricamento mirato giacenze e ordini in corso...'],
+        label: 'In Verifica',
+        badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse font-semibold',
+        dotClass: 'bg-amber-500 animate-ping',
+        details: ['Verifica disponibilità magazzino e ordini aperti in corso...'],
       };
     }
 
-    // Regola richiesta: Basato sul materiale peggiore:
-    // 🔴 Mancante (se almeno un materiale è RED)
-    // 🟠 In Ritardo/Arrivo (se nessun Rosso ma almeno un LATE / AMBER / ORDERED)
-    // 🟢 Pronto (tutti GREEN)
     const hasRed = entries.some((e) => e.entry?.status === 'RED');
     const hasLateOrPendingSupply = entries.some((e) => 
       e.entry && ['LATE', 'ORDERED', 'AMBER', 'LOW_STOCK'].includes(e.entry.status)
@@ -613,45 +722,312 @@ export default function ProgrammazioneClientPage({
     };
   }, [mrpTimelines, isMrpLoading]);
 
-  // 3. Workflow ODL: Stampa con stato persistente e feedback ottimistico
-  const handleTogglePrintODL = async (job: JobOrder) => {
-    const isCurrentlyPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
-    const nextStatus = !isCurrentlyPrinted;
+  // =========================================================================
+  // 1. INLINE EDITING: DATA CONSEGNA (GG/MM/AAAA)
+  // =========================================================================
+  const formatDateForDisplay = (isoOrStr: string | undefined): string => {
+    if (!isoOrStr) return '';
+    const d = parseRobustDate(isoOrStr);
+    if (!d) return isoOrStr;
+    return format(d, 'dd/MM/yyyy');
+  };
 
-    // Aggiornamento Ottimistico Immediato
-    setJobs((prevJobs) =>
-      prevJobs.map((j) =>
-        j.id === job.id ? { ...j, isPrinted: nextStatus, odlPrinted: nextStatus } : j
+  const handleDeliveryDateBlur = async (job: JobOrder) => {
+    const rawVal = dateDrafts[job.id];
+    if (rawVal === undefined) return; // Non modificato
+
+    const trimmed = rawVal.trim();
+    if (!trimmed) {
+      // Data azzerata
+      setJobs(prev => prev.map(j => j.id === job.id ? { ...j, dataConsegnaFinale: '' } : j));
+      await updateJobDeliveryDate(job.id, '');
+      return;
+    }
+
+    // Parsing flessibile GG/MM/AAAA o YYYY-MM-DD
+    const parsed = parseRobustDate(trimmed);
+    if (!parsed || isNaN(parsed.getTime())) {
+      toast({
+        variant: "destructive",
+        title: "Formato Data Errato",
+        description: `Inserisci la data in formato GG/MM/AAAA (es. 25/11/2026).`,
+      });
+      // Revert al valore originale
+      setDateDrafts(prev => {
+        const copy = { ...prev };
+        delete copy[job.id];
+        return copy;
+      });
+      return;
+    }
+
+    const isoFormatted = format(parsed, 'yyyy-MM-dd');
+    if (isoFormatted === job.dataConsegnaFinale) return;
+
+    // Aggiornamento Ottimistico
+    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, dataConsegnaFinale: isoFormatted } : j));
+    
+    // Pulisci draft
+    setDateDrafts(prev => {
+      const copy = { ...prev };
+      delete copy[job.id];
+      return copy;
+    });
+
+    try {
+      const res = await updateJobDeliveryDate(job.id, isoFormatted);
+      if (res.success) {
+        toast({
+          title: "Data Consegna Salvata",
+          description: `Commessa ${job.ordinePF}: consegna aggiornata al ${format(parsed, 'dd/MM/yyyy')}.`,
+        });
+      }
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore Data",
+        description: e.message || "Impossibile salvare la nuova data.",
+      });
+    }
+  };
+
+  // =========================================================================
+  // 2. RIGA VUOTA RAPIDA (INSERIMENTO INLINE STILE EXCEL)
+  // =========================================================================
+  const handleSaveQuickRow = async () => {
+    const { ordinePF, cliente, articleCode, qta, dataConsegnaFinale, numeroODLInterno, department } = quickRow;
+
+    if (!ordinePF.trim() || !cliente.trim() || !articleCode.trim() || !qta) {
+      toast({
+        variant: "destructive",
+        title: "Campi Obbligatori Mancanti",
+        description: "Inserisci almeno Ordine, Cliente, Articolo e Quantità.",
+      });
+      return;
+    }
+
+    let parsedDate = '';
+    if (dataConsegnaFinale.trim()) {
+      const d = parseRobustDate(dataConsegnaFinale.trim());
+      if (d && !isNaN(d.getTime())) {
+        parsedDate = format(d, 'yyyy-MM-dd');
+      }
+    }
+
+    setIsSubmittingQuickRow(true);
+
+    try {
+      const res = await saveQuickJobOrder({
+        ordinePF: ordinePF.trim(),
+        cliente: cliente.trim(),
+        articleCode: articleCode.trim(),
+        qta: parseInt(qta) || 1,
+        dataConsegnaFinale: parsedDate,
+        numeroODLInterno: numeroODLInterno.trim() || undefined,
+        department: selectedDept !== 'ALL' ? selectedDept : (department || 'CP'),
+      });
+
+      if (res.success && res.job) {
+        // Inserimento immediato nella tabella
+        setJobs(prev => [res.job!, ...prev]);
+        toast({
+          title: "Commessa Creata!",
+          description: `Ordine ${ordinePF} inserito con successo nel secchiello.`,
+        });
+
+        // Reset riga rapida
+        setQuickRow({
+          ordinePF: '',
+          cliente: '',
+          articleCode: '',
+          qta: '',
+          dataConsegnaFinale: '',
+          numeroODLInterno: '',
+          department: selectedDept !== 'ALL' ? selectedDept : 'CP',
+        });
+
+        // Riporta il focus sul primo campo per inserimenti multipli rapidi
+        quickRowFirstInputRef.current?.focus();
+      } else {
+        throw new Error(res.message);
+      }
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore Creazione",
+        description: e.message || "Impossibile inserire la commessa rapida.",
+      });
+    } finally {
+      setIsSubmittingQuickRow(false);
+    }
+  };
+
+  // Creazione Manuale da Modale
+  const handleSaveManualModal = async () => {
+    const { cliente, ordinePF, articleCode, qta, department, workCycleId, dataConsegnaFinale } = manualForm;
+    if (!cliente.trim() || !ordinePF.trim() || !articleCode.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Dati incompleti",
+        description: "Compila tutti i campi obbligatori.",
+      });
+      return;
+    }
+
+    try {
+      const res = await saveManualJobOrder({
+        cliente,
+        ordinePF,
+        articleCode,
+        qta: Number(qta) || 1,
+        department: department || 'CP',
+        workCycleId: workCycleId || workCycles[0]?.id || '',
+        dataConsegnaFinale,
+      });
+
+      if (res.success) {
+        toast({ title: "Commessa Creata", description: res.message });
+        setIsManualCreateOpen(false);
+        setManualForm({
+          cliente: '',
+          ordinePF: '',
+          articleCode: '',
+          qta: 1,
+          department: 'CP',
+          workCycleId: '',
+          dataConsegnaFinale: '',
+        });
+        handleRefresh();
+      } else {
+        throw new Error(res.message);
+      }
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore Creazione",
+        description: e.message || "Impossibile salvare la commessa manuale.",
+      });
+    }
+  };
+
+  // Aggiornamento N° ODL (on blur)
+  const handleOdlBlur = async (job: JobOrder) => {
+    const currentVal = (job.numeroODLInterno || job.numeroODL || '').trim();
+    const draftVal = (odlDrafts[job.id] ?? currentVal).trim();
+
+    if (draftVal === currentVal) return;
+
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id === job.id
+          ? { ...j, numeroODLInterno: draftVal, numeroODL: draftVal }
+          : j
       )
     );
 
+    try {
+      const res = await updateJobOdlNumber(job.id, draftVal);
+      if (res.success) {
+        toast({
+          title: "N° ODL Aggiornato",
+          description: `Commessa ${job.ordinePF}: impostato ODL "${draftVal}".`,
+        });
+      }
+    } catch (e: any) {
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id
+            ? { ...j, numeroODLInterno: currentVal, numeroODL: currentVal }
+            : j
+        )
+      );
+      toast({
+        variant: "destructive",
+        title: "Errore N° ODL",
+        description: "Impossibile salvare il N° ODL.",
+      });
+    }
+  };
+
+  // Modifica Stato Commessa
+  const handleStatusChange = async (job: JobOrder, newStatus: JobStatusOption) => {
+    const prevStatus = job.status;
+
+    setJobs((prev) =>
+      prev.map((j) => (j.id === job.id ? { ...j, status: newStatus } : j))
+    );
+
     toast({
-      title: nextStatus ? "ODL Contrassegnato Stampato" : "ODL Ripristinato da Stampare",
-      description: `Commessa ${job.ordinePF}: icona stampa aggiornata.`,
+      title: "Stato Commessa Modificato",
+      description: `Commessa ${job.ordinePF} -> ${newStatus}.`,
     });
 
-    // Chiamata Server Action in background
     try {
-      await toggleJobPrinted(job.id, isCurrentlyPrinted);
+      await updateJobStatus(job.id, newStatus);
     } catch (e) {
-      console.error("Errore salvataggio stato stampa:", e);
-      // Revert in caso di errore
-      setJobs((prevJobs) =>
-        prevJobs.map((j) =>
-          j.id === job.id ? { ...j, isPrinted: isCurrentlyPrinted, odlPrinted: isCurrentlyPrinted } : j
-        )
+      setJobs((prev) =>
+        prev.map((j) => (j.id === job.id ? { ...j, status: prevStatus } : j))
       );
     }
   };
 
+  // 4. Workflow Avvio Produzione: aggiorna a "In Produzione"
   const handleStartProduction = (job: JobOrder) => {
-    toast({
-      title: "Avvio Produzione (Fase Successiva)",
-      description: `Commessa ${job.ordinePF} pronta per la transizione di stato.`,
-    });
+    handleStatusChange(job, 'In Produzione');
   };
 
-  // Generatore opzioni per il dropdown rapido settimane
+  // Stampa ODL con Vincolo N° ODL e Automazione
+  const handleTogglePrintODL = async (job: JobOrder) => {
+    const currentOdl = (job.numeroODLInterno || job.numeroODL || '').trim();
+
+    if (!currentOdl) {
+      toast({
+        variant: "destructive",
+        title: "N° ODL Mancante",
+        description: "Inserire N° ODL prima di stampare.",
+      });
+      return;
+    }
+
+    const isCurrentlyPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
+    const nextPrinted = !isCurrentlyPrinted;
+    const currentNormalized = normalizeJobStatus(job.status);
+    const nextStatus: JobStatusOption = nextPrinted && currentNormalized === 'Pianificata' 
+      ? 'In Produzione' 
+      : normalizeJobStatus(job.status);
+
+    setJobs((prevJobs) =>
+      prevJobs.map((j) =>
+        j.id === job.id
+          ? {
+              ...j,
+              isPrinted: nextPrinted,
+              odlPrinted: nextPrinted,
+              status: nextStatus,
+            }
+          : j
+      )
+    );
+
+    toast({
+      title: nextPrinted ? "ODL Stampato con Successo" : "Marcatura Stampa Rimossa",
+      description: nextPrinted
+        ? `Commessa ${job.ordinePF}: ODL "${currentOdl}" stampato. Stato impostato su "${nextStatus}".`
+        : `Commessa ${job.ordinePF}: marcatura stampa annullata.`,
+    });
+
+    try {
+      await toggleJobPrinted(
+        job.id, 
+        isCurrentlyPrinted, 
+        nextPrinted && currentNormalized === 'Pianificata'
+      );
+    } catch (e) {
+      console.error("Errore salvataggio stampa/stato:", e);
+    }
+  };
+
+  // Settimane per il dropdown rapido
   const weekOptions = useMemo(() => {
     const now = new Date();
     const options: { value: string; label: string; date: Date }[] = [];
@@ -675,11 +1051,11 @@ export default function ProgrammazioneClientPage({
     <TooltipProvider delayDuration={150}>
       <div className="space-y-3 pb-8">
         {/* =========================================================================
-            HEADER PRINCIPALE COMPATTO
+            HEADER & HUB INSERIMENTO (COMMAND PANEL) + ALLERTATORE MRP
         ========================================================================== */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2.5">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 border-b pb-2.5">
           <div className="flex items-center gap-2.5">
-            <FileSpreadsheet className="h-5 w-5 text-primary" />
+            <FileSpreadsheet className="h-6 w-6 text-primary" />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold font-headline tracking-tight">
@@ -690,7 +1066,7 @@ export default function ProgrammazioneClientPage({
                 </Badge>
                 {isMrpLoading && (
                   <span className="flex items-center gap-1 text-[11px] text-amber-500 animate-pulse font-medium">
-                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                     Targeted MRP...
                   </span>
                 )}
@@ -698,22 +1074,126 @@ export default function ProgrammazioneClientPage({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* 2 & 3. HUB INSERIMENTO + ALLERTATORE MRP */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 3. Allertatore Intelligente MRP (Sheet Drawer) */}
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="relative h-8 text-xs gap-1.5 border-red-500/30 hover:bg-red-500/10 text-red-600 dark:text-red-400"
+                >
+                  <BellRing className="h-3.5 w-3.5" />
+                  <span>Allarmi MRP</span>
+                  {criticalMaterialsTimeline.size > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-xs animate-in zoom-in">
+                      {criticalMaterialsTimeline.size}
+                    </span>
+                  )}
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="w-[420px] sm:w-[560px] overflow-y-auto">
+                <SheetHeader>
+                  <SheetTitle className="flex items-center gap-2 text-red-600">
+                    <AlertTriangle className="h-5 w-5" />
+                    Allertatore Intelligente MRP
+                  </SheetTitle>
+                  <SheetDescription>
+                    Mancanze materiali per le commesse attualmente a schermo nel secchiello.
+                  </SheetDescription>
+                </SheetHeader>
+
+                <div className="mt-4 space-y-3">
+                  {criticalMaterialsTimeline.size === 0 ? (
+                    <div className="text-center p-6 text-muted-foreground bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                      <CheckCircle2 className="h-8 w-8 mx-auto text-emerald-500 mb-2" />
+                      <p className="font-semibold text-emerald-600">Nessuna criticità materiali!</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Tutte le commesse visualizzate risultano coperte da giacenza o ordini fornitori.
+                      </p>
+                    </div>
+                  ) : (
+                    <Accordion type="single" collapsible className="w-full space-y-2">
+                      {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries]) => (
+                        <AccordionItem key={matCode} value={matCode} className="border rounded-md px-2">
+                          <AccordionTrigger className="hover:no-underline py-2">
+                            <div className="flex items-center justify-between w-full pr-3 text-left">
+                              <span className="font-mono font-bold text-xs">{matCode}</span>
+                              <Badge variant="destructive" className="text-[10px] py-0">
+                                {entries.length} commesse
+                              </Badge>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="pt-1 pb-2 space-y-1.5 text-xs">
+                            {entries.map(({ entry, job }, idx) => (
+                              <div key={idx} className="bg-muted/40 p-2 rounded border text-[11px] space-y-1">
+                                <div className="flex items-center justify-between font-mono">
+                                  <span className="font-bold">{job?.ordinePF || entry.jobId}</span>
+                                  <span className="text-muted-foreground">{job?.cliente}</span>
+                                </div>
+                                <div className="text-muted-foreground">
+                                  {entry.details.join(' • ')}
+                                </div>
+                              </div>
+                            ))}
+                          </AccordionContent>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  )}
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            {/* 2. Nuova Commessa Rapida (SmartJobModal) */}
+            <Button
+              size="sm"
+              onClick={() => setIsSmartJobOpen(true)}
+              className="h-8 text-xs gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>+ Commessa Rapida</span>
+            </Button>
+
+            {/* 2. Smart Paste Commesse (Import Excel) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsSmartPasteOpen(true)}
+              className="h-8 text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>Smart Paste</span>
+            </Button>
+
+            {/* 2. Nuova Commessa Manuale */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsManualCreateOpen(true)}
+              className="h-8 text-xs gap-1.5"
+            >
+              <PlusCircle className="h-3.5 w-3.5" />
+              <span>+ Manuale</span>
+            </Button>
+
+            {/* Aggiorna */}
             <Button
               variant="outline"
               size="sm"
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="gap-1.5 h-7 text-xs px-2.5"
+              className="h-8 text-xs gap-1 px-2.5"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span>{isRefreshing ? 'Ricarica...' : 'Aggiorna'}</span>
+              <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span>{isRefreshing ? '...' : 'Aggiorna'}</span>
             </Button>
           </div>
         </div>
 
         {/* =========================================================================
-            1. TOP BAR: FILTRO FISSO AI SOLI 4 MACRO-REPARTI ESSENZIALI
+            TOP BAR: TAB REPARTI (4 MACRO-GRUPPI)
         ========================================================================== */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 border-b no-scrollbar">
           {MACRO_DEPARTMENTS.map((dept) => {
@@ -744,7 +1224,6 @@ export default function ProgrammazioneClientPage({
             WEEK SELECTOR + RICERCA RAPIDA
         ========================================================================== */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-card border rounded-md px-3 py-1.5 shadow-2xs">
-          {/* Navigatore Settimana */}
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center border rounded-md bg-background shadow-2xs">
               <Button
@@ -753,7 +1232,6 @@ export default function ProgrammazioneClientPage({
                 onClick={handlePrevWeek}
                 disabled={showAllWeeks}
                 className="h-7 w-7 rounded-r-none"
-                title="Settimana precedente"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </Button>
@@ -775,7 +1253,6 @@ export default function ProgrammazioneClientPage({
                 onClick={handleNextWeek}
                 disabled={showAllWeeks}
                 className="h-7 w-7 rounded-l-none"
-                title="Settimana successiva"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
@@ -790,7 +1267,6 @@ export default function ProgrammazioneClientPage({
               Questa Settimana
             </Button>
 
-            {/* Quick jump select */}
             <Select
               value={`${selectedYear}-W${selectedWeekNumber}`}
               onValueChange={(val) => {
@@ -823,12 +1299,11 @@ export default function ProgrammazioneClientPage({
             </Button>
           </div>
 
-          {/* Ricerca Rapida */}
           <div className="relative w-full md:w-64">
             <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Cerca Ordine PF, cliente, articolo..."
+              placeholder="Cerca PF, cliente, articolo, ODL..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-7 h-7 text-xs"
@@ -837,87 +1312,30 @@ export default function ProgrammazioneClientPage({
         </div>
 
         {/* =========================================================================
-            2. MINIATURIZZAZIONE HEADER CAPACITÀ (RIGA ULTRA-COMPATTA INLINE)
+            KPI CAPACITÀ (BOX CON BORDO DINAMICO E VISIBILITÀ)
         ========================================================================== */}
-        <div className="bg-card border rounded-md px-3 py-1.5 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
-          {/* Input Addetti Giornalieri (L, M, M, G, V) + Straordinari */}
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="bg-card border rounded-md px-3 py-2 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
               <CalendarCheck className="h-3.5 w-3.5 text-blue-500" />
               Addetti:
             </span>
 
-            {/* L */}
-            <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
-              <span className="font-bold text-[10px] text-muted-foreground">L:</span>
-              <input
-                type="number"
-                min={0}
-                max={50}
-                value={currentCapacity.L}
-                onChange={(e) => handleCapacityChange('L', parseInt(e.target.value))}
-                className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
-                title="Lunedì"
-              />
-            </div>
+            {/* Giorni L, M, M, G, V */}
+            {(['L', 'M', 'Me', 'G', 'V'] as const).map((day) => (
+              <div key={day} className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
+                <span className="font-bold text-[10px] text-muted-foreground">{day === 'Me' ? 'M' : day}:</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={currentCapacity[day]}
+                  onChange={(e) => handleCapacityChange(day, parseInt(e.target.value))}
+                  className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            ))}
 
-            {/* M */}
-            <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
-              <span className="font-bold text-[10px] text-muted-foreground">M:</span>
-              <input
-                type="number"
-                min={0}
-                max={50}
-                value={currentCapacity.M}
-                onChange={(e) => handleCapacityChange('M', parseInt(e.target.value))}
-                className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
-                title="Martedì"
-              />
-            </div>
-
-            {/* M (Mercoledì) */}
-            <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
-              <span className="font-bold text-[10px] text-muted-foreground">M:</span>
-              <input
-                type="number"
-                min={0}
-                max={50}
-                value={currentCapacity.Me}
-                onChange={(e) => handleCapacityChange('Me', parseInt(e.target.value))}
-                className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
-                title="Mercoledì"
-              />
-            </div>
-
-            {/* G */}
-            <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
-              <span className="font-bold text-[10px] text-muted-foreground">G:</span>
-              <input
-                type="number"
-                min={0}
-                max={50}
-                value={currentCapacity.G}
-                onChange={(e) => handleCapacityChange('G', parseInt(e.target.value))}
-                className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
-                title="Giovedì"
-              />
-            </div>
-
-            {/* V */}
-            <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
-              <span className="font-bold text-[10px] text-muted-foreground">V:</span>
-              <input
-                type="number"
-                min={0}
-                max={50}
-                value={currentCapacity.V}
-                onChange={(e) => handleCapacityChange('V', parseInt(e.target.value))}
-                className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
-                title="Venerdì"
-              />
-            </div>
-
-            {/* + Straordinario (h) */}
             <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border ml-1">
               <span className="font-bold text-[10px] text-muted-foreground">+ Straord:</span>
               <input
@@ -927,58 +1345,69 @@ export default function ProgrammazioneClientPage({
                 value={currentCapacity.overtime}
                 onChange={(e) => handleCapacityChange('overtime', parseFloat(e.target.value))}
                 className="w-10 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
-                title="Ore di straordinario totali"
               />
               <span className="text-[10px] text-muted-foreground font-mono">h</span>
             </div>
           </div>
 
-          {/* KPI Inline: Ore Disponibili, Ore Caricate, Saturazione, Bilancio */}
-          <div className="flex items-center gap-4 flex-wrap text-xs">
-            {/* Ore Disponibili */}
-            <div className="flex items-baseline gap-1" title="(Somma addetti * 7.6h) + Straordinari">
-              <span className="text-muted-foreground text-[11px]">Disp:</span>
-              <span className="font-mono font-bold text-foreground">{availableHours.toFixed(1)}h</span>
+          <div 
+            className={cn(
+              "rounded-md px-3.5 py-1.5 shadow-md flex items-center divide-x transition-all duration-300",
+              "bg-slate-900 text-white divide-slate-700/80 border-2",
+              bucketMetrics.saturationPercent > 100 
+                ? "border-red-500 shadow-red-500/20" 
+                : bucketMetrics.saturationPercent > 85 
+                  ? "border-amber-500 shadow-amber-500/20" 
+                  : "border-emerald-500 shadow-emerald-500/20"
+            )}
+          >
+            <div className="pr-3 text-left">
+              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                Disponibili
+              </div>
+              <div className="text-sm font-mono font-black text-white mt-0.5">
+                {availableHours.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">h</span>
+              </div>
             </div>
 
-            {/* Ore Caricate */}
-            <div className="flex items-baseline gap-1" title="Somma ore delle commesse visibili">
-              <span className="text-muted-foreground text-[11px]">Caricate:</span>
-              <span className="font-mono font-bold text-foreground">{bucketMetrics.loadedHours.toFixed(1)}h</span>
-              <span className="text-[10px] text-muted-foreground">({bucketMetrics.totalJobs} com.)</span>
+            <div className="px-3 text-left">
+              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none flex items-center justify-between gap-1">
+                <span>Caricate</span>
+                <span className="text-[9px] text-slate-400 font-normal">({bucketMetrics.totalJobs} com.)</span>
+              </div>
+              <div className="text-sm font-mono font-black text-white mt-0.5">
+                {bucketMetrics.loadedHours.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">h</span>
+              </div>
             </div>
 
-            {/* Saturazione */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground text-[11px]">Saturaz:</span>
-              <Badge
-                variant="outline"
-                className={`font-mono font-bold text-[10px] px-1.5 py-0 ${
-                  bucketMetrics.saturationPercent > 100
-                    ? 'border-red-500/50 text-red-600 bg-red-500/10'
-                    : bucketMetrics.saturationPercent > 85
-                      ? 'border-amber-500/50 text-amber-600 bg-amber-500/10'
-                      : 'border-emerald-500/50 text-emerald-600 bg-emerald-500/10'
-                }`}
-              >
+            <div className="px-3 text-left">
+              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                Saturazione
+              </div>
+              <div className={cn(
+                "text-sm font-mono font-black mt-0.5",
+                bucketMetrics.saturationPercent > 100 ? "text-red-400" : bucketMetrics.saturationPercent > 85 ? "text-amber-400" : "text-emerald-400"
+              )}>
                 {bucketMetrics.saturationPercent}%
-              </Badge>
+              </div>
             </div>
 
-            {/* Bilancio */}
-            <div className="flex items-baseline gap-1">
-              <span className="text-muted-foreground text-[11px]">Bilancio:</span>
-              <span className={`font-mono font-bold text-[11px] ${
-                bucketMetrics.balanceHours < 0 ? 'text-red-600' : 'text-emerald-600'
-              }`}>
-                {bucketMetrics.balanceHours >= 0 ? `+${bucketMetrics.balanceHours}h` : `${bucketMetrics.balanceHours}h`}
-              </span>
+            <div className="pl-3 text-left">
+              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                Bilancio
+              </div>
+              <div className={cn(
+                "text-sm font-mono font-black mt-0.5",
+                bucketMetrics.balanceHours < 0 ? "text-red-400" : "text-emerald-400"
+              )}>
+                {bucketMetrics.balanceHours >= 0 ? `+${bucketMetrics.balanceHours.toFixed(1)} h` : `${bucketMetrics.balanceHours.toFixed(1)} h`}
+              </div>
             </div>
           </div>
         </div>
 
         {/* =========================================================================
-            3 & 4. DATAGRID (STILE EXCEL): BADGE REPARTO, ORDINAMENTO, WORKFLOW ODL E MRP REALE
+            DATAGRID (STILE EXCEL): RIGA VUOTA RAPIDA + SEPARAZIONE COLONNE + INLINE EDIT
         ========================================================================== */}
         <div className="border rounded-md bg-card shadow-xs overflow-hidden">
           <div className="bg-muted/40 px-3 py-1.5 border-b flex items-center justify-between text-xs text-muted-foreground font-medium">
@@ -1006,56 +1435,229 @@ export default function ProgrammazioneClientPage({
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-muted/70 sticky top-0 z-10 border-b shadow-2xs backdrop-blur-xs">
                 <tr className="divide-x divide-border font-semibold text-foreground">
-                  {/* Ordinamento Cliccabile su Ordine / Cliente */}
+                  {/* 1. REPARTO */}
+                  <th className="py-2 px-2 text-center w-[55px]">Rep.</th>
+
+                  {/* 2. ORDINE */}
                   <th 
-                    onClick={handleSortToggle}
-                    className="py-2 px-3 text-left w-[210px] cursor-pointer select-none hover:bg-muted/90 transition-colors"
-                    title="Clicca per ordinare per Ordine PF"
+                    onClick={() => handleSort('ordinePF')}
+                    className="py-2 px-2.5 text-left w-[105px] cursor-pointer select-none hover:bg-muted/90 transition-colors"
                   >
-                    <div className="flex items-center justify-between">
-                      <span>Ordine / Cliente</span>
+                    <div className="flex items-center justify-between gap-1">
+                      <span>Ordine</span>
                       {sortField === 'ordinePF' ? (
-                        sortDirection === 'asc' ? (
-                          <ArrowUp className="h-3.5 w-3.5 text-primary" />
-                        ) : (
-                          <ArrowDown className="h-3.5 w-3.5 text-primary" />
-                        )
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
                       ) : (
-                        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/60" />
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/60" />
                       )}
                     </div>
                   </th>
 
-                  <th className="py-2 px-3 text-left min-w-[240px]">Articolo</th>
-                  <th className="py-2 px-3 text-right w-[85px]">Quantità</th>
-                  <th className="py-2 px-3 text-right w-[105px]">Ore Prev.</th>
-                  <th className="py-2 px-3 text-center w-[115px]">Data Cons.</th>
-                  
-                  {/* Stato MRP Reale */}
-                  <th className="py-2 px-3 text-center w-[130px] bg-muted/80">
-                    Stato MRP
+                  {/* 3. CLIENTE */}
+                  <th 
+                    onClick={() => handleSort('cliente')}
+                    className="py-2 px-2.5 text-left w-[135px] cursor-pointer select-none hover:bg-muted/90 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span>Cliente</span>
+                      {sortField === 'cliente' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/60" />
+                      )}
+                    </div>
                   </th>
 
-                  {/* Settimana Assegnata */}
-                  <th className="py-2 px-3 text-center w-[160px] bg-muted/80">
-                    Settimana
+                  {/* 4. ARTICOLO */}
+                  <th className="py-2 px-3 text-left min-w-[190px]">Articolo</th>
+
+                  {/* 5. Q.TÀ (Separata) */}
+                  <th className="py-2 px-2 text-right w-[75px]">Q.tà</th>
+
+                  {/* 6. ORE PREV. (Separata) */}
+                  <th className="py-2 px-2 text-right w-[75px]">Ore Prev.</th>
+
+                  {/* 7. DATA CONS. (Ordinabile e Inline Editable) */}
+                  <th 
+                    onClick={() => handleSort('dataConsegna')}
+                    className="py-2 px-2 text-center w-[110px] cursor-pointer select-none hover:bg-muted/90 transition-colors"
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      <span>Data Cons.</span>
+                      {sortField === 'dataConsegna' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/60" />
+                      )}
+                    </div>
                   </th>
 
-                  {/* Azioni Rapide */}
-                  <th className="py-2 px-3 text-center w-[115px] bg-muted/80">
-                    Azioni
-                  </th>
+                  {/* 8. N° ODL */}
+                  <th className="py-2 px-2 text-center w-[115px] bg-muted/80">N° ODL</th>
+
+                  {/* 9. STATO MRP */}
+                  <th className="py-2 px-2 text-center w-[115px] bg-muted/80">Stato MRP</th>
+
+                  {/* 10. SETTIMANA */}
+                  <th className="py-2 px-2 text-center w-[125px] bg-muted/80">Settimana</th>
+
+                  {/* 11. STATO COMMESSA */}
+                  <th className="py-2 px-2 text-center w-[145px] bg-muted/80">Stato Commessa</th>
+
+                  {/* 12. AZIONI */}
+                  <th className="py-2 px-2 text-center w-[85px] bg-muted/80">Azioni</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border font-normal">
+                {/* =========================================================================
+                    2. RIGA VUOTA RAPIDA PERMANENTEMENTE VISIBILE IN CIMA ALLA DATAGRID
+                ========================================================================== */}
+                <tr className="divide-x divide-border bg-blue-500/5 hover:bg-blue-500/10 transition-colors border-b-2 border-primary/30">
+                  {/* Reparto */}
+                  <td className="py-1 px-1 text-center align-middle">
+                    <Select
+                      value={quickRow.department}
+                      onValueChange={(val) => setQuickRow(prev => ({ ...prev, department: val }))}
+                    >
+                      <SelectTrigger className="h-6 text-[10px] font-bold px-1 py-0 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CP" className="text-xs font-bold text-amber-600">CP</SelectItem>
+                        <SelectItem value="CG" className="text-xs font-bold text-emerald-600">CG</SelectItem>
+                        <SelectItem value="BF" className="text-xs font-bold text-sky-600">BF</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </td>
+
+                  {/* Ordine PF */}
+                  <td className="py-1 px-1.5 align-middle">
+                    <input
+                      ref={quickRowFirstInputRef}
+                      type="text"
+                      placeholder="Ordine PF..."
+                      value={quickRow.ordinePF}
+                      onChange={(e) => setQuickRow(prev => ({ ...prev, ordinePF: e.target.value }))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
+                      className="w-full h-6 px-1.5 font-mono font-bold text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary"
+                    />
+                  </td>
+
+                  {/* Cliente */}
+                  <td className="py-1 px-1.5 align-middle">
+                    <input
+                      type="text"
+                      placeholder="Cliente..."
+                      value={quickRow.cliente}
+                      onChange={(e) => setQuickRow(prev => ({ ...prev, cliente: e.target.value }))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
+                      className="w-full h-6 px-1.5 text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary"
+                    />
+                  </td>
+
+                  {/* Articolo */}
+                  <td className="py-1 px-1.5 align-middle">
+                    <input
+                      type="text"
+                      placeholder="Codice Articolo..."
+                      value={quickRow.articleCode}
+                      onChange={(e) => setQuickRow(prev => ({ ...prev, articleCode: e.target.value }))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
+                      className="w-full h-6 px-1.5 font-semibold text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary"
+                    />
+                  </td>
+
+                  {/* Q.tà */}
+                  <td className="py-1 px-1 text-right align-middle">
+                    <input
+                      type="number"
+                      placeholder="Q.tà"
+                      min={1}
+                      value={quickRow.qta}
+                      onChange={(e) => setQuickRow(prev => ({ ...prev, qta: e.target.value }))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
+                      className="w-full h-6 px-1 text-right font-mono font-bold text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary"
+                    />
+                  </td>
+
+                  {/* Ore Prev. (Calcolato o placeholder) */}
+                  <td className="py-1 px-2 text-right align-middle font-mono text-[11px] text-muted-foreground">
+                    {quickRow.qta ? `${(parseInt(quickRow.qta) * 0.15).toFixed(1)}h` : '---'}
+                  </td>
+
+                  {/* Data Cons. */}
+                  <td className="py-1 px-1.5 text-center align-middle">
+                    <input
+                      type="text"
+                      placeholder="GG/MM/AAAA"
+                      value={quickRow.dataConsegnaFinale}
+                      onChange={(e) => setQuickRow(prev => ({ ...prev, dataConsegnaFinale: e.target.value }))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
+                      className="w-full h-6 px-1 text-center font-mono text-[10px] bg-background border rounded focus:ring-1 focus:ring-primary"
+                    />
+                  </td>
+
+                  {/* N° ODL */}
+                  <td className="py-1 px-1.5 text-center align-middle">
+                    <input
+                      type="text"
+                      placeholder="N° ODL..."
+                      value={quickRow.numeroODLInterno}
+                      onChange={(e) => setQuickRow(prev => ({ ...prev, numeroODLInterno: e.target.value }))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
+                      className="w-full h-6 px-1 text-center font-mono text-[10px] bg-background border rounded focus:ring-1 focus:ring-primary"
+                    />
+                  </td>
+
+                  {/* Stato MRP */}
+                  <td className="py-1 px-1 text-center align-middle">
+                    <Badge variant="outline" className="text-[9px] py-0 border-blue-500/30 text-blue-500 bg-blue-500/10">
+                      + Nuova
+                    </Badge>
+                  </td>
+
+                  {/* Settimana */}
+                  <td className="py-1 px-1 text-center align-middle font-mono text-[10px] text-muted-foreground">
+                    W{selectedWeekNumber}
+                  </td>
+
+                  {/* Stato Commessa */}
+                  <td className="py-1 px-1 text-center align-middle font-medium text-[10px] text-blue-600">
+                    Pianificata
+                  </td>
+
+                  {/* Azione Salva Riga Rapida */}
+                  <td className="py-1 px-1 text-center align-middle">
+                    <Button
+                      size="sm"
+                      onClick={handleSaveQuickRow}
+                      disabled={isSubmittingQuickRow || !quickRow.ordinePF.trim() || !quickRow.articleCode.trim()}
+                      className="h-6 px-2 text-[10px] font-bold gap-1 bg-primary text-primary-foreground shadow-2xs"
+                      title="Premi Invio o clicca per inserire"
+                    >
+                      {isSubmittingQuickRow ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <>
+                          <CornerDownLeft className="h-3 w-3" />
+                          <span>Invio</span>
+                        </>
+                      )}
+                    </Button>
+                  </td>
+                </tr>
+
+                {/* =========================================================================
+                    RIGHE COMMESSE EFFETTIVE
+                ========================================================================== */}
                 {sortedAndFilteredJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                    <td colSpan={12} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Layers className="h-7 w-7 text-muted-foreground/40" />
                         <p className="text-sm font-medium">Nessuna commessa trovata nel secchiello corrente.</p>
                         <p className="text-xs text-muted-foreground max-w-sm">
-                          Nessun record per il reparto <strong>{selectedDept}</strong> nella <strong>Settimana {selectedWeekNumber}</strong>.
+                          Puoi inserire una nuova commessa compilando la riga in alto o reimpostando i filtri.
                         </p>
                         <Button
                           variant="outline"
@@ -1079,80 +1681,131 @@ export default function ProgrammazioneClientPage({
                     const currentJobWeekStr = weekInfo ? `W${weekInfo.week}` : 'Non ass.';
                     const mrp = getJobMRPStatus(job);
                     const deptGroup = getJobDepartmentGroup(job);
+                    const currentStatus = normalizeJobStatus(job.status);
 
-                    // Workflow ODL: Se stampato, icona verde brillante
                     const isPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
+                    const currentOdlValue = odlDrafts[job.id] !== undefined 
+                      ? odlDrafts[job.id] 
+                      : (job.numeroODLInterno || job.numeroODL || '');
+
+                    const currentDeliveryDateDisplay = dateDrafts[job.id] !== undefined 
+                      ? dateDrafts[job.id] 
+                      : formatDateForDisplay(job.dataConsegnaFinale);
 
                     return (
                       <tr
                         key={job.id}
                         className="divide-x divide-border hover:bg-muted/30 transition-colors group"
                       >
-                        {/* 1. Ordine / Cliente */}
-                        <td className="py-1.5 px-3 align-middle">
-                          <div className="font-mono font-bold text-foreground tracking-tight">
-                            {job.ordinePF || 'N/A'}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground truncate max-w-[195px]" title={job.cliente}>
-                            {job.cliente || 'Cliente non specificato'}
-                          </div>
-                        </td>
-
-                        {/* 2. Articolo con Label Reparto [CP], [CG], [BF] */}
-                        <td className="py-1.5 px-3 align-middle">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {/* Label Reparto inline */}
-                            {deptGroup === 'CP' && (
-                              <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-bold font-mono text-[10px] px-1 rounded-xs">
-                                [CP]
-                              </span>
-                            )}
-                            {deptGroup === 'CG' && (
-                              <span className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 font-bold font-mono text-[10px] px-1 rounded-xs">
-                                [CG]
-                              </span>
-                            )}
-                            {deptGroup === 'BF' && (
-                              <span className="bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30 font-bold font-mono text-[10px] px-1 rounded-xs">
-                                [BF]
-                              </span>
-                            )}
-                            {deptGroup === 'OTHER' && job.department && (
-                              <span className="bg-slate-500/15 text-slate-700 dark:text-slate-400 border border-slate-500/30 font-bold font-mono text-[10px] px-1 rounded-xs">
-                                [{job.department}]
-                              </span>
-                            )}
-
-                            <span className="font-semibold text-foreground truncate max-w-[280px]" title={job.details}>
-                              {job.details || 'Articolo non indicato'}
+                        {/* 1. REPARTO (Solo il badge dedicato) */}
+                        <td className="py-1.5 px-1.5 text-center align-middle">
+                          {deptGroup === 'CP' && (
+                            <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
+                              CP
                             </span>
-                          </div>
-                        </td>
-
-                        {/* 3. Quantità */}
-                        <td className="py-1.5 px-3 text-right align-middle font-mono font-semibold text-foreground">
-                          {(job.qta || 0).toLocaleString('it-IT')} <span className="text-[10px] text-muted-foreground font-normal">pz</span>
-                        </td>
-
-                        {/* 4. Ore Previste */}
-                        <td className="py-1.5 px-3 text-right align-middle">
-                          <span className="font-mono font-semibold text-foreground">
-                            {hours.toFixed(1)}
-                          </span>{' '}
-                          <span className="text-[10px] text-muted-foreground">h</span>
-                        </td>
-
-                        {/* 5. Data Consegna */}
-                        <td className="py-1.5 px-3 text-center align-middle font-mono text-[11px]">
-                          {job.dataConsegnaFinale ? (
-                            <span>{job.dataConsegnaFinale}</span>
-                          ) : (
-                            <span className="text-muted-foreground italic">Non def.</span>
+                          )}
+                          {deptGroup === 'CG' && (
+                            <span className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
+                              CG
+                            </span>
+                          )}
+                          {deptGroup === 'BF' && (
+                            <span className="bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
+                              BF
+                            </span>
+                          )}
+                          {deptGroup === 'OTHER' && (
+                            <span className="bg-slate-500/15 text-slate-700 dark:text-slate-400 border border-slate-500/30 font-bold font-mono text-[9px] px-1 py-0.5 rounded-xs truncate max-w-[45px] inline-block">
+                              {job.department || 'N/D'}
+                            </span>
                           )}
                         </td>
 
-                        {/* 6. Stato MRP Reale (con Tooltip dettagli componenti) */}
-                        <td className="py-1.5 px-2 text-center align-middle">
+                        {/* 2. ORDINE */}
+                        <td className="py-1.5 px-2.5 align-middle">
+                          <span className="font-mono font-bold text-foreground tracking-tight">
+                            {job.ordinePF || 'N/A'}
+                          </span>
+                        </td>
+
+                        {/* 3. CLIENTE */}
+                        <td className="py-1.5 px-2.5 align-middle">
+                          <span className="text-[11px] text-foreground font-medium truncate block max-w-[130px]" title={job.cliente}>
+                            {job.cliente || 'Non specificato'}
+                          </span>
+                        </td>
+
+                        {/* 4. ARTICOLO (Badge rimosso) */}
+                        <td className="py-1.5 px-3 align-middle">
+                          <span className="font-semibold text-foreground truncate block max-w-[250px]" title={job.details}>
+                            {job.details || 'Articolo non indicato'}
+                          </span>
+                        </td>
+
+                        {/* 5. Q.TÀ (Separata) */}
+                        <td className="py-1.5 px-2 text-right align-middle font-mono font-bold text-foreground">
+                          {(job.qta || 0).toLocaleString('it-IT')}
+                        </td>
+
+                        {/* 6. ORE PREV. (Separata) */}
+                        <td className="py-1.5 px-2 text-right align-middle font-mono text-[11px] text-muted-foreground font-medium">
+                          {hours.toFixed(1)} h
+                        </td>
+
+                        {/* 7. DATA CONS. (Inline Editable GG/MM/AAAA) */}
+                        <td className="py-1 px-1.5 text-center align-middle">
+                          <input
+                            type="text"
+                            value={currentDeliveryDateDisplay}
+                            placeholder="GG/MM/AAAA"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setDateDrafts(prev => ({ ...prev, [job.id]: val }));
+                            }}
+                            onBlur={() => handleDeliveryDateBlur(job)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            className={cn(
+                              "h-6 text-[11px] font-mono font-semibold text-center px-1 py-0 w-full rounded border transition-colors",
+                              "hover:border-primary/50 focus:border-primary focus:ring-1 focus:ring-primary",
+                              !job.dataConsegnaFinale 
+                                ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
+                                : "border-border bg-background text-foreground"
+                            )}
+                            title="Clicca per modificare la data (GG/MM/AAAA) e premi Invio"
+                          />
+                        </td>
+
+                        {/* 8. N° ODL (Input Rapido) */}
+                        <td className="py-1 px-1.5 text-center align-middle">
+                          <Input
+                            type="text"
+                            value={currentOdlValue}
+                            placeholder="Es. 185/PF"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setOdlDrafts((prev) => ({ ...prev, [job.id]: val }));
+                            }}
+                            onBlur={() => handleOdlBlur(job)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            className={cn(
+                              "h-6 text-[11px] font-mono font-bold text-center px-1 py-0 w-full rounded border",
+                              !currentOdlValue 
+                                ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
+                                : "border-border bg-background text-foreground"
+                            )}
+                          />
+                        </td>
+
+                        {/* 9. STATO MRP */}
+                        <td className="py-1.5 px-1.5 text-center align-middle">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] border cursor-help ${mrp.badgeClass}`}>
@@ -1176,14 +1829,14 @@ export default function ProgrammazioneClientPage({
                           </Tooltip>
                         </td>
 
-                        {/* 7. Settimana di Assegnazione (Dropdown) */}
-                        <td className="py-1 px-2 text-center align-middle">
+                        {/* 10. SETTIMANA ASSEGNATA */}
+                        <td className="py-1 px-1.5 text-center align-middle">
                           <Select
                             defaultValue={currentJobWeekStr}
                             onValueChange={(newWeek) => {
                               toast({
-                                title: "Spostamento Commessa (Placeholder)",
-                                description: `Commessa ${job.ordinePF} su ${newWeek}. Il salvataggio Optimistic UI sarà cablato nella Fase 3/4.`,
+                                title: "Spostamento Commessa",
+                                description: `Commessa ${job.ordinePF} riassegnata a ${newWeek}.`,
                               });
                             }}
                           >
@@ -1202,10 +1855,42 @@ export default function ProgrammazioneClientPage({
                           </Select>
                         </td>
 
-                        {/* 8. Azioni Rapide (Stampa ODL con Verde brillante se stampato + Avvia) */}
-                        <td className="py-1 px-2 text-center align-middle">
+                        {/* 11. STATO COMMESSA */}
+                        <td className="py-1 px-1.5 text-center align-middle">
+                          <Select
+                            value={currentStatus}
+                            onValueChange={(val: JobStatusOption) => handleStatusChange(job, val)}
+                          >
+                            <SelectTrigger className={cn(
+                              "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border",
+                              currentStatus === 'Pianificata' && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
+                              currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
+                              currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
+                              currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
+                            )}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Pianificata" className="text-xs font-medium text-blue-600">
+                                Pianificata
+                              </SelectItem>
+                              <SelectItem value="In Produzione" className="text-xs font-bold text-amber-600">
+                                In Produzione
+                              </SelectItem>
+                              <SelectItem value="Completato Prod." className="text-xs font-bold text-emerald-600">
+                                Completato Prod.
+                              </SelectItem>
+                              <SelectItem value="Spedito" className="text-xs font-medium text-purple-600">
+                                Spedito
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </td>
+
+                        {/* 12. AZIONI (Stampa con vincolo ODL + Avvia) */}
+                        <td className="py-1 px-1.5 text-center align-middle">
                           <div className="flex items-center justify-center gap-1">
-                            {/* Tasto Stampa ODL */}
+                            {/* Stampa ODL */}
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
@@ -1224,24 +1909,30 @@ export default function ProgrammazioneClientPage({
                               </TooltipTrigger>
                               <TooltipContent>
                                 {isPrinted 
-                                  ? "ODL già stampato (clicca per ristampare o deselezionare)" 
-                                  : "Stampa ODL"}
+                                  ? "ODL stampato (clicca per ristampare o deselezionare)" 
+                                  : "Stampa ODL (richiede N° ODL)"}
                               </TooltipContent>
                             </Tooltip>
 
-                            {/* Tasto Avvia Produzione (Sempre visibile, non nasconde la stampa) */}
+                            {/* Avvia in Produzione (Aggiorna a In Produzione) */}
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => handleStartProduction(job)}
-                                  className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10"
+                                  disabled={currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.'}
+                                  className={cn(
+                                    "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10",
+                                    (currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.') && "opacity-40 cursor-not-allowed"
+                                  )}
                                 >
                                   <Play className="h-3.5 w-3.5" />
                                 </Button>
                               </TooltipTrigger>
-                              <TooltipContent>Avvia in Produzione</TooltipContent>
+                              <TooltipContent>
+                                {currentStatus === 'In Produzione' ? "Già in Produzione" : "Avvia in Produzione"}
+                              </TooltipContent>
                             </Tooltip>
                           </div>
                         </td>
@@ -1253,6 +1944,125 @@ export default function ProgrammazioneClientPage({
             </table>
           </div>
         </div>
+
+        {/* =========================================================================
+            MODALI HUB INSERIMENTO
+        ========================================================================== */}
+        {/* 1. SmartJobModal (Nuova Commessa Rapida) */}
+        {globalSettings && (
+          <SmartJobModal
+            isOpen={isSmartJobOpen}
+            onClose={() => {
+              setIsSmartJobOpen(false);
+              handleRefresh();
+            }}
+            settings={globalSettings}
+          />
+        )}
+
+        {/* 2. SmartPasteModal (Import da Excel) */}
+        <SmartPasteModal
+          isOpen={isSmartPasteOpen}
+          onClose={() => {
+            setIsSmartPasteOpen(false);
+            handleRefresh();
+          }}
+          articles={articles}
+          departments={departments}
+        />
+
+        {/* 3. Nuova Commessa Manuale */}
+        <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <PlusCircle className="h-5 w-5 text-primary" />
+                Nuova Commessa Manuale
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3 py-2 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold block mb-1">Ordine PF *</label>
+                  <Input
+                    placeholder="Es. 100/PF"
+                    value={manualForm.ordinePF}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, ordinePF: e.target.value }))}
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold block mb-1">Cliente *</label>
+                  <Input
+                    placeholder="Nome cliente..."
+                    value={manualForm.cliente}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, cliente: e.target.value }))}
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-semibold block mb-1">Codice Articolo *</label>
+                <Input
+                  placeholder="Es. ART-001..."
+                  value={manualForm.articleCode}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, articleCode: e.target.value }))}
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold block mb-1">Quantità</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={manualForm.qta}
+                    onChange={(e) => setManualForm(prev => ({ ...prev, qta: parseInt(e.target.value) || 1 }))}
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold block mb-1">Reparto</label>
+                  <Select
+                    value={manualForm.department}
+                    onValueChange={(val) => setManualForm(prev => ({ ...prev, department: val }))}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CP">Connessioni Piccole (CP)</SelectItem>
+                      <SelectItem value="CG">Connessioni Grandi (CG)</SelectItem>
+                      <SelectItem value="BF">Reparto Barre (BF)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-semibold block mb-1">Data Consegna (GG/MM/AAAA)</label>
+                <Input
+                  placeholder="Es. 25/11/2026..."
+                  value={manualForm.dataConsegnaFinale}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, dataConsegnaFinale: e.target.value }))}
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" size="sm" onClick={() => setIsManualCreateOpen(false)}>
+                Annulla
+              </Button>
+              <Button size="sm" onClick={handleSaveManualModal}>
+                Crea Commessa
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );

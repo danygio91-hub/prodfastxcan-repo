@@ -3,15 +3,25 @@ import { Loader2 } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import ProgrammazioneClientPage from './ProgrammazioneClientPage';
-import { getJobOrders, getDepartments } from './actions';
+import { getJobOrders, getDepartments, getWorkCycles } from './actions';
+import { adminDb } from '@/lib/firebase-admin';
+import { convertTimestampsToDates } from '@/lib/utils';
+import type { Article, WorkCycle } from '@/types';
+import type { GlobalSettings } from '@/lib/settings-types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ProgrammazionePage() {
-  const [jobs, departments] = await Promise.all([
+  const [jobs, departments, cycles, articlesSnap, settingsSnap] = await Promise.all([
     getJobOrders(),
     getDepartments(),
+    getWorkCycles(),
+    adminDb.collection("articles").select("code", "workCycleId", "description", "department", "billOfMaterials").get(),
+    adminDb.collection("settings").doc("global").get(),
   ]);
+
+  const articles = articlesSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id }) as Article);
+  const globalSettings = settingsSnap.exists ? convertTimestampsToDates(settingsSnap.data()) as GlobalSettings : null;
 
   return (
     <AdminAuthGuard>
@@ -29,6 +39,9 @@ export default async function ProgrammazionePage() {
           <ProgrammazioneClientPage
             initialJobs={JSON.parse(JSON.stringify(jobs))}
             initialDepartments={JSON.parse(JSON.stringify(departments))}
+            initialArticles={JSON.parse(JSON.stringify(articles))}
+            initialWorkCycles={JSON.parse(JSON.stringify(cycles))}
+            initialGlobalSettings={JSON.parse(JSON.stringify(globalSettings))}
           />
         </Suspense>
       </AppShell>

@@ -1,9 +1,14 @@
 'use server';
 
-import { getJobOrders as fetchAllJobOrders, getDepartments as fetchAllDepartments } from '@/app/admin/data-management/actions';
+import { 
+    getJobOrders as fetchAllJobOrders, 
+    getDepartments as fetchAllDepartments,
+    saveManualJobOrder,
+    getWorkCycles
+} from '@/app/admin/data-management/actions';
 import { adminDb } from '@/lib/firebase-admin';
 import { convertTimestampsToDates } from '@/lib/utils';
-import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article } from '@/types';
+import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
 export async function getJobOrders(): Promise<JobOrder[]> {
@@ -13,6 +18,8 @@ export async function getJobOrders(): Promise<JobOrder[]> {
 export async function getDepartments(): Promise<Department[]> {
     return await fetchAllDepartments();
 }
+
+export { saveManualJobOrder, getWorkCycles };
 
 /**
  * Targeted Fetching MRP:
@@ -49,7 +56,6 @@ export async function getTargetedMRPData(
                 artSnap.forEach(d => {
                     const art = { ...convertTimestampsToDates(d.data()), id: d.id } as Article;
                     articles.push(art);
-                    // Aggiungi componenti della distinta articolo ai materiali necessari
                     (art.billOfMaterials || []).forEach(b => {
                         if (b.component) uniqueMatCodes.add(b.component.trim().toUpperCase());
                     });
@@ -84,7 +90,7 @@ export async function getTargetedMRPData(
             }
         }
 
-        // 3. Global Settings (per unità di misura standard e configurazione tipi)
+        // 3. Global Settings
         let globalSettings: GlobalSettings | null = null;
         try {
             const settingsSnap = await adminDb.collection("settings").doc("global").get();
@@ -104,17 +110,153 @@ export async function getTargetedMRPData(
 
 /**
  * Toggle ODL stampato per commessa (Workflow ODL)
+ * Se autoMoveToProduction è true, aggiorna anche lo stato della commessa a 'In Produzione'.
  */
-export async function toggleJobPrinted(jobId: string, currentStatus: boolean): Promise<boolean> {
+export async function toggleJobPrinted(
+    jobId: string, 
+    currentStatus: boolean, 
+    autoMoveToProduction: boolean = false
+): Promise<boolean> {
     try {
         const nextStatus = !currentStatus;
-        await adminDb.collection("jobOrders").doc(jobId).update({
+        const payload: Record<string, any> = {
             isPrinted: nextStatus,
             odlPrinted: nextStatus,
-        });
+            updatedAt: new Date().toISOString(),
+        };
+        if (nextStatus && autoMoveToProduction) {
+            payload.status = 'In Produzione';
+        }
+        await adminDb.collection("jobOrders").doc(jobId).update(payload);
         return nextStatus;
     } catch (e) {
         console.error("Errore durante toggleJobPrinted:", e);
         return currentStatus;
+    }
+}
+
+/**
+ * Aggiornamento rapido N° ODL (on blur)
+ */
+export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise<{ success: boolean; message: string }> {
+    try {
+        const val = (newOdl || '').trim();
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            numeroODLInterno: val || null,
+            numeroODL: val || null,
+            updatedAt: new Date().toISOString(),
+        });
+        return { success: true, message: 'N° ODL aggiornato con successo.' };
+    } catch (error) {
+        console.error("Errore salvataggio N° ODL:", error);
+        return { success: false, message: "Errore durante il salvataggio del N° ODL." };
+    }
+}
+
+/**
+ * Aggiornamento Stato Commessa
+ */
+export async function updateJobStatus(jobId: string, newStatus: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            status: newStatus,
+            updatedAt: new Date().toISOString(),
+        });
+        return { success: true, message: `Stato aggiornato a ${newStatus}.` };
+    } catch (error) {
+        console.error("Errore aggiornamento stato commessa:", error);
+        return { success: false, message: "Errore durante l'aggiornamento dello stato." };
+    }
+}
+
+/**
+ * Aggiornamento Data Consegna Finale (on blur / Enter)
+ */
+export async function updateJobDeliveryDate(jobId: string, newDate: string): Promise<{ success: boolean; message: string }> {
+    try {
+        const val = (newDate || '').trim();
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            dataConsegnaFinale: val,
+            updatedAt: new Date().toISOString(),
+        });
+        return { success: true, message: 'Data di consegna aggiornata con successo.' };
+    } catch (error) {
+        console.error("Errore aggiornamento data consegna:", error);
+        return { success: false, message: "Errore durante il salvataggio della data." };
+    }
+}
+
+/**
+ * Inserimento Rapido Commessa da Riga Vuota
+ */
+export async function saveQuickJobOrder(data: {
+    ordinePF: string;
+    cliente: string;
+    articleCode: string;
+    qta: number;
+    dataConsegnaFinale?: string;
+    department?: string;
+    numeroODLInterno?: string;
+}): Promise<{ success: boolean; message: string; job?: JobOrder }> {
+    try {
+        const { ordinePF, cliente, articleCode, qta, dataConsegnaFinale, department, numeroODLInterno } = data;
+        if (!ordinePF?.trim() || !cliente?.trim() || !articleCode?.trim() || !qta) {
+            return { success: false, message: "Compilare Ordine, Cliente, Articolo e Quantità." };
+        }
+
+        const sanitizedId = ordinePF.replace(/\//g, '_').trim();
+        const docRef = adminDb.collection("jobOrders").doc(sanitizedId);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+            return { success: false, message: `Esiste già una commessa con Ordine PF ${ordinePF}.` };
+        }
+
+        let phases: any[] = [];
+        let billOfMaterials: any[] = [];
+        let workCycleId = '';
+        let targetDept = department || 'CP';
+
+        const artSnap = await adminDb.collection("articles").doc(articleCode.toUpperCase().trim()).get();
+        if (artSnap.exists) {
+            const artData = artSnap.data() as Article;
+            workCycleId = artData.workCycleId || '';
+            if ((artData as any).department) targetDept = (artData as any).department;
+            if (artData.billOfMaterials && artData.billOfMaterials.length > 0) {
+                billOfMaterials = artData.billOfMaterials.map(item => ({
+                    component: item.component,
+                    quantity: item.quantity,
+                    unit: item.unit,
+                    status: 'pending',
+                    isFromTemplate: true,
+                }));
+            }
+        }
+
+        const now = new Date();
+        const newJob: any = {
+            id: sanitizedId,
+            ordinePF: ordinePF.trim(),
+            cliente: cliente.trim(),
+            details: articleCode.toUpperCase().trim(),
+            qta: Number(qta) || 1,
+            department: targetDept,
+            dataConsegnaFinale: dataConsegnaFinale || '',
+            numeroODLInterno: numeroODLInterno?.trim() || null,
+            numeroODL: numeroODLInterno?.trim() || 'N/D',
+            status: 'Pianificata',
+            phases,
+            billOfMaterials,
+            workCycleId,
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+            isPrinted: false,
+            odlPrinted: false,
+        };
+
+        await docRef.set(newJob);
+        return { success: true, message: `Commessa ${ordinePF} creata con successo.`, job: newJob as JobOrder };
+    } catch (e: any) {
+        console.error("Errore saveQuickJobOrder:", e);
+        return { success: false, message: e.message || "Errore durante la creazione." };
     }
 }
