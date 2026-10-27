@@ -65,6 +65,11 @@ export async function createPhasesFromCycle(cycleId: string, templatesMap?: Map<
     }).filter((p): p is JobPhase => p !== null);
 }
 
+export async function getJobOrders(): Promise<JobOrder[]> {
+    const snap = await adminDb.collection("jobOrders").get();
+    return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
+}
+
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
   const snap = await adminDb.collection("jobOrders")
     .where("status", "in", ["planned", "IN_ATTESA", "In Pianificazione", "IN_PIANIFICAZIONE", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO", "PREP", "CONFIRMED"] as any[])

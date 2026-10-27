@@ -12,8 +12,9 @@ import {
 import DashboardItem from '@/components/dashboard/DashboardItem';
 
 const supervisorNavItems = [
-  { href: '/admin/resource-planning', label: 'Power-Planning Hub', description: 'Bilancia la capacità dei reparti e gestisci i prestiti operatori.', icon: Activity, color: 'text-blue-600' },
-  { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e presenze giornaliere.', icon: CalendarDays, color: 'text-emerald-600' },
+  // Feature Hiding: Moduli avanzati di pianificazione temporaneamente nascosti dalla UI
+  // { href: '/admin/resource-planning', label: 'Power-Planning Hub', description: 'Bilancia la capacità dei reparti e gestisci i prestiti operatori.', icon: Activity, color: 'text-blue-600' },
+  // { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e presenze giornaliere.', icon: CalendarDays, color: 'text-emerald-600' },
   { href: '/admin/data-management', label: 'Gestione ODL', description: 'Visualizza e ricerca gli ordini di lavoro attivi.', icon: ListChecks, color: 'text-indigo-600' },
 ];
 

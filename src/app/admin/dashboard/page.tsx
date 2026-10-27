@@ -4,12 +4,13 @@
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, Calculator } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, Calculator, FileSpreadsheet } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import OperatorCommandCenter from '@/components/dashboard/OperatorCommandCenter';
 import { Button } from '@/components/ui/button';
 
 const navItems = [
+  { href: '/admin/programmazione', label: 'Programmazione Commesse', description: 'Master Panel: cabina di regia con secchielli per reparto/settimana e DataGrid Excel.', icon: FileSpreadsheet },
   { href: '/admin/mrp-simulation', label: 'Simulatore MRP e Bozze', description: 'Simula i fabbisogni e salva le bozze per la produzione.', icon: Calculator },
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Gestisci l\'anagrafica e gli impegni delle materie prime.', icon: Boxes },
@@ -19,8 +20,9 @@ const navItems = [
   { href: '/admin/batch-management', label: 'Gestione Lotti', description: 'Visualizza e gestisci i lotti delle materie prime.', icon: Package },
   { href: '/admin/article-management', label: 'Anagrafica Articoli', description: 'Crea e gestisci la distinta base degli articoli.', icon: ClipboardList },
   { href: '/admin/production-console', label: 'Console Produzione', description: 'Monitora le commesse in produzione.', icon: Briefcase },
-  { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e fermi macchina.', icon: CalendarDays },
-  { href: '/admin/resource-planning', label: 'Foglio Pianificazione Risorse', description: 'Bilancia la capacità dei reparti e gestisci i prestiti operatori.', icon: Activity },
+  // Feature Hiding: Moduli avanzati di pianificazione temporaneamente nascosti dalla UI
+  // { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e fermi macchina.', icon: CalendarDays },
+  // { href: '/admin/resource-planning', label: 'Foglio Pianificazione Risorse', description: 'Bilancia la capacità dei reparti e gestisci i prestiti operatori.', icon: Activity },
   { href: '/admin/work-group-management', label: 'Gruppi Commesse', description: 'Visualizza e gestisci i gruppi di commesse concatenate.', icon: Combine },
   { href: '/admin/inventory-management', label: 'Inventari', description: 'Visualizza e approva le registrazioni di inventario.', icon: Warehouse },
   { href: '/admin/reports', label: 'Report Produzione', description: 'Genera e visualizza i report di lavorazione.', icon: BarChart3 },

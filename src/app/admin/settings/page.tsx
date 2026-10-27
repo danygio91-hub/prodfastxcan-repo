@@ -11,7 +11,8 @@ export default function AdminCompanySettingsPage() {
 
   const navItems = [
     { href: '/admin/operator-management', label: 'Gestione Operatori', description: 'Aggiungi, modifica o rimuovi gli operatori e i loro permessi.', icon: Users, disabled: false },
-    { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e fermi macchina.', icon: CalendarDays, disabled: false },
+    // Feature Hiding: Modulo Calendario Presenze temporaneamente nascosto dalla UI
+    // { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e fermi macchina.', icon: CalendarDays, disabled: false },
     { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Aggiungi, modifica e importa le materie prime.', icon: Boxes, disabled: false },
     { href: '/admin/department-management', label: 'Gestione Reparti', description: 'Aggiungi, modifica o rimuovi i reparti aziendali.', icon: ListTodo, disabled: false },
     { href: '/admin/work-phase-management', label: 'Gestione Fasi di Lavorazione', description: 'Definisci le fasi standard per ogni reparto.', icon: Workflow, disabled: false },

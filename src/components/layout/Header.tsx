@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, ArrowRightLeft, ShieldCheck, Calculator } from 'lucide-react';
+import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity, ArrowRightLeft, ShieldCheck, Calculator, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 
 const adminNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/programmazione', label: 'Programmazione Commesse', icon: FileSpreadsheet },
   { href: '/admin/mrp-simulation', label: 'Simulatore MRP', icon: Calculator },
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
@@ -39,8 +40,9 @@ const adminNavItems = [
   { href: '/admin/batch-management', label: 'Gestione Lotti', icon: Package },
   { href: '/admin/article-management', label: 'Anagrafica Articoli', icon: ClipboardList },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
-  { href: '/admin/attendance-calendar', label: 'Calendario Presenze', icon: CalendarDays },
-  { href: '/admin/resource-planning', label: 'Pianificazione Risorse', icon: Activity },
+  // Feature Hiding: Moduli avanzati di pianificazione temporaneamente nascosti dalla UI
+  // { href: '/admin/attendance-calendar', label: 'Calendario Presenze', icon: CalendarDays },
+  // { href: '/admin/resource-planning', label: 'Pianificazione Risorse', icon: Activity },
   { href: '/admin/work-group-management', label: 'Gruppi Commesse', icon: Combine },
   { href: '/admin/inventory-management', label: 'Inventari', icon: Warehouse },
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },
@@ -53,8 +55,9 @@ const adminNavItems = [
 
 const supervisorNavItems = [
   { href: '/supervisor/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/resource-planning', label: 'Pianificazione Risorse', icon: Activity },
-  { href: '/admin/attendance-calendar', label: 'Calendario Presenze', icon: CalendarDays },
+  // Feature Hiding: Moduli avanzati di pianificazione temporaneamente nascosti dalla UI
+  // { href: '/admin/resource-planning', label: 'Pianificazione Risorse', icon: Activity },
+  // { href: '/admin/attendance-calendar', label: 'Calendario Presenze', icon: CalendarDays },
   { href: '/admin/data-management', label: 'Gestione ODL', icon: ListChecks },
 ];
 

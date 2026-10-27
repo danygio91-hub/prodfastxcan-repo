@@ -616,6 +616,8 @@ export default function ProductionConsoleClientPage() {
                 <Briefcase className="h-8 w-8 text-primary" /> Console Controllo Produzione
               </h1>
             </div>
+            {/* Feature Hiding: Selettore Vista Gantt temporaneamente nascosto dalla UI */}
+            {/*
             <div className="flex bg-muted p-1 rounded-lg items-center">
               <button onClick={() => setViewMode('list')} className={`px-4 py-1.5 flex items-center text-sm font-medium rounded-md transition-all ${viewMode === 'list' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
                 <ListOrdered className="w-4 h-4 mr-2" />
@@ -626,6 +628,7 @@ export default function ProductionConsoleClientPage() {
                 Gantt
               </button>
             </div>
+            */}
             {viewMode === 'list' && (
               <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
                 <Button 
