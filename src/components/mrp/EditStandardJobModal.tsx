@@ -27,9 +27,11 @@ interface EditStandardJobModalProps {
   job: JobOrder | null;
   workCycles: WorkCycle[];
   departments: Department[];
+  articles?: any[];
+  onJobUpdated?: (updatedJob: JobOrder) => void;
 }
 
-export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departments }: EditStandardJobModalProps) {
+export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departments, onJobUpdated }: EditStandardJobModalProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -38,6 +40,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
   // Form State
   const [cliente, setCliente] = useState('');
   const [ordinePF, setOrdinePF] = useState('');
+  const [details, setDetails] = useState('');
   const [qta, setQta] = useState('1');
   const [dataConsegna, setDataConsegna] = useState('');
   const [dataPrep, setDataPrep] = useState('');
@@ -49,6 +52,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
     if (job && isOpen) {
       setCliente(job.cliente || '');
       setOrdinePF(job.ordinePF || '');
+      setDetails(job.details || '');
       setQta(job.qta?.toString() || '1');
       setDataConsegna(job.dataConsegnaFinale || '');
       setDataPrep(job.dataFinePreparazione || '');
@@ -78,11 +82,29 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
         workCycleId: selectedCycleId,
         dataFinePreparazione: dataPrep,
         dataConsegnaFinale: dataConsegna,
-        expectedMinutes: Number(expectedMinutes)
+        expectedMinutes: Number(expectedMinutes),
+        details: details.trim().toUpperCase()
       });
 
       if (res.success) {
         toast({ title: "Successo", description: res.message });
+        if (onJobUpdated) {
+          const updatedJob: JobOrder = {
+            ...job,
+            ...((res as any).updatedFields || {}),
+            id: (res as any).newJobId || job.id,
+            cliente,
+            ordinePF,
+            qta: Number(qta),
+            department: selectedDept,
+            workCycleId: selectedCycleId,
+            dataFinePreparazione: dataPrep,
+            dataConsegnaFinale: dataConsegna,
+            details: details.trim().toUpperCase() || job.details,
+            expectedMinutesDefault: Number(expectedMinutes)
+          };
+          onJobUpdated(updatedJob);
+        }
         startTransition(() => {
           onClose();
           router.refresh();
@@ -115,16 +137,20 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {/* Article Lock Section */}
-          <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/50 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Lock className="h-4 w-4 text-amber-500" />
-              <div>
-                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Articolo (Sola Lettura)</p>
-                <p className="text-sm font-mono font-bold text-blue-400">{job.details}</p>
-              </div>
+          {/* Article Section */}
+          <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/50 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-slate-400 font-bold uppercase tracking-wider">Articolo / Codice Prodotto</Label>
+              {job.details && details.trim() !== job.details.trim() && (
+                <span className="text-[10px] text-amber-400 font-mono font-semibold">Modificato</span>
+              )}
             </div>
-            <div className="text-[9px] bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded border border-amber-500/20 font-bold">LOCKED</div>
+            <Input 
+              value={details} 
+              onChange={(e) => setDetails(e.target.value.toUpperCase())} 
+              className="bg-slate-800 border-slate-700 focus:border-blue-500 h-10 font-mono font-bold text-blue-400 uppercase tracking-tight"
+              placeholder="Es. ART-001..."
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

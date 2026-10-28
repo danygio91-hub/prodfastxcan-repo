@@ -32,7 +32,8 @@ import {
   Truck,
   Download,
   AlertCircle,
-  PackageCheck
+  PackageCheck,
+  Pencil
 } from 'lucide-react';
 import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -87,6 +88,7 @@ import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 import { SmartJobModal } from '@/components/mrp/SmartJobModal';
 import { SmartPasteModal } from '@/components/mrp/SmartPasteModal';
 import { ManualJobModal } from '@/components/mrp/ManualJobModal';
+import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 import { 
   getJobOrders, 
   getActiveJobOrders,
@@ -301,6 +303,24 @@ export default function ProgrammazioneClientPage({
   const [isSmartJobOpen, setIsSmartJobOpen] = useState(false);
   const [isSmartPasteOpen, setIsSmartPasteOpen] = useState(false);
   const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
+
+  // FASE 17: Modale di Modifica Completa (Edit Job)
+  const [isEditStandardModalOpen, setIsEditStandardModalOpen] = useState(false);
+  const [jobToEdit, setJobToEdit] = useState<JobOrder | null>(null);
+
+  const handleOpenEditModal = (job: JobOrder) => {
+    setJobToEdit(job);
+    setIsEditStandardModalOpen(true);
+  };
+
+  const handleJobUpdated = (updatedJob: JobOrder) => {
+    const oldId = jobToEdit?.id;
+    setJobs((prev) =>
+      prev.map((j) => (j.id === oldId || j.id === updatedJob.id ? { ...j, ...updatedJob } : j))
+    );
+    setIsEditStandardModalOpen(false);
+    setJobToEdit(null);
+  };
 
   // Draft locale per i N° ODL (input rapido)
   const [odlDrafts, setOdlDrafts] = useState<Record<string, string>>({});
@@ -1240,6 +1260,20 @@ export default function ProgrammazioneClientPage({
             updated.status = 'IN_PIANIFICAZIONE';
             updated.forcedCompletion = false;
             updated.packingListId = undefined;
+            updated.overallStartTime = undefined as any;
+            updated.overallEndTime = undefined as any;
+            updated.odlCreationDate = undefined as any;
+            updated.isProblemReported = false;
+            if (updated.phases && updated.phases.length > 0) {
+              updated.phases = updated.phases.map((p) => ({
+                ...p,
+                status: 'pending' as const,
+                workPeriods: [],
+                materialConsumptions: [],
+                qualityResult: null,
+                materialReady: p.isIndependent || p.type === 'preparation',
+              }));
+            }
           } else if (newStatus === 'In Produzione') {
             updated.status = 'DA_INIZIARE';
             updated.forcedCompletion = false;
@@ -2746,7 +2780,7 @@ export default function ProgrammazioneClientPage({
                   <th className="py-2 px-2 text-center w-[145px] bg-muted/80">Stato Commessa</th>
 
                   {/* 12. AZIONI */}
-                  <th className="py-2 px-2 text-center w-[85px] bg-muted/80">Azioni</th>
+                  <th className="py-2 px-2 text-center w-[115px] bg-muted/80">Azioni</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border font-normal">
@@ -3259,22 +3293,22 @@ export default function ProgrammazioneClientPage({
                           </div>
                         </td>
 
-                        {/* 11. STATO COMMESSA (Inibito se Data Mancante) */}
+                        {/* 11. STATO COMMESSA (Sblocco Rollback a Pianificata, Guardrail Data Mancante per Avanzamento) */}
                         <td className="py-1 px-1.5 text-center align-middle">
                           <Select
                             value={currentStatus}
-                            disabled={isDeliveryDateMissing}
+                            disabled={isDeliveryDateMissing && currentStatus === 'Pianificata'}
                             onValueChange={(val: JobStatusOption) => handleStatusChange(job, val)}
                           >
                             <SelectTrigger className={cn(
                               "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border",
-                              isDeliveryDateMissing && "opacity-50 cursor-not-allowed border-dashed border-red-500/50 bg-red-50/10",
-                              !isDeliveryDateMissing && currentStatus === 'Pianificata' && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
-                              !isDeliveryDateMissing && currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
-                              !isDeliveryDateMissing && currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
-                              !isDeliveryDateMissing && currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
+                              isDeliveryDateMissing && currentStatus === 'Pianificata' && "opacity-50 cursor-not-allowed border-dashed border-red-500/50 bg-red-50/10",
+                              currentStatus === 'Pianificata' && !isDeliveryDateMissing && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
+                              currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
+                              currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
+                              currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
                             )}
-                            title={isDeliveryDateMissing ? "Inserire Data di Consegna per sbloccare lo stato" : undefined}
+                            title={isDeliveryDateMissing && currentStatus === 'Pianificata' ? "Inserire Data di Consegna per sbloccare lo stato" : undefined}
                             >
                               <SelectValue />
                             </SelectTrigger>
@@ -3282,13 +3316,13 @@ export default function ProgrammazioneClientPage({
                               <SelectItem value="Pianificata" className="text-xs font-medium text-blue-600">
                                 Pianificata
                               </SelectItem>
-                              <SelectItem value="In Produzione" className="text-xs font-bold text-amber-600">
+                              <SelectItem value="In Produzione" disabled={isDeliveryDateMissing} className="text-xs font-bold text-amber-600">
                                 In Produzione
                               </SelectItem>
-                              <SelectItem value="Completato Prod." className="text-xs font-bold text-emerald-600">
+                              <SelectItem value="Completato Prod." disabled={isDeliveryDateMissing} className="text-xs font-bold text-emerald-600">
                                 Completato Prod.
                               </SelectItem>
-                              <SelectItem value="Spedito" className="text-xs font-medium text-purple-600">
+                              <SelectItem value="Spedito" disabled={isDeliveryDateMissing} className="text-xs font-medium text-purple-600">
                                 Spedito
                               </SelectItem>
                             </SelectContent>
@@ -3362,6 +3396,23 @@ export default function ProgrammazioneClientPage({
                                       : currentStatus === 'Spedito'
                                         ? "Commessa Spedita"
                                         : "Avvia ODL in Produzione"}
+                              </TooltipContent>
+                            </Tooltip>
+
+                            {/* Modifica Commessa (FASE 17: Modale Modifica Completa) */}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleOpenEditModal(job)}
+                                  className="h-7 w-7 text-blue-500 hover:text-blue-600 hover:bg-blue-500/10 cursor-pointer"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Modifica dettagli commessa
                               </TooltipContent>
                             </Tooltip>
                           </div>
@@ -3568,6 +3619,22 @@ export default function ProgrammazioneClientPage({
             />
           </div>
         )}
+
+        {/* =========================================================================
+            5. MODALE MODIFICA COMMESSA COMPLETA (FASE 17)
+        ========================================================================== */}
+        <EditStandardJobModal
+          isOpen={isEditStandardModalOpen}
+          onClose={() => {
+            setIsEditStandardModalOpen(false);
+            setJobToEdit(null);
+          }}
+          job={jobToEdit}
+          workCycles={workCycles}
+          departments={departments}
+          articles={articles}
+          onJobUpdated={handleJobUpdated}
+        />
       </div>
     </TooltipProvider>
   );

@@ -745,6 +745,8 @@ export async function updateJobOrder(jobId: string, data: {
     dataFinePreparazione: string;
     dataConsegnaFinale: string;
     expectedMinutes?: number;
+    details?: string;
+    articleCode?: string;
 }) {
     try {
         const jobRef = adminDb.collection("jobOrders").doc(jobId);
@@ -752,10 +754,8 @@ export async function updateJobOrder(jobId: string, data: {
         if (!jobSnap.exists) throw new Error("Commessa non trovata.");
         
         const job = jobSnap.data() as JobOrder;
-        // Data Freeze Security
-        if (job.status !== 'IN_PIANIFICAZIONE' && job.status !== 'planned' && job.status !== 'IN_ATTESA') {
-             throw new Error("Data Freeze: Impossibile modificare una commessa già in produzione.");
-        }
+
+        const finalArticle = (data.details || data.articleCode || '').trim().toUpperCase();
 
         // Logic: Only update phases if the work cycle has changed
         const updatePayload: any = {
@@ -768,6 +768,19 @@ export async function updateJobOrder(jobId: string, data: {
             updatedAt: admin.firestore.Timestamp.now()
         };
 
+        if (finalArticle) {
+            updatePayload.details = finalArticle;
+        }
+
+        if (updatePayload.dataConsegnaFinale) {
+            const d = parseRobustDate(updatePayload.dataConsegnaFinale);
+            if (d && !isNaN(d.getTime())) {
+                updatePayload.isoWeek = getISOWeek(d);
+                updatePayload.weekYear = getISOWeekYear(d);
+                updatePayload.targetWeek = `${updatePayload.weekYear}-W${String(updatePayload.isoWeek).padStart(2, '0')}`;
+            }
+        }
+
         if (data.workCycleId !== job.workCycleId) {
             console.log(`Cycle changed from ${job.workCycleId} to ${data.workCycleId}. Regenerating phases...`);
             updatePayload.workCycleId = data.workCycleId;
@@ -777,7 +790,8 @@ export async function updateJobOrder(jobId: string, data: {
         // SMART REMAINDER TRIGGER: If total time changed or phases were regenerated
         const newExpectedMinutes = data.expectedMinutes ?? job.expectedMinutesDefault;
         if (newExpectedMinutes !== undefined && (data.expectedMinutes !== undefined || data.workCycleId !== job.workCycleId)) {
-            const articleRef = adminDb.collection("articles").doc(job.details.toUpperCase().trim());
+            const targetArtCode = (finalArticle || job.details || '').toUpperCase().trim();
+            const articleRef = adminDb.collection("articles").doc(targetArtCode);
             const articleSnap = await articleRef.get();
             const article = articleSnap.exists ? articleSnap.data() as Article : null;
             const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
@@ -914,8 +928,19 @@ export async function updateJobOrder(jobId: string, data: {
         console.log(`[UPDATE_JOB] Saved Job ${newJobId}. Phase[0] expectedMins/pc: ${sanitizedPayload.phases?.[0]?.expectedMinutesPerPiece}`);
 
         revalidatePath('/admin/data-management');
+        revalidatePath('/admin/programmazione');
         revalidatePath('/admin/production-console');
-        return { success: true, message: "Commessa aggiornata con successo." };
+        return { 
+            success: true, 
+            message: "Commessa aggiornata con successo.",
+            newJobId: newJobId,
+            updatedFields: {
+                ...sanitizedPayload,
+                id: newJobId,
+                ordinePF: data.ordinePF,
+                details: finalArticle || job.details,
+            }
+        };
     } catch (error) {
         console.error("Error updating job order:", error);
         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'aggiornamento." };
