@@ -1497,8 +1497,10 @@ export async function saveSmartPastedJobOrders(data: {
         const rawMaterialsList = rawMaterialsSnap.docs.map(doc => doc.data() as RawMaterial);
         
         const articlesMap = new Map(articlesSnap.docs
-            .filter(d => d.data()?.code)
-            .map(d => [String(d.data().code).toUpperCase().trim(), d.data() as Article])
+            .map(d => {
+                const code = String(d.data()?.code || d.id).toUpperCase().trim();
+                return [code, { ...d.data(), id: d.id, code: d.data()?.code || d.id } as Article];
+            })
         );
         
         const templatesMap = new Map(templatesSnap.docs.map(d => [d.id, d.data() as WorkPhaseTemplate]));

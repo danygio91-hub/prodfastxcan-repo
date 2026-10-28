@@ -76,7 +76,7 @@ import { useToast } from '@/hooks/use-toast';
 import { parseRobustDate, cn } from '@/lib/utils';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
-import { calculateMRPTimelines, type MRPTimelineEntry } from '@/lib/mrp-utils';
+import { calculateMRPTimelines, type MRPTimelineEntry, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
@@ -100,6 +100,8 @@ import {
   updateJobAssignedWeek,
   saveQuickJobOrder
 } from './actions';
+import { collection, onSnapshot, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { getJobDisplayStatus, type JobDisplayStatus } from '@/lib/job-status';
 import {
   Popover,
@@ -243,7 +245,7 @@ export default function ProgrammazioneClientPage({
   // Dati Commesse
   const [jobs, setJobs] = useState<JobOrder[]>(initialJobs || []);
   const [departments] = useState<Department[]>(initialDepartments || []);
-  const [articles] = useState<Article[]>(initialArticles || []);
+  const [articles, setArticles] = useState<Article[]>(initialArticles || []);
   const [workCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
   const [globalSettings] = useState<GlobalSettings | null>(initialGlobalSettings);
 
@@ -284,6 +286,40 @@ export default function ProgrammazioneClientPage({
   const [isQuickArticleOpen, setIsQuickArticleOpen] = useState(false);
   const [quickArticleSearch, setQuickArticleSearch] = useState('');
   const quickRowFirstInputRef = useRef<HTMLInputElement>(null);
+
+  // =========================================================================
+  // FASE 14: LIVE DATA FEED ANAGRAFICA ARTICOLI (Real-Time Listener)
+  // =========================================================================
+  useEffect(() => {
+    // Sincronizzazione in tempo reale con Firestore per recepire nuovi articoli all'istante
+    const unsub = onSnapshot(
+      collection(db, "articles"),
+      (snapshot) => {
+        const liveArticles = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          const code = (data.code || docSnap.id || '').trim();
+          return {
+            ...data,
+            id: docSnap.id,
+            code: code,
+          } as Article;
+        });
+        setArticles(liveArticles);
+
+        // Mantieni allineata anche la cache locale articoli per il motore MRP
+        liveArticles.forEach((art) => {
+          if (art.code) {
+            articlesCacheRef.current.set(art.code.toUpperCase().trim(), art);
+          }
+        });
+      },
+      (error) => {
+        console.error("Errore listener real-time anagrafica articoli:", error);
+      }
+    );
+
+    return () => unsub();
+  }, []);
 
   // =========================================================================
   // FASE 13: MACRO-SWITCH VISTE E LAZY LOADING
@@ -403,23 +439,38 @@ export default function ProgrammazioneClientPage({
     setShowAllWeeks(false);
   };
 
-  // Refresh Commesse (Lazy-Aware)
+  // Refresh Commesse e Articoli (Lazy-Aware)
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const updatedJobs = hasFetchedConcluse 
-        ? await getJobOrders() 
-        : await getActiveJobOrders();
+      const [updatedJobs, freshArticlesSnap] = await Promise.all([
+        hasFetchedConcluse ? getJobOrders() : getActiveJobOrders(),
+        getDocs(collection(db, "articles")),
+      ]);
       setJobs(updatedJobs);
+      const freshArticles = freshArticlesSnap.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          ...data,
+          id: docSnap.id,
+          code: (data.code || docSnap.id || '').trim(),
+        } as Article;
+      });
+      setArticles(freshArticles);
+      freshArticles.forEach((art) => {
+        if (art.code) {
+          articlesCacheRef.current.set(art.code.toUpperCase().trim(), art);
+        }
+      });
       toast({
         title: "Dati aggiornati",
-        description: `Caricate ${updatedJobs.length} commesse dal database.`,
+        description: `Caricate ${updatedJobs.length} commesse e ${freshArticles.length} articoli dal database.`,
       });
     } catch (error) {
       console.error("Errore refresh:", error);
       toast({
         title: "Errore di caricamento",
-        description: "Impossibile aggiornare i dati delle commesse.",
+        description: "Impossibile aggiornare i dati delle commesse e degli articoli.",
         variant: "destructive",
       });
     } finally {
@@ -730,30 +781,27 @@ export default function ProgrammazioneClientPage({
     );
   }, [activeGlobalJobs, mrpCacheVersion]);
 
-  // Calcolo Mappa Allarmi Critici per Allertatore Intelligente MRP su Scope Globale
+  // SSoT: Classificazione centralizzata universale allarmi MRP per Programmazione Commesse
+  const classifiedMRPAlarms = useMemo(() => {
+    const cachedMaterials = Array.from(materialsCacheRef.current.values());
+    const allCachedPOs = Array.from(poCacheRef.current.values()).flat();
+
+    return classifyGlobalMRPAlarms({
+      mrpTimelines,
+      allJobs: activeGlobalJobs,
+      rawMaterials: cachedMaterials,
+      purchaseOrders: allCachedPOs,
+    });
+  }, [mrpTimelines, activeGlobalJobs, mrpCacheVersion]);
+
+  // Backward compatibility alias per criticalMaterialsTimeline (solo veri allarmi)
   const criticalMaterialsTimeline = useMemo(() => {
     const criticals = new Map<string, { entry: MRPTimelineEntry; job: JobOrder | undefined }[]>();
-    
-    mrpTimelines.forEach((entries, matCode) => {
-      // Un materiale è critico se almeno una commessa ha saldo negativo (< 0)
-      const problematic = entries.filter(e => e.projectedBalance < -0.001);
-
-      if (problematic.length > 0) {
-        // Mappa TUTTE le commesse che richiedono questo materiale ordinate per data consegna
-        const mapped = entries.map(entry => {
-          const job = activeGlobalJobs.find(j => j.id === entry.jobId);
-          return { entry, job };
-        }).sort((a, b) => {
-          const dateA = a.job?.dataFinePreparazione || a.job?.dataConsegnaFinale || '9999-12-31';
-          const dateB = b.job?.dataFinePreparazione || b.job?.dataConsegnaFinale || '9999-12-31';
-          return dateA.localeCompare(dateB);
-        });
-        criticals.set(matCode, mapped);
-      }
+    classifiedMRPAlarms.alarmMaterials.forEach((item) => {
+      criticals.set(item.matCode, item.entriesWithVisual.map(e => ({ entry: e.entry, job: e.job })));
     });
-
     return criticals;
-  }, [mrpTimelines, activeGlobalJobs, mrpCacheVersion]);
+  }, [classifiedMRPAlarms]);
 
   // Stato Semaforo Singola Commessa con Gestione Visiva Corretta "In Verifica" e Short-circuit per Completate
   const getJobMRPStatus = useCallback((job: JobOrder): {
@@ -1554,9 +1602,9 @@ export default function ProgrammazioneClientPage({
                 >
                   <BellRing className="h-3.5 w-3.5" />
                   <span>Allarmi MRP</span>
-                  {criticalMaterialsTimeline.size > 0 && (
+                  {classifiedMRPAlarms.alarmCount > 0 && (
                     <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full shadow-xs animate-in zoom-in">
-                      {criticalMaterialsTimeline.size}
+                      {classifiedMRPAlarms.alarmCount}
                     </span>
                   )}
                 </Button>
@@ -1568,177 +1616,222 @@ export default function ProgrammazioneClientPage({
                     Allertatore Intelligente MRP (Globale)
                   </SheetTitle>
                   <SheetDescription>
-                    Mancanze materiali per tutte le {activeGlobalJobs.length} commesse attive aziendali (Pianificate e In Produzione).
+                    Mancanze materiali e ritardi di fornitura per le {activeGlobalJobs.length} commesse attive aziendali (Pianificate e In Produzione).
                   </SheetDescription>
                 </SheetHeader>
 
-                <div className="mt-4 space-y-3">
-                  {criticalMaterialsTimeline.size === 0 ? (
+                <div className="mt-4 space-y-4">
+                  {classifiedMRPAlarms.alarmCount === 0 ? (
                     <div className="text-center p-6 text-muted-foreground bg-emerald-500/10 rounded-lg border border-emerald-500/20">
                       <CheckCircle2 className="h-8 w-8 mx-auto text-emerald-500 mb-2" />
-                      <p className="font-semibold text-emerald-600">Nessuna criticità materiali!</p>
+                      <p className="font-semibold text-emerald-600">Nessuna criticità materiali urgente!</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Tutte le commesse attive risultano coperte da giacenza o ordini fornitori.
+                        Tutte le commesse attive risultano coperte da giacenza o ordini fornitore nei tempi previsti.
                       </p>
                     </div>
                   ) : (
-                    <Accordion type="single" collapsible className="w-full space-y-2">
-                      {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries]) => {
-                        const posForMat = poCacheRef.current.get(matCode) || [];
-                        const hasAnyPO = posForMat.length > 0 || entries.some(e => (e.entry.totalPO || 0) > 0);
+                    <div className="space-y-6">
+                      {classifiedMRPAlarms.groupedAlarms.map(({ category, worstCategoryStatus, materials }) => (
+                        <div key={category} className="space-y-2">
+                          {/* Intestazione Categoria/Famiglia Merceologica con ordinamento visivo (Mancanti in cima, poi Ritardi) */}
+                          <div className="flex items-center gap-2 mb-2 mt-2">
+                            <div className="h-px bg-border flex-1"></div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-muted-foreground tracking-wider uppercase">{category}</span>
+                              <Badge 
+                                variant="outline" 
+                                className={cn(
+                                  "text-[9px] py-0 px-1 font-bold",
+                                  worstCategoryStatus === 'RED'
+                                    ? "border-red-400 text-red-600 bg-red-50/50 dark:bg-red-950/20"
+                                    : "border-amber-400 text-amber-600 bg-amber-50/50 dark:bg-amber-950/20"
+                                )}
+                              >
+                                {worstCategoryStatus === 'RED' ? '🔴 MANCANTI' : '🟠 IN RITARDO'}
+                              </Badge>
+                            </div>
+                            <div className="h-px bg-border flex-1"></div>
+                          </div>
 
-                        // Mappatura visiva rigorosa per ciascuna commessa
-                        const entriesWithVisual = entries.map(item => {
-                          const isUncovered = item.entry.projectedBalance < -0.001;
-                          const isLate = isUncovered && (hasAnyPO || item.entry.status === 'LATE');
-                          const isRed = isUncovered && !isLate;
-                          const isOrderedInTime = !isUncovered && (item.entry.status === 'ORDERED' || item.entry.status === 'AMBER');
+                          {/* Accordion Materiali della Categoria */}
+                          <Accordion type="single" collapsible className="w-full space-y-2">
+                            {materials.map((mat) => {
+                              const worstLabel = mat.worstStatus === 'RED' ? 'MANCANTE' : 'IN RITARDO';
+                              const worstBadgeClass = mat.worstStatus === 'RED' 
+                                ? 'bg-red-600 text-white' 
+                                : 'bg-amber-500 text-white';
 
-                          let visualStatus: 'RED' | 'LATE' | 'ORDERED' | 'GREEN' = 
-                            isRed ? 'RED' : isLate ? 'LATE' : isOrderedInTime ? 'ORDERED' : 'GREEN';
-
-                          return { ...item, visualStatus, isUncovered };
-                        });
-
-                        const countRed = entriesWithVisual.filter(e => e.visualStatus === 'RED').length;
-                        const countLate = entriesWithVisual.filter(e => e.visualStatus === 'LATE').length;
-                        const countOrdered = entriesWithVisual.filter(e => e.visualStatus === 'ORDERED').length;
-
-                        const worstLabel = countRed > 0 
-                          ? 'MANCANTE' 
-                          : countLate > 0 
-                            ? 'IN RITARDO' 
-                            : countOrdered > 0 
-                              ? 'ORDINATO' 
-                              : 'COPERTO';
-
-                        const worstBadgeClass = countRed > 0 
-                          ? 'bg-red-600 text-white' 
-                          : countLate > 0 
-                            ? 'bg-amber-500 text-white' 
-                            : countOrdered > 0 
-                              ? 'bg-indigo-500 text-white' 
-                              : 'bg-emerald-600 text-white';
-
-                        return (
-                          <AccordionItem key={matCode} value={matCode} className="border rounded-md px-2">
-                            <AccordionTrigger className="hover:no-underline py-2">
-                              <div className="flex items-center justify-between w-full pr-3 text-left">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono font-bold text-xs">{matCode}</span>
-                                  <Badge className={`text-[9px] py-0 px-1.5 font-bold ${worstBadgeClass}`}>
-                                    {worstLabel}
-                                  </Badge>
-                                </div>
-                                <div className="text-[10px] font-mono flex items-center gap-1.5">
-                                  {countRed > 0 && (
-                                    <span className="text-red-500 font-bold">{countRed} mancanti</span>
-                                  )}
-                                  {countLate > 0 && (
-                                    <span className="text-amber-500 font-bold">{countLate} in ritardo</span>
-                                  )}
-                                  {countRed === 0 && countLate === 0 && countOrdered > 0 && (
-                                    <span className="text-indigo-400 font-semibold">{countOrdered} in arrivo</span>
-                                  )}
-                                  {countRed === 0 && countLate === 0 && countOrdered === 0 && (
-                                    <span className="text-emerald-500 font-semibold">Tutte coperte</span>
-                                  )}
-                                  <span className="text-muted-foreground">su {entries.length}</span>
-                                </div>
-                              </div>
-                            </AccordionTrigger>
-                            <AccordionContent className="pt-1 pb-2 space-y-2 text-xs">
-                              {entriesWithVisual.map(({ entry, job, visualStatus }, idx) => {
-                                return (
-                                  <div 
-                                    key={idx} 
-                                    className={cn(
-                                      "p-2.5 rounded-md border text-[11px] space-y-1.5 transition-colors",
-                                      visualStatus === 'RED'
-                                        ? "border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-950/20"
-                                        : visualStatus === 'LATE'
-                                          ? "border-amber-200 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20"
-                                          : visualStatus === 'ORDERED'
-                                            ? "border-indigo-200 bg-indigo-50/30 dark:border-indigo-900/40 dark:bg-indigo-950/15"
-                                            : "border-border bg-muted/20 text-muted-foreground"
-                                    )}
-                                  >
-                                    <div className="flex items-center justify-between font-mono">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className={cn(
-                                          "font-bold",
-                                          visualStatus === 'RED' ? "text-red-700 dark:text-red-300" :
-                                          visualStatus === 'LATE' ? "text-amber-700 dark:text-amber-300" :
-                                          visualStatus === 'ORDERED' ? "text-indigo-700 dark:text-indigo-300" :
-                                          "text-foreground"
-                                        )}>
-                                          {job?.ordinePF || entry.jobId}
-                                        </span>
-                                        {job && (
-                                          <Badge variant="outline" className="text-[9px] py-0 px-1 font-bold">
-                                            {getJobDepartmentGroup(job)}
+                              return (
+                                <AccordionItem key={mat.matCode} value={mat.matCode} className="border rounded-md px-2">
+                                  <AccordionTrigger className="hover:no-underline py-2">
+                                    <div className="flex items-center justify-between w-full pr-3 text-left">
+                                      <div className="flex flex-col items-start">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-mono font-bold text-xs">{mat.matCode}</span>
+                                          <Badge className={`text-[9px] py-0 px-1.5 font-bold ${worstBadgeClass}`}>
+                                            {worstLabel}
                                           </Badge>
+                                        </div>
+                                        {mat.materialName && (
+                                          <span className="text-[10px] text-muted-foreground font-normal truncate max-w-[240px]">
+                                            {mat.materialName}
+                                          </span>
                                         )}
                                       </div>
-                                      <span className="text-muted-foreground truncate max-w-[150px]">{job?.cliente}</span>
-                                    </div>
-
-                                    <div className="flex items-center justify-between text-[10px]">
-                                      <span>
-                                        Data Cons: <strong className="text-foreground">{job?.dataConsegnaFinale ? formatDateForDisplay(job.dataConsegnaFinale) : 'N/D'}</strong>
-                                      </span>
-                                      <span className={cn(
-                                        "font-bold uppercase text-[9px] px-1.5 py-0.2 rounded-xs",
-                                        visualStatus === 'RED'
-                                          ? "bg-red-500/20 text-red-700 dark:text-red-300"
-                                          : visualStatus === 'LATE'
-                                            ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
-                                            : visualStatus === 'ORDERED'
-                                              ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400"
-                                              : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                                      )}>
-                                        {visualStatus === 'RED' 
-                                          ? '🔴 Mancante' 
-                                          : visualStatus === 'LATE' 
-                                            ? '🟠 In Ritardo' 
-                                            : visualStatus === 'ORDERED' 
-                                              ? '💜 Ordinato' 
-                                              : '🟢 Coperto'
-                                        }
-                                      </span>
-                                    </div>
-
-                                    <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/40 font-mono">
-                                      <span className="text-muted-foreground text-[10.5px]">
-                                        Fabbisogno: <strong className="text-foreground">{entry.requiredQty.toFixed(2)}</strong>
-                                      </span>
-                                      <span className={cn(
-                                        "font-bold text-[11px]",
-                                        visualStatus === 'RED'
-                                          ? "text-red-600 dark:text-red-400"
-                                          : visualStatus === 'LATE'
-                                            ? "text-amber-600 dark:text-amber-400"
-                                            : visualStatus === 'ORDERED'
-                                              ? "text-indigo-600 dark:text-indigo-400"
-                                              : "text-emerald-600 dark:text-emerald-400"
-                                      )}>
-                                        Stock Proiettato: {entry.projectedBalance.toFixed(2)}
-                                      </span>
-                                    </div>
-
-                                    {entry.details.length > 0 && (
-                                      <div className="text-[9.5px] text-muted-foreground/80 leading-tight">
-                                        {entry.details.filter(d => !d.startsWith(' [DBG:') && !d.startsWith('Fabbisogno:')).join(' • ')}
+                                      <div className="text-[10px] font-mono flex items-center gap-1.5">
+                                        {mat.countRed > 0 && (
+                                          <span className="text-red-500 font-bold">{mat.countRed} mancanti</span>
+                                        )}
+                                        {mat.countLate > 0 && (
+                                          <span className="text-amber-500 font-bold">{mat.countLate} in ritardo</span>
+                                        )}
+                                        <span className="text-muted-foreground">su {mat.entriesWithVisual.length}</span>
                                       </div>
-                                    )}
+                                    </div>
+                                  </AccordionTrigger>
+                                  <AccordionContent className="pt-1 pb-2 space-y-2 text-xs">
+                                    {mat.entriesWithVisual.map(({ entry, job, visualStatus }, idx) => (
+                                      <div 
+                                        key={idx} 
+                                        className={cn(
+                                          "p-2.5 rounded-md border text-[11px] space-y-1.5 transition-colors",
+                                          visualStatus === 'RED'
+                                            ? "border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-950/20"
+                                            : visualStatus === 'LATE'
+                                              ? "border-amber-200 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20"
+                                              : visualStatus === 'ORDERED'
+                                                ? "border-indigo-200 bg-indigo-50/30 dark:border-indigo-900/40 dark:bg-indigo-950/15"
+                                                : "border-border bg-muted/20 text-muted-foreground"
+                                        )}
+                                      >
+                                        <div className="flex items-center justify-between font-mono">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className={cn(
+                                              "font-bold",
+                                              visualStatus === 'RED' ? "text-red-700 dark:text-red-300" :
+                                              visualStatus === 'LATE' ? "text-amber-700 dark:text-amber-300" :
+                                              visualStatus === 'ORDERED' ? "text-indigo-700 dark:text-indigo-300" :
+                                              "text-foreground"
+                                            )}>
+                                              {job?.ordinePF || entry.jobId}
+                                            </span>
+                                            {job && (
+                                              <Badge variant="outline" className="text-[9px] py-0 px-1 font-bold">
+                                                {getJobDepartmentGroup(job)}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                          <span className="text-muted-foreground truncate max-w-[150px]">{job?.cliente}</span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between text-[10px]">
+                                          <span>
+                                            Data Cons: <strong className="text-foreground">{job?.dataConsegnaFinale ? formatDateForDisplay(job.dataConsegnaFinale) : 'N/D'}</strong>
+                                          </span>
+                                          <span className={cn(
+                                            "font-bold uppercase text-[9px] px-1.5 py-0.2 rounded-xs",
+                                            visualStatus === 'RED'
+                                              ? "bg-red-500/20 text-red-700 dark:text-red-300"
+                                              : visualStatus === 'LATE'
+                                                ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                                                : visualStatus === 'ORDERED'
+                                                  ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400"
+                                                  : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                          )}>
+                                            {visualStatus === 'RED' 
+                                              ? '🔴 Mancante' 
+                                              : visualStatus === 'LATE' 
+                                                ? '🟠 In Ritardo' 
+                                                : visualStatus === 'ORDERED' 
+                                                  ? '💜 Ordinato' 
+                                                  : '🟢 Coperto'
+                                            }
+                                          </span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/40 font-mono">
+                                          <span className="text-muted-foreground text-[10.5px]">
+                                            Fabbisogno: <strong className="text-foreground">{entry.requiredQty.toFixed(2)}</strong>
+                                          </span>
+                                          <span className={cn(
+                                            "font-bold text-[11px]",
+                                            visualStatus === 'RED'
+                                              ? "text-red-600 dark:text-red-400"
+                                              : visualStatus === 'LATE'
+                                                ? "text-amber-600 dark:text-amber-400"
+                                                : visualStatus === 'ORDERED'
+                                                  ? "text-indigo-600 dark:text-indigo-400"
+                                                  : "text-emerald-600 dark:text-emerald-400"
+                                          )}>
+                                            Stock Proiettato: {entry.projectedBalance.toFixed(2)}
+                                          </span>
+                                        </div>
+
+                                        {entry.details.length > 0 && (
+                                          <div className="text-[9.5px] text-muted-foreground/80 leading-tight">
+                                            {entry.details.filter(d => !d.startsWith(' [DBG:') && !d.startsWith('Fabbisogno:')).join(' • ')}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </AccordionContent>
+                                </AccordionItem>
+                              );
+                            })}
+                          </Accordion>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Sezione Separata "Sotto Controllo" (Materiali coperte da PO nei tempi corretti) */}
+                  {classifiedMRPAlarms.underControlCount > 0 && (
+                    <div className="mt-8 pt-4 border-t border-dashed">
+                      <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="sotto-controllo-prog" className="border-indigo-200/60 dark:border-indigo-900/50 bg-indigo-50/20 dark:bg-indigo-950/20 rounded-lg px-2.5 border">
+                          <AccordionTrigger className="hover:no-underline py-2.5">
+                            <div className="flex items-center justify-between w-full pr-2 text-left">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                                  💜 Sotto Controllo (In Arrivo nei Tempi)
+                                </span>
+                                <Badge className="bg-indigo-500 text-white text-[10px] font-bold py-0 px-1.5">
+                                  {classifiedMRPAlarms.underControlCount}
+                                </Badge>
+                              </div>
+                              <span className="text-[11px] text-muted-foreground">
+                                Coperte da ordini fornitore
+                              </span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="pt-2 pb-4">
+                            <p className="text-xs text-muted-foreground mb-3">
+                              Questi materiali non costituiscono allarme: tutti i fabbisogni sono coperti da ordini fornitore con data di consegna allineata al piano di produzione.
+                            </p>
+                            <div className="space-y-4">
+                              {classifiedMRPAlarms.groupedUnderControl.map(({ category, materials }) => (
+                                <div key={category}>
+                                  <div className="text-[11px] font-bold text-muted-foreground uppercase mb-1.5 tracking-wider">{category}</div>
+                                  <div className="space-y-1.5">
+                                    {materials.map(mat => (
+                                      <div key={mat.matCode} className="p-2 rounded border border-indigo-100 dark:border-indigo-900/40 bg-card text-xs flex justify-between items-center">
+                                        <div>
+                                          <span className="font-bold text-indigo-900 dark:text-indigo-200 mr-2">{mat.matCode}</span>
+                                          <span className="text-muted-foreground text-[11px]">{mat.materialName}</span>
+                                        </div>
+                                        <Badge className="bg-indigo-500 text-white text-[9px] py-0 px-1.5 font-bold">
+                                          ORDINATO ({mat.entriesWithVisual.length})
+                                        </Badge>
+                                      </div>
+                                    ))}
                                   </div>
-                                );
-                              })}
-                            </AccordionContent>
-                          </AccordionItem>
-                        );
-                      })}
-                    </Accordion>
+                                </div>
+                              ))}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      </Accordion>
+                    </div>
                   )}
                 </div>
               </SheetContent>

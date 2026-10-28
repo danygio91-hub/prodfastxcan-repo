@@ -14,6 +14,8 @@ import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { useToast } from '@/hooks/use-toast';
 import { saveSmartPastedJobOrders } from '@/app/admin/data-management/actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 interface SmartPasteModalProps {
   isOpen: boolean;
@@ -40,9 +42,9 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
   const [pasteText, setPasteText] = useState('');
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [extraArticles, setExtraArticles] = useState<Article[]>([]);
+  const [isValidatingArticles, setIsValidatingArticles] = useState(false);
   const { toast } = useToast();
-
-  console.log('Articles in modal:', articles?.length);
 
   const productionDepartments = useMemo(() => 
     departments.filter(d => d.macroAreas?.includes('PRODUZIONE') || d.code === 'MAG'),
@@ -69,11 +71,12 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
     return null; // Invalid
   };
 
-  const handleProcess = () => {
+  const handleProcess = async () => {
     if (!pasteText.trim()) return;
 
     const lines = pasteText.split('\n').filter(line => line.trim() !== '');
     const newRows: ParsedRow[] = [];
+    const pastedCodesSet = new Set<string>();
 
     lines.forEach((line, index) => {
         // Tab separated
@@ -89,6 +92,10 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
         const quantity = parseFloat(qtaRaw.replace(',', '.'));
         const isQtaValid = !isNaN(quantity) && quantity > 0;
 
+        if (articleCode) {
+            pastedCodesSet.add(articleCode);
+        }
+
         newRows.push({
             id: `row-${Date.now()}-${index}`,
             cliente: cliente,
@@ -101,6 +108,50 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
             prepDateParsed: null,
         });
     });
+
+    // Controllo Live Feed su Firestore:
+    // Interroga il database in tempo reale al momento del click per convalidare istantaneamente
+    // anche articoli creati pochi secondi fa.
+    const currentKnownCodes = new Set<string>();
+    (articles || []).forEach(a => {
+        if (a.code) currentKnownCodes.add(a.code.toUpperCase().trim());
+        if (a.id) currentKnownCodes.add(a.id.toUpperCase().trim());
+    });
+    extraArticles.forEach(a => {
+        if (a.code) currentKnownCodes.add(a.code.toUpperCase().trim());
+        if (a.id) currentKnownCodes.add(a.id.toUpperCase().trim());
+    });
+
+    const missingCodes = [...pastedCodesSet].filter(c => !currentKnownCodes.has(c));
+    if (missingCodes.length > 0) {
+        setIsValidatingArticles(true);
+        try {
+            const newlyFetched = await Promise.all(
+                missingCodes.map(async (code) => {
+                    try {
+                        const snap = await getDoc(doc(db, "articles", code));
+                        if (snap.exists()) {
+                            const data = snap.data();
+                            return {
+                                ...data,
+                                id: snap.id,
+                                code: (data.code || snap.id || '').trim(),
+                            } as Article;
+                        }
+                    } catch (e) {
+                        console.warn("Verifica live articolo fallita per:", code, e);
+                    }
+                    return null;
+                })
+            );
+            const validNew = newlyFetched.filter((a): a is Article => a !== null);
+            if (validNew.length > 0) {
+                setExtraArticles(prev => [...prev, ...validNew]);
+            }
+        } finally {
+            setIsValidatingArticles(false);
+        }
+    }
 
     setRows(newRows);
     setStep(2);
@@ -118,6 +169,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
     setStep(1);
     setPasteText('');
     setRows([]);
+    setExtraArticles([]);
   };
 
   const handleClose = () => {
@@ -125,9 +177,18 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
     onClose();
   };
 
-  // Validation Check
+  // Validation Check con supporto combinato di articoli base ed extra live
   const validationState = useMemo(() => {
-    const articleMap = new Set(articles.map(a => a.code.toUpperCase().trim()));
+    const articleMap = new Set<string>();
+    (articles || []).forEach(a => {
+        if (a.code) articleMap.add(a.code.toUpperCase().trim());
+        if (a.id) articleMap.add(a.id.toUpperCase().trim());
+    });
+    extraArticles.forEach(a => {
+        if (a.code) articleMap.add(a.code.toUpperCase().trim());
+        if (a.id) articleMap.add(a.id.toUpperCase().trim());
+    });
+
     let allValid = true;
     let invalidCount = 0;
 
@@ -148,7 +209,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
     });
 
     return { validatedRows, allValid: allValid && rows.length > 0, invalidCount };
-  }, [rows, articles]);
+  }, [rows, articles, extraArticles]);
 
   const handleSave = async () => {
       if (!validationState.allValid) return;
@@ -327,7 +388,8 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
 
         <DialogFooter className="mt-2">
             {step === 1 ? (
-                <Button onClick={handleProcess} disabled={!pasteText.trim()} className="w-full sm:w-auto">
+                <Button onClick={handleProcess} disabled={!pasteText.trim() || isValidatingArticles} className="w-full sm:w-auto">
+                    {isValidatingArticles && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Elabora Dati
                 </Button>
             ) : (

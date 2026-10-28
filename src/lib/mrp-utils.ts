@@ -409,3 +409,229 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
 
     return aggregated;
 }
+
+export type MRPVisualAlarmStatus = 'RED' | 'LATE' | 'ORDERED' | 'LOW_STOCK' | 'GREEN';
+
+export interface MRPAlarmTimelineEntry<TJob = any> {
+    entry: MRPTimelineEntry;
+    job?: TJob;
+    visualStatus: MRPVisualAlarmStatus;
+    jobDate?: string;
+    isUncovered: boolean;
+}
+
+export interface MaterialAlarmItem<TJob = any> {
+    matCode: string;
+    materialName: string;
+    materialType: string; // Categoria / Famiglia merceologica (es. "GUAINA", "TUBI", "CAVO FLEX")
+    worstStatus: MRPVisualAlarmStatus;
+    isAlarm: boolean; // True SOLO se worstStatus è 'RED' o 'LATE'
+    isUnderControl: boolean; // True se worstStatus è 'ORDERED' (coperte da PO in tempo)
+    countRed: number;
+    countLate: number;
+    countOrdered: number;
+    entriesWithVisual: MRPAlarmTimelineEntry<TJob>[];
+}
+
+export interface GroupedAlarmCategory<TJob = any> {
+    category: string;
+    worstCategoryStatus: 'RED' | 'LATE';
+    materials: MaterialAlarmItem<TJob>[];
+}
+
+export interface GroupedUnderControlCategory<TJob = any> {
+    category: string;
+    materials: MaterialAlarmItem<TJob>[];
+}
+
+export interface ClassifiedMRPAlarms<TJob = any> {
+    alarmMaterials: MaterialAlarmItem<TJob>[];
+    alarmCount: number; // SSoT per i badge rossi: solo materiali con RED o LATE
+    underControlMaterials: MaterialAlarmItem<TJob>[];
+    underControlCount: number;
+    groupedAlarms: GroupedAlarmCategory<TJob>[];
+    groupedUnderControl: GroupedUnderControlCategory<TJob>[];
+}
+
+export interface ClassifyMRPAlarmsParams<TJob = any> {
+    mrpTimelines: Map<string, MRPTimelineEntry[]>;
+    allJobs: TJob[];
+    rawMaterials: RawMaterial[];
+    purchaseOrders?: PurchaseOrder[];
+}
+
+/**
+ * Single Source of Truth (SSoT) per la classificazione e il conteggio universale degli allarmi MRP.
+ * 
+ * REGOLA TASSATIVA:
+ * Un materiale è considerato un "Allarme" (e incrementa i badge numerici rossi) SOLO SE ha almeno
+ * una commessa in stato 🔴 MANCANTE (Red) o 🟠 IN RITARDO (Orange).
+ * 
+ * Se per un materiale TUTTE le commesse scoperte sono in stato 💜 ORDINATO / IN ARRIVO
+ * (coperte da PO nei tempi corretti), quel materiale NON DEVE figurare nel conteggio degli allarmi globali.
+ * Viene invece classificato nella sezione "Sotto Controllo".
+ */
+export function classifyGlobalMRPAlarms<TJob = any>({
+    mrpTimelines,
+    allJobs,
+    rawMaterials,
+    purchaseOrders = []
+}: ClassifyMRPAlarmsParams<TJob>): ClassifiedMRPAlarms<TJob> {
+    const alarmMaterials: MaterialAlarmItem<TJob>[] = [];
+    const underControlMaterials: MaterialAlarmItem<TJob>[] = [];
+
+    mrpTimelines.forEach((entries, matCode) => {
+        if (!entries || entries.length === 0) return;
+
+        const normalizedCode = matCode.toUpperCase().trim();
+        const material = rawMaterials.find(m => (m?.code || '').toUpperCase().trim() === normalizedCode);
+        const materialName = material?.description || '';
+        // Logica unificata di estrazione Categoria/Famiglia merceologica
+        const materialType = ((material as any)?.category || materialName.split(' ')[0] || 'ALTRO').toUpperCase().trim();
+
+        // PO aperti pendenti per questo materiale
+        const pendingPOs = purchaseOrders.filter(po => {
+            if (!po) return false;
+            const status = (po.status as string || '').toLowerCase();
+            if (status === 'completed' || status === 'cancelled' || status === 'received') return false;
+            const poCode = (po.materialCode || (po as any).codiceArticolo || (po as any).code || '').toUpperCase().trim();
+            return poCode === normalizedCode || (po as any).materialId === normalizedCode || (material?.id && (po as any).materialId === material.id);
+        });
+
+        const entriesWithVisual: MRPAlarmTimelineEntry<TJob>[] = entries.map(entry => {
+            const job = allJobs.find(j => (j as any).id === entry.jobId);
+            const jobDate = (job as any)?.dataFinePreparazione || (job as any)?.dataConsegnaFinale;
+            
+            const isUncovered = entry.projectedBalance < -0.001;
+            const hasPO = pendingPOs.length > 0 || (entry.totalPO || 0) > 0;
+
+            let visualStatus: MRPVisualAlarmStatus;
+
+            if (isUncovered) {
+                // Stock Proiettato < 0: se coperto da PO con arrivo successivo -> LATE, altrimenti RED
+                if (entry.status === 'LATE' || hasPO) {
+                    visualStatus = 'LATE';
+                } else {
+                    visualStatus = 'RED';
+                }
+            } else {
+                // Stock Proiettato >= 0: se coperto grazie a PO -> ORDERED, altrimenti GREEN o LOW_STOCK
+                if (entry.status === 'ORDERED' || entry.status === 'AMBER') {
+                    visualStatus = 'ORDERED';
+                } else if (entry.status === 'LOW_STOCK') {
+                    visualStatus = 'LOW_STOCK';
+                } else {
+                    visualStatus = 'GREEN';
+                }
+            }
+
+            return {
+                entry,
+                job,
+                visualStatus,
+                jobDate,
+                isUncovered
+            };
+        }).sort((a, b) => {
+            const dateA = a.jobDate || '9999-12-31';
+            const dateB = b.jobDate || '9999-12-31';
+            return dateA.localeCompare(dateB);
+        });
+
+        const countRed = entriesWithVisual.filter(e => e.visualStatus === 'RED').length;
+        const countLate = entriesWithVisual.filter(e => e.visualStatus === 'LATE').length;
+        const countOrdered = entriesWithVisual.filter(e => e.visualStatus === 'ORDERED').length;
+
+        const worstStatus: MRPVisualAlarmStatus = 
+            countRed > 0 ? 'RED' :
+            countLate > 0 ? 'LATE' :
+            countOrdered > 0 ? 'ORDERED' :
+            entriesWithVisual.some(e => e.visualStatus === 'LOW_STOCK') ? 'LOW_STOCK' : 'GREEN';
+
+        // REGOLA TASSATIVA SSoT:
+        const isAlarm = countRed > 0 || countLate > 0;
+        const isUnderControl = !isAlarm && countOrdered > 0;
+
+        const item: MaterialAlarmItem<TJob> = {
+            matCode: normalizedCode,
+            materialName,
+            materialType,
+            worstStatus,
+            isAlarm,
+            isUnderControl,
+            countRed,
+            countLate,
+            countOrdered,
+            entriesWithVisual
+        };
+
+        if (isAlarm) {
+            alarmMaterials.push(item);
+        } else if (isUnderControl) {
+            underControlMaterials.push(item);
+        }
+    });
+
+    // Raggruppamento Allarmi per Categoria/Famiglia
+    const alarmCategoriesMap = new Map<string, MaterialAlarmItem<TJob>[]>();
+    alarmMaterials.forEach(mat => {
+        if (!alarmCategoriesMap.has(mat.materialType)) {
+            alarmCategoriesMap.set(mat.materialType, []);
+        }
+        alarmCategoriesMap.get(mat.materialType)!.push(mat);
+    });
+
+    const groupedAlarms: GroupedAlarmCategory<TJob>[] = Array.from(alarmCategoriesMap.entries()).map(([category, items]) => {
+        const hasRed = items.some(m => m.worstStatus === 'RED');
+        const worstCategoryStatus: 'RED' | 'LATE' = hasRed ? 'RED' : 'LATE';
+
+        // Ordine materiali nel gruppo: RED prima di LATE, poi alfabetico per codice
+        items.sort((a, b) => {
+            if (a.worstStatus === 'RED' && b.worstStatus !== 'RED') return -1;
+            if (a.worstStatus !== 'RED' && b.worstStatus === 'RED') return 1;
+            return a.matCode.localeCompare(b.matCode);
+        });
+
+        return {
+            category,
+            worstCategoryStatus,
+            materials: items
+        };
+    });
+
+    // ORDINAMENTO VISIVO GRUPPI:
+    // In cima i gruppi con materiali 🔴 MANCANTE, a seguire quelli 🟠 IN RITARDO.
+    // A parità di severità, ordine alfabetico per categoria.
+    groupedAlarms.sort((a, b) => {
+        if (a.worstCategoryStatus === 'RED' && b.worstCategoryStatus !== 'RED') return -1;
+        if (a.worstCategoryStatus !== 'RED' && b.worstCategoryStatus === 'RED') return 1;
+        return a.category.localeCompare(b.category);
+    });
+
+    // Raggruppamento Materiali "Sotto Controllo" (💜 ORDERED in arrivo nei tempi)
+    const underControlCategoriesMap = new Map<string, MaterialAlarmItem<TJob>[]>();
+    underControlMaterials.forEach(mat => {
+        if (!underControlCategoriesMap.has(mat.materialType)) {
+            underControlCategoriesMap.set(mat.materialType, []);
+        }
+        underControlCategoriesMap.get(mat.materialType)!.push(mat);
+    });
+
+    const groupedUnderControl: GroupedUnderControlCategory<TJob>[] = Array.from(underControlCategoriesMap.entries()).map(([category, items]) => {
+        items.sort((a, b) => a.matCode.localeCompare(b.matCode));
+        return {
+            category,
+            materials: items
+        };
+    }).sort((a, b) => a.category.localeCompare(b.category));
+
+    return {
+        alarmMaterials,
+        alarmCount: alarmMaterials.length,
+        underControlMaterials,
+        underControlCount: underControlMaterials.length,
+        groupedAlarms,
+        groupedUnderControl
+    };
+}
+

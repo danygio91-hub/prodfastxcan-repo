@@ -50,7 +50,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn, formatDisplayStock, isJobReadyForProduction } from '@/lib/utils';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
-import { calculateMRPTimelines, MRPTimelineEntry, aggregateMRPRequirements } from '@/lib/mrp-utils';
+import { calculateMRPTimelines, MRPTimelineEntry, aggregateMRPRequirements, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
 import { GlobalSettings } from '@/lib/settings-types';
 
 import { jsPDF } from "jspdf";
@@ -426,27 +426,34 @@ export default function DataManagementClientPage({
     );
   }, [isDataLoading, sSotPlanned, sSotProduction, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings, activeSessions]);
 
+  // SSoT: Classificazione rigorosa action-driven degli allarmi MRP
+  const classifiedMRPAlarms = useMemo(() => {
+    if (isDataLoading) {
+      return {
+        alarmMaterials: [],
+        alarmCount: 0,
+        underControlMaterials: [],
+        underControlCount: 0,
+        groupedAlarms: [],
+        groupedUnderControl: []
+      };
+    }
+    return classifyGlobalMRPAlarms({
+      mrpTimelines,
+      allJobs: allJobsUnfiltered,
+      rawMaterials,
+      purchaseOrders
+    });
+  }, [isDataLoading, mrpTimelines, allJobsUnfiltered, rawMaterials, purchaseOrders]);
+
+  // Backward compatibility: criticalMaterialsTimeline ora contiene SOLO veri allarmi (RED o LATE)
   const criticalMaterialsTimeline = useMemo(() => {
     const criticals = new Map<string, { entry: MRPTimelineEntry, job: JobOrder | undefined }[]>();
-    
-    if (isDataLoading) return criticals;
-
-    mrpTimelines.forEach((entries, matCode) => {
-      if (entries.some(e => e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK' || e.status === 'ORDERED')) {
-        const mappedEntries = entries.map(entry => {
-          const job = allJobsUnfiltered.find(j => j.id === entry.jobId);
-          return { entry, job };
-        }).sort((a, b) => {
-           const dateA = a.job?.dataFinePreparazione || a.job?.dataConsegnaFinale || '9999-12-31';
-           const dateB = b.job?.dataFinePreparazione || b.job?.dataConsegnaFinale || '9999-12-31';
-           return dateA.localeCompare(dateB);
-        });
-        criticals.set(matCode, mappedEntries);
-      }
+    classifiedMRPAlarms.alarmMaterials.forEach(item => {
+      criticals.set(item.matCode, item.entriesWithVisual.map(e => ({ entry: e.entry, job: e.job })));
     });
-    
     return criticals;
-  }, [mrpTimelines, allJobsUnfiltered]);
+  }, [classifiedMRPAlarms]);
 
   const filteredDepartmentsForManualCreate = useMemo(() => {
     return departments.filter(d => 
@@ -747,136 +754,145 @@ export default function DataManagementClientPage({
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     <p className="font-medium animate-pulse">Sincronizzazione Magazzino in corso...</p>
                   </div>
-                ) : criticalMaterialsTimeline.size === 0 ? (
+                ) : classifiedMRPAlarms.alarmCount === 0 ? (
                   <div className="text-center p-6 text-muted-foreground bg-green-50 rounded-lg border border-green-100">
                     <CheckCircle2 className="h-8 w-8 mx-auto text-green-500 mb-2" />
-                    Nessun materiale critico per le commesse visualizzate.
+                    <p className="font-semibold text-green-700">Nessun allarme critico!</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Nessun materiale mancante o in ritardo per le commesse visualizzate.
+                    </p>
                   </div>
                 ) : (
                   <Accordion type="single" collapsible className="w-full">
-                    {(() => {
-                      const enhancedMaterials = Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries]) => {
-                          const material = rawMaterials.find(m => m.code.toUpperCase() === matCode);
-                          const materialName = material?.description || '';
-                          const materialType = ((material as any)?.category || materialName.split(' ')[0] || 'ALTRO').toUpperCase();
-                          
-                          const pendingPOs = purchaseOrders.filter(po => {
-                              const status = (po.status as string || '').toLowerCase();
-                              if (status === 'completed' || status === 'cancelled' || status === 'received') return false;
-                              const poMaterialCode = (po.materialCode || '').toUpperCase().trim();
-                              return poMaterialCode === matCode || (po as any).materialId === matCode;
-                          });
-
-                          const entriesWithVisual = entries.map(item => {
-                              const jobDate = item.job?.dataFinePreparazione || item.job?.dataConsegnaFinale;
-                              const isNegative = item.entry.projectedBalance < 0;
-                              const isLowStock = item.entry.status === 'LOW_STOCK';
-                              const isOrdered = item.entry.status === 'ORDERED';
-                              
-                              let visualStatus: 'RED' | 'LATE' | 'ORDERED' | 'LOW_STOCK' | 'GREEN' = 
-                                  isNegative ? 'RED' : 
-                                  isOrdered ? 'ORDERED' :
-                                  isLowStock ? 'LOW_STOCK' : 'GREEN';
-                              
-                              if (visualStatus === 'RED') {
-                                  const hasFuturePO = pendingPOs.some(po => {
-                                      let poDateRaw = po.expectedDeliveryDate;
-                                      let poDate = new Date();
-                                      if (poDateRaw && typeof poDateRaw === 'object' && 'toDate' in (poDateRaw as any)) {
-                                          poDate = (poDateRaw as any).toDate();
-                                      } else if (poDateRaw) {
-                                          poDate = new Date(poDateRaw);
-                                      } else {
-                                          poDate.setDate(poDate.getDate() + 30);
-                                      }
-                                      poDate.setUTCHours(0,0,0,0);
-                                      
-                                      let jDate = jobDate ? new Date(jobDate) : new Date();
-                                      jDate.setUTCHours(0,0,0,0);
-                                      
-                                      const poQty = Number(po.quantity || 0) - Number(po.receivedQuantity || 0);
-                                      return poDate >= jDate && poQty > 0;
-                                  });
-
-                                  if (hasFuturePO) {
-                                      visualStatus = 'LATE';
-                                  }
-                              }
-                              
-                              return { ...item, visualStatus, jobDate };
-                          });
-
-                          const worstVisualStatus = entriesWithVisual.some(e => e.visualStatus === 'RED') ? 'RED' : 
-                                                    entriesWithVisual.some(e => e.visualStatus === 'LATE') ? 'LATE' : 
-                                                    entriesWithVisual.some(e => e.visualStatus === 'ORDERED') ? 'ORDERED' : 
-                                                    entriesWithVisual.some(e => e.visualStatus === 'LOW_STOCK') ? 'LOW_STOCK' : 'GREEN';
-
-                          return { matCode, materialName, materialType, entriesWithVisual, worstVisualStatus };
-                      });
-
-                      const SEVERITY_WEIGHT: Record<string, number> = {
-                        RED: 4,
-                        LATE: 3,
-                        ORDERED: 2,
-                        LOW_STOCK: 1,
-                        GREEN: 0
-                      };
-
-                      enhancedMaterials.sort((a, b) => SEVERITY_WEIGHT[b.worstVisualStatus] - SEVERITY_WEIGHT[a.worstVisualStatus]);
-
-                      const groupedMaterials = enhancedMaterials.reduce((acc, curr) => {
-                        if (!acc[curr.materialType]) acc[curr.materialType] = [];
-                        acc[curr.materialType].push(curr);
-                        return acc;
-                      }, {} as Record<string, typeof enhancedMaterials>);
-
-                      return Object.entries(groupedMaterials).map(([type, items]) => (
-                        <div key={type} className="mb-6">
-                          <div className="flex items-center gap-2 mb-2 mt-2">
-                            <div className="h-px bg-border flex-1"></div>
-                            <span className="text-xs font-bold text-muted-foreground tracking-wider uppercase">{type}</span>
-                            <div className="h-px bg-border flex-1"></div>
+                    {classifiedMRPAlarms.groupedAlarms.map(({ category, worstCategoryStatus, materials }) => (
+                      <div key={category} className="mb-6">
+                        <div className="flex items-center gap-2 mb-2 mt-2">
+                          <div className="h-px bg-border flex-1"></div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-muted-foreground tracking-wider uppercase">{category}</span>
+                            <Badge 
+                              variant="outline" 
+                              className={cn(
+                                "text-[9px] py-0 px-1 font-bold",
+                                worstCategoryStatus === 'RED' ? "border-red-400 text-red-600 bg-red-50/50" : "border-amber-400 text-amber-600 bg-amber-50/50"
+                              )}
+                            >
+                              {worstCategoryStatus === 'RED' ? '🔴 MANCANTI' : '🟠 IN RITARDO'}
+                            </Badge>
                           </div>
-                          {items.map(({ matCode, materialName, entriesWithVisual, worstVisualStatus }) => (
-                            <AccordionItem key={matCode} value={matCode}>
-                              <AccordionTrigger className="hover:no-underline px-2 hover:bg-muted/50 rounded-md transition-colors">
-                                <div className="flex flex-col items-start text-left w-full">
-                                    <div className="flex items-center justify-between w-full pr-4">
-                                        <span className="font-bold text-sm">{matCode}</span>
-                                        <Badge variant={worstVisualStatus === 'RED' ? 'destructive' : 'secondary'} className={worstVisualStatus === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white' : worstVisualStatus === 'ORDERED' ? 'bg-indigo-500 hover:bg-indigo-600 text-white' : worstVisualStatus === 'LOW_STOCK' ? 'bg-cyan-500 hover:bg-cyan-600 text-white' : ''}>
-                                          {worstVisualStatus === 'RED' ? 'MANCANTE' : worstVisualStatus === 'LATE' ? 'IN RITARDO' : worstVisualStatus === 'ORDERED' ? 'ORDINATO' : 'SOTTOSCORTA'}
-                                        </Badge>
-                                    </div>
-                                    <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
-                                </div>
-                              </AccordionTrigger>
-                              <AccordionContent className="px-2 pt-2 pb-4">
-                                <div className="space-y-3">
-                                  {entriesWithVisual.map((item, i) => {
-                                    const { jobDate, visualStatus, entry, job } = item;
-                                    return (
-                                      <div key={i} className={cn("p-2 rounded-md border text-sm", visualStatus === 'RED' ? "border-red-200 bg-red-50/30" : visualStatus === 'LATE' ? "border-amber-200 bg-amber-50/30" : visualStatus === 'ORDERED' ? "border-indigo-200 bg-indigo-50/30" : visualStatus === 'LOW_STOCK' ? "border-cyan-200 bg-cyan-50/30" : "border-border bg-muted/20")}>
-                                        <div className="flex justify-between items-center mb-1">
-                                          <span className="font-semibold text-xs">{jobDate ? format(parseISO(jobDate), "dd/MM/yyyy") : 'N/D'}</span>
-                                          <span className="text-xs font-mono">{job?.ordinePF || job?.id || 'N/D'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-xs">
-                                          <span className="text-muted-foreground">Fabbisogno: {entry.requiredQty.toFixed(2)}</span>
-                                          <span className={cn("font-bold", visualStatus === 'RED' ? "text-red-600" : visualStatus === 'LATE' ? "text-amber-600" : visualStatus === 'ORDERED' ? "text-indigo-600" : visualStatus === 'LOW_STOCK' ? "text-cyan-600" : "text-emerald-600")}>
-                                            Stock Proiettato: {entry.projectedBalance.toFixed(2)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </AccordionContent>
-                            </AccordionItem>
-                          ))}
+                          <div className="h-px bg-border flex-1"></div>
                         </div>
-                      ));
-                    })()}
+
+                        {materials.map(({ matCode, materialName, worstStatus, entriesWithVisual }) => (
+                          <AccordionItem key={matCode} value={matCode}>
+                            <AccordionTrigger className="hover:no-underline px-2 hover:bg-muted/50 rounded-md transition-colors">
+                              <div className="flex flex-col items-start text-left w-full">
+                                <div className="flex items-center justify-between w-full pr-4">
+                                  <span className="font-bold text-sm">{matCode}</span>
+                                  <Badge 
+                                    variant={worstStatus === 'RED' ? 'destructive' : 'secondary'} 
+                                    className={worstStatus === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white font-bold' : 'font-bold'}
+                                  >
+                                    {worstStatus === 'RED' ? 'MANCANTE' : 'IN RITARDO'}
+                                  </Badge>
+                                </div>
+                                <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent className="px-2 pt-2 pb-4">
+                              <div className="space-y-3">
+                                {entriesWithVisual.map((item, i) => {
+                                  const { jobDate, visualStatus, entry, job } = item;
+                                  return (
+                                    <div 
+                                      key={i} 
+                                      className={cn(
+                                        "p-2 rounded-md border text-sm", 
+                                        visualStatus === 'RED' 
+                                          ? "border-red-200 bg-red-50/30" 
+                                          : visualStatus === 'LATE' 
+                                            ? "border-amber-200 bg-amber-50/30" 
+                                            : visualStatus === 'ORDERED' 
+                                              ? "border-indigo-200 bg-indigo-50/30" 
+                                              : "border-border bg-muted/20"
+                                      )}
+                                    >
+                                      <div className="flex justify-between items-center mb-1">
+                                        <span className="font-semibold text-xs">{jobDate ? format(parseISO(jobDate), "dd/MM/yyyy") : 'N/D'}</span>
+                                        <span className="text-xs font-mono font-bold">{job?.ordinePF || job?.id || 'N/D'}</span>
+                                      </div>
+                                      <div className="flex justify-between items-center text-xs">
+                                        <span className="text-muted-foreground">Fabbisogno: {entry.requiredQty.toFixed(2)}</span>
+                                        <span className={cn(
+                                          "font-bold", 
+                                          visualStatus === 'RED' ? "text-red-600" : 
+                                          visualStatus === 'LATE' ? "text-amber-600" : 
+                                          visualStatus === 'ORDERED' ? "text-indigo-600" : 
+                                          "text-emerald-600"
+                                        )}>
+                                          Stock Proiettato: {entry.projectedBalance.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        ))}
+                      </div>
+                    ))}
                   </Accordion>
+                )}
+
+                {/* Sezione Separata "Sotto Controllo" (Materiali coperte da PO nei tempi corretti) */}
+                {classifiedMRPAlarms.underControlCount > 0 && (
+                  <div className="mt-8 pt-4 border-t border-dashed">
+                    <Accordion type="single" collapsible className="w-full">
+                      <AccordionItem value="sotto-controllo-dm" className="border-indigo-200/60 bg-indigo-50/30 rounded-lg px-2 border">
+                        <AccordionTrigger className="hover:no-underline py-2.5">
+                          <div className="flex items-center justify-between w-full pr-2 text-left">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-indigo-700">
+                                💜 Sotto Controllo (In Arrivo nei Tempi)
+                              </span>
+                              <Badge className="bg-indigo-500 text-white text-[10px] font-bold py-0 px-1.5">
+                                {classifiedMRPAlarms.underControlCount}
+                              </Badge>
+                            </div>
+                            <span className="text-[11px] text-muted-foreground">
+                              Coperte da ordini fornitore
+                            </span>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="pt-2 pb-4">
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Questi materiali non costituiscono allarme: tutti i fabbisogni sono coperti da ordini di acquisto con consegna compatibile con le date di produzione.
+                          </p>
+                          <div className="space-y-4">
+                            {classifiedMRPAlarms.groupedUnderControl.map(({ category, materials }) => (
+                              <div key={category}>
+                                <div className="text-[11px] font-bold text-muted-foreground uppercase mb-1 tracking-wider">{category}</div>
+                                <div className="space-y-1.5">
+                                  {materials.map(mat => (
+                                    <div key={mat.matCode} className="p-2 rounded border border-indigo-100 bg-white/80 text-xs flex justify-between items-center">
+                                      <div>
+                                        <span className="font-bold text-indigo-900 mr-2">{mat.matCode}</span>
+                                        <span className="text-muted-foreground text-[11px]">{mat.materialName}</span>
+                                      </div>
+                                      <Badge className="bg-indigo-500 text-white text-[9px] py-0 px-1.5 font-bold">
+                                        ORDINATO ({mat.entriesWithVisual.length})
+                                      </Badge>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  </div>
                 )}
               </div>
             </SheetContent>

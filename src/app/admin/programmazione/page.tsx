@@ -23,7 +23,14 @@ export default async function ProgrammazionePage() {
     getODLConfig(),
   ]);
 
-  const articles = articlesSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id }) as Article);
+  const articles = articlesSnap.docs.map(doc => {
+    const data = doc.data();
+    return {
+      ...convertTimestampsToDates(data),
+      id: doc.id,
+      code: (data.code || doc.id).trim(),
+    } as Article;
+  });
   const globalSettings = settingsSnap.exists ? convertTimestampsToDates(settingsSnap.data()) as GlobalSettings : null;
 
   return (
