@@ -1,23 +1,51 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { 
     getJobOrders as fetchAllJobOrders, 
+    getPlannedJobOrders,
+    getProductionJobOrders,
+    getCompletedJobOrders,
     getDepartments as fetchAllDepartments,
     saveManualJobOrder,
     getWorkCycles,
-    createPhasesFromCycle
+    createPhasesFromCycle,
+    createODL,
+    cancelODL,
+    markJobAsPrinted as markJobAsPrintedSSoT
 } from '@/app/admin/data-management/actions';
 import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
+import type { JobDisplayStatus } from '@/lib/job-status';
 import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
-import { getWeek, getYear } from 'date-fns';
+import { getISOWeek, getISOWeekYear } from 'date-fns';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
 export async function getJobOrders(): Promise<JobOrder[]> {
     return await fetchAllJobOrders();
+}
+
+/**
+ * Lazy Loading: Carica inizialmente da Firestore SOLO le commesse PIANIFICATE e AVVIATE.
+ * Risparmia migliaia di letture Firestore non scaricando lo storico concluso.
+ */
+export async function getActiveJobOrders(): Promise<JobOrder[]> {
+    const [planned, production] = await Promise.all([
+        getPlannedJobOrders(),
+        getProductionJobOrders(),
+    ]);
+    return [...planned, ...production];
+}
+
+/**
+ * Lazy Loading On-Demand: Carica le commesse CONCLUSE solo al click fisico dell'utente sul relativo tab.
+ */
+export async function fetchCompletedJobOrdersAction(): Promise<JobOrder[]> {
+    return await getCompletedJobOrders();
 }
 
 export async function getDepartments(): Promise<Department[]> {
@@ -141,6 +169,34 @@ export async function toggleJobPrinted(
 }
 
 /**
+ * Segna la commessa come stampata (allineato con Gestione Dati Commesse)
+ * Non forza lo stato a 'In Produzione', ma imposta solo isPrinted e odlPrinted.
+ */
+export async function markJobAsPrinted(jobId: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await adminDb.collection("jobOrders").doc(jobId).update({
+            isPrinted: true,
+            odlPrinted: true,
+            updatedAt: admin.firestore.Timestamp.now(),
+        });
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        return { success: true, message: 'Commessa segnata come stampata.' };
+    } catch (e: any) {
+        console.error("Errore durante markJobAsPrinted:", e);
+        return { success: false, message: e?.message || "Errore durante la marcatura di stampa." };
+    }
+}
+
+/**
+ * Backward compatibility alias
+ */
+export async function markJobAsPrintedAndInProduction(jobId: string): Promise<boolean> {
+    const res = await markJobAsPrinted(jobId);
+    return res.success;
+}
+
+/**
  * Aggiornamento rapido N° ODL (on blur)
  */
 export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise<{ success: boolean; message: string }> {
@@ -149,7 +205,7 @@ export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise
         await adminDb.collection("jobOrders").doc(jobId).update({
             numeroODLInterno: val || null,
             numeroODL: val || null,
-            updatedAt: new Date().toISOString(),
+            updatedAt: admin.firestore.Timestamp.now(),
         });
         return { success: true, message: 'N° ODL aggiornato con successo.' };
     } catch (error) {
@@ -159,17 +215,246 @@ export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise
 }
 
 /**
- * Aggiornamento Stato Commessa
+ * Avvia Commessa in Produzione (Workflow ODL standard del sistema)
+ * Richiama la Server Action transazionale createODL usata in Gestione Dati Commesse:
+ * - Valida stato backlog (planned/in attesa/in pianificazione)
+ * - Valida presenza di Ciclo e Distinta Base
+ * - Riserva e incrementa il contatore odl_${year}
+ * - Imposta status: 'DA_INIZIARE', numeroODLInterno e odlCreationDate
+ */
+export async function startJobProduction(
+    jobId: string, 
+    manualOdlNumberStr?: string
+): Promise<{ success: boolean; message: string; job?: Partial<JobOrder> }> {
+    try {
+        const res = await createODL(jobId, manualOdlNumberStr);
+        if (!res.success) {
+            return { success: false, message: res.message };
+        }
+
+        const jobSnap = await adminDb.collection("jobOrders").doc(jobId).get();
+        const updatedData = jobSnap.data() as JobOrder | undefined;
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+
+        return {
+            success: true,
+            message: res.message,
+            job: updatedData ? {
+                status: updatedData.status,
+                numeroODLInterno: updatedData.numeroODLInterno,
+                odlCreationDate: updatedData.odlCreationDate ? new Date().toISOString() : undefined,
+                odlCounter: updatedData.odlCounter,
+            } : undefined
+        };
+    } catch (e: any) {
+        console.error("Errore in startJobProduction:", e);
+        return { success: false, message: e?.message || "Errore durante l'avvio della commessa." };
+    }
+}
+
+/**
+ * Allineamento Rigoroso: Modifica Stato Commessa (4 stati SSoT)
+ * Applica gli stessi identici payload e logiche usati da Console Operatore,
+ * Gestione Dati Commesse e Console Produzione Admin.
+ */
+export async function updateJobExecutionStatus(
+    jobId: string, 
+    targetStatus: JobDisplayStatus
+): Promise<{ success: boolean; message: string; odlNumber?: string }> {
+    try {
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        const jobSnap = await jobRef.get();
+        if (!jobSnap.exists) {
+            return { success: false, message: "Commessa non trovata." };
+        }
+        const job = jobSnap.data() as JobOrder;
+        const currentStatusLower = (job.status || '').toLowerCase().trim();
+
+        // 1. STATO: PIANIFICATA
+        if (targetStatus === 'Pianificata') {
+            const activeOpSnaps = await adminDb.collection("operators")
+                .where("activeJobId", "in", [jobId, job.ordinePF].filter(Boolean))
+                .get();
+
+            const batch = adminDb.batch();
+            activeOpSnaps.forEach(opDoc => {
+                batch.update(opDoc.ref, { stato: 'inattivo', activePhaseName: null, activeJobId: null });
+            });
+
+            const resetPhases = (job.phases || []).map(p => ({
+                ...p,
+                status: 'pending' as const,
+                workPeriods: [],
+                materialConsumptions: [],
+                qualityResult: null,
+                materialReady: p.isIndependent || p.type === 'preparation'
+            }));
+
+            batch.update(jobRef, {
+                status: 'IN_PIANIFICAZIONE',
+                odlCreationDate: null,
+                overallStartTime: null,
+                overallEndTime: admin.firestore.FieldValue.delete(),
+                forcedCompletion: admin.firestore.FieldValue.delete(),
+                packingListId: admin.firestore.FieldValue.delete(),
+                isProblemReported: false,
+                phases: resetPhases,
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+
+            await batch.commit();
+            revalidatePath('/admin/programmazione');
+            revalidatePath('/admin/data-management');
+            revalidatePath('/admin/production-console');
+            return { success: true, message: `Commessa ${job.ordinePF || jobId} riportata in pianificazione.` };
+        }
+
+        // 2. STATO: IN PRODUZIONE
+        if (targetStatus === 'In Produzione') {
+            const isBacklogPlanned = [
+                'planned', 
+                'in_attesa', 
+                'in pianificazione', 
+                'in_pianificazione', 
+                'pianificata', 
+                'pianificato'
+            ].includes(currentStatusLower);
+
+            if (isBacklogPlanned) {
+                // Avvia tramite createODL (genera ODL e verifica distinte)
+                const res = await createODL(jobId);
+                if (!res.success) {
+                    return { success: false, message: res.message };
+                }
+                const refreshed = await jobRef.get();
+                const refreshedData = refreshed.data() as JobOrder;
+                return { 
+                    success: true, 
+                    message: res.message, 
+                    odlNumber: refreshedData?.numeroODLInterno || undefined 
+                };
+            } else {
+                // Riapertura da completata o spedita
+                const batch = adminDb.batch();
+                batch.update(jobRef, {
+                    status: 'DA_INIZIARE',
+                    forcedCompletion: admin.firestore.FieldValue.delete(),
+                    overallEndTime: admin.firestore.FieldValue.delete(),
+                    packingListId: admin.firestore.FieldValue.delete(),
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+                await batch.commit();
+                revalidatePath('/admin/programmazione');
+                revalidatePath('/admin/production-console');
+                return { success: true, message: `Commessa ${job.ordinePF || jobId} riaperta in produzione.` };
+            }
+        }
+
+        // 3. STATO: COMPLETATO PROD.
+        if (targetStatus === 'Completato Prod.') {
+            const updatedPhases = (job.phases || []).map(phase => {
+                const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
+                    if (wp.end === null) return { ...wp, end: new Date() };
+                    return wp;
+                });
+                return {
+                    ...phase,
+                    status: 'completed' as const,
+                    forced: true,
+                    isEstimated: false,
+                    workPeriods: updatedWorkPeriods
+                };
+            });
+
+            const activeOpSnaps = await adminDb.collection("operators")
+                .where("activeJobId", "in", [jobId, job.ordinePF].filter(Boolean))
+                .get();
+
+            const batch = adminDb.batch();
+            activeOpSnaps.forEach(opDoc => {
+                batch.update(opDoc.ref, { stato: 'inattivo', activePhaseName: null, activeJobId: null });
+            });
+
+            batch.update(jobRef, {
+                status: 'completed',
+                overallEndTime: admin.firestore.Timestamp.now(),
+                forcedCompletion: true,
+                phases: updatedPhases,
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+
+            await batch.commit();
+            revalidatePath('/admin/programmazione');
+            revalidatePath('/admin/production-console');
+            return { success: true, message: `Commessa ${job.ordinePF || jobId} completata con successo.` };
+        }
+
+        // 4. STATO: SPEDITO
+        if (targetStatus === 'Spedito') {
+            const updatedPhases = (job.phases || []).map(phase => {
+                const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
+                    if (wp.end === null) return { ...wp, end: new Date() };
+                    return wp;
+                });
+                return {
+                    ...phase,
+                    status: 'completed' as const,
+                    forced: true,
+                    isEstimated: false,
+                    workPeriods: updatedWorkPeriods
+                };
+            });
+
+            const activeOpSnaps = await adminDb.collection("operators")
+                .where("activeJobId", "in", [jobId, job.ordinePF].filter(Boolean))
+                .get();
+
+            const batch = adminDb.batch();
+            activeOpSnaps.forEach(opDoc => {
+                batch.update(opDoc.ref, { stato: 'inattivo', activePhaseName: null, activeJobId: null });
+            });
+
+            batch.update(jobRef, {
+                status: 'SPEDITA',
+                overallEndTime: admin.firestore.Timestamp.now(),
+                forcedCompletion: true,
+                phases: updatedPhases,
+                lastStatusChange: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+
+            await batch.commit();
+            revalidatePath('/admin/programmazione');
+            revalidatePath('/admin/production-console');
+            revalidatePath('/operator/packing');
+            return { success: true, message: `Commessa ${job.ordinePF || jobId} contrassegnata come spedita.` };
+        }
+
+        return { success: false, message: `Stato non riconosciuto: ${targetStatus}` };
+    } catch (e: any) {
+        console.error("Errore in updateJobExecutionStatus:", e);
+        return { success: false, message: e?.message || "Errore durante l'aggiornamento dello stato." };
+    }
+}
+
+/**
+ * Backward compatibility alias per updateJobStatus
  */
 export async function updateJobStatus(jobId: string, newStatus: string): Promise<{ success: boolean; message: string }> {
+    const validTargets: JobDisplayStatus[] = ['Pianificata', 'In Produzione', 'Completato Prod.', 'Spedito'];
+    if (validTargets.includes(newStatus as JobDisplayStatus)) {
+        return await updateJobExecutionStatus(jobId, newStatus as JobDisplayStatus);
+    }
     try {
         await adminDb.collection("jobOrders").doc(jobId).update({
             status: newStatus,
-            updatedAt: new Date().toISOString(),
+            updatedAt: admin.firestore.Timestamp.now(),
         });
         return { success: true, message: `Stato aggiornato a ${newStatus}.` };
     } catch (error) {
-        console.error("Errore aggiornamento stato commessa:", error);
         return { success: false, message: "Errore durante l'aggiornamento dello stato." };
     }
 }
@@ -186,8 +471,8 @@ export async function updateJobDeliveryDate(jobId: string, newDate: string): Pro
         if (val) {
             const d = parseRobustDate(val) || new Date(val);
             if (d && !isNaN(d.getTime())) {
-                isoWeek = getWeek(d, { weekStartsOn: 1 });
-                weekYear = getYear(d);
+                isoWeek = getISOWeek(d);
+                weekYear = getISOWeekYear(d);
                 targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
             }
         }
@@ -205,6 +490,32 @@ export async function updateJobDeliveryDate(jobId: string, newDate: string): Pro
     } catch (error) {
         console.error("Errore aggiornamento data consegna:", error);
         return { success: false, message: "Errore durante il salvataggio della data." };
+    }
+}
+
+/**
+ * Riassegnazione manuale settimana per una commessa
+ */
+export async function updateJobAssignedWeek(
+    jobId: string, 
+    assignedDate: string | null,
+    isoWeek: number | null, 
+    weekYear: number | null,
+    targetWeek: string | null
+): Promise<{ success: boolean; message: string }> {
+    try {
+        const payload: Record<string, any> = {
+            assignedDate: assignedDate || null,
+            isoWeek: isoWeek || null,
+            weekYear: weekYear || null,
+            targetWeek: targetWeek || null,
+            updatedAt: new Date().toISOString(),
+        };
+        await adminDb.collection("jobOrders").doc(jobId).update(payload);
+        return { success: true, message: 'Settimana aggiornata con successo.' };
+    } catch (error) {
+        console.error("Errore aggiornamento settimana commessa:", error);
+        return { success: false, message: "Errore durante il salvataggio della settimana." };
     }
 }
 
@@ -304,8 +615,8 @@ export async function saveQuickJobOrder(data: {
         if (dataConsegnaFinale) {
             const d = parseRobustDate(dataConsegnaFinale) || new Date(dataConsegnaFinale);
             if (d && !isNaN(d.getTime())) {
-                isoWeek = getWeek(d, { weekStartsOn: 1 });
-                weekYear = getYear(d);
+                isoWeek = getISOWeek(d);
+                weekYear = getISOWeekYear(d);
                 targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
             }
         }

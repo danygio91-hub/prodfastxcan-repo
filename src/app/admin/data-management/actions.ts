@@ -6,7 +6,7 @@ import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment, Client, BillOfMaterialsItem } from '@/types';
 import * as z from 'zod';
 import { convertTimestampsToDates, normalizeDateStr, parseRobustDate } from '@/lib/utils';
-import { getWeek, getYear } from 'date-fns';
+import { getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchInChunks } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
@@ -232,8 +232,8 @@ export async function saveManualJobOrder(data: any) {
     if (finalDeliveryDate) {
         const d = parseRobustDate(finalDeliveryDate) || new Date(finalDeliveryDate);
         if (d && !isNaN(d.getTime())) {
-            isoWeek = getWeek(d, { weekStartsOn: 1 });
-            weekYear = getYear(d);
+            isoWeek = getISOWeek(d);
+            weekYear = getISOWeekYear(d);
             targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
         }
     }
@@ -1045,8 +1045,8 @@ export async function saveSmartJobOrder(data: {
         if (finalDeliveryDate) {
             const d = parseRobustDate(finalDeliveryDate) || new Date(finalDeliveryDate);
             if (d && !isNaN(d.getTime())) {
-                isoWeek = getWeek(d, { weekStartsOn: 1 });
-                weekYear = getYear(d);
+                isoWeek = getISOWeek(d);
+                weekYear = getISOWeekYear(d);
                 targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
             }
         }
@@ -1567,8 +1567,8 @@ export async function saveSmartPastedJobOrders(data: {
             if (row.dataConsegnaFinale) {
                 const d = parseRobustDate(row.dataConsegnaFinale) || new Date(row.dataConsegnaFinale);
                 if (d && !isNaN(d.getTime())) {
-                    isoWeek = getWeek(d, { weekStartsOn: 1 });
-                    weekYear = getYear(d);
+                    isoWeek = getISOWeek(d);
+                    weekYear = getISOWeekYear(d);
                     targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
                 }
             }

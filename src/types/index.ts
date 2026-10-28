@@ -139,6 +139,7 @@ export interface JobOrder {
   isPriority?: boolean;
   sortIndex?: number;
   isCarryover?: boolean;
+  packingListId?: string;
   excludedFromPackingList?: boolean;
   attachments?: { name: string, url: string }[];
   actualWeightKg?: number;

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -25,9 +26,13 @@ import {
   Zap,
   CornerDownLeft,
   CalendarDays,
-  Layers
+  Layers,
+  Calendar,
+  Clock,
+  Truck,
+  Download
 } from 'lucide-react';
-import { format, startOfWeek, endOfWeek, getWeek, getYear, addWeeks, subWeeks, parseISO } from 'date-fns';
+import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 import { Button } from '@/components/ui/button';
@@ -72,18 +77,30 @@ import { parseRobustDate, cn } from '@/lib/utils';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, type MRPTimelineEntry } from '@/lib/mrp-utils';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
+import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
+import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 import { SmartJobModal } from '@/components/mrp/SmartJobModal';
 import { SmartPasteModal } from '@/components/mrp/SmartPasteModal';
 import { ManualJobModal } from '@/components/mrp/ManualJobModal';
 import { 
   getJobOrders, 
+  getActiveJobOrders,
+  fetchCompletedJobOrdersAction,
   getTargetedMRPData, 
   toggleJobPrinted, 
+  markJobAsPrinted,
+  markJobAsPrintedAndInProduction,
+  startJobProduction,
+  updateJobExecutionStatus,
   updateJobOdlNumber, 
   updateJobStatus,
   updateJobDeliveryDate,
+  updateJobAssignedWeek,
   saveQuickJobOrder
 } from './actions';
+import { getJobDisplayStatus, type JobDisplayStatus } from '@/lib/job-status';
 import {
   Popover,
   PopoverContent,
@@ -104,6 +121,7 @@ interface ProgrammazioneClientPageProps {
   initialArticles?: Article[];
   initialWorkCycles?: WorkCycle[];
   initialGlobalSettings?: GlobalSettings | null;
+  initialOdlConfig?: ODLConfig;
 }
 
 // 4 Macro-Gruppi Reparti Essenziali
@@ -141,19 +159,27 @@ export function getJobDepartmentGroup(job: JobOrder): 'CP' | 'CG' | 'BF' | 'OTHE
   return 'OTHER';
 }
 
-export type JobStatusOption = 'Pianificata' | 'In Produzione' | 'Completato Prod.' | 'Spedito';
+export type JobStatusOption = JobDisplayStatus;
 
-export function normalizeJobStatus(status: string | undefined): JobStatusOption {
-  if (!status) return 'Pianificata';
-  const s = status.toUpperCase().trim();
+export function normalizeJobStatus(jobOrStatus: JobOrder | string | undefined): JobStatusOption {
+  if (!jobOrStatus) return 'Pianificata';
+  if (typeof jobOrStatus === 'object') {
+    return getJobDisplayStatus(jobOrStatus);
+  }
+  const s = String(jobOrStatus).toUpperCase().trim();
   if (s.includes('SPEDIT') || s === 'SHIPPED') return 'Spedito';
   if (s.includes('FINE') || s.includes('COMPLET') || s === 'CLOSED' || s === 'CHIUSO') return 'Completato Prod.';
-  if (s.includes('PROD') || s.includes('LAVORAZ') || s.includes('ATTIV') || s.includes('ACTIVE') || s.includes('IN_PROGRESS')) return 'In Produzione';
+  if (s.includes('PROD') || s.includes('LAVORAZ') || s.includes('ATTIV') || s.includes('ACTIVE') || s.includes('IN_PROGRESS') || s === 'DA_INIZIARE') return 'In Produzione';
   return 'Pianificata';
 }
 
-export function isJobFinished(status: string | undefined): boolean {
-  const norm = normalizeJobStatus(status);
+export function isJobFinished(jobOrStatus: JobOrder | string | undefined): boolean {
+  if (!jobOrStatus) return false;
+  if (typeof jobOrStatus === 'object') {
+    const norm = getJobDisplayStatus(jobOrStatus);
+    return norm === 'Completato Prod.' || norm === 'Spedito';
+  }
+  const norm = normalizeJobStatus(jobOrStatus);
   return norm === 'Completato Prod.' || norm === 'Spedito';
 }
 
@@ -173,14 +199,14 @@ function calculateJobHours(job: JobOrder): number {
   return Math.round((((job.qta || 0) * 10) / 60) * 10) / 10;
 }
 
-function getJobWeekAndYear(job: JobOrder): { week: number; year: number } | null {
+export function getJobWeekAndYear(job: JobOrder): { week: number; year: number } | null {
   const targetDateStr = job.assignedDate || job.dataConsegnaFinale;
   if (!targetDateStr) return null;
   const d = parseRobustDate(targetDateStr);
   if (!d) return null;
   return {
-    week: getWeek(d, { weekStartsOn: 1 }),
-    year: getYear(d),
+    week: getISOWeek(d),
+    year: getISOWeekYear(d),
   };
 }
 
@@ -210,6 +236,7 @@ export default function ProgrammazioneClientPage({
   initialArticles = [],
   initialWorkCycles = [],
   initialGlobalSettings = null,
+  initialOdlConfig,
 }: ProgrammazioneClientPageProps) {
   const { toast } = useToast();
 
@@ -219,6 +246,17 @@ export default function ProgrammazioneClientPage({
   const [articles] = useState<Article[]>(initialArticles || []);
   const [workCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
   const [globalSettings] = useState<GlobalSettings | null>(initialGlobalSettings);
+
+  const [odlConfig] = useState<ODLConfig>(initialOdlConfig || DEFAULT_ODL_CONFIG);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
+  const [pdfData, setPdfData] = useState<{
+    job: JobOrder;
+    article: Article | null;
+    materials: RawMaterial[];
+    printDate: Date;
+  } | null>(null);
+
+  const qrRule = globalSettings?.jobOrderQrCodeRule || (globalSettings as any)?.qrCodeRule || "{ordinePF}@{details}@{qta}";
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -247,6 +285,43 @@ export default function ProgrammazioneClientPage({
   const [quickArticleSearch, setQuickArticleSearch] = useState('');
   const quickRowFirstInputRef = useRef<HTMLInputElement>(null);
 
+  // =========================================================================
+  // FASE 13: MACRO-SWITCH VISTE E LAZY LOADING
+  // =========================================================================
+  const [viewMode, setViewMode] = useState<'settimana' | 'globale'>('settimana');
+  const [globalTab, setGlobalTab] = useState<'PIANIFICATE' | 'AVVIATE' | 'CONCLUSE'>('PIANIFICATE');
+  const [hasFetchedConcluse, setHasFetchedConcluse] = useState(false);
+  const [isLoadingConcluse, setIsLoadingConcluse] = useState(false);
+
+  // Lazy Loading On-Demand per le Commesse Concluse
+  const handleSelectGlobalTab = async (tab: 'PIANIFICATE' | 'AVVIATE' | 'CONCLUSE') => {
+    setGlobalTab(tab);
+    if (tab === 'CONCLUSE' && !hasFetchedConcluse) {
+      setIsLoadingConcluse(true);
+      try {
+        const concluseJobs = await fetchCompletedJobOrdersAction();
+        setJobs((prev) => {
+          const existingIds = new Set(prev.map(j => j.id));
+          const newUnique = concluseJobs.filter(j => !existingIds.has(j.id));
+          return [...prev, ...newUnique];
+        });
+        setHasFetchedConcluse(true);
+        toast({
+          title: "Commesse Concluse Caricate",
+          description: `Scaricati ${concluseJobs.length} record storici da Firestore.`,
+        });
+      } catch (e: any) {
+        toast({
+          variant: "destructive",
+          title: "Errore Caricamento Storico",
+          description: e?.message || "Impossibile scaricare le commesse concluse.",
+        });
+      } finally {
+        setIsLoadingConcluse(false);
+      }
+    }
+  };
+
   // Filtro Reparto (4 Macro-Gruppi)
   const [selectedDept, setSelectedDept] = useState<MacroDepartmentCode>('ALL');
 
@@ -265,11 +340,11 @@ export default function ProgrammazioneClientPage({
   const [capacitiesByBucket, setCapacitiesByBucket] = useState<Record<string, DayCapacityConfig>>({});
 
   const selectedWeekNumber = useMemo(() => {
-    return getWeek(currentDateReference, { weekStartsOn: 1 });
+    return getISOWeek(currentDateReference);
   }, [currentDateReference]);
 
   const selectedYear = useMemo(() => {
-    return getYear(currentDateReference);
+    return getISOWeekYear(currentDateReference);
   }, [currentDateReference]);
 
   const bucketKey = useMemo(() => {
@@ -300,8 +375,8 @@ export default function ProgrammazioneClientPage({
   }, [currentCapacity]);
 
   const weekInterval = useMemo(() => {
-    const start = startOfWeek(currentDateReference, { weekStartsOn: 1 });
-    const end = endOfWeek(currentDateReference, { weekStartsOn: 1 });
+    const start = startOfISOWeek(currentDateReference);
+    const end = endOfISOWeek(currentDateReference);
     return {
       start,
       end,
@@ -321,15 +396,20 @@ export default function ProgrammazioneClientPage({
   };
 
   const handleCurrentWeek = () => {
-    setCurrentDateReference(new Date());
+    const now = new Date();
+    const currentMonday = startOfISOWeek(now);
+    currentMonday.setHours(12, 0, 0, 0);
+    setCurrentDateReference(currentMonday);
     setShowAllWeeks(false);
   };
 
-  // Refresh Commesse
+  // Refresh Commesse (Lazy-Aware)
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const updatedJobs = await getJobOrders();
+      const updatedJobs = hasFetchedConcluse 
+        ? await getJobOrders() 
+        : await getActiveJobOrders();
       setJobs(updatedJobs);
       toast({
         title: "Dati aggiornati",
@@ -357,22 +437,16 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // Filtraggio Commesse Lato Client
+  // Filtraggio Commesse Lato Client (Supporto Vista Settimana e Vista Globale)
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
+      // 1. Filtro Macro-Reparto (ALL, CP, CG, BF)
       if (selectedDept !== 'ALL') {
         const group = getJobDepartmentGroup(job);
         if (group !== selectedDept) return false;
       }
 
-      if (!showAllWeeks) {
-        const weekInfo = getJobWeekAndYear(job);
-        if (!weekInfo) return false;
-        if (weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear) {
-          return false;
-        }
-      }
-
+      // 2. Filtro Ricerca Rapida
       if (searchQuery.trim() !== '') {
         const q = searchQuery.toLowerCase().trim();
         const matchPf = (job.ordinePF || '').toLowerCase().includes(q);
@@ -384,9 +458,30 @@ export default function ProgrammazioneClientPage({
         }
       }
 
+      // 3. Bivio: Vista per Settimana vs Vista Globale
+      if (viewMode === 'settimana') {
+        if (!showAllWeeks) {
+          const weekInfo = getJobWeekAndYear(job);
+          if (!weekInfo) return false;
+          if (weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear) {
+            return false;
+          }
+        }
+      } else {
+        // Vista Globale: 3 macro-tab SSoT
+        const status = normalizeJobStatus(job);
+        if (globalTab === 'PIANIFICATE') {
+          return status === 'Pianificata';
+        } else if (globalTab === 'AVVIATE') {
+          return status === 'In Produzione' || status === 'Completato Prod.';
+        } else if (globalTab === 'CONCLUSE') {
+          return status === 'Spedito' || ['closed', 'chiuso'].includes((job.status || '').toLowerCase().trim());
+        }
+      }
+
       return true;
     });
-  }, [jobs, selectedDept, showAllWeeks, selectedWeekNumber, selectedYear, searchQuery]);
+  }, [jobs, selectedDept, viewMode, globalTab, showAllWeeks, selectedWeekNumber, selectedYear, searchQuery]);
 
   // Ordinamento Risultati
   const sortedAndFilteredJobs = useMemo(() => {
@@ -434,15 +529,22 @@ export default function ProgrammazioneClientPage({
     };
   }, [sortedAndFilteredJobs, availableHours]);
 
-  // Conteggi per macro-reparti
+  // Conteggi per macro-reparti (Sensibili alla vista corrente)
   const deptCounts = useMemo(() => {
     const counts: Record<MacroDepartmentCode, number> = { ALL: 0, CP: 0, CG: 0, BF: 0 };
     jobs.forEach((job) => {
-      if (!showAllWeeks) {
-        const weekInfo = getJobWeekAndYear(job);
-        if (!weekInfo || weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear) {
-          return;
+      if (viewMode === 'settimana') {
+        if (!showAllWeeks) {
+          const weekInfo = getJobWeekAndYear(job);
+          if (!weekInfo || weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear) {
+            return;
+          }
         }
+      } else {
+        const st = normalizeJobStatus(job);
+        if (globalTab === 'PIANIFICATE' && st !== 'Pianificata') return;
+        if (globalTab === 'AVVIATE' && st !== 'In Produzione' && st !== 'Completato Prod.') return;
+        if (globalTab === 'CONCLUSE' && st !== 'Spedito' && !['closed', 'chiuso'].includes((job.status || '').toLowerCase().trim())) return;
       }
       counts.ALL++;
       const group = getJobDepartmentGroup(job);
@@ -451,7 +553,31 @@ export default function ProgrammazioneClientPage({
       else if (group === 'BF') counts.BF++;
     });
     return counts;
-  }, [jobs, showAllWeeks, selectedWeekNumber, selectedYear]);
+  }, [jobs, viewMode, globalTab, showAllWeeks, selectedWeekNumber, selectedYear]);
+
+  // Conteggio commesse per i 3 macro-tab della Vista Globale (SSoT)
+  const globalTabCounts = useMemo(() => {
+    let pianificate = 0;
+    let avviate = 0;
+    let concluse = 0;
+
+    jobs.forEach((job) => {
+      if (selectedDept !== 'ALL') {
+        const group = getJobDepartmentGroup(job);
+        if (group !== selectedDept) return;
+      }
+      const st = normalizeJobStatus(job);
+      if (st === 'Pianificata') {
+        pianificate++;
+      } else if (st === 'In Produzione' || st === 'Completato Prod.') {
+        avviate++;
+      } else if (st === 'Spedito' || ['closed', 'chiuso'].includes((job.status || '').toLowerCase().trim())) {
+        concluse++;
+      }
+    });
+
+    return { pianificate, avviate, concluse };
+  }, [jobs, selectedDept]);
 
   // Filtro Articoli per Autocomplete Riga Rapida
   const matchingQuickArticles = useMemo(() => {
@@ -484,7 +610,7 @@ export default function ProgrammazioneClientPage({
 
   // Commesse Globali Attive (Pianificata o In Produzione) - Short-circuit per escludere completati/spediti
   const activeGlobalJobs = useMemo(() => {
-    return jobs.filter((j) => !isJobFinished(j.status));
+    return jobs.filter((j) => !isJobFinished(j));
   }, [jobs]);
 
   // Fabbisogni materiali e articoli sull'intero backlog attivo aziendale (Short-circuit rigoroso)
@@ -493,7 +619,7 @@ export default function ProgrammazioneClientPage({
     const artSet = new Set<string>();
 
     activeGlobalJobs.forEach((job) => {
-      if (isJobFinished(job.status)) return;
+      if (isJobFinished(job)) return;
       const bom = job.billOfMaterials || [];
       if (bom.length > 0) {
         bom.forEach((item) => {
@@ -638,8 +764,8 @@ export default function ProgrammazioneClientPage({
     details: string[];
   } => {
     // 0. SHORT-CIRCUIT A MONTE: Se la commessa è completata o spedita, bypassa completamente il calcolo MRP
-    if (isJobFinished(job.status)) {
-      const isShipped = normalizeJobStatus(job.status) === 'Spedito';
+    if (isJobFinished(job)) {
+      const isShipped = normalizeJobStatus(job) === 'Spedito';
       return {
         state: 'COMPLETED',
         label: isShipped ? 'Spedito' : 'Completato',
@@ -839,8 +965,19 @@ export default function ProgrammazioneClientPage({
     const isoFormatted = format(parsed, 'yyyy-MM-dd');
     if (isoFormatted === job.dataConsegnaFinale) return;
 
+    const newWeek = getISOWeek(parsed);
+    const newYear = getISOWeekYear(parsed);
+    const newTargetWeek = `${newYear}-W${String(newWeek).padStart(2, '0')}`;
+
     // Aggiornamento Ottimistico
-    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, dataConsegnaFinale: isoFormatted } : j));
+    setJobs(prev => prev.map(j => j.id === job.id ? { 
+      ...j, 
+      dataConsegnaFinale: isoFormatted,
+      assignedDate: undefined,
+      isoWeek: newWeek,
+      weekYear: newYear,
+      targetWeek: newTargetWeek
+    } : j));
     
     // Pulisci draft
     setDateDrafts(prev => {
@@ -987,36 +1124,120 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // Modifica Stato Commessa
+  // Modifica Stato Commessa (4 stati SSoT rigorosi)
   const handleStatusChange = async (job: JobOrder, newStatus: JobStatusOption) => {
-    const prevStatus = job.status;
+    const prevJob = { ...job };
+    const currentStatus = normalizeJobStatus(job);
+    if (currentStatus === newStatus) return;
 
+    // Aggiornamento ottimistico locale
     setJobs((prev) =>
-      prev.map((j) => (j.id === job.id ? { ...j, status: newStatus } : j))
+      prev.map((j) => {
+        if (j.id === job.id) {
+          const updated: JobOrder = { ...j };
+          if (newStatus === 'Pianificata') {
+            updated.status = 'IN_PIANIFICAZIONE';
+            updated.forcedCompletion = false;
+            updated.packingListId = undefined;
+          } else if (newStatus === 'In Produzione') {
+            updated.status = 'DA_INIZIARE';
+            updated.forcedCompletion = false;
+            updated.packingListId = undefined;
+          } else if (newStatus === 'Completato Prod.') {
+            updated.status = 'completed';
+            updated.forcedCompletion = true;
+          } else if (newStatus === 'Spedito') {
+            updated.status = 'SPEDITA';
+            updated.forcedCompletion = true;
+          }
+          return updated;
+        }
+        return j;
+      })
     );
 
-    toast({
-      title: "Stato Commessa Modificato",
-      description: `Commessa ${job.ordinePF} -> ${newStatus}.`,
-    });
-
     try {
-      await updateJobStatus(job.id, newStatus);
-    } catch (e) {
-      setJobs((prev) =>
-        prev.map((j) => (j.id === job.id ? { ...j, status: prevStatus } : j))
-      );
+      const res = await updateJobExecutionStatus(job.id, newStatus);
+      if (!res.success) {
+        setJobs((prev) => prev.map((j) => (j.id === job.id ? prevJob : j)));
+        toast({
+          variant: "destructive",
+          title: "Operazione Non Riuscita",
+          description: res.message,
+        });
+        return;
+      }
+
+      toast({
+        title: "Stato Commessa Modificato",
+        description: res.message,
+      });
+
+      if (res.odlNumber) {
+        setJobs((prev) =>
+          prev.map((j) => (j.id === job.id ? { ...j, numeroODLInterno: res.odlNumber } : j))
+        );
+      }
+    } catch (e: any) {
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? prevJob : j)));
+      toast({
+        variant: "destructive",
+        title: "Errore Aggiornamento Stato",
+        description: e?.message || "Impossibile aggiornare lo stato.",
+      });
     }
   };
 
-  // 4. Workflow Avvio Produzione: aggiorna a "In Produzione"
-  const handleStartProduction = (job: JobOrder) => {
-    handleStatusChange(job, 'In Produzione');
+  // 4. Workflow Avvio Produzione: richiama createODL transazionale
+  const handleStartProduction = async (job: JobOrder) => {
+    try {
+      const res = await startJobProduction(job.id);
+      if (!res.success) {
+        toast({
+          variant: "destructive",
+          title: "Impossibile Avviare Commessa",
+          description: res.message,
+        });
+        return;
+      }
+
+      toast({
+        title: "Commessa Avviata in Produzione",
+        description: res.message,
+      });
+
+      setJobs((prev) =>
+        prev.map((j) => {
+          if (j.id === job.id) {
+            return {
+              ...j,
+              status: 'DA_INIZIARE',
+              numeroODLInterno: res.job?.numeroODLInterno || j.numeroODLInterno,
+              odlCreationDate: res.job?.odlCreationDate || new Date().toISOString(),
+            };
+          }
+          return j;
+        })
+      );
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore durante l'avvio",
+        description: e?.message || "Errore sconosciuto",
+      });
+    }
   };
 
-  // Stampa ODL con Vincolo N° ODL e Automazione
+  // =========================================================================
+  // STAMPA ODL (FASE 9: Generatore PDF fisico + Aggiornamento Stato)
+  // =========================================================================
   const handleTogglePrintODL = async (job: JobOrder) => {
-    const currentOdl = (job.numeroODLInterno || job.numeroODL || '').trim();
+    // Risolvi il N° ODL dal draft corrente o dal valore salvato
+    const currentOdl = (
+      odlDrafts[job.id] !== undefined
+        ? odlDrafts[job.id]
+        : (job.numeroODLInterno || job.numeroODL || '')
+    ).trim();
 
     if (!currentOdl) {
       toast({
@@ -1027,63 +1248,272 @@ export default function ProgrammazioneClientPage({
       return;
     }
 
-    const isCurrentlyPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
-    const nextPrinted = !isCurrentlyPrinted;
-    const currentNormalized = normalizeJobStatus(job.status);
-    const nextStatus: JobStatusOption = nextPrinted && currentNormalized === 'Pianificata' 
-      ? 'In Produzione' 
-      : normalizeJobStatus(job.status);
+    if (isDownloadingPdf) return;
 
-    setJobs((prevJobs) =>
-      prevJobs.map((j) =>
+    setIsDownloadingPdf(job.id);
+
+    try {
+      // Se l'ODL è stato modificato nel draft ma non ancora salvato su DB, salvalo
+      if (odlDrafts[job.id] !== undefined && odlDrafts[job.id].trim() !== (job.numeroODLInterno || '')) {
+        updateJobOdlNumber(job.id, currentOdl).catch((err) => {
+          console.error("Errore salvataggio rapido N° ODL:", err);
+        });
+      }
+
+      // 1. Recupero Articolo e arricchimento dati per il PDF
+      const articleCode = (job.details || '').trim().toUpperCase();
+      let article = articles.find((a) => a.code.toUpperCase() === articleCode) 
+        || articlesCacheRef.current.get(articleCode) 
+        || null;
+
+      // Se non abbiamo ancora l'articolo completo in cache, tentiamo di caricarlo
+      if (!article && articleCode) {
+        try {
+          const targeted = await getTargetedMRPData([], [articleCode]);
+          if (targeted.articles.length > 0) {
+            article = targeted.articles[0];
+            articlesCacheRef.current.set(articleCode, article);
+          }
+        } catch (e) {
+          console.warn("Impossibile caricare articolo per ODL:", e);
+        }
+      }
+
+      // Costruisci la distinta base completa (BOM) se assente sulla commessa
+      let bomItems = job.billOfMaterials || [];
+      if ((!bomItems || bomItems.length === 0) && article?.billOfMaterials) {
+        bomItems = article.billOfMaterials.map((item) => ({
+          ...item,
+          status: 'pending',
+          isFromTemplate: true,
+        }));
+      }
+
+      // Costruisci le fasi del ciclo se assenti sulla commessa
+      let jobPhases = job.phases || [];
+      if ((!jobPhases || jobPhases.length === 0) && (job.workCycleId || article?.workCycleId)) {
+        const cycleId = job.workCycleId || article?.workCycleId;
+        const cycle = workCycles.find((c) => c.id === cycleId);
+        if (cycle && (cycle as any).phases) {
+          jobPhases = (cycle as any).phases;
+        }
+      }
+
+      // Verifica che tutti i materiali della distinta siano in materialsCacheRef
+      const requiredMatCodes = bomItems
+        .map((i) => (i.component || '').trim().toUpperCase())
+        .filter(Boolean);
+      const missingMatCodes = requiredMatCodes.filter((c) => !materialsCacheRef.current.has(c));
+
+      if (missingMatCodes.length > 0) {
+        try {
+          const targeted = await getTargetedMRPData(missingMatCodes, articleCode ? [articleCode] : []);
+          targeted.rawMaterials.forEach((m) => {
+            if (m.code) materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
+          });
+        } catch (e) {
+          console.warn("Impossibile scaricare anagrafica materiali mancanti per ODL:", e);
+        }
+      }
+
+      const enrichedJob: JobOrder = {
+        ...job,
+        numeroODL: currentOdl,
+        numeroODLInterno: currentOdl,
+        billOfMaterials: bomItems,
+        phases: jobPhases,
+      };
+
+      const materialsList = Array.from(materialsCacheRef.current.values());
+
+      // =========================================================================
+      // PASSO 1 (Azione Fisica): Monta il template e forza download PDF
+      // =========================================================================
+      setPdfData({
+        job: enrichedJob,
+        article,
+        materials: materialsList,
+        printDate: new Date(),
+      });
+
+      // Attesa rendering del template nascosto nel DOM (esattamente come in Gestione Dati Commesse)
+      await new Promise((r) => setTimeout(r, 800));
+
+      const container = document.getElementById('odl-pdf-pages');
+      if (!container) {
+        throw new Error("Template di stampa ODL non trovato nel DOM.");
+      }
+
+      const pageElements = container.querySelectorAll('.odl-page');
+      if (pageElements.length === 0) {
+        throw new Error("Nessuna pagina ODL generata.");
+      }
+
+      const pdf = new jsPDF({ 
+        orientation: 'landscape', 
+        unit: 'mm', 
+        format: 'a4', 
+        compress: true 
+      });
+
+      for (let i = 0; i < pageElements.length; i++) {
+        const page = pageElements[i] as HTMLElement;
+        const canvas = await html2canvas(page, { 
+          scale: 3, 
+          useCORS: true, 
+          logging: false, 
+          backgroundColor: '#ffffff' 
+        });
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
+      }
+
+      const cleanOdl = currentOdl.replace(/\//g, '_');
+      const cleanPf = (job.ordinePF || '').replace(/\//g, '_');
+      pdf.save(`ODL_${cleanOdl}_${cleanPf}.pdf`);
+
+      // =========================================================================
+      // PASSO 2 (Azione Logica): Aggiorna stato locale e Server Actions
+      // =========================================================================
+      setJobs((prevJobs) =>
+        prevJobs.map((j) =>
+          j.id === job.id
+            ? {
+                ...j,
+                numeroODL: currentOdl,
+                numeroODLInterno: currentOdl,
+                isPrinted: true,
+                odlPrinted: true,
+              }
+            : j
+        )
+      );
+
+      toast({
+        title: "ODL Stampato con Successo",
+        description: `Commessa ${job.ordinePF}: PDF scaricato. Icona verde di stampa attiva.`,
+      });
+
+      // Esegui la Server Action SSoT per persistere il flag isPrinted su Firestore
+      await markJobAsPrinted(job.id);
+    } catch (error: any) {
+      console.error("Errore generazione ODL PDF:", error);
+      toast({
+        variant: "destructive",
+        title: `Errore Download ODL ${job.ordinePF}`,
+        description: error?.message || "Impossibile generare o scaricare il file PDF.",
+      });
+    } finally {
+      setPdfData(null);
+      setIsDownloadingPdf(null);
+    }
+  };
+
+  // Settimane per il dropdown rapido (Standard ISO 8601)
+  const weekOptions = useMemo(() => {
+    const now = new Date();
+    const currentMonday = startOfISOWeek(now);
+    currentMonday.setHours(12, 0, 0, 0);
+
+    const currentIsoWeek = getISOWeek(now);
+    const currentIsoYear = getISOWeekYear(now);
+
+    const options: { 
+      value: string; 
+      weekNumber: number; 
+      year: number; 
+      label: string; 
+      shortLabel: string; 
+      date: Date 
+    }[] = [];
+
+    for (let i = -4; i <= 12; i++) {
+      const refDate = addWeeks(currentMonday, i);
+      const w = getISOWeek(refDate);
+      const y = getISOWeekYear(refDate);
+      const start = startOfISOWeek(refDate);
+      const end = endOfISOWeek(refDate);
+      const isCurrent = w === currentIsoWeek && y === currentIsoYear;
+
+      const startDay = format(start, 'dd');
+      const startMonth = format(start, 'MMM', { locale: it }).slice(0, 3);
+      const endDay = format(end, 'dd');
+      const endMonth = format(end, 'MMM', { locale: it }).slice(0, 3);
+
+      const capitalizedStartMonth = startMonth.charAt(0).toUpperCase() + startMonth.slice(1);
+      const capitalizedEndMonth = endMonth.charAt(0).toUpperCase() + endMonth.slice(1);
+
+      const rangeLabel = `${startDay} ${capitalizedStartMonth} - ${endDay} ${capitalizedEndMonth}`;
+
+      options.push({
+        value: `${y}-W${w}`,
+        weekNumber: w,
+        year: y,
+        label: `Sett. ${w} ${isCurrent ? '(Corrente)' : ''} • ${rangeLabel}`,
+        shortLabel: `Sett. ${w} (${rangeLabel})`,
+        date: refDate,
+      });
+    }
+    return options;
+  }, []);
+
+  // Riassegnazione manuale settimana per una commessa
+  const handleAssignJobWeek = async (job: JobOrder, newWeekVal: string) => {
+    if (newWeekVal === 'Non ass.') {
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id
+            ? { ...j, targetWeek: null, assignedDate: undefined, isoWeek: null, weekYear: null }
+            : j
+        )
+      );
+      toast({
+        title: "Settimana Rimossa",
+        description: `Commessa ${job.ordinePF} non assegnata a nessun secchiello.`,
+      });
+      await updateJobAssignedWeek(job.id, null, null, null, null);
+      return;
+    }
+
+    const opt = weekOptions.find((o) => o.value === newWeekVal || `W${o.weekNumber}` === newWeekVal);
+    if (!opt) return;
+
+    // Lunedì della settimana alle 12:00
+    const mondayIso = format(startOfISOWeek(opt.date), 'yyyy-MM-dd');
+    const targetWeekStr = `${opt.year}-W${String(opt.weekNumber).padStart(2, '0')}`;
+
+    setJobs((prev) =>
+      prev.map((j) =>
         j.id === job.id
           ? {
               ...j,
-              isPrinted: nextPrinted,
-              odlPrinted: nextPrinted,
-              status: nextStatus,
+              assignedDate: mondayIso,
+              isoWeek: opt.weekNumber,
+              weekYear: opt.year,
+              targetWeek: targetWeekStr,
             }
           : j
       )
     );
 
     toast({
-      title: nextPrinted ? "ODL Stampato con Successo" : "Marcatura Stampa Rimossa",
-      description: nextPrinted
-        ? `Commessa ${job.ordinePF}: ODL "${currentOdl}" stampato. Stato impostato su "${nextStatus}".`
-        : `Commessa ${job.ordinePF}: marcatura stampa annullata.`,
+      title: "Spostamento Commessa",
+      description: `Commessa ${job.ordinePF} riassegnata a Sett. ${opt.weekNumber} (${opt.shortLabel}).`,
     });
 
     try {
-      await toggleJobPrinted(
+      await updateJobAssignedWeek(
         job.id, 
-        isCurrentlyPrinted, 
-        nextPrinted && currentNormalized === 'Pianificata'
+        mondayIso, 
+        opt.weekNumber, 
+        opt.year, 
+        targetWeekStr
       );
     } catch (e) {
-      console.error("Errore salvataggio stampa/stato:", e);
+      console.error("Errore salvataggio riassegnazione settimana:", e);
     }
   };
-
-  // Settimane per il dropdown rapido
-  const weekOptions = useMemo(() => {
-    const now = new Date();
-    const options: { value: string; label: string; date: Date }[] = [];
-    for (let i = -3; i <= 8; i++) {
-      const refDate = addWeeks(now, i);
-      const w = getWeek(refDate, { weekStartsOn: 1 });
-      const y = getYear(refDate);
-      const start = startOfWeek(refDate, { weekStartsOn: 1 });
-      const end = endOfWeek(refDate, { weekStartsOn: 1 });
-      const isCurrent = i === 0;
-      options.push({
-        value: `${y}-W${w}`,
-        label: `Sett. ${w} ${isCurrent ? '(Corrente)' : ''} • ${format(start, 'dd/MM')} - ${format(end, 'dd/MM')}`,
-        date: refDate,
-      });
-    }
-    return options;
-  }, []);
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -1389,190 +1819,420 @@ export default function ProgrammazioneClientPage({
         </div>
 
         {/* =========================================================================
-            WEEK SELECTOR + RICERCA RAPIDA
+            1. MACRO-SWITCH DI VISUALIZZAZIONE: VISTA PER SETTIMANA vs VISTA GLOBALE
         ========================================================================== */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-card border rounded-md px-3 py-1.5 shadow-2xs">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center border rounded-md bg-background shadow-2xs">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handlePrevWeek}
-                disabled={showAllWeeks}
-                className="h-7 w-7 rounded-r-none"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <div className="px-2.5 text-xs font-bold tracking-tight text-center min-w-[155px]">
-                {showAllWeeks ? (
-                  <span className="text-amber-600 font-semibold">Tutte le Settimane</span>
-                ) : (
-                  <div>
-                    <span className="text-foreground">Settimana {selectedWeekNumber} / {selectedYear}</span>
-                    <span className="block text-[10px] font-normal text-muted-foreground leading-tight">
-                      {weekInterval.label}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleNextWeek}
-                disabled={showAllWeeks}
-                className="h-7 w-7 rounded-l-none"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-
-            <Button
-              variant={!showAllWeeks ? "secondary" : "ghost"}
-              size="sm"
-              onClick={handleCurrentWeek}
-              className="h-7 text-xs px-2"
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-muted/40 p-1.5 rounded-lg border shadow-2xs">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('settimana')}
+              className={cn(
+                "flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all border cursor-pointer",
+                viewMode === 'settimana'
+                  ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                  : "bg-background/80 text-muted-foreground border-border hover:bg-background hover:text-foreground"
+              )}
             >
-              Questa Settimana
-            </Button>
+              <Calendar className="h-3.5 w-3.5" />
+              <span>Vista per Settimana</span>
+              {!showAllWeeks && (
+                <span className={cn(
+                  "text-[10px] px-1.5 py-0 rounded-full font-mono font-bold",
+                  viewMode === 'settimana' ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+                )}>
+                  Sett. {selectedWeekNumber}
+                </span>
+              )}
+            </button>
 
-            <Select
-              value={`${selectedYear}-W${selectedWeekNumber}`}
-              onValueChange={(val) => {
-                const opt = weekOptions.find((o) => o.value === val);
-                if (opt) {
-                  setCurrentDateReference(opt.date);
-                  setShowAllWeeks(false);
-                }
-              }}
+            <button
+              type="button"
+              onClick={() => setViewMode('globale')}
+              className={cn(
+                "flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all border cursor-pointer",
+                viewMode === 'globale'
+                  ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                  : "bg-background/80 text-muted-foreground border-border hover:bg-background hover:text-foreground"
+              )}
             >
-              <SelectTrigger className="h-7 text-xs w-[175px]">
-                <SelectValue placeholder="Salta a..." />
-              </SelectTrigger>
-              <SelectContent>
-                {weekOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Button
-              variant={showAllWeeks ? "default" : "outline"}
-              size="sm"
-              onClick={() => setShowAllWeeks(!showAllWeeks)}
-              className="h-7 text-xs px-2"
-            >
-              {showAllWeeks ? "Usa Secchiello" : "Tutte le Settimane"}
-            </Button>
+              <Layers className="h-3.5 w-3.5" />
+              <span>Vista Globale</span>
+              <span className={cn(
+                "text-[10px] px-1.5 py-0 rounded-full font-mono font-bold",
+                viewMode === 'globale' ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+              )}>
+                {globalTabCounts.pianificate + globalTabCounts.avviate + (hasFetchedConcluse ? globalTabCounts.concluse : 0)}
+              </span>
+            </button>
           </div>
 
-          <div className="relative w-full md:w-64">
-            <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Cerca PF, cliente, articolo, ODL..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-7 h-7 text-xs"
-            />
+          <div className="text-[11px] text-muted-foreground flex items-center gap-2 px-1">
+            {viewMode === 'settimana' ? (
+              <span>Visualizzazione a secchielli di carico settimanale con bilancio ore</span>
+            ) : (
+              <span>Panoramica complessiva aziendale per stato (Pianificate, Avviate, Concluse)</span>
+            )}
           </div>
         </div>
 
         {/* =========================================================================
-            KPI CAPACITÀ (BOX CON BORDO DINAMICO E VISIBILITÀ)
+            2 & 3. VISTA GLOBALE (3 SUB-TAB SSoT + LAZY LOADING) vs VISTA PER SETTIMANA
         ========================================================================== */}
-        <div className="bg-card border rounded-md px-3 py-2 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap text-xs">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-              <CalendarCheck className="h-3.5 w-3.5 text-blue-500" />
-              Addetti:
-            </span>
+        {viewMode === 'globale' ? (
+          <div className="space-y-2">
+            {/* 3 Sotto-Tab SSoT: PIANIFICATE, AVVIATE, CONCLUSE + RICERCA */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-card border rounded-md px-3 py-1.5 shadow-2xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* TAB 1: PIANIFICATE */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectGlobalTab('PIANIFICATE')}
+                  className={cn(
+                    "flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all border cursor-pointer",
+                    globalTab === 'PIANIFICATE'
+                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                      : "bg-muted/30 text-muted-foreground border-transparent hover:bg-muted hover:text-foreground"
+                  )}
+                  title="Mostra solo le commesse con stato Pianificata"
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>PIANIFICATE</span>
+                  <span className={cn(
+                    "text-[10px] px-1.5 py-0 rounded-full font-mono font-bold",
+                    globalTab === 'PIANIFICATE' ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                  )}>
+                    {globalTabCounts.pianificate}
+                  </span>
+                </button>
 
-            {/* Giorni L, M, M, G, V */}
-            {(['L', 'M', 'Me', 'G', 'V'] as const).map((day) => (
-              <div key={day} className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
-                <span className="font-bold text-[10px] text-muted-foreground">{day === 'Me' ? 'M' : day}:</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={50}
-                  value={currentCapacity[day]}
-                  onChange={(e) => handleCapacityChange(day, parseInt(e.target.value))}
-                  className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
+                {/* TAB 2: AVVIATE (In Produzione + Completato Prod.) */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectGlobalTab('AVVIATE')}
+                  className={cn(
+                    "flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all border cursor-pointer",
+                    globalTab === 'AVVIATE'
+                      ? "bg-amber-600 text-white border-amber-600 shadow-xs"
+                      : "bg-muted/30 text-muted-foreground border-transparent hover:bg-muted hover:text-foreground"
+                  )}
+                  title="Mostra le commesse In Produzione e Completato Prod. (attive fisicamente in azienda)"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  <span>AVVIATE</span>
+                  <span className={cn(
+                    "text-[10px] px-1.5 py-0 rounded-full font-mono font-bold",
+                    globalTab === 'AVVIATE' ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                  )}>
+                    {globalTabCounts.avviate}
+                  </span>
+                </button>
+
+                {/* TAB 3: CONCLUSE (Spedito / Chiuso) - Lazy Loading */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectGlobalTab('CONCLUSE')}
+                  disabled={isLoadingConcluse}
+                  className={cn(
+                    "flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all border cursor-pointer",
+                    globalTab === 'CONCLUSE'
+                      ? "bg-slate-700 text-white border-slate-700 shadow-xs"
+                      : "bg-muted/30 text-muted-foreground border-transparent hover:bg-muted hover:text-foreground"
+                  )}
+                  title="Mostra le commesse Spedite o concluse definitivamente (Lazy Loading da Firestore)"
+                >
+                  {isLoadingConcluse ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+                  ) : (
+                    <Truck className="h-3.5 w-3.5" />
+                  )}
+                  <span>CONCLUSE</span>
+                  <span className={cn(
+                    "text-[10px] px-1.5 py-0 rounded-full font-mono font-bold",
+                    globalTab === 'CONCLUSE' ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                  )}>
+                    {!hasFetchedConcluse ? (isLoadingConcluse ? 'Caricamento...' : 'Scarica') : globalTabCounts.concluse}
+                  </span>
+                </button>
+              </div>
+
+              {/* Ricerca Rapida */}
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Cerca PF, cliente, articolo, ODL..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-7 h-7 text-xs"
                 />
               </div>
-            ))}
-
-            <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border ml-1">
-              <span className="font-bold text-[10px] text-muted-foreground">+ Straord:</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={currentCapacity.overtime}
-                onChange={(e) => handleCapacityChange('overtime', parseFloat(e.target.value))}
-                className="w-10 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
-              />
-              <span className="text-[10px] text-muted-foreground font-mono">h</span>
             </div>
-          </div>
 
-          <div 
-            className={cn(
-              "rounded-md px-3.5 py-1.5 shadow-md flex items-center divide-x transition-all duration-300",
-              "bg-slate-900 text-white divide-slate-700/80 border-2",
-              bucketMetrics.saturationPercent > 100 
-                ? "border-red-500 shadow-red-500/20" 
-                : bucketMetrics.saturationPercent > 85 
-                  ? "border-amber-500 shadow-amber-500/20" 
-                  : "border-emerald-500 shadow-emerald-500/20"
+            {/* Header Riassuntivo Vista Globale */}
+            {globalTab === 'CONCLUSE' && !hasFetchedConcluse ? (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-3.5 text-center flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div className="text-left space-y-0.5">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-bold text-xs">
+                    <Truck className="h-4 w-4" />
+                    <span>Storico Commesse Concluse (Lazy Loading Attivo)</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Per ottimizzare le letture su Firestore, lo storico delle commesse completate e spedite viene scaricato solo su richiesta.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => handleSelectGlobalTab('CONCLUSE')}
+                  disabled={isLoadingConcluse}
+                  size="sm"
+                  className="gap-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold shrink-0 shadow-xs cursor-pointer"
+                >
+                  {isLoadingConcluse ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Scaricamento da Firestore...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Scarica Storico Concluse</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            ) : (
+              <div className="bg-card border rounded-md px-3 py-2 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Badge variant="outline" className={cn(
+                    "text-xs px-2 py-0.5 font-bold",
+                    globalTab === 'PIANIFICATE' ? "border-blue-500/40 text-blue-600 bg-blue-500/10" :
+                    globalTab === 'AVVIATE' ? "border-amber-500/40 text-amber-600 bg-amber-500/10" :
+                    "border-slate-500/40 text-slate-700 dark:text-slate-300 bg-slate-500/10"
+                  )}>
+                    {globalTab === 'PIANIFICATE' && 'Commesse Pianificate'}
+                    {globalTab === 'AVVIATE' && 'Commesse Avviate in Produzione'}
+                    {globalTab === 'CONCLUSE' && 'Commesse Concluse / Spedite'}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground hidden lg:inline">
+                    {globalTab === 'PIANIFICATE' && 'Commesse confermate in attesa di emissione e stampa ODL.'}
+                    {globalTab === 'AVVIATE' && 'Commesse attive fisicamente in azienda (In Lavorazione o Completate a bordo macchina).'}
+                    {globalTab === 'CONCLUSE' && 'Commesse consegnate, spedite al cliente o archiviate a storico.'}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-4 text-xs font-mono">
+                  <div>
+                    <span className="text-muted-foreground text-[10px] uppercase font-sans font-semibold block leading-none">
+                      Commesse
+                    </span>
+                    <span className="font-bold text-sm text-foreground mt-0.5 block">
+                      {bucketMetrics.totalJobs}
+                    </span>
+                  </div>
+                  <div className="border-l pl-4">
+                    <span className="text-muted-foreground text-[10px] uppercase font-sans font-semibold block leading-none">
+                      Pezzi Totali
+                    </span>
+                    <span className="font-bold text-sm text-foreground mt-0.5 block">
+                      {bucketMetrics.totalPieces.toLocaleString('it-IT')}
+                    </span>
+                  </div>
+                  <div className="border-l pl-4">
+                    <span className="text-muted-foreground text-[10px] uppercase font-sans font-semibold block leading-none">
+                      Ore Previste
+                    </span>
+                    <span className="font-bold text-sm text-foreground mt-0.5 block">
+                      {bucketMetrics.loadedHours.toFixed(1)} h
+                    </span>
+                  </div>
+                </div>
+              </div>
             )}
-          >
-            <div className="pr-3 text-left">
-              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
-                Disponibili
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* WEEK SELECTOR + RICERCA RAPIDA */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-card border rounded-md px-3 py-1.5 shadow-2xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center border rounded-md bg-background shadow-2xs">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handlePrevWeek}
+                    disabled={showAllWeeks}
+                    className="h-7 w-7 rounded-r-none"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </Button>
+                  <div className="px-2.5 text-xs font-bold tracking-tight text-center min-w-[155px]">
+                    {showAllWeeks ? (
+                      <span className="text-amber-600 font-semibold">Tutte le Settimane</span>
+                    ) : (
+                      <div>
+                        <span className="text-foreground">Settimana {selectedWeekNumber} / {selectedYear}</span>
+                        <span className="block text-[10px] font-normal text-muted-foreground leading-tight">
+                          {weekInterval.label}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleNextWeek}
+                    disabled={showAllWeeks}
+                    className="h-7 w-7 rounded-l-none"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+
+                <Button
+                  variant={!showAllWeeks ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={handleCurrentWeek}
+                  className="h-7 text-xs px-2"
+                >
+                  Questa Settimana
+                </Button>
+
+                <Select
+                  value={`${selectedYear}-W${selectedWeekNumber}`}
+                  onValueChange={(val) => {
+                    const opt = weekOptions.find((o) => o.value === val);
+                    if (opt) {
+                      setCurrentDateReference(opt.date);
+                      setShowAllWeeks(false);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs w-[175px]">
+                    <SelectValue placeholder="Salta a..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {weekOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  variant={showAllWeeks ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowAllWeeks(!showAllWeeks)}
+                  className="h-7 text-xs px-2"
+                >
+                  {showAllWeeks ? "Usa Secchiello" : "Tutte le Settimane"}
+                </Button>
               </div>
-              <div className="text-sm font-mono font-black text-white mt-0.5">
-                {availableHours.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">h</span>
+
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Cerca PF, cliente, articolo, ODL..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-7 h-7 text-xs"
+                />
               </div>
             </div>
 
-            <div className="px-3 text-left">
-              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none flex items-center justify-between gap-1">
-                <span>Caricate</span>
-                <span className="text-[9px] text-slate-400 font-normal">({bucketMetrics.totalJobs} com.)</span>
-              </div>
-              <div className="text-sm font-mono font-black text-white mt-0.5">
-                {bucketMetrics.loadedHours.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">h</span>
-              </div>
-            </div>
+            {/* KPI CAPACITÀ (BOX CON BORDO DINAMICO E VISIBILITÀ) */}
+            <div className="bg-card border rounded-md px-3 py-2 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap text-xs">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <CalendarCheck className="h-3.5 w-3.5 text-blue-500" />
+                  Addetti:
+                </span>
 
-            <div className="px-3 text-left">
-              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
-                Saturazione
-              </div>
-              <div className={cn(
-                "text-sm font-mono font-black mt-0.5",
-                bucketMetrics.saturationPercent > 100 ? "text-red-400" : bucketMetrics.saturationPercent > 85 ? "text-amber-400" : "text-emerald-400"
-              )}>
-                {bucketMetrics.saturationPercent}%
-              </div>
-            </div>
+                {/* Giorni L, M, M, G, V */}
+                {(['L', 'M', 'Me', 'G', 'V'] as const).map((day) => (
+                  <div key={day} className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
+                    <span className="font-bold text-[10px] text-muted-foreground">{day === 'Me' ? 'M' : day}:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={currentCapacity[day]}
+                      onChange={(e) => handleCapacityChange(day, parseInt(e.target.value))}
+                      className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                ))}
 
-            <div className="pl-3 text-left">
-              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
-                Bilancio
+                <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border ml-1">
+                  <span className="font-bold text-[10px] text-muted-foreground">+ Straord:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={currentCapacity.overtime}
+                    onChange={(e) => handleCapacityChange('overtime', parseFloat(e.target.value))}
+                    className="w-10 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
+                  />
+                  <span className="text-[10px] text-muted-foreground font-mono">h</span>
+                </div>
               </div>
-              <div className={cn(
-                "text-sm font-mono font-black mt-0.5",
-                bucketMetrics.balanceHours < 0 ? "text-red-400" : "text-emerald-400"
-              )}>
-                {bucketMetrics.balanceHours >= 0 ? `+${bucketMetrics.balanceHours.toFixed(1)} h` : `${bucketMetrics.balanceHours.toFixed(1)} h`}
+
+              <div 
+                className={cn(
+                  "rounded-md px-3.5 py-1.5 shadow-md flex items-center divide-x transition-all duration-300",
+                  "bg-slate-900 text-white divide-slate-700/80 border-2",
+                  bucketMetrics.saturationPercent > 100 
+                    ? "border-red-500 shadow-red-500/20" 
+                    : bucketMetrics.saturationPercent > 85 
+                      ? "border-amber-500 shadow-amber-500/20" 
+                      : "border-emerald-500 shadow-emerald-500/20"
+                )}
+              >
+                <div className="pr-3 text-left">
+                  <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                    Disponibili
+                  </div>
+                  <div className="text-sm font-mono font-black text-white mt-0.5">
+                    {availableHours.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">h</span>
+                  </div>
+                </div>
+
+                <div className="px-3 text-left">
+                  <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none flex items-center justify-between gap-1">
+                    <span>Caricate</span>
+                    <span className="text-[9px] text-slate-400 font-normal">({bucketMetrics.totalJobs} com.)</span>
+                  </div>
+                  <div className="text-sm font-mono font-black text-white mt-0.5">
+                    {bucketMetrics.loadedHours.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">h</span>
+                  </div>
+                </div>
+
+                <div className="px-3 text-left">
+                  <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                    Saturazione
+                  </div>
+                  <div className={cn(
+                    "text-sm font-mono font-black mt-0.5",
+                    bucketMetrics.saturationPercent > 100 ? "text-red-400" : bucketMetrics.saturationPercent > 85 ? "text-amber-400" : "text-emerald-400"
+                  )}>
+                    {bucketMetrics.saturationPercent}%
+                  </div>
+                </div>
+
+                <div className="pl-3 text-left">
+                  <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                    Bilancio
+                  </div>
+                  <div className={cn(
+                    "text-sm font-mono font-black mt-0.5",
+                    bucketMetrics.balanceHours < 0 ? "text-red-400" : "text-emerald-400"
+                  )}>
+                    {bucketMetrics.balanceHours >= 0 ? `+${bucketMetrics.balanceHours.toFixed(1)} h` : `${bucketMetrics.balanceHours.toFixed(1)} h`}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* =========================================================================
             DATAGRID (STILE EXCEL): RIGA VUOTA RAPIDA + SEPARAZIONE COLONNE + INLINE EDIT
@@ -1580,7 +2240,11 @@ export default function ProgrammazioneClientPage({
         <div className="border rounded-md bg-card shadow-xs overflow-hidden">
           <div className="bg-muted/40 px-3 py-1.5 border-b flex items-center justify-between text-xs text-muted-foreground font-medium">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-foreground">Commesse Nel Secchiello</span>
+              <span className="font-semibold text-foreground">
+                {viewMode === 'settimana' 
+                  ? (showAllWeeks ? 'Tutte le Settimane' : `Commesse Nel Secchiello (Sett. ${selectedWeekNumber})`) 
+                  : `Vista Globale • ${globalTab}`}
+              </span>
               <span>•</span>
               <span>
                 Visualizzate <strong>{sortedAndFilteredJobs.length}</strong> su <strong>{jobs.length}</strong> totali
@@ -1848,7 +2512,7 @@ export default function ProgrammazioneClientPage({
 
                   {/* Settimana */}
                   <td className="py-1 px-1 text-center align-middle font-mono text-[10px] text-muted-foreground">
-                    W{selectedWeekNumber}
+                    {viewMode === 'settimana' ? `W${selectedWeekNumber}` : 'Auto'}
                   </td>
 
                   {/* Stato Commessa */}
@@ -1885,22 +2549,44 @@ export default function ProgrammazioneClientPage({
                     <td colSpan={12} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Layers className="h-7 w-7 text-muted-foreground/40" />
-                        <p className="text-sm font-medium">Nessuna commessa trovata nel secchiello corrente.</p>
-                        <p className="text-xs text-muted-foreground max-w-sm">
-                          Puoi inserire una nuova commessa compilando la riga in alto o reimpostando i filtri.
+                        <p className="text-sm font-medium">
+                          {viewMode === 'globale' && globalTab === 'CONCLUSE' && !hasFetchedConcluse
+                            ? 'Lo storico delle commesse concluse non è ancora stato scaricato da Firestore.'
+                            : viewMode === 'globale'
+                              ? `Nessuna commessa trovata per la sezione ${globalTab}.`
+                              : 'Nessuna commessa trovata nel secchiello corrente.'}
                         </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedDept('ALL');
-                            setShowAllWeeks(true);
-                            setSearchQuery('');
-                          }}
-                          className="mt-1 text-xs h-7"
-                        >
-                          Azzera tutti i filtri
-                        </Button>
+                        {viewMode === 'globale' && globalTab === 'CONCLUSE' && !hasFetchedConcluse ? (
+                          <Button
+                            onClick={() => handleSelectGlobalTab('CONCLUSE')}
+                            disabled={isLoadingConcluse}
+                            size="sm"
+                            className="gap-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold mt-1 shadow-xs cursor-pointer"
+                          >
+                            {isLoadingConcluse ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                            <span>Scarica Storico Concluse da Firestore</span>
+                          </Button>
+                        ) : (
+                          <>
+                            <p className="text-xs text-muted-foreground max-w-sm">
+                              Puoi inserire una nuova commessa compilando la riga in alto o reimpostando i filtri.
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedDept('ALL');
+                                if (viewMode === 'settimana') {
+                                  setShowAllWeeks(true);
+                                }
+                                setSearchQuery('');
+                              }}
+                              className="mt-1 text-xs h-7 cursor-pointer"
+                            >
+                              Azzera tutti i filtri
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1908,10 +2594,10 @@ export default function ProgrammazioneClientPage({
                   sortedAndFilteredJobs.map((job) => {
                     const hours = calculateJobHours(job);
                     const weekInfo = getJobWeekAndYear(job);
-                    const currentJobWeekStr = weekInfo ? `W${weekInfo.week}` : 'Non ass.';
+                    const currentJobWeekVal = weekInfo ? `${weekInfo.year}-W${weekInfo.week}` : 'Non ass.';
                     const mrp = getJobMRPStatus(job);
                     const deptGroup = getJobDepartmentGroup(job);
-                    const currentStatus = normalizeJobStatus(job.status);
+                    const currentStatus = normalizeJobStatus(job);
 
                     const isPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
                     const currentOdlValue = odlDrafts[job.id] !== undefined 
@@ -1951,11 +2637,16 @@ export default function ProgrammazioneClientPage({
                           )}
                         </td>
 
-                        {/* 2. ORDINE */}
+                        {/* 2. ORDINE (Link a Console Produzione) */}
                         <td className="py-1.5 px-2.5 align-middle">
-                          <span className="font-mono font-bold text-foreground tracking-tight">
+                          <Link
+                            href={`/admin/production-console?search=${encodeURIComponent(job.ordinePF || '')}`}
+                            className="font-mono font-bold text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer tracking-tight transition-colors inline-block"
+                            title={`Apri console di produzione per commessa ${job.ordinePF}`}
+                            prefetch={false}
+                          >
                             {job.ordinePF || 'N/A'}
-                          </span>
+                          </Link>
                         </td>
 
                         {/* 3. CLIENTE */}
@@ -2059,27 +2750,23 @@ export default function ProgrammazioneClientPage({
                           </Tooltip>
                         </td>
 
-                        {/* 10. SETTIMANA ASSEGNATA */}
+                        {/* 10. SETTIMANA ASSEGNATA (Allineata a ISO 8601) */}
                         <td className="py-1 px-1.5 text-center align-middle">
                           <Select
-                            defaultValue={currentJobWeekStr}
-                            onValueChange={(newWeek) => {
-                              toast({
-                                title: "Spostamento Commessa",
-                                description: `Commessa ${job.ordinePF} riassegnata a ${newWeek}.`,
-                              });
+                            value={currentJobWeekVal}
+                            onValueChange={(newWeekVal) => {
+                              handleAssignJobWeek(job, newWeekVal);
                             }}
                           >
                             <SelectTrigger className="h-6 text-[11px] font-mono py-0 px-1.5 w-full justify-between">
                               <SelectValue placeholder="Settimana" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="W42" className="text-xs font-mono">Sett. 42 (13-19 Ott)</SelectItem>
-                              <SelectItem value="W43" className="text-xs font-mono">Sett. 43 (20-26 Ott)</SelectItem>
-                              <SelectItem value="W44" className="text-xs font-mono">Sett. 44 (27 Ott - 02 Nov)</SelectItem>
-                              <SelectItem value="W45" className="text-xs font-mono">Sett. 45 (03-09 Nov)</SelectItem>
-                              <SelectItem value="W46" className="text-xs font-mono">Sett. 46 (10-16 Nov)</SelectItem>
-                              <SelectItem value="W47" className="text-xs font-mono">Sett. 47 (17-23 Nov)</SelectItem>
+                              {weekOptions.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value} className="text-xs font-mono">
+                                  {opt.shortLabel}
+                                </SelectItem>
+                              ))}
                               <SelectItem value="Non ass." className="text-xs font-mono">Non assegnata</SelectItem>
                             </SelectContent>
                           </Select>
@@ -2126,6 +2813,7 @@ export default function ProgrammazioneClientPage({
                                 <Button
                                   variant="ghost"
                                   size="icon"
+                                  disabled={isDownloadingPdf === job.id}
                                   onClick={() => handleTogglePrintODL(job)}
                                   className={cn(
                                     "h-7 w-7 transition-colors",
@@ -2134,13 +2822,19 @@ export default function ProgrammazioneClientPage({
                                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                                   )}
                                 >
-                                  <Printer className="h-3.5 w-3.5" />
+                                  {isDownloadingPdf === job.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                                  ) : (
+                                    <Printer className="h-3.5 w-3.5" />
+                                  )}
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {isPrinted 
-                                  ? "ODL stampato (clicca per ristampare o deselezionare)" 
-                                  : "Stampa ODL (richiede N° ODL)"}
+                                {isDownloadingPdf === job.id
+                                  ? "Generazione PDF ODL in corso..."
+                                  : isPrinted 
+                                    ? "ODL stampato (clicca per ristampare il PDF)" 
+                                    : "Stampa ODL (richiede N° ODL)"}
                               </TooltipContent>
                             </Tooltip>
 
@@ -2151,17 +2845,23 @@ export default function ProgrammazioneClientPage({
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => handleStartProduction(job)}
-                                  disabled={currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.'}
+                                  disabled={currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito'}
                                   className={cn(
                                     "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10",
-                                    (currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.') && "opacity-40 cursor-not-allowed"
+                                    (currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito') && "opacity-40 cursor-not-allowed"
                                   )}
                                 >
                                   <Play className="h-3.5 w-3.5" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {currentStatus === 'In Produzione' ? "Già in Produzione" : "Avvia in Produzione"}
+                                {currentStatus === 'In Produzione' 
+                                  ? "Già in Produzione" 
+                                  : currentStatus === 'Completato Prod.'
+                                    ? "Produzione Completata"
+                                    : currentStatus === 'Spedito'
+                                      ? "Commessa Spedita"
+                                      : "Avvia ODL in Produzione"}
                               </TooltipContent>
                             </Tooltip>
                           </div>
@@ -2238,6 +2938,24 @@ export default function ProgrammazioneClientPage({
             }
           }}
         />
+
+        {/* =========================================================================
+            4. TEMPLATE PDF NASCOSTO PER STAMPA ODL (FASE 9)
+        ========================================================================== */}
+        {pdfData && (
+          <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}>
+            <ODLPrintTemplate
+              job={pdfData.job}
+              article={pdfData.article}
+              materials={pdfData.materials}
+              printDate={pdfData.printDate}
+              config={odlConfig}
+              qrRule={qrRule}
+              globalSettings={globalSettingsRef.current || globalSettings}
+              departments={departments}
+            />
+          </div>
+        )}
       </div>
     </TooltipProvider>
   );

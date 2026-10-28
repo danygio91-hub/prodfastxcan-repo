@@ -67,13 +67,19 @@ export function parseRobustDate(dateInput: any): Date | null {
     
     // String (ISO or Italian)
     if (typeof dateInput === 'string') {
-        if (/^\d{4}-\d{2}-\d{2}/.test(dateInput)) {
-            const d = new Date(dateInput);
+        const trimmed = dateInput.trim();
+        // Pure ISO date YYYY-MM-DD -> anchor to 12:00 local to prevent timezone/DST shift
+        const pureIsoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (pureIsoMatch) {
+            return new Date(parseInt(pureIsoMatch[1], 10), parseInt(pureIsoMatch[2], 10) - 1, parseInt(pureIsoMatch[3], 10), 12, 0, 0);
+        }
+        if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+            const d = new Date(trimmed);
             return isNaN(d.getTime()) ? null : d;
         }
-        const italianMatch = dateInput.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+        const italianMatch = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
         if (italianMatch) {
-            return new Date(parseInt(italianMatch[3]), parseInt(italianMatch[2]) - 1, parseInt(italianMatch[1]));
+            return new Date(parseInt(italianMatch[3], 10), parseInt(italianMatch[2], 10) - 1, parseInt(italianMatch[1], 10), 12, 0, 0);
         }
     }
     

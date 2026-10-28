@@ -13,7 +13,10 @@ export function getDerivedJobStatus(item: JobOrder | WorkGroup): OverallStatus {
         statusLower === 'chiuso' || 
         statusLower === 'completed' || 
         statusLower === 'shipped' || 
-        statusLower === 'closed' ||
+        statusLower === 'closed' || 
+        statusLower === 'spedita' || 
+        statusLower === 'spedito' || 
+        Boolean((item as JobOrder).packingListId) ||
         item.forcedCompletion === true;
 
     if (isExplicitlyClosed) {
@@ -118,3 +121,60 @@ export function isJobOverdue(item: JobOrder | WorkGroup): boolean {
     
     return deliveryDate < today;
 }
+
+/**
+ * Mappatura SSoT per i 4 stati visualizzati nella tendina della griglia di Programmazione:
+ * 1. 'Pianificata': Backlog ordini pianificati (nessuna lavorazione avviata, ODL non avviato)
+ * 2. 'In Produzione': ODL avviato ('DA_INIZIARE') o fasi in preparazione/produzione
+ * 3. 'Completato Prod.': Tutte le fasi produttive terminate ('FINE_PRODUZIONE' o 'CHIUSO')
+ * 4. 'Spedito': Commessa associata a Packing List o contrassegnata come 'SPEDITA'
+ */
+export type JobDisplayStatus = 'Pianificata' | 'In Produzione' | 'Completato Prod.' | 'Spedito';
+
+export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
+    const statusLower = (job.status || '').toLowerCase().trim();
+
+    // 1. Priorità Spedito: Packing List presente o stato esplicito spedizione
+    if (
+        Boolean(job.packingListId) ||
+        statusLower === 'spedita' ||
+        statusLower === 'spedito' ||
+        statusLower === 'shipped' ||
+        statusLower.includes('spedit')
+    ) {
+        return 'Spedito';
+    }
+
+    // 2. Completato Prod.: Chiusura SSoT (FINE_PRODUZIONE o CHIUSO), forzatura o chiusura esplicita
+    const derived = getDerivedJobStatus(job);
+    if (
+        derived === 'CHIUSO' ||
+        derived === 'FINE_PRODUZIONE' ||
+        job.forcedCompletion === true ||
+        ['completed', 'chiuso', 'closed', 'fine produzione', 'fine_produzione', 'fine prod.'].includes(statusLower)
+    ) {
+        return 'Completato Prod.';
+    }
+
+    // 3. Pianificata: stato formale di pianificazione SENZA alcuna fase attiva/completata
+    const isBacklogPlanned = [
+        'planned',
+        'in_attesa',
+        'in pianificazione',
+        'in_pianificazione',
+        'pianificata',
+        'pianificato'
+    ].includes(statusLower);
+
+    const hasAnyPhaseActive = (job.phases || []).some(
+        p => p.status === 'in-progress' || p.status === 'completed'
+    );
+
+    if (isBacklogPlanned && !hasAnyPhaseActive) {
+        return 'Pianificata';
+    }
+
+    // 4. In Produzione: ODL avviato ('DA_INIZIARE') o commessa rilasciata/in lavorazione nei reparti
+    return 'In Produzione';
+}
+
