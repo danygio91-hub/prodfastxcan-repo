@@ -152,6 +152,11 @@ export function normalizeJobStatus(status: string | undefined): JobStatusOption 
   return 'Pianificata';
 }
 
+export function isJobFinished(status: string | undefined): boolean {
+  const norm = normalizeJobStatus(status);
+  return norm === 'Completato Prod.' || norm === 'Spedito';
+}
+
 function calculateJobHours(job: JobOrder): number {
   if (job.phases && job.phases.length > 0) {
     const totalMinutes = job.phases.reduce((acc, p) => {
@@ -477,20 +482,18 @@ export default function ProgrammazioneClientPage({
     }
   }, [articles]);
 
-  // Commesse Globali Attive (Pianificata o In Produzione)
+  // Commesse Globali Attive (Pianificata o In Produzione) - Short-circuit per escludere completati/spediti
   const activeGlobalJobs = useMemo(() => {
-    return jobs.filter((j) => {
-      const norm = normalizeJobStatus(j.status);
-      return norm === 'Pianificata' || norm === 'In Produzione';
-    });
+    return jobs.filter((j) => !isJobFinished(j.status));
   }, [jobs]);
 
-  // Fabbisogni materiali e articoli sull'intero backlog attivo aziendale
+  // Fabbisogni materiali e articoli sull'intero backlog attivo aziendale (Short-circuit rigoroso)
   const { globalMaterialCodes, globalArticleCodes } = useMemo(() => {
     const matSet = new Set<string>();
     const artSet = new Set<string>();
 
     activeGlobalJobs.forEach((job) => {
+      if (isJobFinished(job.status)) return;
       const bom = job.billOfMaterials || [];
       if (bom.length > 0) {
         bom.forEach((item) => {
@@ -622,14 +625,30 @@ export default function ProgrammazioneClientPage({
     return criticals;
   }, [mrpTimelines, activeGlobalJobs]);
 
-  // Stato Semaforo Singola Commessa con Gestione Visiva Corretta "In Verifica"
+  // Stato Semaforo Singola Commessa con Gestione Visiva Corretta "In Verifica" e Short-circuit per Completate
   const getJobMRPStatus = useCallback((job: JobOrder): {
-    state: 'RED' | 'LATE' | 'GREEN' | 'NO_BOM' | 'LOADING';
+    state: 'RED' | 'LATE' | 'GREEN' | 'NO_BOM' | 'LOADING' | 'COMPLETED';
     label: string;
     badgeClass: string;
     dotClass: string;
     details: string[];
   } => {
+    // 0. SHORT-CIRCUIT A MONTE: Se la commessa è completata o spedita, bypassa completamente il calcolo MRP
+    if (isJobFinished(job.status)) {
+      const isShipped = normalizeJobStatus(job.status) === 'Spedito';
+      return {
+        state: 'COMPLETED',
+        label: isShipped ? 'Spedito' : 'Completato',
+        badgeClass: 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700/60 font-medium',
+        dotClass: 'bg-slate-400 dark:bg-slate-500',
+        details: [
+          isShipped 
+            ? '⚪ Commessa Spedita: Nessun fabbisogno o impegno magazzino attivo.'
+            : '⚪ Produzione Completata: Nessun fabbisogno o impegno magazzino attivo.'
+        ],
+      };
+    }
+
     let bom = job.billOfMaterials || [];
     if (bom.length === 0 && job.details) {
       const art = articlesCacheRef.current.get(job.details.trim().toUpperCase());
