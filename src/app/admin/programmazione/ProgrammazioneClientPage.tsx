@@ -609,10 +609,8 @@ export default function ProgrammazioneClientPage({
     const criticals = new Map<string, { entry: MRPTimelineEntry; job: JobOrder | undefined }[]>();
     
     mrpTimelines.forEach((entries, matCode) => {
-      // Un materiale è critico se almeno una commessa ha saldo negativo o stato problematico
-      const problematic = entries.filter(e => 
-        e.projectedBalance < -0.001 || e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK'
-      );
+      // Un materiale è critico se almeno una commessa ha saldo negativo (< 0)
+      const problematic = entries.filter(e => e.projectedBalance < -0.001);
 
       if (problematic.length > 0) {
         // Mappa TUTTE le commesse che richiedono questo materiale ordinate per data consegna
@@ -629,7 +627,7 @@ export default function ProgrammazioneClientPage({
     });
 
     return criticals;
-  }, [mrpTimelines, activeGlobalJobs]);
+  }, [mrpTimelines, activeGlobalJobs, mrpCacheVersion]);
 
   // Stato Semaforo Singola Commessa con Gestione Visiva Corretta "In Verifica" e Short-circuit per Completate
   const getJobMRPStatus = useCallback((job: JobOrder): {
@@ -719,27 +717,43 @@ export default function ProgrammazioneClientPage({
       };
     }
 
-    // RUNNING BALANCE CHECK (TIME-PHASED):
-    // Una commessa è MANCANTE solo se per QUESTA riga il suo saldo è < 0 e non ci sono ordini
-    const hasRed = entries.some((e) => e.entry?.status === 'RED' && (e.entry.projectedBalance < -0.001));
-    const hasLateOrPendingSupply = entries.some((e) => 
-      e.entry && (
-        (e.entry.status === 'LATE' && e.entry.projectedBalance < -0.001) ||
-        e.entry.status === 'ORDERED' || 
-        e.entry.status === 'AMBER'
-      )
-    );
+    // MAPPATURA RIGOROSA DEGLI STATI MRP (HIERARCHY):
+    // 1. MANCANTE (Red): Stock Proiettato < 0 E nessun PO a copertura. Azione: comprare.
+    // 2. IN RITARDO (Orange): Stock Proiettato < 0 MA coperto da PO con data successiva. Azione: sollecitare fornitore.
+    // 3. ORDINATO / IN ARRIVO (Indigo): Coperto da PO in arrivo entro la data consegna.
+    // 4. PRONTO (Green): Coperto da stock fisico o prelevato.
+    let hasRed = false;
+    let hasLate = false;
+    let hasOrderedInTime = false;
 
     const details: string[] = [
       ...withdrawnItems.map((i) => `✅ ${i.component} - Prelevato`),
       ...entries.map((e) => {
-        const dList = e.entry?.details || [];
-        const isCovered = (e.entry?.projectedBalance ?? 0) >= -0.001;
-        const statusText = !isCovered
-          ? (e.entry?.status === 'LATE' ? '🟠 IN RITARDO' : '🔴 MANCANTE')
-          : (e.entry?.status === 'ORDERED' ? '💜 ORDINATO' : '🟢 DISPONIBILE');
-        const dDetail = dList.length > 0 ? ` (${dList.filter(d => !d.startsWith(' [DBG:')).join('; ')})` : '';
-        const balDetail = e.entry ? ` [Saldo al bisogno: ${e.entry.projectedBalance.toFixed(2)}]` : '';
+        if (!e.entry) return `📦 ${e.component}: Verifica disponibilità`;
+        const matCode = (e.component || '').trim().toUpperCase();
+        const pos = poCacheRef.current.get(matCode) || [];
+        const hasAnyPO = pos.length > 0 || (e.entry.totalPO || 0) > 0;
+        const isUncovered = e.entry.projectedBalance < -0.001;
+
+        let statusText: string;
+        if (isUncovered) {
+          if (hasAnyPO || e.entry.status === 'LATE') {
+            hasLate = true;
+            statusText = '🟠 IN RITARDO (Coperto da ordine fornitore, consegna successiva)';
+          } else {
+            hasRed = true;
+            statusText = '🔴 MANCANTE (Nessun ordine fornitore a copertura)';
+          }
+        } else if (e.entry.status === 'ORDERED' || e.entry.status === 'AMBER') {
+          hasOrderedInTime = true;
+          statusText = '💜 IN ARRIVO (Coperto da ordine fornitore in tempo)';
+        } else {
+          statusText = '🟢 DISPONIBILE (Stock fisico)';
+        }
+
+        const dList = e.entry.details || [];
+        const dDetail = dList.length > 0 ? ` (${dList.filter(d => !d.startsWith(' [DBG:') && !d.startsWith('Fabbisogno:')).join('; ')})` : '';
+        const balDetail = ` [Saldo al bisogno: ${e.entry.projectedBalance.toFixed(2)}]`;
         return `📦 ${e.component}: ${statusText}${dDetail}${balDetail}`;
       }),
     ];
@@ -754,12 +768,22 @@ export default function ProgrammazioneClientPage({
       };
     }
 
-    if (hasLateOrPendingSupply) {
+    if (hasLate) {
+      return {
+        state: 'LATE',
+        label: 'In Ritardo',
+        badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-semibold',
+        dotClass: 'bg-amber-500',
+        details,
+      };
+    }
+
+    if (hasOrderedInTime) {
       return {
         state: 'LATE',
         label: 'In Arrivo',
-        badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-semibold',
-        dotClass: 'bg-amber-500',
+        badgeClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 font-semibold',
+        dotClass: 'bg-indigo-500',
         details,
       };
     }
@@ -1130,15 +1154,41 @@ export default function ProgrammazioneClientPage({
                   ) : (
                     <Accordion type="single" collapsible className="w-full space-y-2">
                       {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries]) => {
-                        const uncoveredEntries = entries.filter(e => e.entry.projectedBalance < -0.001);
-                        const hasRed = uncoveredEntries.some(e => e.entry.status === 'RED');
-                        const hasLate = uncoveredEntries.some(e => e.entry.status === 'LATE');
-                        const worstLabel = hasRed ? 'MANCANTE' : hasLate ? 'IN RITARDO' : 'SOTTOSCORTA';
-                        const worstBadgeClass = hasRed 
+                        const posForMat = poCacheRef.current.get(matCode) || [];
+                        const hasAnyPO = posForMat.length > 0 || entries.some(e => (e.entry.totalPO || 0) > 0);
+
+                        // Mappatura visiva rigorosa per ciascuna commessa
+                        const entriesWithVisual = entries.map(item => {
+                          const isUncovered = item.entry.projectedBalance < -0.001;
+                          const isLate = isUncovered && (hasAnyPO || item.entry.status === 'LATE');
+                          const isRed = isUncovered && !isLate;
+                          const isOrderedInTime = !isUncovered && (item.entry.status === 'ORDERED' || item.entry.status === 'AMBER');
+
+                          let visualStatus: 'RED' | 'LATE' | 'ORDERED' | 'GREEN' = 
+                            isRed ? 'RED' : isLate ? 'LATE' : isOrderedInTime ? 'ORDERED' : 'GREEN';
+
+                          return { ...item, visualStatus, isUncovered };
+                        });
+
+                        const countRed = entriesWithVisual.filter(e => e.visualStatus === 'RED').length;
+                        const countLate = entriesWithVisual.filter(e => e.visualStatus === 'LATE').length;
+                        const countOrdered = entriesWithVisual.filter(e => e.visualStatus === 'ORDERED').length;
+
+                        const worstLabel = countRed > 0 
+                          ? 'MANCANTE' 
+                          : countLate > 0 
+                            ? 'IN RITARDO' 
+                            : countOrdered > 0 
+                              ? 'ORDINATO' 
+                              : 'COPERTO';
+
+                        const worstBadgeClass = countRed > 0 
                           ? 'bg-red-600 text-white' 
-                          : hasLate 
+                          : countLate > 0 
                             ? 'bg-amber-500 text-white' 
-                            : 'bg-cyan-500 text-white';
+                            : countOrdered > 0 
+                              ? 'bg-indigo-500 text-white' 
+                              : 'bg-emerald-600 text-white';
 
                         return (
                           <AccordionItem key={matCode} value={matCode} className="border rounded-md px-2">
@@ -1150,36 +1200,48 @@ export default function ProgrammazioneClientPage({
                                     {worstLabel}
                                   </Badge>
                                 </div>
-                                <span className="text-[10px] text-muted-foreground font-mono">
-                                  {uncoveredEntries.length > 0 ? (
-                                    <span className="text-red-500 font-bold">{uncoveredEntries.length} scoperte</span>
-                                  ) : (
-                                    <span className="text-emerald-500 font-bold">Tutte coperte</span>
+                                <div className="text-[10px] font-mono flex items-center gap-1.5">
+                                  {countRed > 0 && (
+                                    <span className="text-red-500 font-bold">{countRed} mancanti</span>
                                   )}
-                                  {' '}su {entries.length}
-                                </span>
+                                  {countLate > 0 && (
+                                    <span className="text-amber-500 font-bold">{countLate} in ritardo</span>
+                                  )}
+                                  {countRed === 0 && countLate === 0 && countOrdered > 0 && (
+                                    <span className="text-indigo-400 font-semibold">{countOrdered} in arrivo</span>
+                                  )}
+                                  {countRed === 0 && countLate === 0 && countOrdered === 0 && (
+                                    <span className="text-emerald-500 font-semibold">Tutte coperte</span>
+                                  )}
+                                  <span className="text-muted-foreground">su {entries.length}</span>
+                                </div>
                               </div>
                             </AccordionTrigger>
                             <AccordionContent className="pt-1 pb-2 space-y-2 text-xs">
-                              {entries.map(({ entry, job }, idx) => {
-                                const isUncovered = entry.projectedBalance < -0.001;
-                                const isLate = entry.status === 'LATE';
-
+                              {entriesWithVisual.map(({ entry, job, visualStatus }, idx) => {
                                 return (
                                   <div 
                                     key={idx} 
                                     className={cn(
                                       "p-2.5 rounded-md border text-[11px] space-y-1.5 transition-colors",
-                                      isUncovered 
-                                        ? isLate
-                                          ? "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200"
-                                          : "border-red-500/40 bg-red-500/10 text-red-900 dark:text-red-200"
-                                        : "border-border bg-muted/20 text-muted-foreground"
+                                      visualStatus === 'RED'
+                                        ? "border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-950/20"
+                                        : visualStatus === 'LATE'
+                                          ? "border-amber-200 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20"
+                                          : visualStatus === 'ORDERED'
+                                            ? "border-indigo-200 bg-indigo-50/30 dark:border-indigo-900/40 dark:bg-indigo-950/15"
+                                            : "border-border bg-muted/20 text-muted-foreground"
                                     )}
                                   >
                                     <div className="flex items-center justify-between font-mono">
                                       <div className="flex items-center gap-1.5">
-                                        <span className={cn("font-bold", isUncovered ? "text-foreground" : "text-muted-foreground")}>
+                                        <span className={cn(
+                                          "font-bold",
+                                          visualStatus === 'RED' ? "text-red-700 dark:text-red-300" :
+                                          visualStatus === 'LATE' ? "text-amber-700 dark:text-amber-300" :
+                                          visualStatus === 'ORDERED' ? "text-indigo-700 dark:text-indigo-300" :
+                                          "text-foreground"
+                                        )}>
                                           {job?.ordinePF || entry.jobId}
                                         </span>
                                         {job && (
@@ -1197,15 +1259,21 @@ export default function ProgrammazioneClientPage({
                                       </span>
                                       <span className={cn(
                                         "font-bold uppercase text-[9px] px-1.5 py-0.2 rounded-xs",
-                                        isUncovered 
-                                          ? isLate
+                                        visualStatus === 'RED'
+                                          ? "bg-red-500/20 text-red-700 dark:text-red-300"
+                                          : visualStatus === 'LATE'
                                             ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
-                                            : "bg-red-500/20 text-red-700 dark:text-red-300"
-                                          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                            : visualStatus === 'ORDERED'
+                                              ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400"
+                                              : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
                                       )}>
-                                        {isUncovered 
-                                          ? isLate ? '🟠 In Ritardo' : '🔴 Mancante'
-                                          : entry.status === 'ORDERED' ? '💜 Ordinato' : '🟢 Coperto'
+                                        {visualStatus === 'RED' 
+                                          ? '🔴 Mancante' 
+                                          : visualStatus === 'LATE' 
+                                            ? '🟠 In Ritardo' 
+                                            : visualStatus === 'ORDERED' 
+                                              ? '💜 Ordinato' 
+                                              : '🟢 Coperto'
                                         }
                                       </span>
                                     </div>
@@ -1216,9 +1284,13 @@ export default function ProgrammazioneClientPage({
                                       </span>
                                       <span className={cn(
                                         "font-bold text-[11px]",
-                                        isUncovered 
-                                          ? isLate ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
-                                          : "text-emerald-600 dark:text-emerald-400"
+                                        visualStatus === 'RED'
+                                          ? "text-red-600 dark:text-red-400"
+                                          : visualStatus === 'LATE'
+                                            ? "text-amber-600 dark:text-amber-400"
+                                            : visualStatus === 'ORDERED'
+                                              ? "text-indigo-600 dark:text-indigo-400"
+                                              : "text-emerald-600 dark:text-emerald-400"
                                       )}>
                                         Stock Proiettato: {entry.projectedBalance.toFixed(2)}
                                       </span>

@@ -281,15 +281,16 @@ export function calculateMRPTimelines(
                             details.push(`💜 ORDINATO: Coperto da ordine fornitore.`);
                         }
                     } else {
-                        // SCOPERTO (CurBalance < 0)
-                        // Se ci sono ordini fornitore futuri che colmano il fabbisogno, è IN RITARDO (LATE)
-                        if (futureSupply.length > 0 && (curBalanceAtEvent + totalFuturePO >= -0.001 || absoluteFinalBalance >= -0.001)) {
+                        // SCOPERTO (CurBalance < 0 alla data della commessa)
+                        // C'è un ordine d'acquisto (PO) emesso per questo materiale (futuro o pendente)?
+                        const hasCoveringPO = futureSupply.length > 0 || totalPO > 0;
+                        if (hasCoveringPO) {
                             status = 'LATE';
                             supplyArrivalDate = futureSupply[0]?.date;
-                            details.push("🟠 IN RITARDO: Merce in arrivo con ordine fornitore successivo.");
+                            details.push("🟠 IN RITARDO: Merce coperta da ordine fornitore ma con arrivo successivo alla data richiesta.");
                         } else {
                             status = 'RED';
-                            details.push("❌ MANCANTE: Stock e ordini insufficienti per coprire questo fabbisogno.");
+                            details.push("❌ MANCANTE: Nessun ordine fornitore a copertura. Necessario acquistare.");
                         }
                     }
 
