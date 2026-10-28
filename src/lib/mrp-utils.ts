@@ -230,76 +230,84 @@ export function calculateMRPTimelines(
                 return a.id.localeCompare(b.id);
             });
 
-            // STEP 4: Simulazione e Snapshot
+            // STEP 4 & 5: Simulazione Running Balance e Valutazione Cronologica per Singola Commessa
             const materialEntries: MRPTimelineEntry[] = [];
-            let wentBelowZero = false;
-
             const totalPO = events.filter(e => e.type === 'SUPPLY').reduce((acc, e) => acc + e.qty, 0);
             const totalSimQtyDemand = events.filter(e => e.type === 'DEMAND' && e.id.startsWith('VOLATILE')).reduce((sum, e) => sum + e.qty, 0);
+            const totalDemand = events.filter(e => e.type === 'DEMAND').reduce((acc, e) => acc + e.qty, 0);
+            const absoluteFinalBalance = initialStock + totalPO - totalDemand;
 
             events.forEach(ev => {
                 if (ev.type === 'SUPPLY') {
                     currentBalance += ev.qty;
                 } else if (ev.type === 'DEMAND') {
                     currentBalance -= ev.qty;
-                    if (currentBalance < -0.001) wentBelowZero = true;
+                    const curBalanceAtEvent = currentBalance;
+
+                    // Ordini fornitore arrivati prima o alla stessa data di questa commessa
+                    const cumulativePO = events
+                        .filter(e => e.type === 'SUPPLY' && new Date(e.date).getTime() <= new Date(ev.date).getTime())
+                        .reduce((sum, e) => sum + Number(e.qty), 0);
+
+                    // Ordini fornitore futuri (consegna successiva alla data di questa commessa)
+                    const futureSupply = events.filter(e => e.type === 'SUPPLY' && new Date(e.date).getTime() > new Date(ev.date).getTime());
+                    const totalFuturePO = futureSupply.reduce((sum, e) => sum + Number(e.qty), 0);
+
+                    let status: MRPTimelineEntry['status'] = 'RED';
+                    let supplyArrivalDate: string | undefined = undefined;
+                    const details: string[] = [];
+
+                    if (ev.isFrozen) {
+                        details.push("⏳ In attesa chiusura Sessione Officina");
+                    }
+                    details.push(`Fabbisogno: ${ev.qty.toFixed(2)} ${mat.unitOfMeasure}`);
+
+                    // RUNNING BALANCE TIME-PHASED:
+                    // Il semaforo dipende ESCLUSIVAMENTE dallo Stock Proiettato (CurBalance) al momento di QUESTA specifica commessa
+                    if (curBalanceAtEvent >= -0.001) {
+                        // COPERTO: Stock proiettato sufficiente
+                        if (curBalanceAtEvent - cumulativePO >= -0.001) {
+                            if (curBalanceAtEvent < safeStock) {
+                                status = 'LOW_STOCK';
+                                details.push("⚠️ SOTTOSCORTA.");
+                            } else {
+                                status = 'GREEN';
+                                details.push("✅ DISPONIBILE (Stock fisico o coperto).");
+                            }
+                        } else {
+                            status = 'ORDERED';
+                            const lastPO = events.filter(e => e.type === 'SUPPLY' && new Date(e.date).getTime() <= new Date(ev.date).getTime()).pop();
+                            supplyArrivalDate = lastPO?.date;
+                            details.push(`💜 ORDINATO: Coperto da ordine fornitore.`);
+                        }
+                    } else {
+                        // SCOPERTO (CurBalance < 0)
+                        // Se ci sono ordini fornitore futuri che colmano il fabbisogno, è IN RITARDO (LATE)
+                        if (futureSupply.length > 0 && (curBalanceAtEvent + totalFuturePO >= -0.001 || absoluteFinalBalance >= -0.001)) {
+                            status = 'LATE';
+                            supplyArrivalDate = futureSupply[0]?.date;
+                            details.push("🟠 IN RITARDO: Merce in arrivo con ordine fornitore successivo.");
+                        } else {
+                            status = 'RED';
+                            details.push("❌ MANCANTE: Stock e ordini insufficienti per coprire questo fabbisogno.");
+                        }
+                    }
+
+                    const dbg = ` [DBG: Init=${initialStock.toFixed(2)}, PO=${totalPO.toFixed(2)}, CurBalance=${curBalanceAtEvent.toFixed(2)}, FinalBalance=${absoluteFinalBalance.toFixed(2)}]`;
+                    details.push(dbg);
 
                     materialEntries.push({
                         jobId: ev.id,
                         materialCode: matCode,
                         requiredQty: ev.qty,
-                        status: 'GREEN', // Segnaposto, aggiornato in STEP 5
-                        projectedBalance: currentBalance,
-                        details: [],
-                        totalPO: totalPO,
+                        status,
+                        projectedBalance: curBalanceAtEvent,
+                        supplyArrivalDate,
+                        details,
+                        totalPO,
                         totalSimQty: totalSimQtyDemand,
                         isFrozen: ev.isFrozen
                     });
-                }
-            });
-
-            // STEP 5: Valutazione Stato Finale
-            const absoluteFinalBalance = currentBalance;
-            let finalGlobalStatus: MRPTimelineEntry['status'] = 'GREEN';
-            let globalMessage = "";
-
-            if (!wentBelowZero) {
-                if (absoluteFinalBalance < safeStock) {
-                    finalGlobalStatus = 'LOW_STOCK';
-                    globalMessage = "⚠️ SOTTOSCORTA.";
-                } else {
-                    finalGlobalStatus = 'GREEN';
-                    globalMessage = "✅ DISPONIBILE (Stock fisico o ampiamente coperto).";
-                }
-            } else {
-                if (absoluteFinalBalance >= -0.001) {
-                    finalGlobalStatus = 'LATE';
-                    globalMessage = "🟠 IN RITARDO: La merce arriva, ma i tempi non sono allineati al bisogno.";
-                } else {
-                    finalGlobalStatus = 'RED';
-                    globalMessage = "❌ MANCANTE: Mancante reale e permanente, stock e ordini insufficienti.";
-                }
-            }
-
-            materialEntries.forEach(entry => {
-                entry.status = finalGlobalStatus;
-                
-                if (entry.isFrozen) {
-                    entry.details.push("⏳ In attesa chiusura Sessione Officina");
-                }
-                entry.details.push(`Fabbisogno: ${entry.requiredQty.toFixed(2)} ${mat.unitOfMeasure}`);
-                entry.details.push(globalMessage);
-                
-                const dbg = ` [DBG: Init=${initialStock.toFixed(2)}, PO=${totalPO.toFixed(2)}, CurBalance=${entry.projectedBalance.toFixed(2)}, FinalBalance=${absoluteFinalBalance.toFixed(2)}]`;
-                entry.details.push(dbg);
-                
-                if (finalGlobalStatus === 'LATE') {
-                    // Trova il primo PO successivo alla data di questa DEMAND
-                    const targetDemandDate = events.find(ev => ev.id === entry.jobId)?.date;
-                    const nextSupply = events.find(e => e.type === 'SUPPLY' && new Date(e.date).getTime() > new Date(targetDemandDate || 0).getTime());
-                    if (nextSupply) {
-                        entry.supplyArrivalDate = nextSupply.date;
-                    }
                 }
             });
 

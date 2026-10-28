@@ -609,14 +609,20 @@ export default function ProgrammazioneClientPage({
     const criticals = new Map<string, { entry: MRPTimelineEntry; job: JobOrder | undefined }[]>();
     
     mrpTimelines.forEach((entries, matCode) => {
+      // Un materiale è critico se almeno una commessa ha saldo negativo o stato problematico
       const problematic = entries.filter(e => 
-        e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK' || e.status === 'ORDERED'
+        e.projectedBalance < -0.001 || e.status === 'RED' || e.status === 'LATE' || e.status === 'LOW_STOCK'
       );
 
       if (problematic.length > 0) {
-        const mapped = problematic.map(entry => {
+        // Mappa TUTTE le commesse che richiedono questo materiale ordinate per data consegna
+        const mapped = entries.map(entry => {
           const job = activeGlobalJobs.find(j => j.id === entry.jobId);
           return { entry, job };
+        }).sort((a, b) => {
+          const dateA = a.job?.dataFinePreparazione || a.job?.dataConsegnaFinale || '9999-12-31';
+          const dateB = b.job?.dataFinePreparazione || b.job?.dataConsegnaFinale || '9999-12-31';
+          return dateA.localeCompare(dateB);
         });
         criticals.set(matCode, mapped);
       }
@@ -713,24 +719,28 @@ export default function ProgrammazioneClientPage({
       };
     }
 
-    const hasRed = entries.some((e) => e.entry?.status === 'RED');
+    // RUNNING BALANCE CHECK (TIME-PHASED):
+    // Una commessa è MANCANTE solo se per QUESTA riga il suo saldo è < 0 e non ci sono ordini
+    const hasRed = entries.some((e) => e.entry?.status === 'RED' && (e.entry.projectedBalance < -0.001));
     const hasLateOrPendingSupply = entries.some((e) => 
-      e.entry && ['LATE', 'ORDERED', 'AMBER', 'LOW_STOCK'].includes(e.entry.status)
+      e.entry && (
+        (e.entry.status === 'LATE' && e.entry.projectedBalance < -0.001) ||
+        e.entry.status === 'ORDERED' || 
+        e.entry.status === 'AMBER'
+      )
     );
 
     const details: string[] = [
       ...withdrawnItems.map((i) => `✅ ${i.component} - Prelevato`),
       ...entries.map((e) => {
         const dList = e.entry?.details || [];
-        const statusText = e.entry?.status === 'RED' 
-          ? '🔴 MANCANTE' 
-          : e.entry?.status === 'LATE' 
-            ? '🟠 IN RITARDO' 
-            : e.entry?.status === 'ORDERED' || e.entry?.status === 'AMBER'
-              ? '🟠 IN ARRIVO'
-              : '🟢 DISPONIBILE';
-        const dDetail = dList.length > 0 ? ` (${dList.join('; ')})` : '';
-        return `📦 ${e.component}: ${statusText}${dDetail}`;
+        const isCovered = (e.entry?.projectedBalance ?? 0) >= -0.001;
+        const statusText = !isCovered
+          ? (e.entry?.status === 'LATE' ? '🟠 IN RITARDO' : '🔴 MANCANTE')
+          : (e.entry?.status === 'ORDERED' ? '💜 ORDINATO' : '🟢 DISPONIBILE');
+        const dDetail = dList.length > 0 ? ` (${dList.filter(d => !d.startsWith(' [DBG:')).join('; ')})` : '';
+        const balDetail = e.entry ? ` [Saldo al bisogno: ${e.entry.projectedBalance.toFixed(2)}]` : '';
+        return `📦 ${e.component}: ${statusText}${dDetail}${balDetail}`;
       }),
     ];
 
@@ -1119,42 +1129,113 @@ export default function ProgrammazioneClientPage({
                     </div>
                   ) : (
                     <Accordion type="single" collapsible className="w-full space-y-2">
-                      {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries]) => (
-                        <AccordionItem key={matCode} value={matCode} className="border rounded-md px-2">
-                          <AccordionTrigger className="hover:no-underline py-2">
-                            <div className="flex items-center justify-between w-full pr-3 text-left">
-                              <span className="font-mono font-bold text-xs">{matCode}</span>
-                              <Badge variant="destructive" className="text-[10px] py-0">
-                                {entries.length} commesse
-                              </Badge>
-                            </div>
-                          </AccordionTrigger>
-                          <AccordionContent className="pt-1 pb-2 space-y-1.5 text-xs">
-                            {entries.map(({ entry, job }, idx) => (
-                              <div key={idx} className="bg-muted/40 p-2 rounded border text-[11px] space-y-1">
-                                <div className="flex items-center justify-between font-mono">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold">{job?.ordinePF || entry.jobId}</span>
-                                    {job && (
-                                      <Badge variant="outline" className="text-[9px] py-0 px-1 font-bold">
-                                        {getJobDepartmentGroup(job)}
-                                      </Badge>
+                      {Array.from(criticalMaterialsTimeline.entries()).map(([matCode, entries]) => {
+                        const uncoveredEntries = entries.filter(e => e.entry.projectedBalance < -0.001);
+                        const hasRed = uncoveredEntries.some(e => e.entry.status === 'RED');
+                        const hasLate = uncoveredEntries.some(e => e.entry.status === 'LATE');
+                        const worstLabel = hasRed ? 'MANCANTE' : hasLate ? 'IN RITARDO' : 'SOTTOSCORTA';
+                        const worstBadgeClass = hasRed 
+                          ? 'bg-red-600 text-white' 
+                          : hasLate 
+                            ? 'bg-amber-500 text-white' 
+                            : 'bg-cyan-500 text-white';
+
+                        return (
+                          <AccordionItem key={matCode} value={matCode} className="border rounded-md px-2">
+                            <AccordionTrigger className="hover:no-underline py-2">
+                              <div className="flex items-center justify-between w-full pr-3 text-left">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-xs">{matCode}</span>
+                                  <Badge className={`text-[9px] py-0 px-1.5 font-bold ${worstBadgeClass}`}>
+                                    {worstLabel}
+                                  </Badge>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground font-mono">
+                                  {uncoveredEntries.length > 0 ? (
+                                    <span className="text-red-500 font-bold">{uncoveredEntries.length} scoperte</span>
+                                  ) : (
+                                    <span className="text-emerald-500 font-bold">Tutte coperte</span>
+                                  )}
+                                  {' '}su {entries.length}
+                                </span>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent className="pt-1 pb-2 space-y-2 text-xs">
+                              {entries.map(({ entry, job }, idx) => {
+                                const isUncovered = entry.projectedBalance < -0.001;
+                                const isLate = entry.status === 'LATE';
+
+                                return (
+                                  <div 
+                                    key={idx} 
+                                    className={cn(
+                                      "p-2.5 rounded-md border text-[11px] space-y-1.5 transition-colors",
+                                      isUncovered 
+                                        ? isLate
+                                          ? "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200"
+                                          : "border-red-500/40 bg-red-500/10 text-red-900 dark:text-red-200"
+                                        : "border-border bg-muted/20 text-muted-foreground"
+                                    )}
+                                  >
+                                    <div className="flex items-center justify-between font-mono">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className={cn("font-bold", isUncovered ? "text-foreground" : "text-muted-foreground")}>
+                                          {job?.ordinePF || entry.jobId}
+                                        </span>
+                                        {job && (
+                                          <Badge variant="outline" className="text-[9px] py-0 px-1 font-bold">
+                                            {getJobDepartmentGroup(job)}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <span className="text-muted-foreground truncate max-w-[150px]">{job?.cliente}</span>
+                                    </div>
+
+                                    <div className="flex items-center justify-between text-[10px]">
+                                      <span>
+                                        Data Cons: <strong className="text-foreground">{job?.dataConsegnaFinale ? formatDateForDisplay(job.dataConsegnaFinale) : 'N/D'}</strong>
+                                      </span>
+                                      <span className={cn(
+                                        "font-bold uppercase text-[9px] px-1.5 py-0.2 rounded-xs",
+                                        isUncovered 
+                                          ? isLate
+                                            ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                                            : "bg-red-500/20 text-red-700 dark:text-red-300"
+                                          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                      )}>
+                                        {isUncovered 
+                                          ? isLate ? '🟠 In Ritardo' : '🔴 Mancante'
+                                          : entry.status === 'ORDERED' ? '💜 Ordinato' : '🟢 Coperto'
+                                        }
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/40 font-mono">
+                                      <span className="text-muted-foreground text-[10.5px]">
+                                        Fabbisogno: <strong className="text-foreground">{entry.requiredQty.toFixed(2)}</strong>
+                                      </span>
+                                      <span className={cn(
+                                        "font-bold text-[11px]",
+                                        isUncovered 
+                                          ? isLate ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
+                                          : "text-emerald-600 dark:text-emerald-400"
+                                      )}>
+                                        Stock Proiettato: {entry.projectedBalance.toFixed(2)}
+                                      </span>
+                                    </div>
+
+                                    {entry.details.length > 0 && (
+                                      <div className="text-[9.5px] text-muted-foreground/80 leading-tight">
+                                        {entry.details.filter(d => !d.startsWith(' [DBG:') && !d.startsWith('Fabbisogno:')).join(' • ')}
+                                      </div>
                                     )}
                                   </div>
-                                  <span className="text-muted-foreground truncate max-w-[150px]">{job?.cliente}</span>
-                                </div>
-                                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                                  <span>Data Cons: <strong className="text-foreground">{job?.dataConsegnaFinale || 'N/D'}</strong></span>
-                                  <span className="font-bold uppercase text-[9px]">{job?.status || 'Pianificata'}</span>
-                                </div>
-                                <div className="text-muted-foreground text-[10.5px]">
-                                  {entry.details.join(' • ')}
-                                </div>
-                              </div>
-                            ))}
-                          </AccordionContent>
-                        </AccordionItem>
-                      ))}
+                                );
+                              })}
+                            </AccordionContent>
+                          </AccordionItem>
+                        );
+                      })}
                     </Accordion>
                   )}
                 </div>
