@@ -3,9 +3,10 @@ import { Loader2 } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import ProgrammazioneClientPage from './ProgrammazioneClientPage';
-import { getActiveJobOrders, getDepartments, getWorkCycles } from './actions';
+import { getActiveJobOrders, getDepartments, getWorkCycles, getCapacityBuckets } from './actions';
 import { adminDb } from '@/lib/firebase-admin';
 import { convertTimestampsToDates } from '@/lib/utils';
+import { getISOWeek, getISOWeekYear } from 'date-fns';
 import type { Article, WorkCycle } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
@@ -14,13 +15,18 @@ import { getODLConfig } from '@/app/admin/settings/odl-actions';
 export const dynamic = 'force-dynamic';
 
 export default async function ProgrammazionePage() {
-  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig] = await Promise.all([
+  const now = new Date();
+  const currentWeek = getISOWeek(now);
+  const currentYear = getISOWeekYear(now);
+
+  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities] = await Promise.all([
     getActiveJobOrders(),
     getDepartments(),
     getWorkCycles(),
     adminDb.collection("articles").select("code", "workCycleId", "description", "department", "billOfMaterials", "expectedMinutesDefault", "phaseTimes").get(),
     adminDb.collection("settings").doc("global").get(),
     getODLConfig(),
+    getCapacityBuckets(currentYear, currentWeek),
   ]);
 
   const articles = articlesSnap.docs.map(doc => {
@@ -53,6 +59,7 @@ export default async function ProgrammazionePage() {
             initialWorkCycles={JSON.parse(JSON.stringify(cycles))}
             initialGlobalSettings={JSON.parse(JSON.stringify(globalSettings))}
             initialOdlConfig={JSON.parse(JSON.stringify(odlConfig))}
+            initialCapacities={JSON.parse(JSON.stringify(initialCapacities))}
           />
         </Suspense>
       </AppShell>

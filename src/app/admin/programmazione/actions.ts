@@ -295,8 +295,8 @@ export async function updateJobExecutionStatus(
 
             batch.update(jobRef, {
                 status: 'IN_PIANIFICAZIONE',
-                odlCreationDate: null,
-                overallStartTime: null,
+                odlCreationDate: admin.firestore.FieldValue.delete(),
+                overallStartTime: admin.firestore.FieldValue.delete(),
                 overallEndTime: admin.firestore.FieldValue.delete(),
                 forcedCompletion: admin.firestore.FieldValue.delete(),
                 packingListId: admin.firestore.FieldValue.delete(),
@@ -824,5 +824,76 @@ export async function bulkStartProductionAndPrint(
         return { success: false, message: e?.message || "Errore durante l'avvio massivo.", startedJobs: [], skippedNoDate: [] };
     }
 }
+
+// =========================================================================
+// FASE 18: GESTIONE PERSISTENZA CAPACITÀ SETTIMANALE E AGGREGAZIONE REPARTI
+// =========================================================================
+
+export interface DayCapacityConfigData {
+    L: number;
+    M: number;
+    Me: number;
+    G: number;
+    V: number;
+    overtime: number;
+}
+
+export async function getCapacityBuckets(year: number, week: number): Promise<Record<string, DayCapacityConfigData>> {
+    try {
+        const snap = await adminDb.collection("capacityBuckets")
+            .where("year", "==", year)
+            .where("week", "==", week)
+            .get();
+
+        const result: Record<string, DayCapacityConfigData> = {};
+        snap.docs.forEach(doc => {
+            const data = doc.data();
+            const dept = (data.dept || data.department || doc.id.split('_')[0] || '').toUpperCase().trim();
+            const key = `${dept}_${year}_W${week}`;
+            result[key] = {
+                L: Number(data.L) || 0,
+                M: Number(data.M) || 0,
+                Me: Number(data.Me) || 0,
+                G: Number(data.G) || 0,
+                V: Number(data.V) || 0,
+                overtime: Number(data.overtime) || 0,
+            };
+        });
+        return result;
+    } catch (err) {
+        console.error("Error fetching capacity buckets:", err);
+        return {};
+    }
+}
+
+export async function saveCapacityBucket(
+    dept: string,
+    year: number,
+    week: number,
+    config: DayCapacityConfigData
+): Promise<{ success: boolean; message?: string }> {
+    try {
+        const cleanDept = dept.toUpperCase().trim();
+        const docId = `${cleanDept}_${year}_W${week}`;
+        await adminDb.collection("capacityBuckets").doc(docId).set({
+            dept: cleanDept,
+            year,
+            week,
+            L: Math.max(0, Number(config.L) || 0),
+            M: Math.max(0, Number(config.M) || 0),
+            Me: Math.max(0, Number(config.Me) || 0),
+            G: Math.max(0, Number(config.G) || 0),
+            V: Math.max(0, Number(config.V) || 0),
+            overtime: Math.max(0, Number(config.overtime) || 0),
+            updatedAt: admin.firestore.Timestamp.now(),
+        }, { merge: true });
+
+        return { success: true };
+    } catch (err: any) {
+        console.error("Error saving capacity bucket:", err);
+        return { success: false, message: err?.message || "Errore nel salvataggio della capacità." };
+    }
+}
+
 
 

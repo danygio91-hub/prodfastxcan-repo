@@ -33,7 +33,10 @@ import {
   Download,
   AlertCircle,
   PackageCheck,
-  Pencil
+  Pencil,
+  RotateCcw,
+  Undo2,
+  Lock
 } from 'lucide-react';
 import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -106,7 +109,10 @@ import {
   saveQuickJobOrder,
   bulkUpdateJobDeliveryDate,
   bulkShipJobs,
-  bulkStartProductionAndPrint
+  bulkStartProductionAndPrint,
+  getCapacityBuckets,
+  saveCapacityBucket,
+  type DayCapacityConfigData
 } from './actions';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -132,6 +138,7 @@ interface ProgrammazioneClientPageProps {
   initialWorkCycles?: WorkCycle[];
   initialGlobalSettings?: GlobalSettings | null;
   initialOdlConfig?: ODLConfig;
+  initialCapacities?: Record<string, DayCapacityConfigData>;
 }
 
 // 4 Macro-Gruppi Reparti Essenziali
@@ -276,6 +283,7 @@ export default function ProgrammazioneClientPage({
   initialWorkCycles = [],
   initialGlobalSettings = null,
   initialOdlConfig,
+  initialCapacities = {},
 }: ProgrammazioneClientPageProps) {
   const { toast } = useToast();
 
@@ -433,8 +441,8 @@ export default function ProgrammazioneClientPage({
   const [sortField, setSortField] = useState<SortField | null>('ordinePF');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // Capacità Giornaliera per Secchiello
-  const [capacitiesByBucket, setCapacitiesByBucket] = useState<Record<string, DayCapacityConfig>>({});
+  // Capacità Giornaliera per Secchiello (con Persistenza Firestore)
+  const [capacitiesByBucket, setCapacitiesByBucket] = useState<Record<string, DayCapacityConfig>>(initialCapacities || {});
 
   const selectedWeekNumber = useMemo(() => {
     return getISOWeek(currentDateReference);
@@ -444,23 +452,63 @@ export default function ProgrammazioneClientPage({
     return getISOWeekYear(currentDateReference);
   }, [currentDateReference]);
 
+  // Caricamento asincrono capacità al cambio settimana
+  useEffect(() => {
+    let isMounted = true;
+    getCapacityBuckets(selectedYear, selectedWeekNumber).then((data) => {
+      if (isMounted && data && Object.keys(data).length > 0) {
+        setCapacitiesByBucket((prev) => ({ ...prev, ...data }));
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedYear, selectedWeekNumber]);
+
   const bucketKey = useMemo(() => {
     return `${selectedDept}_${selectedYear}_W${selectedWeekNumber}`;
   }, [selectedDept, selectedYear, selectedWeekNumber]);
 
+  // FASE 18: Aggregazione Capacità Aziendale per Tab "TUTTI" (Somma CP + CG + BF)
+  const ACTIVE_PRODUCTION_DEPTS: MacroDepartmentCode[] = ['CP', 'CG', 'BF'];
+
+  const aggregatedCapacity = useMemo(() => {
+    const totals: DayCapacityConfig = { L: 0, M: 0, Me: 0, G: 0, V: 0, overtime: 0 };
+    ACTIVE_PRODUCTION_DEPTS.forEach((dept) => {
+      const key = `${dept}_${selectedYear}_W${selectedWeekNumber}`;
+      const cap = capacitiesByBucket[key] || DEFAULT_CAPACITY;
+      totals.L += cap.L || 0;
+      totals.M += cap.M || 0;
+      totals.Me += cap.Me || 0;
+      totals.G += cap.G || 0;
+      totals.V += cap.V || 0;
+      totals.overtime += cap.overtime || 0;
+    });
+    return totals;
+  }, [capacitiesByBucket, selectedYear, selectedWeekNumber]);
+
   const currentCapacity = useMemo(() => {
+    if (selectedDept === 'ALL') {
+      return aggregatedCapacity;
+    }
     return capacitiesByBucket[bucketKey] || DEFAULT_CAPACITY;
-  }, [capacitiesByBucket, bucketKey]);
+  }, [selectedDept, aggregatedCapacity, capacitiesByBucket, bucketKey]);
 
   const handleCapacityChange = (field: keyof DayCapacityConfig, value: number) => {
+    if (selectedDept === 'ALL') return; // Read-only per tab TUTTI
     const safeValue = Math.max(0, isNaN(value) ? 0 : value);
+    const newConfig: DayCapacityConfig = {
+      ...(capacitiesByBucket[bucketKey] || DEFAULT_CAPACITY),
+      [field]: safeValue,
+    };
     setCapacitiesByBucket((prev) => ({
       ...prev,
-      [bucketKey]: {
-        ...(prev[bucketKey] || DEFAULT_CAPACITY),
-        [field]: safeValue,
-      },
+      [bucketKey]: newConfig,
     }));
+    // Salvataggio persistente su Firestore (Fire and forget con log)
+    saveCapacityBucket(selectedDept, selectedYear, selectedWeekNumber, newConfig).catch((err) => {
+      console.error("Errore salvataggio capacità su Firestore:", err);
+    });
   };
 
   const availableHours = useMemo(() => {
@@ -1236,7 +1284,7 @@ export default function ProgrammazioneClientPage({
   };
 
   // Modifica Stato Commessa (4 stati SSoT rigorosi)
-  const handleStatusChange = async (job: JobOrder, newStatus: JobStatusOption) => {
+  const handleStatusChange = async (job: JobOrder, newStatus: JobStatusOption, isConfirmed?: boolean) => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
     if ((!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) && newStatus !== 'Pianificata') {
       toast({
@@ -1250,6 +1298,14 @@ export default function ProgrammazioneClientPage({
     const prevJob = { ...job };
     const currentStatus = normalizeJobStatus(job);
     if (currentStatus === newStatus) return;
+
+    // FASE 19: Alert di conferma al rollback (se non già confermato tramite tasto Undo)
+    if (newStatus === 'Pianificata' && !isConfirmed && (currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito')) {
+      const confirmReset = window.confirm(
+        `Vuoi davvero annullare l'avvio e riportare la commessa ${job.ordinePF || job.id} in 'Pianificata'?\n\nLe fasi torneranno in attesa e i timer di produzione verranno azzerati.`
+      );
+      if (!confirmReset) return;
+    }
 
     // Aggiornamento ottimistico locale
     setJobs((prev) =>
@@ -1304,7 +1360,7 @@ export default function ProgrammazioneClientPage({
       }
 
       toast({
-        title: "Stato Commessa Modificato",
+        title: newStatus === 'Pianificata' ? "Commessa Ripristinata" : "Stato Commessa Modificato",
         description: res.message,
       });
 
@@ -1321,6 +1377,15 @@ export default function ProgrammazioneClientPage({
         description: e?.message || "Impossibile aggiornare lo stato.",
       });
     }
+  };
+
+  // FASE 19: Handler dedicato per Rollback rapido da pulsante Undo/RotateCcw
+  const handleRollbackJob = async (job: JobOrder) => {
+    const confirmReset = window.confirm(
+      `Vuoi davvero annullare l'avvio e riportare la commessa ${job.ordinePF || job.id} in 'Pianificata'?\n\nLe fasi torneranno in attesa e i timer di produzione verranno azzerati.`
+    );
+    if (!confirmReset) return;
+    await handleStatusChange(job, 'Pianificata', true);
   };
 
   // 4. Workflow Avvio Produzione: richiama createODL transazionale
@@ -2578,30 +2643,61 @@ export default function ProgrammazioneClientPage({
                   Addetti:
                 </span>
 
+                {selectedDept === 'ALL' && (
+                  <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-500 border-blue-500/30 font-semibold px-1.5 py-0">
+                    Aggregato Aziendale (CP + CG + BF)
+                  </Badge>
+                )}
+
                 {/* Giorni L, M, M, G, V */}
                 {(['L', 'M', 'Me', 'G', 'V'] as const).map((day) => (
-                  <div key={day} className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border">
+                  <div 
+                    key={day} 
+                    className={cn(
+                      "flex items-center gap-1 px-1.5 py-0.5 rounded border",
+                      selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
+                    )}
+                    title={selectedDept === 'ALL' ? `Somma addetti ${day === 'Me' ? 'Mercoledì' : day} di tutti i reparti (Read-Only). Seleziona CP, CG o BF per modificare.` : undefined}
+                  >
                     <span className="font-bold text-[10px] text-muted-foreground">{day === 'Me' ? 'M' : day}:</span>
                     <input
                       type="number"
                       min={0}
-                      max={50}
+                      max={100}
+                      disabled={selectedDept === 'ALL'}
                       value={currentCapacity[day]}
                       onChange={(e) => handleCapacityChange(day, parseInt(e.target.value))}
-                      className="w-8 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
+                      className={cn(
+                        "w-8 h-5 text-center font-mono font-bold border rounded text-xs px-0.5 focus:outline-hidden",
+                        selectedDept === 'ALL' 
+                          ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent" 
+                          : "bg-background focus:ring-1 focus:ring-primary"
+                      )}
                     />
                   </div>
                 ))}
 
-                <div className="flex items-center gap-1 bg-muted/40 px-1.5 py-0.5 rounded border ml-1">
+                <div 
+                  className={cn(
+                    "flex items-center gap-1 px-1.5 py-0.5 rounded border ml-1",
+                    selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
+                  )}
+                  title={selectedDept === 'ALL' ? "Somma straordinari di tutti i reparti (Read-Only). Seleziona CP, CG o BF per modificare." : undefined}
+                >
                   <span className="font-bold text-[10px] text-muted-foreground">+ Straord:</span>
                   <input
                     type="number"
                     min={0}
-                    max={100}
+                    max={200}
+                    disabled={selectedDept === 'ALL'}
                     value={currentCapacity.overtime}
                     onChange={(e) => handleCapacityChange('overtime', parseFloat(e.target.value))}
-                    className="w-10 h-5 text-center font-mono font-bold bg-background border rounded text-xs px-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary"
+                    className={cn(
+                      "w-10 h-5 text-center font-mono font-bold border rounded text-xs px-0.5 focus:outline-hidden",
+                      selectedDept === 'ALL' 
+                        ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent" 
+                        : "bg-background focus:ring-1 focus:ring-primary"
+                    )}
                   />
                   <span className="text-[10px] text-muted-foreground font-mono">h</span>
                 </div>
@@ -3297,32 +3393,31 @@ export default function ProgrammazioneClientPage({
                         <td className="py-1 px-1.5 text-center align-middle">
                           <Select
                             value={currentStatus}
-                            disabled={isDeliveryDateMissing && currentStatus === 'Pianificata'}
                             onValueChange={(val: JobStatusOption) => handleStatusChange(job, val)}
                           >
                             <SelectTrigger className={cn(
-                              "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border",
-                              isDeliveryDateMissing && currentStatus === 'Pianificata' && "opacity-50 cursor-not-allowed border-dashed border-red-500/50 bg-red-50/10",
+                              "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border cursor-pointer",
+                              isDeliveryDateMissing && currentStatus === 'Pianificata' && "border-dashed border-red-500/50 bg-red-50/10 text-red-600 dark:text-red-400",
                               currentStatus === 'Pianificata' && !isDeliveryDateMissing && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
                               currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
                               currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
                               currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
                             )}
-                            title={isDeliveryDateMissing && currentStatus === 'Pianificata' ? "Inserire Data di Consegna per sbloccare lo stato" : undefined}
+                            title={isDeliveryDateMissing && currentStatus === 'Pianificata' ? "Inserire Data di Consegna per sbloccare l'avanzamento" : undefined}
                             >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Pianificata" className="text-xs font-medium text-blue-600">
+                              <SelectItem value="Pianificata" className="text-xs font-medium text-blue-600 cursor-pointer">
                                 Pianificata
                               </SelectItem>
-                              <SelectItem value="In Produzione" disabled={isDeliveryDateMissing} className="text-xs font-bold text-amber-600">
+                              <SelectItem value="In Produzione" disabled={isDeliveryDateMissing} className="text-xs font-bold text-amber-600 cursor-pointer">
                                 In Produzione
                               </SelectItem>
-                              <SelectItem value="Completato Prod." disabled={isDeliveryDateMissing} className="text-xs font-bold text-emerald-600">
+                              <SelectItem value="Completato Prod." disabled={isDeliveryDateMissing} className="text-xs font-bold text-emerald-600 cursor-pointer">
                                 Completato Prod.
                               </SelectItem>
-                              <SelectItem value="Spedito" disabled={isDeliveryDateMissing} className="text-xs font-medium text-purple-600">
+                              <SelectItem value="Spedito" disabled={isDeliveryDateMissing} className="text-xs font-medium text-purple-600 cursor-pointer">
                                 Spedito
                               </SelectItem>
                             </SelectContent>
@@ -3368,36 +3463,70 @@ export default function ProgrammazioneClientPage({
                               </TooltipContent>
                             </Tooltip>
 
-                            {/* Avvia in Produzione (Aggiorna a In Produzione) */}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-block">
+                            {/* FASE 19: Pulsante di Azione Dinamico (Avvia Play / Ripristina Undo) */}
+                            {currentStatus === 'Pianificata' && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-block">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleStartProduction(job)}
+                                      disabled={isDeliveryDateMissing}
+                                      className={cn(
+                                        "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10 cursor-pointer",
+                                        isDeliveryDateMissing && "opacity-30 cursor-not-allowed"
+                                      )}
+                                    >
+                                      <Play className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {isDeliveryDateMissing
+                                    ? "Inserire Data di Consegna per avviare"
+                                    : "Avvia ODL in Produzione"}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {(currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.') && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => handleStartProduction(job)}
-                                    disabled={isDeliveryDateMissing || currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito'}
-                                    className={cn(
-                                      "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10",
-                                      (isDeliveryDateMissing || currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito') && "opacity-30 cursor-not-allowed"
-                                    )}
+                                    onClick={() => handleRollbackJob(job)}
+                                    className="h-7 w-7 text-amber-500 hover:text-amber-600 hover:bg-amber-500/15 cursor-pointer transition-colors"
                                   >
-                                    <Play className="h-3.5 w-3.5" />
+                                    <RotateCcw className="h-3.5 w-3.5" />
                                   </Button>
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {isDeliveryDateMissing
-                                  ? "Inserire Data di Consegna per avviare"
-                                  : currentStatus === 'In Produzione' 
-                                    ? "Già in Produzione" 
-                                    : currentStatus === 'Completato Prod.'
-                                      ? "Produzione Completata"
-                                      : currentStatus === 'Spedito'
-                                        ? "Commessa Spedita"
-                                        : "Avvia ODL in Produzione"}
-                              </TooltipContent>
-                            </Tooltip>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Ripristina a Pianificata (Annulla avvio ODL)
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {currentStatus === 'Spedito' && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-block">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      disabled
+                                      className="h-7 w-7 text-muted-foreground opacity-30 cursor-not-allowed"
+                                    >
+                                      <Lock className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Commessa Spedita (non modificabile)
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
 
                             {/* Modifica Commessa (FASE 17: Modale Modifica Completa) */}
                             <Tooltip>

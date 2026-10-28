@@ -39,6 +39,14 @@ export function getDerivedJobStatus(item: JobOrder | WorkGroup): OverallStatus {
         return 'CHIUSO';
     }
     
+    // Se nessuna fase è mai stata avviata o completata (tutte pending), non può essere FINE_PRODUZIONE o CHIUSO
+    const hasAnyPhaseEverStarted = allPhases.some(p => p.status === 'in-progress' || p.status === 'completed' || p.status === 'skipped');
+    if (!hasAnyPhaseEverStarted) {
+        const statusLowerRaw = (item.status || '').toLowerCase().trim();
+        const isActuallyPlanned = ['planned', 'in_attesa', 'in pianificazione', 'in_pianificazione', 'pianificata', 'pianificato'].includes(statusLowerRaw);
+        return isActuallyPlanned ? 'DA_INIZIARE' : 'IN_PREPARAZIONE';
+    }
+
     // Separazione fasi per area
     const preparationPhases = allPhases.filter(p => p.type === 'preparation');
     const productionPhases = allPhases.filter(p => p.type === 'production');
@@ -145,18 +153,7 @@ export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
         return 'Spedito';
     }
 
-    // 2. Completato Prod.: Chiusura SSoT (FINE_PRODUZIONE o CHIUSO), forzatura o chiusura esplicita
-    const derived = getDerivedJobStatus(job);
-    if (
-        derived === 'CHIUSO' ||
-        derived === 'FINE_PRODUZIONE' ||
-        job.forcedCompletion === true ||
-        ['completed', 'chiuso', 'closed', 'fine produzione', 'fine_produzione', 'fine prod.'].includes(statusLower)
-    ) {
-        return 'Completato Prod.';
-    }
-
-    // 3. Pianificata: stato formale di pianificazione SENZA alcuna fase attiva/completata
+    // 2. Pianificata: stato formale di pianificazione SENZA alcuna fase attiva/completata
     const isBacklogPlanned = [
         'planned',
         'in_attesa',
@@ -172,6 +169,17 @@ export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
 
     if (isBacklogPlanned && !hasAnyPhaseActive) {
         return 'Pianificata';
+    }
+
+    // 3. Completato Prod.: Chiusura SSoT (FINE_PRODUZIONE o CHIUSO), forzatura o chiusura esplicita
+    const derived = getDerivedJobStatus(job);
+    if (
+        derived === 'CHIUSO' ||
+        derived === 'FINE_PRODUZIONE' ||
+        job.forcedCompletion === true ||
+        ['completed', 'chiuso', 'closed', 'fine produzione', 'fine_produzione', 'fine prod.'].includes(statusLower)
+    ) {
+        return 'Completato Prod.';
     }
 
     // 4. In Produzione: ODL avviato ('DA_INIZIARE') o commessa rilasciata/in lavorazione nei reparti

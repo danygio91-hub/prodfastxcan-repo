@@ -673,15 +673,54 @@ export async function createMultipleODLs(jobIds: string[]) {
 }
 
 export async function cancelODL(jobId: string) {
-  await adminDb.collection("jobOrders").doc(jobId).update({ 
-      status: 'IN_PIANIFICAZIONE', 
-      odlCreationDate: null,
-      updatedAt: admin.firestore.Timestamp.now()
-  });
-  revalidatePath('/admin/data-management');
-  revalidatePath('/admin/production-console');
-  revalidatePath('/admin/resource-planning');
-  return { success: true, message: 'ODL annullato e riportato in pianificazione.' };
+    try {
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        const jobSnap = await jobRef.get();
+        if (!jobSnap.exists) {
+            return { success: false, message: "Commessa non trovata." };
+        }
+        const job = jobSnap.data() as JobOrder;
+
+        const activeOpSnaps = await adminDb.collection("operators")
+            .where("activeJobId", "in", [jobId, job.ordinePF].filter(Boolean))
+            .get();
+
+        const batch = adminDb.batch();
+        activeOpSnaps.forEach(opDoc => {
+            batch.update(opDoc.ref, { stato: 'inattivo', activePhaseName: null, activeJobId: null });
+        });
+
+        const resetPhases = (job.phases || []).map(p => ({
+            ...p,
+            status: 'pending' as const,
+            workPeriods: [],
+            materialConsumptions: [],
+            qualityResult: null,
+            materialReady: p.isIndependent || p.type === 'preparation'
+        }));
+
+        batch.update(jobRef, {
+            status: 'IN_PIANIFICAZIONE',
+            odlCreationDate: admin.firestore.FieldValue.delete(),
+            overallStartTime: admin.firestore.FieldValue.delete(),
+            overallEndTime: admin.firestore.FieldValue.delete(),
+            forcedCompletion: admin.firestore.FieldValue.delete(),
+            packingListId: admin.firestore.FieldValue.delete(),
+            isProblemReported: false,
+            phases: resetPhases,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+
+        await batch.commit();
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/production-console');
+        revalidatePath('/admin/resource-planning');
+        return { success: true, message: `Commessa ${job.ordinePF || jobId} riportata in pianificazione.` };
+    } catch (e: any) {
+        console.error("Errore in cancelODL:", e);
+        return { success: false, message: e?.message || "Errore durante l'annullamento dell'ODL." };
+    }
 }
 
 export async function deleteSelectedJobOrders(ids: string[]) {
