@@ -30,7 +30,9 @@ import {
   Calendar,
   Clock,
   Truck,
-  Download
+  Download,
+  AlertCircle,
+  PackageCheck
 } from 'lucide-react';
 import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -38,6 +40,7 @@ import { it } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -98,7 +101,10 @@ import {
   updateJobStatus,
   updateJobDeliveryDate,
   updateJobAssignedWeek,
-  saveQuickJobOrder
+  saveQuickJobOrder,
+  bulkUpdateJobDeliveryDate,
+  bulkShipJobs,
+  bulkStartProductionAndPrint
 } from './actions';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -212,6 +218,35 @@ export function getJobWeekAndYear(job: JobOrder): { week: number; year: number }
   };
 }
 
+/**
+ * FASE 16: Roll-over (Time-shifting) per commesse attive in ritardo
+ * Se la commessa è attiva (non completata/spedita) ed ha data antecedente alla settimana in corso,
+ * viene forzata e visualizzata nel secchiello della Settimana Corrente.
+ */
+export function getJobEffectiveWeek(job: JobOrder, now: Date = new Date()): { week: number; year: number; isRolledOver: boolean } | null {
+  const weekInfo = getJobWeekAndYear(job);
+  if (!weekInfo) return null;
+
+  const currentIsoWeek = getISOWeek(now);
+  const currentIsoYear = getISOWeekYear(now);
+
+  const isActive = !isJobFinished(job);
+  const isPastWeek = weekInfo.year < currentIsoYear || (weekInfo.year === currentIsoYear && weekInfo.week < currentIsoWeek);
+
+  if (isActive && isPastWeek) {
+    return {
+      week: currentIsoWeek,
+      year: currentIsoYear,
+      isRolledOver: true,
+    };
+  }
+
+  return {
+    ...weekInfo,
+    isRolledOver: false,
+  };
+}
+
 interface DayCapacityConfig {
   L: number;
   M: number;
@@ -271,6 +306,12 @@ export default function ProgrammazioneClientPage({
   const [odlDrafts, setOdlDrafts] = useState<Record<string, string>>({});
   // Draft locale per Data Consegna (inline edit)
   const [dateDrafts, setDateDrafts] = useState<Record<string, string>>({});
+
+  // FASE 16: Selezione Multipla (Checkbox) e Azioni Massive (Bulk Actions)
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [isBulkDateOpen, setIsBulkDateOpen] = useState(false);
+  const [bulkDateInput, setBulkDateInput] = useState('');
 
   // 2. Riga Vuota Rapida (Top DataGrid)
   const [quickRow, setQuickRow] = useState({
@@ -512,9 +553,10 @@ export default function ProgrammazioneClientPage({
       // 3. Bivio: Vista per Settimana vs Vista Globale
       if (viewMode === 'settimana') {
         if (!showAllWeeks) {
-          const weekInfo = getJobWeekAndYear(job);
-          if (!weekInfo) return false;
-          if (weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear) {
+          // FASE 16: Roll-over al presente per commesse attive in ritardo
+          const effectiveWeek = getJobEffectiveWeek(job);
+          if (!effectiveWeek) return false;
+          if (effectiveWeek.week !== selectedWeekNumber || effectiveWeek.year !== selectedYear) {
             return false;
           }
         }
@@ -586,8 +628,9 @@ export default function ProgrammazioneClientPage({
     jobs.forEach((job) => {
       if (viewMode === 'settimana') {
         if (!showAllWeeks) {
-          const weekInfo = getJobWeekAndYear(job);
-          if (!weekInfo || weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear) {
+          // FASE 16: Roll-over al presente per commesse attive in ritardo
+          const effectiveWeek = getJobEffectiveWeek(job);
+          if (!effectiveWeek || effectiveWeek.week !== selectedWeekNumber || effectiveWeek.year !== selectedYear) {
             return;
           }
         }
@@ -1174,6 +1217,16 @@ export default function ProgrammazioneClientPage({
 
   // Modifica Stato Commessa (4 stati SSoT rigorosi)
   const handleStatusChange = async (job: JobOrder, newStatus: JobStatusOption) => {
+    // FASE 16: Guardrail Data Consegna Obbligatoria
+    if ((!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) && newStatus !== 'Pianificata') {
+      toast({
+        variant: "destructive",
+        title: "Data di Consegna Mancante",
+        description: "Inserire Data di Consegna per avviare o modificare lo stato.",
+      });
+      return;
+    }
+
     const prevJob = { ...job };
     const currentStatus = normalizeJobStatus(job);
     if (currentStatus === newStatus) return;
@@ -1238,6 +1291,16 @@ export default function ProgrammazioneClientPage({
 
   // 4. Workflow Avvio Produzione: richiama createODL transazionale
   const handleStartProduction = async (job: JobOrder) => {
+    // FASE 16: Guardrail Data Consegna Obbligatoria
+    if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Data di Consegna Mancante",
+        description: "Inserire Data di Consegna per avviare.",
+      });
+      return;
+    }
+
     try {
       const res = await startJobProduction(job.id);
       if (!res.success) {
@@ -1277,9 +1340,250 @@ export default function ProgrammazioneClientPage({
   };
 
   // =========================================================================
+  // FASE 16: GESTIONE SELEZIONE MULTIPLA E AZIONI MASSIVE (BULK ACTIONS)
+  // =========================================================================
+  const allVisibleIds = useMemo(() => {
+    return sortedAndFilteredJobs.map((j) => j.id);
+  }, [sortedAndFilteredJobs]);
+
+  const isAllSelected = useMemo(() => {
+    return allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedJobIds.includes(id));
+  }, [allVisibleIds, selectedJobIds]);
+
+  const isSomeSelected = useMemo(() => {
+    return allVisibleIds.some((id) => selectedJobIds.includes(id)) && !isAllSelected;
+  }, [allVisibleIds, selectedJobIds, isAllSelected]);
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedJobIds((prev) => Array.from(new Set([...prev, ...allVisibleIds])));
+    } else {
+      setSelectedJobIds((prev) => prev.filter((id) => !allVisibleIds.includes(id)));
+    }
+  };
+
+  const handleToggleSelect = (jobId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedJobIds((prev) => [...prev, jobId]);
+    } else {
+      setSelectedJobIds((prev) => prev.filter((id) => id !== jobId));
+    }
+  };
+
+  // 1. Bulk Start Production and Print ODL
+  const handleBulkStartAndPrint = async () => {
+    if (selectedJobIds.length === 0) return;
+
+    const selectedJobs = jobs.filter((j) => selectedJobIds.includes(j.id));
+    const jobsWithDate = selectedJobs.filter((j) => j.dataConsegnaFinale && j.dataConsegnaFinale.trim().length > 0);
+    const jobsWithoutDate = selectedJobs.filter((j) => !j.dataConsegnaFinale || !j.dataConsegnaFinale.trim());
+
+    if (jobsWithDate.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Impossibile Avviare",
+        description: "Tutte le commesse selezionate sono prive di Data di Consegna. Inserire le date per avviare.",
+      });
+      return;
+    }
+
+    setIsBulkProcessing(true);
+    try {
+      const res = await bulkStartProductionAndPrint(jobsWithDate.map((j) => j.id));
+      if (!res.success) {
+        toast({
+          variant: "destructive",
+          title: "Errore Avvio Massivo",
+          description: res.message,
+        });
+        return;
+      }
+
+      const startedIdsSet = new Set(res.startedJobs.map((s) => s.id));
+      const startedMap = new Map(res.startedJobs.map((s) => [s.id, s]));
+
+      setJobs((prev) =>
+        prev.map((j) => {
+          if (startedIdsSet.has(j.id)) {
+            const startedInfo = startedMap.get(j.id);
+            return {
+              ...j,
+              status: 'DA_INIZIARE',
+              isPrinted: true,
+              odlPrinted: true,
+              numeroODLInterno: startedInfo?.numeroODLInterno || j.numeroODLInterno,
+            };
+          }
+          return j;
+        })
+      );
+
+      // Deseleziona le commesse avviate con successo
+      setSelectedJobIds((prev) => prev.filter((id) => !startedIdsSet.has(id)));
+
+      toast({
+        title: "Avvio e Stampa Massiva Completati",
+        description: res.message,
+      });
+
+      if (jobsWithoutDate.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Commesse Escluse",
+          description: `${jobsWithoutDate.length} commesse escluse perché prive di Data di Consegna: ${jobsWithoutDate.map(j => j.ordinePF || j.id).join(', ')}.`,
+        });
+      }
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore Operazione Massiva",
+        description: e?.message || "Impossibile completare l'avvio massivo.",
+      });
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  // 2. Bulk Change Delivery Date
+  const handleBulkChangeDeliveryDate = async () => {
+    if (selectedJobIds.length === 0) return;
+    if (!bulkDateInput.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Data Richiesta",
+        description: "Inserire una data valida (es. GG/MM/AAAA).",
+      });
+      return;
+    }
+
+    const parsedDate = parseRobustDate(bulkDateInput.trim());
+    if (!parsedDate || isNaN(parsedDate.getTime())) {
+      toast({
+        variant: "destructive",
+        title: "Data Non Valida",
+        description: "Formato data non riconosciuto. Usa il formato GG/MM/AAAA.",
+      });
+      return;
+    }
+
+    const isoFormatted = format(parsedDate, 'yyyy-MM-dd');
+    const newWeek = getISOWeek(parsedDate);
+    const newYear = getISOWeekYear(parsedDate);
+    const newTargetWeek = `${newYear}-W${String(newWeek).padStart(2, '0')}`;
+
+    setIsBulkProcessing(true);
+    try {
+      const res = await bulkUpdateJobDeliveryDate(selectedJobIds, isoFormatted);
+      if (!res.success) {
+        toast({
+          variant: "destructive",
+          title: "Errore Modifica Date",
+          description: res.message,
+        });
+        return;
+      }
+
+      const selectedSet = new Set(selectedJobIds);
+      setJobs((prev) =>
+        prev.map((j) => {
+          if (selectedSet.has(j.id)) {
+            return {
+              ...j,
+              dataConsegnaFinale: isoFormatted,
+              assignedDate: undefined,
+              isoWeek: newWeek,
+              weekYear: newYear,
+              targetWeek: newTargetWeek,
+            };
+          }
+          return j;
+        })
+      );
+
+      toast({
+        title: "Data Consegna Aggiornata",
+        description: `Data impostata al ${format(parsedDate, 'dd/MM/yyyy')} su ${res.updatedCount} commesse.`,
+      });
+
+      setBulkDateInput('');
+      setIsBulkDateOpen(false);
+      setSelectedJobIds([]);
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore Aggiornamento Massivo Data",
+        description: e?.message || "Impossibile aggiornare le date.",
+      });
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  // 3. Bulk Ship Jobs
+  const handleBulkShip = async () => {
+    if (selectedJobIds.length === 0) return;
+
+    if (!window.confirm(`Sei sicuro di voler contrassegnare come SPEDITE ${selectedJobIds.length} commesse selezionate?`)) {
+      return;
+    }
+
+    setIsBulkProcessing(true);
+    try {
+      const res = await bulkShipJobs(selectedJobIds);
+      if (!res.success) {
+        toast({
+          variant: "destructive",
+          title: "Errore Spedizione Massiva",
+          description: res.message,
+        });
+        return;
+      }
+
+      const selectedSet = new Set(selectedJobIds);
+      setJobs((prev) =>
+        prev.map((j) => {
+          if (selectedSet.has(j.id)) {
+            return {
+              ...j,
+              status: 'SPEDITA',
+              forcedCompletion: true,
+            };
+          }
+          return j;
+        })
+      );
+
+      toast({
+        title: "Spedizione Massiva Completata",
+        description: res.message,
+      });
+
+      setSelectedJobIds([]);
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore Spedizione",
+        description: e?.message || "Impossibile completare la spedizione massiva.",
+      });
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  // =========================================================================
   // STAMPA ODL (FASE 9: Generatore PDF fisico + Aggiornamento Stato)
   // =========================================================================
   const handleTogglePrintODL = async (job: JobOrder) => {
+    // FASE 16: Guardrail Data Consegna Obbligatoria
+    if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Data di Consegna Mancante",
+        description: "Inserire Data di Consegna per avviare.",
+      });
+      return;
+    }
+
     // Risolvi il N° ODL dal draft corrente o dal valore salvato
     const currentOdl = (
       odlDrafts[job.id] !== undefined
@@ -2360,6 +2664,18 @@ export default function ProgrammazioneClientPage({
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-muted/70 sticky top-0 z-10 border-b shadow-2xs backdrop-blur-xs">
                 <tr className="divide-x divide-border font-semibold text-foreground">
+                  {/* 0. CHECKBOX (SELEZIONA TUTTO) */}
+                  <th className="py-2 px-2 text-center w-[38px] bg-muted/80">
+                    <div className="flex items-center justify-center">
+                      <Checkbox
+                        checked={isAllSelected ? true : isSomeSelected ? "indeterminate" : false}
+                        onCheckedChange={(checked) => handleSelectAll(Boolean(checked))}
+                        aria-label="Seleziona tutte le commesse"
+                        className="h-3.5 w-3.5 translate-y-[1px]"
+                      />
+                    </div>
+                  </th>
+
                   {/* 1. REPARTO */}
                   <th className="py-2 px-2 text-center w-[55px]">Rep.</th>
 
@@ -2438,6 +2754,11 @@ export default function ProgrammazioneClientPage({
                     2. RIGA VUOTA RAPIDA PERMANENTEMENTE VISIBILE IN CIMA ALLA DATAGRID
                 ========================================================================== */}
                 <tr className="divide-x divide-border bg-blue-500/5 hover:bg-blue-500/10 transition-colors border-b-2 border-primary/30">
+                  {/* Cella Checkbox per Riga Rapida */}
+                  <td className="py-1 px-1 text-center align-middle font-mono text-[10px] text-muted-foreground/40">
+                    +
+                  </td>
+
                   {/* Reparto */}
                   <td className="py-1 px-1 text-center align-middle">
                     <Select
@@ -2639,7 +2960,7 @@ export default function ProgrammazioneClientPage({
                 ========================================================================== */}
                 {sortedAndFilteredJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-12 text-center text-muted-foreground">
+                    <td colSpan={13} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Layers className="h-7 w-7 text-muted-foreground/40" />
                         <p className="text-sm font-medium">
@@ -2701,11 +3022,45 @@ export default function ProgrammazioneClientPage({
                       ? dateDrafts[job.id] 
                       : formatDateForDisplay(job.dataConsegnaFinale);
 
+                    // FASE 16: Guardrail & Allarmi Data Consegna
+                    const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
+                    
+                    let isDeliveryDateExpired = false;
+                    if (!isDeliveryDateMissing) {
+                      const d = parseRobustDate(job.dataConsegnaFinale);
+                      if (d && !isNaN(d.getTime())) {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const dMid = new Date(d);
+                        dMid.setHours(0, 0, 0, 0);
+                        // Data nel passato E non completata/spedita
+                        isDeliveryDateExpired = dMid < today && !isJobFinished(job);
+                      }
+                    }
+
+                    const effectiveWeekInfo = getJobEffectiveWeek(job);
+                    const isSelected = selectedJobIds.includes(job.id);
+
                     return (
                       <tr
                         key={job.id}
-                        className="divide-x divide-border hover:bg-muted/30 transition-colors group"
+                        className={cn(
+                          "divide-x divide-border hover:bg-muted/30 transition-colors group",
+                          isSelected && "bg-blue-500/10 hover:bg-blue-500/15"
+                        )}
                       >
+                        {/* 0. CHECKBOX RIGA */}
+                        <td className="py-1.5 px-2 text-center align-middle">
+                          <div className="flex items-center justify-center">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={(checked) => handleToggleSelect(job.id, Boolean(checked))}
+                              aria-label={`Seleziona commessa ${job.ordinePF}`}
+                              className="h-3.5 w-3.5 translate-y-[1px]"
+                            />
+                          </div>
+                        </td>
+
                         {/* 1. REPARTO (Solo il badge dedicato) */}
                         <td className="py-1.5 px-1.5 text-center align-middle">
                           {deptGroup === 'CP' && (
@@ -2766,31 +3121,59 @@ export default function ProgrammazioneClientPage({
                           {hours.toFixed(1)} h
                         </td>
 
-                        {/* 7. DATA CONS. (Inline Editable GG/MM/AAAA) */}
+                        {/* 7. DATA CONS. (Inline Editable GG/MM/AAAA con Guardrail e Allarme Ritardo) */}
                         <td className="py-1 px-1.5 text-center align-middle">
-                          <input
-                            type="text"
-                            value={currentDeliveryDateDisplay}
-                            placeholder="GG/MM/AAAA"
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setDateDrafts(prev => ({ ...prev, [job.id]: val }));
-                            }}
-                            onBlur={() => handleDeliveryDateBlur(job)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            className={cn(
-                              "h-6 text-[11px] font-mono font-semibold text-center px-1 py-0 w-full rounded border transition-colors",
-                              "hover:border-primary/50 focus:border-primary focus:ring-1 focus:ring-primary",
-                              !job.dataConsegnaFinale 
-                                ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
-                                : "border-border bg-background text-foreground"
+                          <div className="relative flex items-center">
+                            {isDeliveryDateMissing && (
+                              <span 
+                                className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500" 
+                                title="Data mancante: obbligatoria per avviare la commessa!"
+                              >
+                                <AlertCircle className="h-3.5 w-3.5 animate-pulse text-red-500" />
+                              </span>
                             )}
-                            title="Clicca per modificare la data (GG/MM/AAAA) e premi Invio"
-                          />
+                            {isDeliveryDateExpired && !isDeliveryDateMissing && (
+                              <span 
+                                className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500" 
+                                title="Attenzione: Commessa scaduta/in ritardo!"
+                              >
+                                <AlertTriangle className="h-3 w-3 text-red-500" />
+                              </span>
+                            )}
+                            <input
+                              type="text"
+                              value={currentDeliveryDateDisplay}
+                              placeholder={isDeliveryDateMissing ? "Manca Data!" : "GG/MM/AAAA"}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setDateDrafts(prev => ({ ...prev, [job.id]: val }));
+                              }}
+                              onBlur={() => handleDeliveryDateBlur(job)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                }
+                              }}
+                              className={cn(
+                                "h-6 text-[11px] font-mono font-semibold text-center px-1 py-0 w-full rounded border transition-colors",
+                                "hover:border-primary/50 focus:border-primary focus:ring-1 focus:ring-primary",
+                                isDeliveryDateMissing && "border-red-500 bg-red-500/10 text-red-600 dark:text-red-400 placeholder:text-red-500 font-bold pl-5",
+                                isDeliveryDateExpired && "border-red-500 bg-red-50/20 dark:bg-red-950/20 text-red-600 dark:text-red-400 font-bold pl-5",
+                                !isDeliveryDateMissing && !isDeliveryDateExpired && (
+                                  !job.dataConsegnaFinale 
+                                    ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
+                                    : "border-border bg-background text-foreground"
+                                )
+                              )}
+                              title={
+                                isDeliveryDateMissing 
+                                  ? "Data Mancante! È severamente vietato avviare senza Data Consegna." 
+                                  : isDeliveryDateExpired 
+                                    ? "Data Scaduta nel passato! Commessa in ritardo."
+                                    : "Clicca per modificare la data (GG/MM/AAAA) e premi Invio"
+                              }
+                            />
+                          </div>
                         </td>
 
                         {/* 8. N° ODL (Input Rapido) */}
@@ -2843,41 +3226,56 @@ export default function ProgrammazioneClientPage({
                           </Tooltip>
                         </td>
 
-                        {/* 10. SETTIMANA ASSEGNATA (Allineata a ISO 8601) */}
+                        {/* 10. SETTIMANA ASSEGNATA (Allineata a ISO 8601 con indicatore Roll-over) */}
                         <td className="py-1 px-1.5 text-center align-middle">
-                          <Select
-                            value={currentJobWeekVal}
-                            onValueChange={(newWeekVal) => {
-                              handleAssignJobWeek(job, newWeekVal);
-                            }}
-                          >
-                            <SelectTrigger className="h-6 text-[11px] font-mono py-0 px-1.5 w-full justify-between">
-                              <SelectValue placeholder="Settimana" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {weekOptions.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value} className="text-xs font-mono">
-                                  {opt.shortLabel}
-                                </SelectItem>
-                              ))}
-                              <SelectItem value="Non ass." className="text-xs font-mono">Non assegnata</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <div className="flex flex-col items-center gap-0.5">
+                            <Select
+                              value={currentJobWeekVal}
+                              onValueChange={(newWeekVal) => {
+                                handleAssignJobWeek(job, newWeekVal);
+                              }}
+                            >
+                              <SelectTrigger className="h-6 text-[11px] font-mono py-0 px-1.5 w-full justify-between">
+                                <SelectValue placeholder="Settimana" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {weekOptions.map((opt) => (
+                                  <SelectItem key={opt.value} value={opt.value} className="text-xs font-mono">
+                                    {opt.shortLabel}
+                                  </SelectItem>
+                                ))}
+                                <SelectItem value="Non ass." className="text-xs font-mono">Non assegnata</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {effectiveWeekInfo?.isRolledOver && (
+                              <Badge 
+                                variant="outline" 
+                                className="text-[9px] px-1 py-0 font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 whitespace-nowrap"
+                                title={`Roll-over: commessa in ritardo (scaduta in W${weekInfo?.week}) spostata alla Settimana Corrente W${effectiveWeekInfo.week}`}
+                              >
+                                Roll-over W{effectiveWeekInfo.week}
+                              </Badge>
+                            )}
+                          </div>
                         </td>
 
-                        {/* 11. STATO COMMESSA */}
+                        {/* 11. STATO COMMESSA (Inibito se Data Mancante) */}
                         <td className="py-1 px-1.5 text-center align-middle">
                           <Select
                             value={currentStatus}
+                            disabled={isDeliveryDateMissing}
                             onValueChange={(val: JobStatusOption) => handleStatusChange(job, val)}
                           >
                             <SelectTrigger className={cn(
                               "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border",
-                              currentStatus === 'Pianificata' && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
-                              currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
-                              currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
-                              currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
-                            )}>
+                              isDeliveryDateMissing && "opacity-50 cursor-not-allowed border-dashed border-red-500/50 bg-red-50/10",
+                              !isDeliveryDateMissing && currentStatus === 'Pianificata' && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
+                              !isDeliveryDateMissing && currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
+                              !isDeliveryDateMissing && currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
+                              !isDeliveryDateMissing && currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
+                            )}
+                            title={isDeliveryDateMissing ? "Inserire Data di Consegna per sbloccare lo stato" : undefined}
+                            >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2897,64 +3295,73 @@ export default function ProgrammazioneClientPage({
                           </Select>
                         </td>
 
-                        {/* 12. AZIONI (Stampa con vincolo ODL + Avvia) */}
+                        {/* 12. AZIONI (Stampa con vincolo ODL + Avvia con Guardrail Data Mancante) */}
                         <td className="py-1 px-1.5 text-center align-middle">
                           <div className="flex items-center justify-center gap-1">
                             {/* Stampa ODL */}
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  disabled={isDownloadingPdf === job.id}
-                                  onClick={() => handleTogglePrintODL(job)}
-                                  className={cn(
-                                    "h-7 w-7 transition-colors",
-                                    isPrinted 
-                                      ? "text-green-500 hover:text-green-600 bg-green-500/10 hover:bg-green-500/20" 
-                                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                                  )}
-                                >
-                                  {isDownloadingPdf === job.id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                                  ) : (
-                                    <Printer className="h-3.5 w-3.5" />
-                                  )}
-                                </Button>
+                                <span className="inline-block">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled={isDeliveryDateMissing || isDownloadingPdf === job.id}
+                                    onClick={() => handleTogglePrintODL(job)}
+                                    className={cn(
+                                      "h-7 w-7 transition-colors",
+                                      isDeliveryDateMissing && "opacity-30 cursor-not-allowed",
+                                      !isDeliveryDateMissing && isPrinted 
+                                        ? "text-green-500 hover:text-green-600 bg-green-500/10 hover:bg-green-500/20" 
+                                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    )}
+                                  >
+                                    {isDownloadingPdf === job.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                                    ) : (
+                                      <Printer className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                </span>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {isDownloadingPdf === job.id
-                                  ? "Generazione PDF ODL in corso..."
-                                  : isPrinted 
-                                    ? "ODL stampato (clicca per ristampare il PDF)" 
-                                    : "Stampa ODL (richiede N° ODL)"}
+                                {isDeliveryDateMissing
+                                  ? "Inserire Data di Consegna per avviare"
+                                  : isDownloadingPdf === job.id
+                                    ? "Generazione PDF ODL in corso..."
+                                    : isPrinted 
+                                      ? "ODL stampato (clicca per ristampare il PDF)" 
+                                      : "Stampa ODL (richiede N° ODL)"}
                               </TooltipContent>
                             </Tooltip>
 
                             {/* Avvia in Produzione (Aggiorna a In Produzione) */}
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleStartProduction(job)}
-                                  disabled={currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito'}
-                                  className={cn(
-                                    "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10",
-                                    (currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito') && "opacity-40 cursor-not-allowed"
-                                  )}
-                                >
-                                  <Play className="h-3.5 w-3.5" />
-                                </Button>
+                                <span className="inline-block">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleStartProduction(job)}
+                                    disabled={isDeliveryDateMissing || currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito'}
+                                    className={cn(
+                                      "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10",
+                                      (isDeliveryDateMissing || currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.' || currentStatus === 'Spedito') && "opacity-30 cursor-not-allowed"
+                                    )}
+                                  >
+                                    <Play className="h-3.5 w-3.5" />
+                                  </Button>
+                                </span>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {currentStatus === 'In Produzione' 
-                                  ? "Già in Produzione" 
-                                  : currentStatus === 'Completato Prod.'
-                                    ? "Produzione Completata"
-                                    : currentStatus === 'Spedito'
-                                      ? "Commessa Spedita"
-                                      : "Avvia ODL in Produzione"}
+                                {isDeliveryDateMissing
+                                  ? "Inserire Data di Consegna per avviare"
+                                  : currentStatus === 'In Produzione' 
+                                    ? "Già in Produzione" 
+                                    : currentStatus === 'Completato Prod.'
+                                      ? "Produzione Completata"
+                                      : currentStatus === 'Spedito'
+                                        ? "Commessa Spedita"
+                                        : "Avvia ODL in Produzione"}
                               </TooltipContent>
                             </Tooltip>
                           </div>
@@ -2967,6 +3374,118 @@ export default function ProgrammazioneClientPage({
             </table>
           </div>
         </div>
+
+        {/* =========================================================================
+            FASE 16: BARRA DELLE AZIONI RAPIDE (FLOATING BULK ACTIONS BAR)
+        ========================================================================== */}
+        {selectedJobIds.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-slate-900/95 backdrop-blur-md text-white border border-slate-700/80 shadow-2xl rounded-2xl px-4 py-2.5 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-200">
+            <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
+              <Badge className="bg-primary hover:bg-primary text-white font-mono font-bold text-xs px-2 py-0.5">
+                {selectedJobIds.length}
+              </Badge>
+              <span className="text-xs font-semibold text-slate-200 hidden sm:inline">
+                {selectedJobIds.length === 1 ? 'selezionata' : 'selezionate'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedJobIds([])}
+                className="text-[11px] text-slate-400 hover:text-white underline ml-1 cursor-pointer"
+                title="Deseleziona tutte"
+              >
+                Annulla
+              </button>
+            </div>
+
+            {/* 1. Stampa ODL / Avvia Produzione */}
+            <Button
+              size="sm"
+              disabled={isBulkProcessing}
+              onClick={handleBulkStartAndPrint}
+              className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
+              title="Avvia in produzione e segna come stampate le commesse selezionate (esclude quelle prive di data)"
+            >
+              {isBulkProcessing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5 fill-current" />
+                  <Printer className="h-3.5 w-3.5" />
+                </>
+              )}
+              <span>Stampa ODL / Avvia</span>
+            </Button>
+
+            {/* 2. Cambia Data Consegna */}
+            <Popover open={isBulkDateOpen} onOpenChange={setIsBulkDateOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isBulkProcessing}
+                  className="h-8 gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-600 font-medium text-xs cursor-pointer shrink-0"
+                  title="Applica la stessa data di consegna a tutte le commesse selezionate"
+                >
+                  <CalendarDays className="h-3.5 w-3.5 text-blue-400" />
+                  <span>Cambia Data Cons.</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-3 space-y-3 bg-slate-900 border-slate-700 text-white shadow-xl" align="center" side="top">
+                <div className="space-y-1">
+                  <h4 className="font-bold text-xs text-white">Aggiorna Data Consegna Massiva</h4>
+                  <p className="text-[11px] text-slate-400">
+                    Imposta la stessa data su tutte le {selectedJobIds.length} commesse selezionate.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Input
+                    type="text"
+                    placeholder="GG/MM/AAAA"
+                    value={bulkDateInput}
+                    onChange={(e) => setBulkDateInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleBulkChangeDeliveryDate()}
+                    className="h-8 text-xs bg-slate-800 border-slate-600 text-white placeholder:text-slate-500 font-mono"
+                    autoFocus
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setIsBulkDateOpen(false)}
+                      className="h-7 text-xs text-slate-400 hover:text-white hover:bg-slate-800"
+                    >
+                      Annulla
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleBulkChangeDeliveryDate}
+                      disabled={isBulkProcessing || !bulkDateInput.trim()}
+                      className="h-7 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white"
+                    >
+                      {isBulkProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Applica"}
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* 3. Spedisci */}
+            <Button
+              size="sm"
+              disabled={isBulkProcessing}
+              onClick={handleBulkShip}
+              className="h-8 gap-1.5 bg-purple-700 hover:bg-purple-600 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
+              title="Contrassegna tutte le commesse selezionate come Spedite"
+            >
+              {isBulkProcessing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Truck className="h-3.5 w-3.5" />
+              )}
+              <span>Spedisci</span>
+            </Button>
+          </div>
+        )}
 
         {/* =========================================================================
             MODALI HUB INSERIMENTO

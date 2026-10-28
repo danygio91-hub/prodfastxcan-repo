@@ -673,3 +673,156 @@ export async function saveQuickJobOrder(data: {
     }
 }
 
+/**
+ * FASE 16: Aggiornamento massivo Data di Consegna per più commesse selezionate
+ */
+export async function bulkUpdateJobDeliveryDate(
+    jobIds: string[],
+    newDate: string
+): Promise<{ success: boolean; message: string; updatedCount: number }> {
+    try {
+        const val = (newDate || '').trim();
+        let isoWeek: number | null = null;
+        let weekYear: number | null = null;
+        let targetWeek: string | null = null;
+        if (val) {
+            const d = parseRobustDate(val) || new Date(val);
+            if (d && !isNaN(d.getTime())) {
+                isoWeek = getISOWeek(d);
+                weekYear = getISOWeekYear(d);
+                targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
+            }
+        }
+
+        const batchSize = 450;
+        for (let i = 0; i < jobIds.length; i += batchSize) {
+            const chunk = jobIds.slice(i, i + batchSize);
+            const batch = adminDb.batch();
+            chunk.forEach(id => {
+                const ref = adminDb.collection("jobOrders").doc(id);
+                const updatePayload: Record<string, any> = {
+                    dataConsegnaFinale: val,
+                    updatedAt: new Date().toISOString(),
+                };
+                if (isoWeek !== null) updatePayload.isoWeek = isoWeek;
+                if (weekYear !== null) updatePayload.weekYear = weekYear;
+                if (targetWeek !== null) updatePayload.targetWeek = targetWeek;
+                batch.update(ref, updatePayload);
+            });
+            await batch.commit();
+        }
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        return { success: true, message: `Data consegna aggiornata su ${jobIds.length} commesse.`, updatedCount: jobIds.length };
+    } catch (error: any) {
+        console.error("Errore bulkUpdateJobDeliveryDate:", error);
+        return { success: false, message: error?.message || "Errore durante l'aggiornamento massivo della data.", updatedCount: 0 };
+    }
+}
+
+/**
+ * FASE 16: Spedizione massiva commesse selezionate
+ */
+export async function bulkShipJobs(
+    jobIds: string[]
+): Promise<{ success: boolean; message: string; count: number }> {
+    try {
+        const batchSize = 250;
+        for (let i = 0; i < jobIds.length; i += batchSize) {
+            const chunk = jobIds.slice(i, i + batchSize);
+            const batch = adminDb.batch();
+            chunk.forEach(id => {
+                const ref = adminDb.collection("jobOrders").doc(id);
+                batch.update(ref, {
+                    status: 'SPEDITA',
+                    overallEndTime: admin.firestore.Timestamp.now(),
+                    forcedCompletion: true,
+                    lastStatusChange: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.Timestamp.now()
+                });
+            });
+            await batch.commit();
+        }
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/production-console');
+        revalidatePath('/operator/packing');
+        return { success: true, message: `${jobIds.length} commesse contrassegnate come SPEDITE.`, count: jobIds.length };
+    } catch (e: any) {
+        console.error("Errore in bulkShipJobs:", e);
+        return { success: false, message: e?.message || "Errore durante la spedizione massiva.", count: 0 };
+    }
+}
+
+/**
+ * FASE 16: Avvio e Stampa massiva commesse selezionate
+ * Nota logica: le commesse prive di data di consegna vengono escluse in automatico dall'avvio
+ */
+export async function bulkStartProductionAndPrint(
+    jobIds: string[]
+): Promise<{ 
+    success: boolean; 
+    message: string; 
+    startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[];
+    skippedNoDate: string[];
+}> {
+    try {
+        const startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[] = [];
+        const skippedNoDate: string[] = [];
+
+        for (const id of jobIds) {
+            const docSnap = await adminDb.collection("jobOrders").doc(id).get();
+            if (!docSnap.exists) continue;
+            const job = docSnap.data() as JobOrder;
+            if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
+                skippedNoDate.push(job.ordinePF || id);
+                continue;
+            }
+
+            const currentStatusLower = (job.status || '').toLowerCase().trim();
+            const isAlreadyStarted = ['da_iniziare', 'in_preparazione', 'pronto_prod', 'in_produzione', 'fine_produzione', 'qlty_pack', 'chiuso', 'in produzione', 'completato prod.', 'spedito'].includes(currentStatusLower);
+
+            let odlNum = job.numeroODLInterno;
+            if (!isAlreadyStarted) {
+                const res = await createODL(id);
+                if (res.success) {
+                    const refreshed = await adminDb.collection("jobOrders").doc(id).get();
+                    odlNum = (refreshed.data() as JobOrder)?.numeroODLInterno || odlNum;
+                }
+            }
+
+            await adminDb.collection("jobOrders").doc(id).update({
+                isPrinted: true,
+                odlPrinted: true,
+                updatedAt: admin.firestore.Timestamp.now()
+            });
+
+            startedJobs.push({
+                id,
+                ordinePF: job.ordinePF || id,
+                numeroODLInterno: odlNum || undefined
+            });
+        }
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+
+        const message = startedJobs.length > 0 
+            ? `Avviate e segnate come stampate ${startedJobs.length} commesse.${skippedNoDate.length > 0 ? ` Escluse ${skippedNoDate.length} prive di data.` : ''}`
+            : `Nessuna commessa avviata.${skippedNoDate.length > 0 ? ` Tutte le ${skippedNoDate.length} commesse selezionate erano prive di data.` : ''}`;
+
+        return {
+            success: startedJobs.length > 0,
+            message,
+            startedJobs,
+            skippedNoDate
+        };
+    } catch (e: any) {
+        console.error("Errore in bulkStartProductionAndPrint:", e);
+        return { success: false, message: e?.message || "Errore durante l'avvio massivo.", startedJobs: [], skippedNoDate: [] };
+    }
+}
+
+
