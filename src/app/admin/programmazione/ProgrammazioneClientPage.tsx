@@ -2654,7 +2654,7 @@ export default function ProgrammazioneClientPage({
                   <div 
                     key={day} 
                     className={cn(
-                      "flex items-center gap-1 px-1.5 py-0.5 rounded border",
+                      "flex items-center gap-1.5 px-2 py-0.5 rounded border",
                       selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
                     )}
                     title={selectedDept === 'ALL' ? `Somma addetti ${day === 'Me' ? 'Mercoledì' : day} di tutti i reparti (Read-Only). Seleziona CP, CG o BF per modificare.` : undefined}
@@ -2668,7 +2668,7 @@ export default function ProgrammazioneClientPage({
                       value={currentCapacity[day]}
                       onChange={(e) => handleCapacityChange(day, parseInt(e.target.value))}
                       className={cn(
-                        "w-8 h-5 text-center font-mono font-bold border rounded text-xs px-0.5 focus:outline-hidden",
+                        "w-14 min-w-[3.5rem] h-6 text-center font-mono font-bold border rounded text-xs px-1 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
                         selectedDept === 'ALL' 
                           ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent" 
                           : "bg-background focus:ring-1 focus:ring-primary"
@@ -2679,7 +2679,7 @@ export default function ProgrammazioneClientPage({
 
                 <div 
                   className={cn(
-                    "flex items-center gap-1 px-1.5 py-0.5 rounded border ml-1",
+                    "flex items-center gap-1.5 px-2 py-0.5 rounded border ml-1",
                     selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
                   )}
                   title={selectedDept === 'ALL' ? "Somma straordinari di tutti i reparti (Read-Only). Seleziona CP, CG o BF per modificare." : undefined}
@@ -2693,7 +2693,7 @@ export default function ProgrammazioneClientPage({
                     value={currentCapacity.overtime}
                     onChange={(e) => handleCapacityChange('overtime', parseFloat(e.target.value))}
                     className={cn(
-                      "w-10 h-5 text-center font-mono font-bold border rounded text-xs px-0.5 focus:outline-hidden",
+                      "w-14 min-w-[3.5rem] h-6 text-center font-mono font-bold border rounded text-xs px-1 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
                       selectedDept === 'ALL' 
                         ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent" 
                         : "bg-background focus:ring-1 focus:ring-primary"
