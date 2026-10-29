@@ -276,6 +276,585 @@ const DEFAULT_CAPACITY: DayCapacityConfig = {
 
 type SortField = 'ordinePF' | 'cliente' | 'dataConsegna';
 
+export function formatDateForDisplay(isoOrStr?: string): string {
+  if (!isoOrStr) return '';
+  const d = parseRobustDate(isoOrStr);
+  if (!d) return isoOrStr;
+  return format(d, 'dd/MM/yyyy');
+}
+
+export type JobMRPSummary = {
+  state: 'RED' | 'LATE' | 'GREEN' | 'NO_BOM' | 'LOADING' | 'COMPLETED';
+  label: string;
+  badgeClass: string;
+  dotClass: string;
+  details: string[];
+};
+
+// =========================================================================
+// OTTIMIZZAZIONE PERFORMANCE: ISOLAMENTO STATO LOCALE E SALVATAGGIO DIFFERITO
+// =========================================================================
+
+interface InlineDeliveryDateCellProps {
+  job: JobOrder;
+  onSaveDeliveryDate: (job: JobOrder, isoFormatted: string, parsedDate?: Date) => Promise<void> | void;
+}
+
+const InlineDeliveryDateCell = React.memo(function InlineDeliveryDateCell({
+  job,
+  onSaveDeliveryDate,
+}: InlineDeliveryDateCellProps) {
+  const { toast } = useToast();
+  const initialDisplay = formatDateForDisplay(job.dataConsegnaFinale);
+  const [localText, setLocalText] = useState<string>(initialDisplay);
+  const isSubmittingRef = useRef(false);
+
+  // Sincronizza lo stato locale se la data della commessa cambia dall'esterno (es. modale di modifica, azione massiva o fetch)
+  useEffect(() => {
+    setLocalText(formatDateForDisplay(job.dataConsegnaFinale));
+  }, [job.dataConsegnaFinale]);
+
+  // FASE 16: Guardrail & Allarmi Data Consegna
+  const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
+  
+  let isDeliveryDateExpired = false;
+  if (!isDeliveryDateMissing) {
+    const d = parseRobustDate(job.dataConsegnaFinale);
+    if (d && !isNaN(d.getTime())) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dMid = new Date(d);
+      dMid.setHours(0, 0, 0, 0);
+      // Data nel passato E non completata/spedita
+      isDeliveryDateExpired = dMid < today && !isJobFinished(job);
+    }
+  }
+
+  const handleCommit = async () => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    try {
+      const trimmed = localText.trim();
+      const originalFormatted = formatDateForDisplay(job.dataConsegnaFinale);
+
+      // Se il valore locale all'onBlur è identico al valore originale della commessa, non fare assolutamente nulla (evita chiamate a vuoto)
+      if (trimmed === originalFormatted) {
+        return;
+      }
+
+      // Se il campo è stato completamente svuotato
+      if (!trimmed) {
+        if (!job.dataConsegnaFinale) {
+          setLocalText('');
+          return;
+        }
+        await onSaveDeliveryDate(job, '');
+        return;
+      }
+
+      // Parsing flessibile GG/MM/AAAA o YYYY-MM-DD
+      const parsed = parseRobustDate(trimmed);
+      if (!parsed || isNaN(parsed.getTime())) {
+        toast({
+          variant: "destructive",
+          title: "Formato Data Errato",
+          description: `Inserisci la data in formato GG/MM/AAAA (es. 25/11/2026).`,
+        });
+        // Revert al valore originale
+        setLocalText(originalFormatted);
+        return;
+      }
+
+      const isoFormatted = format(parsed, 'yyyy-MM-dd');
+      if (isoFormatted === job.dataConsegnaFinale) {
+        // Data equivalente, uniforma solo la visualizzazione locale
+        setLocalText(format(parsed, 'dd/MM/yyyy'));
+        return;
+      }
+
+      // Aggiorna subito la visualizzazione locale al formato pulito dd/MM/yyyy
+      setLocalText(format(parsed, 'dd/MM/yyyy'));
+
+      // Chiamata differita (onBlur o Invio) al genitore per operazioni pesanti e salvataggio DB
+      await onSaveDeliveryDate(job, isoFormatted, parsed);
+    } finally {
+      isSubmittingRef.current = false;
+    }
+  };
+
+  return (
+    <div className="relative flex items-center">
+      {isDeliveryDateMissing && (
+        <span 
+          className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500" 
+          title="Data mancante: obbligatoria per avviare la commessa!"
+        >
+          <AlertCircle className="h-3.5 w-3.5 animate-pulse text-red-500" />
+        </span>
+      )}
+      {isDeliveryDateExpired && !isDeliveryDateMissing && (
+        <span 
+          className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500" 
+          title="Attenzione: Commessa scaduta/in ritardo!"
+        >
+          <AlertTriangle className="h-3 w-3 text-red-500" />
+        </span>
+      )}
+      <input
+        type="text"
+        value={localText}
+        placeholder={isDeliveryDateMissing ? "Manca Data!" : "GG/MM/AAAA"}
+        onChange={(e) => {
+          // Isolamento dello stato locale: NESSUNA propagazione al genitore durante la digitazione
+          setLocalText(e.target.value);
+        }}
+        onBlur={handleCommit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.currentTarget.blur();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setLocalText(formatDateForDisplay(job.dataConsegnaFinale));
+            e.currentTarget.blur();
+          }
+        }}
+        className={cn(
+          "h-6 text-[11px] font-mono font-semibold text-center px-1 py-0 w-full rounded border transition-colors",
+          "hover:border-primary/50 focus:border-primary focus:ring-1 focus:ring-primary",
+          isDeliveryDateMissing && "border-red-500 bg-red-500/10 text-red-600 dark:text-red-400 placeholder:text-red-500 font-bold pl-5",
+          isDeliveryDateExpired && "border-red-500 bg-red-50/20 dark:bg-red-950/20 text-red-600 dark:text-red-400 font-bold pl-5",
+          !isDeliveryDateMissing && !isDeliveryDateExpired && (
+            !job.dataConsegnaFinale 
+              ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
+              : "border-border bg-background text-foreground"
+          )
+        )}
+        title={
+          isDeliveryDateMissing 
+            ? "Data Mancante! È severamente vietato avviare senza Data Consegna." 
+            : isDeliveryDateExpired 
+              ? "Data Scaduta nel passato! Commessa in ritardo."
+              : "Clicca per modificare la data (GG/MM/AAAA) e premi Invio"
+        }
+      />
+    </div>
+  );
+});
+
+interface InlineOdlCellProps {
+  job: JobOrder;
+  onSaveOdl: (job: JobOrder, newOdl: string) => Promise<void> | void;
+}
+
+const InlineOdlCell = React.memo(function InlineOdlCell({
+  job,
+  onSaveOdl,
+}: InlineOdlCellProps) {
+  const originalVal = (job.numeroODLInterno || job.numeroODL || '').trim();
+  const [localVal, setLocalVal] = useState<string>(originalVal);
+  const isSubmittingRef = useRef(false);
+
+  useEffect(() => {
+    setLocalVal((job.numeroODLInterno || job.numeroODL || '').trim());
+  }, [job.numeroODLInterno, job.numeroODL]);
+
+  const handleCommit = async () => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    try {
+      const trimmed = localVal.trim();
+      const currentOriginal = (job.numeroODLInterno || job.numeroODL || '').trim();
+      if (trimmed === currentOriginal) return;
+      await onSaveOdl(job, trimmed);
+    } finally {
+      isSubmittingRef.current = false;
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      value={localVal}
+      placeholder="Es. 185/PF"
+      onChange={(e) => setLocalVal(e.target.value)}
+      onBlur={handleCommit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setLocalVal((job.numeroODLInterno || job.numeroODL || '').trim());
+          e.currentTarget.blur();
+        }
+      }}
+      className={cn(
+        "h-6 text-[11px] font-mono font-bold text-center px-1 py-0 w-full rounded border transition-colors",
+        "hover:border-primary/50 focus:border-primary focus:ring-1 focus:ring-primary",
+        !localVal 
+          ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
+          : "border-border bg-background text-foreground"
+      )}
+    />
+  );
+});
+
+// =========================================================================
+// MEMOIZATION RIGA TABELLA (React.memo)
+// =========================================================================
+
+interface JobTableRowProps {
+  job: JobOrder;
+  isSelected: boolean;
+  isDownloadingPdf: boolean;
+  weekOptions: { value: string; label: string; shortLabel: string; weekNumber?: number; year?: number; date?: Date }[];
+  getJobMRPStatus: (job: JobOrder) => JobMRPSummary;
+  onToggleSelect: (jobId: string, checked: boolean) => void;
+  onSaveDeliveryDate: (job: JobOrder, isoFormatted: string, parsedDate?: Date) => Promise<void> | void;
+  onSaveOdl: (job: JobOrder, newOdl: string) => Promise<void> | void;
+  onAssignJobWeek: (job: JobOrder, newWeekVal: string) => void;
+  onStatusChange: (job: JobOrder, newStatus: JobStatusOption) => void;
+  onTogglePrintODL: (job: JobOrder) => void;
+  onStartProduction: (job: JobOrder) => void;
+  onRollbackJob: (job: JobOrder) => void;
+  onOpenEditModal: (job: JobOrder) => void;
+}
+
+const JobTableRow = React.memo(function JobTableRow({
+  job,
+  isSelected,
+  isDownloadingPdf,
+  weekOptions,
+  getJobMRPStatus,
+  onToggleSelect,
+  onSaveDeliveryDate,
+  onSaveOdl,
+  onAssignJobWeek,
+  onStatusChange,
+  onTogglePrintODL,
+  onStartProduction,
+  onRollbackJob,
+  onOpenEditModal,
+}: JobTableRowProps) {
+  const hours = calculateJobHours(job);
+  const weekInfo = getJobWeekAndYear(job);
+  const currentJobWeekVal = weekInfo ? `${weekInfo.year}-W${weekInfo.week}` : 'Non ass.';
+  const mrp = getJobMRPStatus(job);
+  const deptGroup = getJobDepartmentGroup(job);
+  const currentStatus = normalizeJobStatus(job);
+  const isPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
+  const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
+  const effectiveWeekInfo = getJobEffectiveWeek(job);
+
+  return (
+    <tr
+      className={cn(
+        "divide-x divide-border hover:bg-muted/30 transition-colors group",
+        isSelected && "bg-blue-500/10 hover:bg-blue-500/15"
+      )}
+    >
+      {/* 0. CHECKBOX RIGA */}
+      <td className="py-1.5 px-2 text-center align-middle">
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={isSelected}
+            onCheckedChange={(checked) => onToggleSelect(job.id, Boolean(checked))}
+            aria-label={`Seleziona commessa ${job.ordinePF}`}
+            className="h-3.5 w-3.5 translate-y-[1px]"
+          />
+        </div>
+      </td>
+
+      {/* 1. REPARTO (Solo il badge dedicato) */}
+      <td className="py-1.5 px-1.5 text-center align-middle">
+        {deptGroup === 'CP' && (
+          <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
+            CP
+          </span>
+        )}
+        {deptGroup === 'CG' && (
+          <span className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
+            CG
+          </span>
+        )}
+        {deptGroup === 'BF' && (
+          <span className="bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
+            BF
+          </span>
+        )}
+        {deptGroup === 'OTHER' && (
+          <span className="bg-slate-500/15 text-slate-700 dark:text-slate-400 border border-slate-500/30 font-bold font-mono text-[9px] px-1 py-0.5 rounded-xs truncate max-w-[45px] inline-block">
+            {job.department || 'N/D'}
+          </span>
+        )}
+      </td>
+
+      {/* 2. ORDINE (Link a Console Produzione) */}
+      <td className="py-1.5 px-2.5 align-middle">
+        <Link
+          href={`/admin/production-console?search=${encodeURIComponent(job.ordinePF || '')}`}
+          className="font-mono font-bold text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer tracking-tight transition-colors inline-block"
+          title={`Apri console di produzione per commessa ${job.ordinePF}`}
+          prefetch={false}
+        >
+          {job.ordinePF || 'N/A'}
+        </Link>
+      </td>
+
+      {/* 3. CLIENTE */}
+      <td className="py-1.5 px-2.5 align-middle">
+        <span className="text-[11px] text-foreground font-medium truncate block max-w-[130px]" title={job.cliente}>
+          {job.cliente || 'Non specificato'}
+        </span>
+      </td>
+
+      {/* 4. ARTICOLO */}
+      <td className="py-1.5 px-3 align-middle">
+        <span className="font-semibold text-foreground truncate block max-w-[250px]" title={job.details}>
+          {job.details || 'Articolo non indicato'}
+        </span>
+      </td>
+
+      {/* 5. Q.TÀ */}
+      <td className="py-1.5 px-2 text-right align-middle font-mono font-bold text-foreground">
+        {(job.qta || 0).toLocaleString('it-IT')}
+      </td>
+
+      {/* 6. ORE PREV. */}
+      <td className="py-1.5 px-2 text-right align-middle font-mono text-[11px] text-muted-foreground font-medium">
+        {hours.toFixed(1)} h
+      </td>
+
+      {/* 7. DATA CONS. (Isolamento Stato Locale & Salvataggio Differito) */}
+      <td className="py-1 px-1.5 text-center align-middle">
+        <InlineDeliveryDateCell job={job} onSaveDeliveryDate={onSaveDeliveryDate} />
+      </td>
+
+      {/* 8. N° ODL (Isolamento Stato Locale) */}
+      <td className="py-1 px-1.5 text-center align-middle">
+        <InlineOdlCell job={job} onSaveOdl={onSaveOdl} />
+      </td>
+
+      {/* 9. STATO MRP */}
+      <td className="py-1.5 px-1.5 text-center align-middle">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] border cursor-help ${mrp.badgeClass}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${mrp.dotClass}`}></span>
+              <span>{mrp.label}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[340px] text-xs p-2.5">
+            <div className="font-bold border-b pb-1 mb-1 text-[11px] flex items-center justify-between">
+              <span>Fabbisogni MRP • {job.ordinePF}</span>
+              <span className="font-normal text-muted-foreground text-[10px]">{mrp.label}</span>
+            </div>
+            <ul className="space-y-1 text-[10px]">
+              {mrp.details.map((d, idx) => (
+                <li key={idx} className="leading-tight">
+                  {d}
+                </li>
+              ))}
+            </ul>
+          </TooltipContent>
+        </Tooltip>
+      </td>
+
+      {/* 10. SETTIMANA ASSEGNATA */}
+      <td className="py-1 px-1.5 text-center align-middle">
+        <div className="flex flex-col items-center gap-0.5">
+          <Select
+            value={currentJobWeekVal}
+            onValueChange={(newWeekVal) => {
+              onAssignJobWeek(job, newWeekVal);
+            }}
+          >
+            <SelectTrigger className="h-6 text-[11px] font-mono py-0 px-1.5 w-full justify-between">
+              <SelectValue placeholder="Settimana" />
+            </SelectTrigger>
+            <SelectContent>
+              {weekOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs font-mono">
+                  {opt.shortLabel}
+                </SelectItem>
+              ))}
+              <SelectItem value="Non ass." className="text-xs font-mono">Non assegnata</SelectItem>
+            </SelectContent>
+          </Select>
+          {effectiveWeekInfo?.isRolledOver && (
+            <Badge 
+              variant="outline" 
+              className="text-[9px] px-1 py-0 font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 whitespace-nowrap"
+              title={`Roll-over: commessa in ritardo (scaduta in W${weekInfo?.week}) spostata alla Settimana Corrente W${effectiveWeekInfo.week}`}
+            >
+              Roll-over W{effectiveWeekInfo.week}
+            </Badge>
+          )}
+        </div>
+      </td>
+
+      {/* 11. STATO COMMESSA */}
+      <td className="py-1 px-1.5 text-center align-middle">
+        <Select
+          value={currentStatus}
+          onValueChange={(val: JobStatusOption) => onStatusChange(job, val)}
+        >
+          <SelectTrigger className={cn(
+            "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border cursor-pointer",
+            isDeliveryDateMissing && currentStatus === 'Pianificata' && "border-dashed border-red-500/50 bg-red-50/10 text-red-600 dark:text-red-400",
+            currentStatus === 'Pianificata' && !isDeliveryDateMissing && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
+            currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
+            currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
+            currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
+          )}
+          title={isDeliveryDateMissing && currentStatus === 'Pianificata' ? "Inserire Data di Consegna per sbloccare l'avanzamento" : undefined}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="Pianificata" className="text-xs font-medium text-blue-600 cursor-pointer">
+              Pianificata
+            </SelectItem>
+            <SelectItem value="In Produzione" disabled={isDeliveryDateMissing} className="text-xs font-bold text-amber-600 cursor-pointer">
+              In Produzione
+            </SelectItem>
+            <SelectItem value="Completato Prod." disabled={isDeliveryDateMissing} className="text-xs font-bold text-emerald-600 cursor-pointer">
+              Completato Prod.
+            </SelectItem>
+            <SelectItem value="Spedito" disabled={isDeliveryDateMissing} className="text-xs font-medium text-purple-600 cursor-pointer">
+              Spedito
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </td>
+
+      {/* 12. AZIONI */}
+      <td className="py-1 px-1.5 text-center align-middle">
+        <div className="flex items-center justify-center gap-1">
+          {/* Stampa ODL */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-block">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={isDeliveryDateMissing || isDownloadingPdf}
+                  onClick={() => onTogglePrintODL(job)}
+                  className={cn(
+                    "h-7 w-7 transition-colors",
+                    isDeliveryDateMissing && "opacity-30 cursor-not-allowed",
+                    !isDeliveryDateMissing && isPrinted 
+                      ? "text-green-500 hover:text-green-600 bg-green-500/10 hover:bg-green-500/20" 
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  )}
+                >
+                  {isDownloadingPdf ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  ) : (
+                    <Printer className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isDeliveryDateMissing
+                ? "Inserire Data di Consegna per avviare"
+                : isDownloadingPdf
+                  ? "Generazione PDF ODL in corso..."
+                  : isPrinted 
+                    ? "ODL stampato (clicca per ristampare il PDF)" 
+                    : "Stampa ODL (richiede N° ODL)"}
+            </TooltipContent>
+          </Tooltip>
+
+          {/* FASE 19: Pulsante di Azione Dinamico (Avvia Play / Ripristina Undo) */}
+          {currentStatus === 'Pianificata' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-block">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onStartProduction(job)}
+                    disabled={isDeliveryDateMissing}
+                    className={cn(
+                      "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10 cursor-pointer",
+                      isDeliveryDateMissing && "opacity-30 cursor-not-allowed"
+                    )}
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isDeliveryDateMissing
+                  ? "Inserire Data di Consegna per avviare"
+                  : "Avvia ODL in Produzione"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {(currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.') && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onRollbackJob(job)}
+                  className="h-7 w-7 text-amber-500 hover:text-amber-600 hover:bg-amber-500/15 cursor-pointer transition-colors"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Ripristina a Pianificata (Annulla avvio ODL)
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {currentStatus === 'Spedito' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-block">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    disabled
+                    className="h-7 w-7 text-muted-foreground opacity-30 cursor-not-allowed"
+                  >
+                    <Lock className="h-3.5 w-3.5" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                Commessa Spedita (non modificabile)
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Modifica Commessa (FASE 17: Modale Modifica Completa) */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onOpenEditModal(job)}
+                className="h-7 w-7 text-blue-500 hover:text-blue-600 hover:bg-blue-500/10 cursor-pointer"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Modifica dettagli commessa
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </td>
+    </tr>
+  );
+});
+
 export default function ProgrammazioneClientPage({
   initialJobs,
   initialDepartments,
@@ -316,10 +895,10 @@ export default function ProgrammazioneClientPage({
   const [isEditStandardModalOpen, setIsEditStandardModalOpen] = useState(false);
   const [jobToEdit, setJobToEdit] = useState<JobOrder | null>(null);
 
-  const handleOpenEditModal = (job: JobOrder) => {
+  const handleOpenEditModal = useCallback((job: JobOrder) => {
     setJobToEdit(job);
     setIsEditStandardModalOpen(true);
-  };
+  }, []);
 
   const handleJobUpdated = (updatedJob: JobOrder) => {
     const oldId = jobToEdit?.id;
@@ -329,11 +908,6 @@ export default function ProgrammazioneClientPage({
     setIsEditStandardModalOpen(false);
     setJobToEdit(null);
   };
-
-  // Draft locale per i N° ODL (input rapido)
-  const [odlDrafts, setOdlDrafts] = useState<Record<string, string>>({});
-  // Draft locale per Data Consegna (inline edit)
-  const [dateDrafts, setDateDrafts] = useState<Record<string, string>>({});
 
   // FASE 16: Selezione Multipla (Checkbox) e Azioni Massive (Bulk Actions)
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
@@ -1083,67 +1657,53 @@ export default function ProgrammazioneClientPage({
   }, [mrpTimelines, isMrpLoading]);
 
   // =========================================================================
-  // 1. INLINE EDITING: DATA CONSEGNA (GG/MM/AAAA)
   // =========================================================================
-  const formatDateForDisplay = (isoOrStr: string | undefined): string => {
-    if (!isoOrStr) return '';
-    const d = parseRobustDate(isoOrStr);
-    if (!d) return isoOrStr;
-    return format(d, 'dd/MM/yyyy');
-  };
-
-  const handleDeliveryDateBlur = async (job: JobOrder) => {
-    const rawVal = dateDrafts[job.id];
-    if (rawVal === undefined) return; // Non modificato
-
-    const trimmed = rawVal.trim();
-    if (!trimmed) {
+  // 1. INLINE EDITING: DATA CONSEGNA (GG/MM/AAAA) - SALVATAGGIO DIFFERITO
+  // =========================================================================
+  const handleSaveDeliveryDate = useCallback(async (job: JobOrder, isoFormatted: string, parsedDate?: Date) => {
+    if (!isoFormatted) {
       // Data azzerata
-      setJobs(prev => prev.map(j => j.id === job.id ? { ...j, dataConsegnaFinale: '' } : j));
-      await updateJobDeliveryDate(job.id, '');
+      setJobs((prev) =>
+        prev.map((j) => (j.id === job.id ? { ...j, dataConsegnaFinale: '', assignedDate: undefined } : j))
+      );
+      try {
+        await updateJobDeliveryDate(job.id, '');
+        toast({
+          title: "Data Consegna Rimossa",
+          description: `Commessa ${job.ordinePF}: data di consegna azzerata.`,
+        });
+      } catch (e: any) {
+        toast({
+          variant: "destructive",
+          title: "Errore Data",
+          description: e?.message || "Impossibile rimuovere la data.",
+        });
+      }
       return;
     }
 
-    // Parsing flessibile GG/MM/AAAA o YYYY-MM-DD
-    const parsed = parseRobustDate(trimmed);
-    if (!parsed || isNaN(parsed.getTime())) {
-      toast({
-        variant: "destructive",
-        title: "Formato Data Errato",
-        description: `Inserisci la data in formato GG/MM/AAAA (es. 25/11/2026).`,
-      });
-      // Revert al valore originale
-      setDateDrafts(prev => {
-        const copy = { ...prev };
-        delete copy[job.id];
-        return copy;
-      });
-      return;
-    }
-
-    const isoFormatted = format(parsed, 'yyyy-MM-dd');
-    if (isoFormatted === job.dataConsegnaFinale) return;
+    const parsed = parsedDate || parseRobustDate(isoFormatted);
+    if (!parsed || isNaN(parsed.getTime())) return;
 
     const newWeek = getISOWeek(parsed);
     const newYear = getISOWeekYear(parsed);
     const newTargetWeek = `${newYear}-W${String(newWeek).padStart(2, '0')}`;
 
     // Aggiornamento Ottimistico
-    setJobs(prev => prev.map(j => j.id === job.id ? { 
-      ...j, 
-      dataConsegnaFinale: isoFormatted,
-      assignedDate: undefined,
-      isoWeek: newWeek,
-      weekYear: newYear,
-      targetWeek: newTargetWeek
-    } : j));
-    
-    // Pulisci draft
-    setDateDrafts(prev => {
-      const copy = { ...prev };
-      delete copy[job.id];
-      return copy;
-    });
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id === job.id
+          ? {
+              ...j,
+              dataConsegnaFinale: isoFormatted,
+              assignedDate: undefined,
+              isoWeek: newWeek,
+              weekYear: newYear,
+              targetWeek: newTargetWeek,
+            }
+          : j
+      )
+    );
 
     try {
       const res = await updateJobDeliveryDate(job.id, isoFormatted);
@@ -1157,10 +1717,10 @@ export default function ProgrammazioneClientPage({
       toast({
         variant: "destructive",
         title: "Errore Data",
-        description: e.message || "Impossibile salvare la nuova data.",
+        description: e?.message || "Impossibile salvare la nuova data.",
       });
     }
-  };
+  }, [toast]);
 
   // =========================================================================
   // 2. RIGA VUOTA RAPIDA (INSERIMENTO INLINE STILE EXCEL)
@@ -1244,11 +1804,9 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // Aggiornamento N° ODL (on blur)
-  const handleOdlBlur = async (job: JobOrder) => {
+  // Aggiornamento N° ODL (on blur / Enter differito)
+  const handleSaveOdl = useCallback(async (job: JobOrder, draftVal: string) => {
     const currentVal = (job.numeroODLInterno || job.numeroODL || '').trim();
-    const draftVal = (odlDrafts[job.id] ?? currentVal).trim();
-
     if (draftVal === currentVal) return;
 
     setJobs((prev) =>
@@ -1278,13 +1836,13 @@ export default function ProgrammazioneClientPage({
       toast({
         variant: "destructive",
         title: "Errore N° ODL",
-        description: "Impossibile salvare il N° ODL.",
+        description: e?.message || "Impossibile salvare il N° ODL.",
       });
     }
-  };
+  }, [toast]);
 
   // Modifica Stato Commessa (4 stati SSoT rigorosi)
-  const handleStatusChange = async (job: JobOrder, newStatus: JobStatusOption, isConfirmed?: boolean) => {
+  const handleStatusChange = useCallback(async (job: JobOrder, newStatus: JobStatusOption, isConfirmed?: boolean) => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
     if ((!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) && newStatus !== 'Pianificata') {
       toast({
@@ -1377,19 +1935,19 @@ export default function ProgrammazioneClientPage({
         description: e?.message || "Impossibile aggiornare lo stato.",
       });
     }
-  };
+  }, [toast]);
 
   // FASE 19: Handler dedicato per Rollback rapido da pulsante Undo/RotateCcw
-  const handleRollbackJob = async (job: JobOrder) => {
+  const handleRollbackJob = useCallback(async (job: JobOrder) => {
     const confirmReset = window.confirm(
       `Vuoi davvero annullare l'avvio e riportare la commessa ${job.ordinePF || job.id} in 'Pianificata'?\n\nLe fasi torneranno in attesa e i timer di produzione verranno azzerati.`
     );
     if (!confirmReset) return;
     await handleStatusChange(job, 'Pianificata', true);
-  };
+  }, [handleStatusChange]);
 
   // 4. Workflow Avvio Produzione: richiama createODL transazionale
-  const handleStartProduction = async (job: JobOrder) => {
+  const handleStartProduction = useCallback(async (job: JobOrder) => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
     if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
       toast({
@@ -1436,7 +1994,7 @@ export default function ProgrammazioneClientPage({
         description: e?.message || "Errore sconosciuto",
       });
     }
-  };
+  }, [toast]);
 
   // =========================================================================
   // FASE 16: GESTIONE SELEZIONE MULTIPLA E AZIONI MASSIVE (BULK ACTIONS)
@@ -1461,13 +2019,13 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  const handleToggleSelect = (jobId: string, checked: boolean) => {
+  const handleToggleSelect = useCallback((jobId: string, checked: boolean) => {
     if (checked) {
       setSelectedJobIds((prev) => [...prev, jobId]);
     } else {
       setSelectedJobIds((prev) => prev.filter((id) => id !== jobId));
     }
-  };
+  }, []);
 
   // 1. Bulk Start Production and Print ODL
   const handleBulkStartAndPrint = async () => {
@@ -1672,7 +2230,7 @@ export default function ProgrammazioneClientPage({
   // =========================================================================
   // STAMPA ODL (FASE 9: Generatore PDF fisico + Aggiornamento Stato)
   // =========================================================================
-  const handleTogglePrintODL = async (job: JobOrder) => {
+  const handleTogglePrintODL = useCallback(async (job: JobOrder) => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
     if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
       toast({
@@ -1683,12 +2241,8 @@ export default function ProgrammazioneClientPage({
       return;
     }
 
-    // Risolvi il N° ODL dal draft corrente o dal valore salvato
-    const currentOdl = (
-      odlDrafts[job.id] !== undefined
-        ? odlDrafts[job.id]
-        : (job.numeroODLInterno || job.numeroODL || '')
-    ).trim();
+    // Risolvi il N° ODL dal valore salvato della commessa
+    const currentOdl = (job.numeroODLInterno || job.numeroODL || '').trim();
 
     if (!currentOdl) {
       toast({
@@ -1704,12 +2258,6 @@ export default function ProgrammazioneClientPage({
     setIsDownloadingPdf(job.id);
 
     try {
-      // Se l'ODL è stato modificato nel draft ma non ancora salvato su DB, salvalo
-      if (odlDrafts[job.id] !== undefined && odlDrafts[job.id].trim() !== (job.numeroODLInterno || '')) {
-        updateJobOdlNumber(job.id, currentOdl).catch((err) => {
-          console.error("Errore salvataggio rapido N° ODL:", err);
-        });
-      }
 
       // 1. Recupero Articolo e arricchimento dati per il PDF
       const articleCode = (job.details || '').trim().toUpperCase();
@@ -1859,7 +2407,7 @@ export default function ProgrammazioneClientPage({
       setPdfData(null);
       setIsDownloadingPdf(null);
     }
-  };
+  }, [articles, workCycles, toast, isDownloadingPdf]);
 
   // Settimane per il dropdown rapido (Standard ISO 8601)
   const weekOptions = useMemo(() => {
@@ -1910,7 +2458,7 @@ export default function ProgrammazioneClientPage({
   }, []);
 
   // Riassegnazione manuale settimana per una commessa
-  const handleAssignJobWeek = async (job: JobOrder, newWeekVal: string) => {
+  const handleAssignJobWeek = useCallback(async (job: JobOrder, newWeekVal: string) => {
     if (newWeekVal === 'Non ass.') {
       setJobs((prev) =>
         prev.map((j) =>
@@ -1964,7 +2512,7 @@ export default function ProgrammazioneClientPage({
     } catch (e) {
       console.error("Errore salvataggio riassegnazione settimana:", e);
     }
-  };
+  }, [weekOptions, toast]);
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -3135,420 +3683,25 @@ export default function ProgrammazioneClientPage({
                     </td>
                   </tr>
                 ) : (
-                  sortedAndFilteredJobs.map((job) => {
-                    const hours = calculateJobHours(job);
-                    const weekInfo = getJobWeekAndYear(job);
-                    const currentJobWeekVal = weekInfo ? `${weekInfo.year}-W${weekInfo.week}` : 'Non ass.';
-                    const mrp = getJobMRPStatus(job);
-                    const deptGroup = getJobDepartmentGroup(job);
-                    const currentStatus = normalizeJobStatus(job);
-
-                    const isPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
-                    const currentOdlValue = odlDrafts[job.id] !== undefined 
-                      ? odlDrafts[job.id] 
-                      : (job.numeroODLInterno || job.numeroODL || '');
-
-                    const currentDeliveryDateDisplay = dateDrafts[job.id] !== undefined 
-                      ? dateDrafts[job.id] 
-                      : formatDateForDisplay(job.dataConsegnaFinale);
-
-                    // FASE 16: Guardrail & Allarmi Data Consegna
-                    const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
-                    
-                    let isDeliveryDateExpired = false;
-                    if (!isDeliveryDateMissing) {
-                      const d = parseRobustDate(job.dataConsegnaFinale);
-                      if (d && !isNaN(d.getTime())) {
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-                        const dMid = new Date(d);
-                        dMid.setHours(0, 0, 0, 0);
-                        // Data nel passato E non completata/spedita
-                        isDeliveryDateExpired = dMid < today && !isJobFinished(job);
-                      }
-                    }
-
-                    const effectiveWeekInfo = getJobEffectiveWeek(job);
-                    const isSelected = selectedJobIds.includes(job.id);
-
-                    return (
-                      <tr
-                        key={job.id}
-                        className={cn(
-                          "divide-x divide-border hover:bg-muted/30 transition-colors group",
-                          isSelected && "bg-blue-500/10 hover:bg-blue-500/15"
-                        )}
-                      >
-                        {/* 0. CHECKBOX RIGA */}
-                        <td className="py-1.5 px-2 text-center align-middle">
-                          <div className="flex items-center justify-center">
-                            <Checkbox
-                              checked={isSelected}
-                              onCheckedChange={(checked) => handleToggleSelect(job.id, Boolean(checked))}
-                              aria-label={`Seleziona commessa ${job.ordinePF}`}
-                              className="h-3.5 w-3.5 translate-y-[1px]"
-                            />
-                          </div>
-                        </td>
-
-                        {/* 1. REPARTO (Solo il badge dedicato) */}
-                        <td className="py-1.5 px-1.5 text-center align-middle">
-                          {deptGroup === 'CP' && (
-                            <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
-                              CP
-                            </span>
-                          )}
-                          {deptGroup === 'CG' && (
-                            <span className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
-                              CG
-                            </span>
-                          )}
-                          {deptGroup === 'BF' && (
-                            <span className="bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
-                              BF
-                            </span>
-                          )}
-                          {deptGroup === 'OTHER' && (
-                            <span className="bg-slate-500/15 text-slate-700 dark:text-slate-400 border border-slate-500/30 font-bold font-mono text-[9px] px-1 py-0.5 rounded-xs truncate max-w-[45px] inline-block">
-                              {job.department || 'N/D'}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* 2. ORDINE (Link a Console Produzione) */}
-                        <td className="py-1.5 px-2.5 align-middle">
-                          <Link
-                            href={`/admin/production-console?search=${encodeURIComponent(job.ordinePF || '')}`}
-                            className="font-mono font-bold text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer tracking-tight transition-colors inline-block"
-                            title={`Apri console di produzione per commessa ${job.ordinePF}`}
-                            prefetch={false}
-                          >
-                            {job.ordinePF || 'N/A'}
-                          </Link>
-                        </td>
-
-                        {/* 3. CLIENTE */}
-                        <td className="py-1.5 px-2.5 align-middle">
-                          <span className="text-[11px] text-foreground font-medium truncate block max-w-[130px]" title={job.cliente}>
-                            {job.cliente || 'Non specificato'}
-                          </span>
-                        </td>
-
-                        {/* 4. ARTICOLO (Badge rimosso) */}
-                        <td className="py-1.5 px-3 align-middle">
-                          <span className="font-semibold text-foreground truncate block max-w-[250px]" title={job.details}>
-                            {job.details || 'Articolo non indicato'}
-                          </span>
-                        </td>
-
-                        {/* 5. Q.TÀ (Separata) */}
-                        <td className="py-1.5 px-2 text-right align-middle font-mono font-bold text-foreground">
-                          {(job.qta || 0).toLocaleString('it-IT')}
-                        </td>
-
-                        {/* 6. ORE PREV. (Separata) */}
-                        <td className="py-1.5 px-2 text-right align-middle font-mono text-[11px] text-muted-foreground font-medium">
-                          {hours.toFixed(1)} h
-                        </td>
-
-                        {/* 7. DATA CONS. (Inline Editable GG/MM/AAAA con Guardrail e Allarme Ritardo) */}
-                        <td className="py-1 px-1.5 text-center align-middle">
-                          <div className="relative flex items-center">
-                            {isDeliveryDateMissing && (
-                              <span 
-                                className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500" 
-                                title="Data mancante: obbligatoria per avviare la commessa!"
-                              >
-                                <AlertCircle className="h-3.5 w-3.5 animate-pulse text-red-500" />
-                              </span>
-                            )}
-                            {isDeliveryDateExpired && !isDeliveryDateMissing && (
-                              <span 
-                                className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500" 
-                                title="Attenzione: Commessa scaduta/in ritardo!"
-                              >
-                                <AlertTriangle className="h-3 w-3 text-red-500" />
-                              </span>
-                            )}
-                            <input
-                              type="text"
-                              value={currentDeliveryDateDisplay}
-                              placeholder={isDeliveryDateMissing ? "Manca Data!" : "GG/MM/AAAA"}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setDateDrafts(prev => ({ ...prev, [job.id]: val }));
-                              }}
-                              onBlur={() => handleDeliveryDateBlur(job)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.currentTarget.blur();
-                                }
-                              }}
-                              className={cn(
-                                "h-6 text-[11px] font-mono font-semibold text-center px-1 py-0 w-full rounded border transition-colors",
-                                "hover:border-primary/50 focus:border-primary focus:ring-1 focus:ring-primary",
-                                isDeliveryDateMissing && "border-red-500 bg-red-500/10 text-red-600 dark:text-red-400 placeholder:text-red-500 font-bold pl-5",
-                                isDeliveryDateExpired && "border-red-500 bg-red-50/20 dark:bg-red-950/20 text-red-600 dark:text-red-400 font-bold pl-5",
-                                !isDeliveryDateMissing && !isDeliveryDateExpired && (
-                                  !job.dataConsegnaFinale 
-                                    ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
-                                    : "border-border bg-background text-foreground"
-                                )
-                              )}
-                              title={
-                                isDeliveryDateMissing 
-                                  ? "Data Mancante! È severamente vietato avviare senza Data Consegna." 
-                                  : isDeliveryDateExpired 
-                                    ? "Data Scaduta nel passato! Commessa in ritardo."
-                                    : "Clicca per modificare la data (GG/MM/AAAA) e premi Invio"
-                              }
-                            />
-                          </div>
-                        </td>
-
-                        {/* 8. N° ODL (Input Rapido) */}
-                        <td className="py-1 px-1.5 text-center align-middle">
-                          <Input
-                            type="text"
-                            value={currentOdlValue}
-                            placeholder="Es. 185/PF"
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setOdlDrafts((prev) => ({ ...prev, [job.id]: val }));
-                            }}
-                            onBlur={() => handleOdlBlur(job)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            className={cn(
-                              "h-6 text-[11px] font-mono font-bold text-center px-1 py-0 w-full rounded border",
-                              !currentOdlValue 
-                                ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
-                                : "border-border bg-background text-foreground"
-                            )}
-                          />
-                        </td>
-
-                        {/* 9. STATO MRP */}
-                        <td className="py-1.5 px-1.5 text-center align-middle">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] border cursor-help ${mrp.badgeClass}`}>
-                                <span className={`h-1.5 w-1.5 rounded-full ${mrp.dotClass}`}></span>
-                                <span>{mrp.label}</span>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-[340px] text-xs p-2.5">
-                              <div className="font-bold border-b pb-1 mb-1 text-[11px] flex items-center justify-between">
-                                <span>Fabbisogni MRP • {job.ordinePF}</span>
-                                <span className="font-normal text-muted-foreground text-[10px]">{mrp.label}</span>
-                              </div>
-                              <ul className="space-y-1 text-[10px]">
-                                {mrp.details.map((d, idx) => (
-                                  <li key={idx} className="leading-tight">
-                                    {d}
-                                  </li>
-                                ))}
-                              </ul>
-                            </TooltipContent>
-                          </Tooltip>
-                        </td>
-
-                        {/* 10. SETTIMANA ASSEGNATA (Allineata a ISO 8601 con indicatore Roll-over) */}
-                        <td className="py-1 px-1.5 text-center align-middle">
-                          <div className="flex flex-col items-center gap-0.5">
-                            <Select
-                              value={currentJobWeekVal}
-                              onValueChange={(newWeekVal) => {
-                                handleAssignJobWeek(job, newWeekVal);
-                              }}
-                            >
-                              <SelectTrigger className="h-6 text-[11px] font-mono py-0 px-1.5 w-full justify-between">
-                                <SelectValue placeholder="Settimana" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {weekOptions.map((opt) => (
-                                  <SelectItem key={opt.value} value={opt.value} className="text-xs font-mono">
-                                    {opt.shortLabel}
-                                  </SelectItem>
-                                ))}
-                                <SelectItem value="Non ass." className="text-xs font-mono">Non assegnata</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {effectiveWeekInfo?.isRolledOver && (
-                              <Badge 
-                                variant="outline" 
-                                className="text-[9px] px-1 py-0 font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 whitespace-nowrap"
-                                title={`Roll-over: commessa in ritardo (scaduta in W${weekInfo?.week}) spostata alla Settimana Corrente W${effectiveWeekInfo.week}`}
-                              >
-                                Roll-over W{effectiveWeekInfo.week}
-                              </Badge>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* 11. STATO COMMESSA (Sblocco Rollback a Pianificata, Guardrail Data Mancante per Avanzamento) */}
-                        <td className="py-1 px-1.5 text-center align-middle">
-                          <Select
-                            value={currentStatus}
-                            onValueChange={(val: JobStatusOption) => handleStatusChange(job, val)}
-                          >
-                            <SelectTrigger className={cn(
-                              "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border cursor-pointer",
-                              isDeliveryDateMissing && currentStatus === 'Pianificata' && "border-dashed border-red-500/50 bg-red-50/10 text-red-600 dark:text-red-400",
-                              currentStatus === 'Pianificata' && !isDeliveryDateMissing && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
-                              currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
-                              currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
-                              currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
-                            )}
-                            title={isDeliveryDateMissing && currentStatus === 'Pianificata' ? "Inserire Data di Consegna per sbloccare l'avanzamento" : undefined}
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Pianificata" className="text-xs font-medium text-blue-600 cursor-pointer">
-                                Pianificata
-                              </SelectItem>
-                              <SelectItem value="In Produzione" disabled={isDeliveryDateMissing} className="text-xs font-bold text-amber-600 cursor-pointer">
-                                In Produzione
-                              </SelectItem>
-                              <SelectItem value="Completato Prod." disabled={isDeliveryDateMissing} className="text-xs font-bold text-emerald-600 cursor-pointer">
-                                Completato Prod.
-                              </SelectItem>
-                              <SelectItem value="Spedito" disabled={isDeliveryDateMissing} className="text-xs font-medium text-purple-600 cursor-pointer">
-                                Spedito
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </td>
-
-                        {/* 12. AZIONI (Stampa con vincolo ODL + Avvia con Guardrail Data Mancante) */}
-                        <td className="py-1 px-1.5 text-center align-middle">
-                          <div className="flex items-center justify-center gap-1">
-                            {/* Stampa ODL */}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-block">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    disabled={isDeliveryDateMissing || isDownloadingPdf === job.id}
-                                    onClick={() => handleTogglePrintODL(job)}
-                                    className={cn(
-                                      "h-7 w-7 transition-colors",
-                                      isDeliveryDateMissing && "opacity-30 cursor-not-allowed",
-                                      !isDeliveryDateMissing && isPrinted 
-                                        ? "text-green-500 hover:text-green-600 bg-green-500/10 hover:bg-green-500/20" 
-                                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                                    )}
-                                  >
-                                    {isDownloadingPdf === job.id ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                                    ) : (
-                                      <Printer className="h-3.5 w-3.5" />
-                                    )}
-                                  </Button>
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {isDeliveryDateMissing
-                                  ? "Inserire Data di Consegna per avviare"
-                                  : isDownloadingPdf === job.id
-                                    ? "Generazione PDF ODL in corso..."
-                                    : isPrinted 
-                                      ? "ODL stampato (clicca per ristampare il PDF)" 
-                                      : "Stampa ODL (richiede N° ODL)"}
-                              </TooltipContent>
-                            </Tooltip>
-
-                            {/* FASE 19: Pulsante di Azione Dinamico (Avvia Play / Ripristina Undo) */}
-                            {currentStatus === 'Pianificata' && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="inline-block">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => handleStartProduction(job)}
-                                      disabled={isDeliveryDateMissing}
-                                      className={cn(
-                                        "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10 cursor-pointer",
-                                        isDeliveryDateMissing && "opacity-30 cursor-not-allowed"
-                                      )}
-                                    >
-                                      <Play className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {isDeliveryDateMissing
-                                    ? "Inserire Data di Consegna per avviare"
-                                    : "Avvia ODL in Produzione"}
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-
-                            {(currentStatus === 'In Produzione' || currentStatus === 'Completato Prod.') && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleRollbackJob(job)}
-                                    className="h-7 w-7 text-amber-500 hover:text-amber-600 hover:bg-amber-500/15 cursor-pointer transition-colors"
-                                  >
-                                    <RotateCcw className="h-3.5 w-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  Ripristina a Pianificata (Annulla avvio ODL)
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-
-                            {currentStatus === 'Spedito' && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="inline-block">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      disabled
-                                      className="h-7 w-7 text-muted-foreground opacity-30 cursor-not-allowed"
-                                    >
-                                      <Lock className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  Commessa Spedita (non modificabile)
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-
-                            {/* Modifica Commessa (FASE 17: Modale Modifica Completa) */}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleOpenEditModal(job)}
-                                  className="h-7 w-7 text-blue-500 hover:text-blue-600 hover:bg-blue-500/10 cursor-pointer"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                Modifica dettagli commessa
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
+                  sortedAndFilteredJobs.map((job) => (
+                    <JobTableRow
+                      key={job.id}
+                      job={job}
+                      isSelected={selectedJobIds.includes(job.id)}
+                      isDownloadingPdf={isDownloadingPdf === job.id}
+                      weekOptions={weekOptions}
+                      getJobMRPStatus={getJobMRPStatus}
+                      onToggleSelect={handleToggleSelect}
+                      onSaveDeliveryDate={handleSaveDeliveryDate}
+                      onSaveOdl={handleSaveOdl}
+                      onAssignJobWeek={handleAssignJobWeek}
+                      onStatusChange={handleStatusChange}
+                      onTogglePrintODL={handleTogglePrintODL}
+                      onStartProduction={handleStartProduction}
+                      onRollbackJob={handleRollbackJob}
+                      onOpenEditModal={handleOpenEditModal}
+                    />
+                  ))
                 )}
               </tbody>
             </table>
