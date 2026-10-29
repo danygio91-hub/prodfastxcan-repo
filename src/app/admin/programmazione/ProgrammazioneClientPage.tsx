@@ -90,6 +90,7 @@ import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 import { SmartJobModal } from '@/components/mrp/SmartJobModal';
 import { SmartPasteModal } from '@/components/mrp/SmartPasteModal';
+import { ExcelImportModal } from '@/components/mrp/ExcelImportModal';
 import { ManualJobModal } from '@/components/mrp/ManualJobModal';
 import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 import { 
@@ -889,6 +890,7 @@ export default function ProgrammazioneClientPage({
   // Modali Inserimento
   const [isSmartJobOpen, setIsSmartJobOpen] = useState(false);
   const [isSmartPasteOpen, setIsSmartPasteOpen] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
 
   // FASE 17: Modale di Modifica Completa (Edit Job)
@@ -2798,7 +2800,7 @@ export default function ProgrammazioneClientPage({
               <span>+ Commessa Rapida</span>
             </Button>
 
-            {/* 2. Smart Paste Commesse (Import Excel) */}
+            {/* 2. Smart Paste Commesse (Import Excel da testo) */}
             <Button
               variant="outline"
               size="sm"
@@ -2809,7 +2811,18 @@ export default function ProgrammazioneClientPage({
               <span>Smart Paste</span>
             </Button>
 
-            {/* 2. Nuova Commessa Manuale */}
+            {/* 3. Importa Excel (File nativo .xlsx / .xls con validazione completa) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsExcelImportOpen(true)}
+              className="h-8 text-xs gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              <span>Importa Excel</span>
+            </Button>
+
+            {/* 4. Nuova Commessa Manuale */}
             <Button
               variant="outline"
               size="sm"
@@ -3846,7 +3859,7 @@ export default function ProgrammazioneClientPage({
           />
         )}
 
-        {/* 2. SmartPasteModal (Import da Excel) */}
+        {/* 2. SmartPasteModal (Import da Excel via testo) */}
         <SmartPasteModal
           isOpen={isSmartPasteOpen}
           onClose={() => setIsSmartPasteOpen(false)}
@@ -3857,6 +3870,20 @@ export default function ProgrammazioneClientPage({
             toast({
               title: "Commesse Importate",
               description: `${newJobs.length} commesse inserite con successo.`,
+            });
+          }}
+        />
+
+        {/* 2.1. ExcelImportModal (Import da file Excel .xlsx/.xls con Analisi e Validazione SSoT) */}
+        <ExcelImportModal
+          isOpen={isExcelImportOpen}
+          onClose={() => setIsExcelImportOpen(false)}
+          departments={departments}
+          onJobsCreated={(newJobs) => {
+            setJobs((prev) => [...newJobs, ...prev]);
+            toast({
+              title: "Commesse Caricate da Excel",
+              description: `${newJobs.length} commesse inserite con successo con stato Pianificata.`,
             });
           }}
         />

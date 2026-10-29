@@ -398,16 +398,31 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 workCycleName: String(getVal(row, ['Ciclo', 'workCycleName']) || '').trim()
             };
 
+            // 1. Dati Obbligatori Base: PF, Codice Articolo, Quantità
             if (!mappedRow.ordinePF || !mappedRow.details || isNaN(mappedRow.qta) || mappedRow.qta <= 0) {
-                blockedJobs.push({ row, reason: "Dati obbligatori mancanti o invalidi (PF, Codice o Qta)." });
+                blockedJobs.push({ row, reason: "Dati obbligatori mancanti o invalidi (Ordine PF, Codice Articolo o Quantità > 0)." });
                 continue;
             }
 
-            if (mappedRow.dataFinePreparazione && mappedRow.dataConsegnaFinale && mappedRow.dataFinePreparazione > mappedRow.dataConsegnaFinale) {
+            // 2. Dati Obbligatori: Cliente
+            if (!mappedRow.cliente || mappedRow.cliente === 'N/D') {
+                blockedJobs.push({ row, reason: "Cliente mancante o non specificato." });
+                continue;
+            }
+
+            // 3. Dati Obbligatori: Data Consegna Finale
+            if (!mappedRow.dataConsegnaFinale) {
+                blockedJobs.push({ row, reason: "Data di consegna mancante o formato non valido (richiesto GG/MM/AAAA o AAAA-MM-GG)." });
+                continue;
+            }
+
+            // 4. Coerenza Date: Fine Preparazione <= Consegna Finale
+            if (mappedRow.dataFinePreparazione && mappedRow.dataFinePreparazione > mappedRow.dataConsegnaFinale) {
                 blockedJobs.push({ row, reason: "La data fine preparazione non può essere successiva alla consegna finale." });
                 continue;
             }
 
+            // 5. Validità Reparto
             if (mappedRow.department && mappedRow.department !== 'N/D') {
                 const deptIdent = mappedRow.department.toUpperCase().trim();
                 if (!allowedDeptIdentifiers.has(deptIdent)) {
@@ -416,35 +431,57 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 }
             }
             
+            // 6. Check Esistenza Articolo in Anagrafica
             const articleCode = mappedRow.details.toUpperCase().trim();
             const articleData = articlesMap.get(articleCode);
             
             if (!articleData) { 
-                blockedJobs.push({ row, reason: `Articolo "${articleCode}" non trovato in Anagrafica.` }); 
+                blockedJobs.push({ row, reason: `Articolo "${articleCode}" non trovato in Anagrafica Articoli.` }); 
                 continue; 
             }
             
+            // 7. Check Commessa Duplicata
             const sanitizedId = sanitizeDocumentId(mappedRow.ordinePF);
             if (existingIdsSet.has(sanitizedId)) {
                 blockedJobs.push({ row, reason: "Commessa già presente nel sistema (Duplicata)." });
                 continue;
             }
 
+            // 8. Check Ciclo di Lavorazione e Fasi
             let workCycleId = '';
             if (mappedRow.workCycleName) {
                 const foundCycle = cyclesMap.get(mappedRow.workCycleName.toUpperCase().trim());
                 workCycleId = foundCycle ? foundCycle.id : '';
+                if (!workCycleId) {
+                    blockedJobs.push({ row, reason: `Ciclo di lavoro "${mappedRow.workCycleName}" indicato nel file non trovato a sistema.` });
+                    continue;
+                }
             } else {
                 workCycleId = articleData.workCycleId || '';
             }
 
-            let phases = workCycleId ? await createPhasesFromCycle(workCycleId, templatesMap) : [];
+            if (!workCycleId) {
+                blockedJobs.push({ row, reason: `Articolo "${articleCode}" privo di Ciclo di Lavorazione associato in Anagrafica.` });
+                continue;
+            }
+
+            let phases = await createPhasesFromCycle(workCycleId, templatesMap);
+            if (!phases || phases.length === 0) {
+                blockedJobs.push({ row, reason: `Il ciclo di lavoro associato all'articolo "${articleCode}" non contiene fasi di lavorazione valide.` });
+                continue;
+            }
+
+            // 9. Check Distinta Base (BOM)
+            if (!articleData.billOfMaterials || articleData.billOfMaterials.length === 0) {
+                blockedJobs.push({ row, reason: `Articolo "${articleCode}" privo di Distinta Base (BOM) configurata in Anagrafica.` });
+                continue;
+            }
             
             // SMART REMAINDER TRIGGER (Import)
             const expectedMins = articleData.expectedMinutesDefault;
             if (expectedMins && expectedMins > 0 && phases.length > 0) {
                 const historicalAverages = articleData.historicalTimes?.averagePhaseTimes || [];
-                phases = distributeTheoreticalTimes(expectedMins, phases, historicalAverages);
+                phases = distributeTheoreticalTimes(expectedMins, phases, historicalAverages, mappedRow.qta);
             }
             const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => {
                 const compCode = item.component.toUpperCase().trim();
@@ -491,9 +528,22 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 }
             }
 
+            // Calcolo Settimana ISO e targetWeek per collocazione immediata nei secchielli
+            let isoWeek: number | null = null;
+            let weekYear: number | null = null;
+            let targetWeek: string | null = null;
+            if (mappedRow.dataConsegnaFinale) {
+                const d = parseRobustDate(mappedRow.dataConsegnaFinale) || new Date(mappedRow.dataConsegnaFinale);
+                if (d && !isNaN(d.getTime())) {
+                    isoWeek = getISOWeek(d);
+                    weekYear = getISOWeekYear(d);
+                    targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
+                }
+            }
+
             newJobs.push({ 
                 id: sanitizedId, 
-                status: 'In Pianificazione', 
+                status: 'Pianificata', 
                 postazioneLavoro: 'Da Assegnare', 
                 cliente: mappedRow.cliente, 
                 ordinePF: mappedRow.ordinePF, 
@@ -508,6 +558,9 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 department: mappedRow.department, 
                 workCycleId: workCycleId,
                 expectedMinutesDefault: articleData.expectedMinutesDefault || 0,
+                isoWeek,
+                weekYear,
+                targetWeek,
                 createdAt: admin.firestore.Timestamp.now(),
                 updatedAt: admin.firestore.Timestamp.now()
             });
@@ -525,13 +578,27 @@ export async function processAndValidateImport(data: any[]): Promise<{
 
 export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }) {
     const batch = adminDb.batch();
-    data.newJobs.forEach(j => batch.set(adminDb.collection("jobOrders").doc(j.id), j));
-    data.jobsToUpdate.forEach(j => batch.set(adminDb.collection("jobOrders").doc(j.id), j, { merge: true }));
+    data.newJobs.forEach(j => {
+        const jobData = {
+            ...j,
+            createdAt: admin.firestore.Timestamp.now(),
+            updatedAt: admin.firestore.Timestamp.now()
+        };
+        batch.set(adminDb.collection("jobOrders").doc(j.id), sanitizeFirestoreData(jobData));
+    });
+    data.jobsToUpdate.forEach(j => {
+        batch.set(adminDb.collection("jobOrders").doc(j.id), sanitizeFirestoreData(j), { merge: true });
+    });
     await batch.commit();
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/resource-planning');
-    return { success: true, message: 'Caricamento completato.' };
+    revalidatePath('/admin/programmazione');
+    return { 
+        success: true, 
+        message: `${data.newJobs.length} commesse caricate con successo.`, 
+        jobs: JSON.parse(JSON.stringify(data.newJobs)) 
+    };
 }
 
 export async function syncJobOrderDates(itemId: string, newDate: string, field: 'delivery' | 'prep', uid?: string) {
