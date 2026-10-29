@@ -565,6 +565,10 @@ export async function handlePhaseScanResult(
             snap = lookup.jobSnap;
         }
         if (!snap.exists) throw new Error("Commessa non trovata.");
+        const opRef = adminDb.collection('operators').doc(opId);
+        const opSnap = await transaction.get(opRef);
+        const opData = opSnap.exists ? (opSnap.data() as any) : null;
+
         const data = snap.data() as any;
         const phs = [...(data.phases || [])];
         const idx = phs.findIndex(p => p.id === phaseId);
@@ -619,6 +623,42 @@ export async function handlePhaseScanResult(
                     ...(newStatus === 'CHIUSO' ? { overallEndTime: new Date() } : {})
                 };
 
+                // === FASE 24: AUTOMAZIONE PASSAGGIO "SPEDITO" ALLA CHIUSURA PACKAGING ===
+                // Condizione A (Fase Packaging o Ultima della sequenza)
+                const currentPhase = phs[idx];
+                const isPackagingType = currentPhase?.type === 'packaging' || 
+                                        currentPhase?.id === 'packaging' || 
+                                        (currentPhase?.name && /imball|pack/i.test(currentPhase.name));
+                const sortedPhases = [...phs].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+                const isLastSequence = (sortedPhases.length > 0 && sortedPhases[sortedPhases.length - 1].id === currentPhase?.id) ||
+                                       (phs.length > 0 && phs[phs.length - 1].id === currentPhase?.id);
+                const isConditionA = Boolean(isPackagingType || isLastSequence);
+
+                // Condizione B (Stato Chiuso / Nessuna fase in sospeso)
+                const isConditionB = newStatus === 'CHIUSO' || 
+                                     String(newStatus).toLowerCase() === 'chiuso' || 
+                                     String(newStatus).toLowerCase() === 'completed' || 
+                                     String(newStatus).toLowerCase() === 'closed';
+
+                // Condizione C (Permessi Magazzino/Packing)
+                const isSuper = opData?.role === 'admin' || opData?.role === 'supervisor';
+                const allowedPackingDepts = ['MAG', 'MAGAZZINO', 'IMBALLO', 'PACK', 'MAGAZZINIERE', 'COLLAUDO', 'QLTY_PACK'];
+                const repList: string[] = Array.isArray(opData?.reparto) 
+                    ? opData.reparto 
+                    : (typeof opData?.reparto === 'string' ? [opData.reparto] : []);
+                const hasPackingDept = repList.some((r: string) => 
+                    allowedPackingDepts.includes(String(r).toUpperCase().trim())
+                );
+                const hasPackingFlag = Boolean(opData?.canManagePackingList);
+                const isConditionC = Boolean(isSuper || hasPackingDept || hasPackingFlag);
+
+                // Override dello Stato Finale a 'SPEDITA' se tutte le 3 condizioni cumulative sono soddisfatte
+                if (isConditionA && isConditionB && isConditionC) {
+                    updates.status = 'SPEDITA';
+                    updates.lastStatusChange = admin.firestore.FieldValue.serverTimestamp();
+                }
+                // =======================================================================
+
                 // HANDLE ANOMALIES (Quality)
                 if (anomalyData?.hasAnomaly) {
                     updates.hasAnomaly = true;
@@ -627,6 +667,8 @@ export async function handlePhaseScanResult(
                 }
 
                 // HANDLE PACKAGING UPDATES (WorkGroup / Single Job)
+                // Pre-risoluzione dei riferimenti e snap prima di qualsiasi scrittura nella transazione
+                const resolvedPackagingOps: { ref: admin.firestore.DocumentReference; updates: any }[] = [];
                 if (packagingUpdates && packagingUpdates.length > 0) {
                     for (const update of packagingUpdates) {
                         const childLookup = await getJobOrderRefAndSnap(update.jobId, transaction);
@@ -643,25 +685,36 @@ export async function handlePhaseScanResult(
                                 childUpdates.anomalyType = 'QTY_MISMATCH';
                                 childUpdates.anomalyNote = `Quantità ridotta durante l'imballo: da ${childData.qta} a ${update.actualQty}`;
                             }
-                            transaction.update(childRef, childUpdates);
+                            resolvedPackagingOps.push({ ref: childRef, updates: childUpdates });
                         }
                     }
+                }
+
+                // Pre-risoluzione lookup figli per WorkGroup prima di qualsiasi scrittura
+                const resolvedGroupChildRefs: admin.firestore.DocumentReference[] = [];
+                if (isGroup && data.jobOrderIds) {
+                    for (const childId of data.jobOrderIds) {
+                        const lookup = await getJobOrderRefAndSnap(childId, transaction);
+                        if (lookup.jobSnap.exists) {
+                            resolvedGroupChildRefs.push(lookup.jobRef);
+                        }
+                    }
+                }
+
+                // ESECUZIONE SCRITTURE (Tutte le scritture dopo tutte le letture)
+                for (const pkgOp of resolvedPackagingOps) {
+                    transaction.update(pkgOp.ref, pkgOp.updates);
                 }
 
                 transaction.update(itemRef, updates);
 
                 // --- CASCADE UPDATE TO CHILDREN ---
-                if (isGroup && data.jobOrderIds) {
-                    for (const childId of data.jobOrderIds) {
-                        const lookup = await getJobOrderRefAndSnap(childId, transaction);
-                        if (lookup.jobSnap.exists) {
-                            transaction.update(lookup.jobRef, updates);
-                        }
-                    }
+                for (const childRef of resolvedGroupChildRefs) {
+                    transaction.update(childRef, updates);
                 }
                 // ----------------------------------
 
-                transaction.update(adminDb.collection('operators').doc(opId), { 
+                transaction.update(opRef, { 
                     activeJobId: data.ordinePF || jobId, 
                     activePhaseName: null, 
                     stato: 'attivo' // Keeps them in the job, but without active phase
@@ -670,11 +723,9 @@ export async function handlePhaseScanResult(
             } else {
                 // Handle Start/Join
                 
-                const opSnap = await transaction.get(adminDb.collection('operators').doc(opId));
-                if (opSnap.exists) {
-                    const opData = opSnap.data();
+                if (opData) {
                     // Blocca se l'operatore ha una fase attualmente attiva ovunque
-                    if (opData && opData.activeJobId && opData.activePhaseName) {
+                    if (opData.activeJobId && opData.activePhaseName) {
                         if (opData.activeJobId !== (data.ordinePF || jobId) || opData.activePhaseName !== phs[idx].name) {
                             throw new Error(`Impossibile iniziare: hai già un'attività in corso sulla commessa ${opData.activeJobId} (Fase: ${opData.activePhaseName}). Devi prima metterla in pausa o concluderla.`);
                         }
@@ -706,20 +757,26 @@ export async function handlePhaseScanResult(
                    startUpdates.hasMaterialShortage = false; 
                 }
 
-                transaction.update(itemRef, startUpdates);
-                
-                // --- CASCADE UPDATE TO CHILDREN ---
+                // Pre-risoluzione figli prima della scrittura
+                const resolvedStartChildRefs: admin.firestore.DocumentReference[] = [];
                 if (isGroup && data.jobOrderIds) {
                     for (const childId of data.jobOrderIds) {
                         const lookup = await getJobOrderRefAndSnap(childId, transaction);
                         if (lookup.jobSnap.exists) {
-                            transaction.update(lookup.jobRef, startUpdates);
+                            resolvedStartChildRefs.push(lookup.jobRef);
                         }
                     }
                 }
+
+                transaction.update(itemRef, startUpdates);
+                
+                // --- CASCADE UPDATE TO CHILDREN ---
+                for (const childRef of resolvedStartChildRefs) {
+                    transaction.update(childRef, startUpdates);
+                }
                 // ----------------------------------
                 
-                transaction.update(adminDb.collection('operators').doc(opId), { 
+                transaction.update(opRef, { 
                     activeJobId: data.ordinePF || jobId, 
                     activePhaseName: phs[idx].name, 
                     stato: 'attivo' 
@@ -743,6 +800,8 @@ export async function handlePhaseScanResult(
 
     revalidatePath('/scan-job');
     revalidatePath('/admin/production-console');
+    revalidatePath('/admin/programmazione');
+    revalidatePath('/operator/packing');
 }
 
 export async function handlePhasePause(jobId: string, phaseId: string, opId: string, reason?: string, notes?: string) {
