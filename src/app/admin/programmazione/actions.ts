@@ -21,7 +21,7 @@ import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
-import { getISOWeek, getISOWeekYear } from 'date-fns';
+import { getISOWeek, getISOWeekYear, format } from 'date-fns';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
@@ -670,6 +670,268 @@ export async function saveQuickJobOrder(data: {
     } catch (e: any) {
         console.error("Errore saveQuickJobOrder:", e);
         return { success: false, message: e.message || "Errore durante la creazione." };
+    }
+}
+
+function sanitizeFirestoreData(data: any): any {
+    if (data === undefined) return null;
+    if (data === null) return null;
+    if (Array.isArray(data)) return data.map(sanitizeFirestoreData);
+    if (typeof data === 'object' && data.constructor === Object) {
+        const sanitized: any = {};
+        for (const key in data) {
+            const val = data[key];
+            if (val !== undefined) {
+                sanitized[key] = sanitizeFirestoreData(val);
+            }
+        }
+        return sanitized;
+    }
+    return data;
+}
+
+/**
+ * FASE 26: Salvataggio in Batch di Commesse da Inserimento Manuale Multiplo
+ * Regole di Blocco (Rosso):
+ * - Articolo deve esistere in anagrafica.
+ * - Articolo deve possedere una Distinta Base (BOM) configurata.
+ * Regole di Tolleranza (Verde/Warning):
+ * - L'assenza di Ciclo di Lavorazione o Tempi Previsti NON blocca l'inserimento.
+ */
+export async function saveManualMultiJobOrders(items: {
+    department?: string;
+    ordinePF: string;
+    cliente: string;
+    articleCode: string;
+    qta: number;
+    dataConsegnaFinale: string;
+    numeroODLInterno?: string;
+}[]): Promise<{ success: boolean; message: string; jobs?: JobOrder[] }> {
+    try {
+        if (!items || !items.length) {
+            return { success: false, message: "Nessuna commessa da salvare." };
+        }
+
+        // 1. Validazione dati obbligatori
+        for (let i = 0; i < items.length; i++) {
+            const row = items[i];
+            if (!row.ordinePF?.trim()) {
+                return { success: false, message: `Riga ${i + 1}: Ordine PF mancante.` };
+            }
+            if (!row.cliente?.trim()) {
+                return { success: false, message: `Riga ${i + 1} (${row.ordinePF}): Cliente mancante.` };
+            }
+            if (!row.articleCode?.trim()) {
+                return { success: false, message: `Riga ${i + 1} (${row.ordinePF}): Codice Articolo mancante.` };
+            }
+            if (!row.qta || Number(row.qta) <= 0) {
+                return { success: false, message: `Riga ${i + 1} (${row.ordinePF}): Quantità non valida.` };
+            }
+            if (!row.dataConsegnaFinale?.trim()) {
+                return { success: false, message: `Riga ${i + 1} (${row.ordinePF}): Data Consegna mancante.` };
+            }
+        }
+
+        // 2. Controllo duplicati interni
+        const seenPFs = new Set<string>();
+        for (const row of items) {
+            const pf = row.ordinePF.trim().toUpperCase();
+            if (seenPFs.has(pf)) {
+                return { success: false, message: `Ordine PF duplicato nell'elenco inviato: "${row.ordinePF}".` };
+            }
+            seenPFs.add(pf);
+        }
+
+        // 3. Controllo duplicati su Firestore
+        const sanitizedIds = items.map(r => r.ordinePF.replace(/\//g, '-').trim());
+        const existingDocs = await fetchInChunks<JobOrder>(
+            adminDb.collection("jobOrders"),
+            admin.firestore.FieldPath.documentId(),
+            sanitizedIds
+        );
+        if (existingDocs.length > 0) {
+            const duplicatePFs = existingDocs.map(d => d.ordinePF || d.id).join(', ');
+            return { success: false, message: `Commesse già esistenti nel sistema: ${duplicatePFs}.` };
+        }
+
+        // 4. Caricamento Anagrafiche Articoli
+        const uniqueArticleCodes = [...new Set(items.map(r => r.articleCode.trim().toUpperCase()))];
+        const articlesSnap = await fetchInChunks<Article>(
+            adminDb.collection("articles"),
+            "code",
+            uniqueArticleCodes
+        );
+        const articlesMap = new Map<string, Article>();
+        articlesSnap.forEach(a => {
+            if (a.code) articlesMap.set(a.code.toUpperCase().trim(), a);
+        });
+
+        // 5. Verifica Bloccante (Rosso) di Anagrafica e Distinta Base (BOM)
+        for (let i = 0; i < items.length; i++) {
+            const row = items[i];
+            const artCode = row.articleCode.trim().toUpperCase();
+            const art = articlesMap.get(artCode);
+            if (!art) {
+                return { success: false, message: `Riga ${i + 1} (${row.ordinePF}): Articolo "${artCode}" non trovato in Anagrafica.` };
+            }
+            if (!art.billOfMaterials || art.billOfMaterials.length === 0) {
+                return { success: false, message: `Riga ${i + 1} (${row.ordinePF}): Articolo "${artCode}" privo di Distinta Base (BOM) configurata.` };
+            }
+        }
+
+        // 6. Pre-caricamento Materiali per calcolo Fabbisogni BOM
+        const allCompCodes = new Set<string>();
+        articlesSnap.forEach(a => {
+            (a.billOfMaterials || []).forEach(item => {
+                if (item.component) allCompCodes.add(item.component.toUpperCase().trim());
+            });
+        });
+
+        const [globalSettingsSnap, rawMaterials] = await Promise.all([
+            adminDb.collection("settings").doc("global").get(),
+            allCompCodes.size > 0 ? fetchInChunks<RawMaterial>(
+                adminDb.collection("rawMaterials"),
+                "code",
+                [...allCompCodes]
+            ) : Promise.resolve([])
+        ]);
+        const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
+
+        // 7. Costruzione oggetti JobOrder completi
+        const now = new Date();
+        const shortYear = now.getFullYear().toString().slice(-2);
+        const newJobs: JobOrder[] = [];
+
+        for (const row of items) {
+            const sanitizedId = row.ordinePF.replace(/\//g, '-').trim();
+            const artCode = row.articleCode.trim().toUpperCase();
+            const artData = articlesMap.get(artCode)!;
+            const qtaNum = Number(row.qta) || 1;
+
+            const workCycleId = artData.workCycleId || '';
+            const targetDept = row.department || (artData as any).department || 'CP';
+            const expectedMinutesDefault = artData.expectedMinutesDefault || 0;
+
+            // Ciclo e fasi: Regola di Tolleranza (Verde/Warning) - non blocca
+            let phases: any[] = [];
+            if (workCycleId) {
+                try {
+                    phases = await createPhasesFromCycle(workCycleId);
+                    if (expectedMinutesDefault > 0 && phases.length > 0) {
+                        const historicalAverages = artData.historicalTimes?.averagePhaseTimes || [];
+                        phases = distributeTheoreticalTimes(expectedMinutesDefault, phases, historicalAverages, qtaNum);
+                    }
+                } catch (cycleErr) {
+                    console.warn(`Avviso creazione fasi ciclo ${workCycleId}:`, cycleErr);
+                    phases = [];
+                }
+            }
+
+            // Distinta Base (BOM)
+            const jobBOM: JobBillOfMaterialsItem[] = (artData.billOfMaterials || []).map(item => {
+                const compCode = item.component.toUpperCase().trim();
+                const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
+                const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+                const requiresCut = typeConfig?.requiresCutLength !== false;
+
+                const req = calculateBOMRequirement(
+                    qtaNum,
+                    {
+                        quantity: item.quantity,
+                        lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined,
+                        unit: item.unit
+                    },
+                    material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
+                    typeConfig || { defaultUnit: item.unit }
+                );
+
+                return {
+                    ...item,
+                    component: compCode,
+                    status: 'pending' as const,
+                    isFromTemplate: true,
+                    lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
+                    fabbisognoTotale: req.totalInBaseUnits,
+                    pesoStimato: req.weightKg
+                };
+            });
+
+            // Calcolo Settimana ISO da Data Consegna
+            let isoWeek: number | null = null;
+            let weekYear: number | null = null;
+            let targetWeek: string | null = null;
+            let normalizedDeliveryDate = '';
+            if (row.dataConsegnaFinale) {
+                const d = parseRobustDate(row.dataConsegnaFinale) || new Date(row.dataConsegnaFinale);
+                if (d && !isNaN(d.getTime())) {
+                    isoWeek = getISOWeek(d);
+                    weekYear = getISOWeekYear(d);
+                    targetWeek = `${weekYear}-W${String(isoWeek).padStart(2, '0')}`;
+                    normalizedDeliveryDate = format(d, 'yyyy-MM-dd');
+                } else {
+                    normalizedDeliveryDate = row.dataConsegnaFinale;
+                }
+            }
+
+            let odlToAssign: string | null = null;
+            if (row.numeroODLInterno) {
+                const rawVal = String(row.numeroODLInterno).trim();
+                const dashIndex = rawVal.indexOf('-');
+                if (dashIndex !== -1) {
+                    const numPart = rawVal.substring(0, dashIndex).match(/\d+/)?.[0] || '';
+                    const yearPart = rawVal.substring(dashIndex + 1).trim();
+                    if (numPart) odlToAssign = `${numPart.padStart(4, '0')}-${yearPart}`;
+                } else {
+                    const digits = rawVal.match(/\d+/)?.[0] || '';
+                    if (digits) odlToAssign = `${digits.padStart(4, '0')}-${shortYear}`;
+                }
+            }
+
+            newJobs.push({
+                id: sanitizedId,
+                ordinePF: row.ordinePF.trim(),
+                cliente: row.cliente.trim(),
+                details: artCode,
+                qta: qtaNum,
+                department: targetDept,
+                dataConsegnaFinale: normalizedDeliveryDate,
+                numeroODLInterno: odlToAssign,
+                numeroODL: odlToAssign || 'N/D',
+                status: 'Pianificata', // SSoT Pianificata
+                phases,
+                billOfMaterials: jobBOM,
+                workCycleId,
+                expectedMinutesDefault,
+                isoWeek,
+                weekYear,
+                targetWeek,
+                createdAt: now.toISOString(),
+                updatedAt: now.toISOString(),
+                isPrinted: false,
+                odlPrinted: false,
+            } as JobOrder);
+        }
+
+        // 8. Scrittura Batch Atomica
+        const batch = adminDb.batch();
+        newJobs.forEach(job => {
+            const ref = adminDb.collection("jobOrders").doc(job.id);
+            batch.set(ref, sanitizeFirestoreData(job));
+        });
+        await batch.commit();
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+
+        return {
+            success: true,
+            message: `${newJobs.length} commesse inserite con successo con stato Pianificata.`,
+            jobs: JSON.parse(JSON.stringify(newJobs))
+        };
+    } catch (e: any) {
+        console.error("Errore saveManualMultiJobOrders:", e);
+        return { success: false, message: e.message || "Errore durante il salvataggio massivo delle commesse." };
     }
 }
 

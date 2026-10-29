@@ -91,7 +91,7 @@ import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 import { SmartJobModal } from '@/components/mrp/SmartJobModal';
 import { SmartPasteModal } from '@/components/mrp/SmartPasteModal';
 import { ExcelImportModal } from '@/components/mrp/ExcelImportModal';
-import { ManualJobModal } from '@/components/mrp/ManualJobModal';
+import { ManualMultiAddModal } from '@/components/mrp/ManualMultiAddModal';
 import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 import { 
   getJobOrders, 
@@ -107,7 +107,6 @@ import {
   updateJobStatus,
   updateJobDeliveryDate,
   updateJobAssignedWeek,
-  saveQuickJobOrder,
   bulkUpdateJobDeliveryDate,
   bulkShipJobs,
   bulkStartProductionAndPrint,
@@ -917,21 +916,6 @@ export default function ProgrammazioneClientPage({
   const [isBulkDateOpen, setIsBulkDateOpen] = useState(false);
   const [bulkDateInput, setBulkDateInput] = useState('');
 
-  // 2. Riga Vuota Rapida (Top DataGrid)
-  const [quickRow, setQuickRow] = useState({
-    ordinePF: '',
-    cliente: '',
-    articleCode: '',
-    qta: '',
-    dataConsegnaFinale: '',
-    numeroODLInterno: '',
-    department: 'CP',
-  });
-  const [isSubmittingQuickRow, setIsSubmittingQuickRow] = useState(false);
-  const [isQuickArticleOpen, setIsQuickArticleOpen] = useState(false);
-  const [quickArticleSearch, setQuickArticleSearch] = useState('');
-  const quickRowFirstInputRef = useRef<HTMLInputElement>(null);
-
   // =========================================================================
   // FASE 14: LIVE DATA FEED ANAGRAFICA ARTICOLI (Real-Time Listener)
   // =========================================================================
@@ -1316,15 +1300,6 @@ export default function ProgrammazioneClientPage({
 
     return { pianificate, avviate, concluse };
   }, [jobs, selectedDept]);
-
-  // Filtro Articoli per Autocomplete Riga Rapida
-  const matchingQuickArticles = useMemo(() => {
-    const term = (quickArticleSearch || quickRow.articleCode || '').trim().toUpperCase();
-    if (!term) return articles.slice(0, 30);
-    return articles
-      .filter((a) => a.code.toUpperCase().includes(term) || (a.description && a.description.toUpperCase().includes(term)))
-      .slice(0, 30);
-  }, [articles, quickArticleSearch, quickRow.articleCode]);
 
   // =========================================================================
   // TARGETED MRP IN BACKGROUND - SCOPE GLOBALE (COMMESSE PIANIFICATE + IN PRODUZIONE)
@@ -1723,88 +1698,6 @@ export default function ProgrammazioneClientPage({
       });
     }
   }, [toast]);
-
-  // =========================================================================
-  // 2. RIGA VUOTA RAPIDA (INSERIMENTO INLINE STILE EXCEL)
-  // =========================================================================
-  const handleSaveQuickRow = async () => {
-    const { ordinePF, cliente, articleCode, qta, dataConsegnaFinale, numeroODLInterno, department } = quickRow;
-
-    if (!ordinePF.trim() || !cliente.trim() || !articleCode.trim() || !qta) {
-      toast({
-        variant: "destructive",
-        title: "Campi Obbligatori Mancanti",
-        description: "Inserisci almeno Ordine, Cliente, Articolo e Quantità.",
-      });
-      return;
-    }
-
-    let parsedDate = '';
-    if (dataConsegnaFinale.trim()) {
-      const d = parseRobustDate(dataConsegnaFinale.trim());
-      if (d && !isNaN(d.getTime())) {
-        parsedDate = format(d, 'yyyy-MM-dd');
-      }
-    }
-
-    setIsSubmittingQuickRow(true);
-
-    try {
-      const res = await saveQuickJobOrder({
-        ordinePF: ordinePF.trim(),
-        cliente: cliente.trim(),
-        articleCode: articleCode.trim(),
-        qta: parseInt(qta) || 1,
-        dataConsegnaFinale: parsedDate,
-        numeroODLInterno: numeroODLInterno.trim() || undefined,
-        department: selectedDept !== 'ALL' ? selectedDept : (department || 'CP'),
-      });
-
-      if (res.success && res.job) {
-        // Inserimento immediato nella tabella (Optimistic UI)
-        setJobs(prev => [res.job!, ...prev]);
-
-        // Verifica se la commessa appartiene alla settimana attualmente visibile a schermo
-        const weekInfo = getJobWeekAndYear(res.job!);
-        if (weekInfo && (weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear)) {
-          toast({
-            title: "Commessa Creata!",
-            description: `Ordine ${ordinePF} inserito per Settimana ${weekInfo.week}/${weekInfo.year}. Non appare nel secchiello corrente (Settimana ${selectedWeekNumber}).`,
-          });
-        } else {
-          toast({
-            title: "Commessa Creata!",
-            description: `Ordine ${ordinePF} inserito con successo nel secchiello.`,
-          });
-        }
-
-        // Reset riga rapida
-        setQuickRow({
-          ordinePF: '',
-          cliente: '',
-          articleCode: '',
-          qta: '',
-          dataConsegnaFinale: '',
-          numeroODLInterno: '',
-          department: selectedDept !== 'ALL' ? selectedDept : 'CP',
-        });
-        setQuickArticleSearch('');
-
-        // Riporta il focus sul primo campo per inserimenti multipli rapidi
-        quickRowFirstInputRef.current?.focus();
-      } else {
-        throw new Error(res.message);
-      }
-    } catch (e: any) {
-      toast({
-        variant: "destructive",
-        title: "Errore Creazione",
-        description: e.message || "Impossibile inserire la commessa rapida.",
-      });
-    } finally {
-      setIsSubmittingQuickRow(false);
-    }
-  };
 
   // Aggiornamento N° ODL (on blur / Enter differito)
   const handleSaveOdl = useCallback(async (job: JobOrder, draftVal: string) => {
@@ -3442,211 +3335,6 @@ export default function ProgrammazioneClientPage({
               </thead>
               <tbody className="divide-y divide-border font-normal">
                 {/* =========================================================================
-                    2. RIGA VUOTA RAPIDA PERMANENTEMENTE VISIBILE IN CIMA ALLA DATAGRID
-                ========================================================================== */}
-                <tr className="divide-x divide-border bg-blue-500/5 hover:bg-blue-500/10 transition-colors border-b-2 border-primary/30">
-                  {/* Cella Checkbox per Riga Rapida */}
-                  <td className="py-1 px-1 text-center align-middle font-mono text-[10px] text-muted-foreground/40">
-                    +
-                  </td>
-
-                  {/* Reparto */}
-                  <td className="py-1 px-1 text-center align-middle">
-                    <Select
-                      value={quickRow.department}
-                      onValueChange={(val) => setQuickRow(prev => ({ ...prev, department: val }))}
-                    >
-                      <SelectTrigger className="h-6 text-[10px] font-bold px-1 py-0 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="CP" className="text-xs font-bold text-amber-600">CP</SelectItem>
-                        <SelectItem value="CG" className="text-xs font-bold text-emerald-600">CG</SelectItem>
-                        <SelectItem value="BF" className="text-xs font-bold text-sky-600">BF</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </td>
-
-                  {/* Ordine PF */}
-                  <td className="py-1 px-1.5 align-middle">
-                    <input
-                      ref={quickRowFirstInputRef}
-                      type="text"
-                      placeholder="Ordine PF..."
-                      value={quickRow.ordinePF}
-                      onChange={(e) => setQuickRow(prev => ({ ...prev, ordinePF: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
-                      className="w-full h-6 px-1.5 font-mono font-bold text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary"
-                    />
-                  </td>
-
-                  {/* Cliente */}
-                  <td className="py-1 px-1.5 align-middle">
-                    <input
-                      type="text"
-                      placeholder="Cliente..."
-                      value={quickRow.cliente}
-                      onChange={(e) => setQuickRow(prev => ({ ...prev, cliente: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
-                      className="w-full h-6 px-1.5 text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary"
-                    />
-                  </td>
-
-                  {/* Articolo (Autocomplete / Combobox collegato ad Anagrafica Articoli) */}
-                  <td className="py-1 px-1.5 align-middle">
-                    <Popover open={isQuickArticleOpen} onOpenChange={setIsQuickArticleOpen}>
-                      <PopoverTrigger asChild>
-                        <div className="relative flex items-center w-full">
-                          <input
-                            type="text"
-                            placeholder="Seleziona Articolo..."
-                            value={quickRow.articleCode}
-                            onChange={(e) => {
-                              const val = e.target.value.toUpperCase();
-                              setQuickRow(prev => ({ ...prev, articleCode: val }));
-                              setQuickArticleSearch(val);
-                              setIsQuickArticleOpen(true);
-                            }}
-                            onClick={() => setIsQuickArticleOpen(true)}
-                            onFocus={() => setIsQuickArticleOpen(true)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !isQuickArticleOpen) {
-                                handleSaveQuickRow();
-                              }
-                            }}
-                            className="w-full h-6 px-1.5 pr-5 font-mono font-bold text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary uppercase tracking-tight"
-                          />
-                          <ArrowUpDown className="h-3 w-3 absolute right-1.5 text-muted-foreground opacity-50 pointer-events-none" />
-                        </div>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[340px] p-0" align="start">
-                        <Command>
-                          <CommandInput
-                            placeholder="Cerca per codice o descrizione..."
-                            value={quickArticleSearch}
-                            onValueChange={setQuickArticleSearch}
-                          />
-                          <CommandList className="max-h-[220px]">
-                            <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
-                            <CommandGroup heading="Anagrafica Articoli">
-                              {matchingQuickArticles.map((a) => (
-                                <CommandItem
-                                  key={a.id}
-                                  value={a.code}
-                                  onSelect={() => {
-                                    const artDept = (a as any).department;
-                                    setQuickRow(prev => ({
-                                      ...prev,
-                                      articleCode: a.code,
-                                      department: (artDept === 'CP' || artDept === 'CG' || artDept === 'BF') ? artDept : prev.department,
-                                    }));
-                                    setIsQuickArticleOpen(false);
-                                  }}
-                                  className="cursor-pointer text-xs flex items-center justify-between py-1.5"
-                                >
-                                  <div className="flex flex-col">
-                                    <span className="font-mono font-bold text-primary">{a.code}</span>
-                                    {a.description && (
-                                      <span className="text-[10px] text-muted-foreground truncate max-w-[220px]">
-                                        {a.description}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {(a as any).department && (
-                                    <Badge variant="outline" className="text-[9px] px-1 py-0 font-mono">
-                                      {(a as any).department}
-                                    </Badge>
-                                  )}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  </td>
-
-                  {/* Q.tà */}
-                  <td className="py-1 px-1 text-right align-middle">
-                    <input
-                      type="number"
-                      placeholder="Q.tà"
-                      min={1}
-                      value={quickRow.qta}
-                      onChange={(e) => setQuickRow(prev => ({ ...prev, qta: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
-                      className="w-full h-6 px-1 text-right font-mono font-bold text-[11px] bg-background border rounded focus:ring-1 focus:ring-primary"
-                    />
-                  </td>
-
-                  {/* Ore Prev. (Calcolato o placeholder) */}
-                  <td className="py-1 px-2 text-right align-middle font-mono text-[11px] text-muted-foreground">
-                    {quickRow.qta ? `${(parseInt(quickRow.qta) * 0.15).toFixed(1)}h` : '---'}
-                  </td>
-
-                  {/* Data Cons. */}
-                  <td className="py-1 px-1.5 text-center align-middle">
-                    <input
-                      type="text"
-                      placeholder="GG/MM/AAAA"
-                      value={quickRow.dataConsegnaFinale}
-                      onChange={(e) => setQuickRow(prev => ({ ...prev, dataConsegnaFinale: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
-                      className="w-full h-6 px-1 text-center font-mono text-[10px] bg-background border rounded focus:ring-1 focus:ring-primary"
-                    />
-                  </td>
-
-                  {/* N° ODL */}
-                  <td className="py-1 px-1.5 text-center align-middle">
-                    <input
-                      type="text"
-                      placeholder="N° ODL..."
-                      value={quickRow.numeroODLInterno}
-                      onChange={(e) => setQuickRow(prev => ({ ...prev, numeroODLInterno: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveQuickRow()}
-                      className="w-full h-6 px-1 text-center font-mono text-[10px] bg-background border rounded focus:ring-1 focus:ring-primary"
-                    />
-                  </td>
-
-                  {/* Stato MRP */}
-                  <td className="py-1 px-1 text-center align-middle">
-                    <Badge variant="outline" className="text-[9px] py-0 border-blue-500/30 text-blue-500 bg-blue-500/10">
-                      + Nuova
-                    </Badge>
-                  </td>
-
-                  {/* Settimana */}
-                  <td className="py-1 px-1 text-center align-middle font-mono text-[10px] text-muted-foreground">
-                    {viewMode === 'settimana' ? `W${selectedWeekNumber}` : 'Auto'}
-                  </td>
-
-                  {/* Stato Commessa */}
-                  <td className="py-1 px-1 text-center align-middle font-medium text-[10px] text-blue-600">
-                    Pianificata
-                  </td>
-
-                  {/* Azione Salva Riga Rapida */}
-                  <td className="py-1 px-1 text-center align-middle">
-                    <Button
-                      size="sm"
-                      onClick={handleSaveQuickRow}
-                      disabled={isSubmittingQuickRow || !quickRow.ordinePF.trim() || !quickRow.articleCode.trim()}
-                      className="h-6 px-2 text-[10px] font-bold gap-1 bg-primary text-primary-foreground shadow-2xs"
-                      title="Premi Invio o clicca per inserire"
-                    >
-                      {isSubmittingQuickRow ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <>
-                          <CornerDownLeft className="h-3 w-3" />
-                          <span>Invio</span>
-                        </>
-                      )}
-                    </Button>
-                  </td>
-                </tr>
-
-                {/* =========================================================================
                     RIGHE COMMESSE EFFETTIVE
                 ========================================================================== */}
                 {sortedAndFilteredJobs.length === 0 ? (
@@ -3888,26 +3576,19 @@ export default function ProgrammazioneClientPage({
           }}
         />
 
-        {/* 3. Nuova Commessa Manuale (Componente Originale Gestione Dati Commesse) */}
-        <ManualJobModal
+        {/* 3. Inserimento Manuale Multiplo Commesse (FASE 26: Stile Foglio di Calcolo) */}
+        <ManualMultiAddModal
           isOpen={isManualCreateOpen}
           onClose={() => setIsManualCreateOpen(false)}
-          workCycles={workCycles}
+          articles={articles}
           departments={departments}
-          onJobCreated={(newJob) => {
-            setJobs((prev) => [newJob, ...prev]);
-            const weekInfo = getJobWeekAndYear(newJob);
-            if (weekInfo && (weekInfo.week !== selectedWeekNumber || weekInfo.year !== selectedYear)) {
-              toast({
-                title: "Commessa Creata",
-                description: `Ordine ${newJob.ordinePF} inserito per Settimana ${weekInfo.week}/${weekInfo.year}. Non appare nel secchiello corrente (Settimana ${selectedWeekNumber}).`,
-              });
-            } else {
-              toast({
-                title: "Commessa Creata",
-                description: `Ordine ${newJob.ordinePF} inserito con successo nel secchiello.`,
-              });
-            }
+          defaultDepartment={selectedDept !== 'ALL' ? selectedDept : 'CP'}
+          onJobsCreated={(newJobs) => {
+            setJobs((prev) => [...newJobs, ...prev]);
+            toast({
+              title: "Commesse Inserite",
+              description: `${newJobs.length} commesse create con successo con stato Pianificata.`,
+            });
           }}
         />
 
