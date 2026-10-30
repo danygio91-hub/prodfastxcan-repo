@@ -13,13 +13,13 @@ export interface ExportJobData {
     department?: string;
 }
 
-export async function exportPlanningToExcel(
+export function buildPlanningWorkbook(
     jobs: ExportJobData[],
-    macroArea: 'PREP' | 'CORE' | 'PACK',
+    macroArea: 'PREP' | 'CORE' | 'PACK' | string,
     weekTitle: string,
     deptName: string = 'PRODUZIONE'
-) {
-    // 1. Preparazione Dati e Sorting (Stessa logica di prima)
+): ExcelJS.Workbook {
+    // 1. Preparazione Dati e Sorting
     const sortedJobs = [...jobs].sort((a, b) => {
         const dateA = macroArea === 'PREP' ? (a.dataFinePreparazione || a.dataConsegnaFinale) : a.dataConsegnaFinale;
         const dateB = macroArea === 'PREP' ? (b.dataFinePreparazione || b.dataConsegnaFinale) : b.dataConsegnaFinale;
@@ -74,8 +74,11 @@ export async function exportPlanningToExcel(
     ];
 
     // 4. AGGIUNTA INTESTAZIONE SETTIMANA (MERGED CELL) E CONTATORE
-    const weekNum = weekTitle.match(/\d+/)?.[0] || 'XX';
-    worksheet.insertRow(1, { cliente: `PIANO DI PRODUZIONE - ${deptName.toUpperCase()} - SETTIMANA ${weekNum}` });
+    const isMultiWeek = weekTitle.toLowerCase().includes('settimane') || weekTitle.includes('-');
+    const weekHeaderPrefix = isMultiWeek ? 'SETTIMANE' : 'SETTIMANA';
+    const cleanWeekNum = weekTitle.replace(/settimana[e]?\s*/i, '').trim() || weekTitle;
+
+    worksheet.insertRow(1, { cliente: `PIANO DI PRODUZIONE - ${deptName.toUpperCase()} - ${weekHeaderPrefix} ${cleanWeekNum}` });
     worksheet.mergeCells('A1:D1');
     worksheet.mergeCells('E1:F1');
     
@@ -106,16 +109,17 @@ export async function exportPlanningToExcel(
     // 5. Mappaggio Colore Macroarea e Reparto
     let headerBgColor = 'FF6366F1'; // Indaco default
     const upperDept = deptName.toUpperCase();
+    const upperArea = String(macroArea || '').toUpperCase();
     
-    if (upperDept.includes('PREPARAZIONE') || upperDept.includes('PREP')) {
+    if (upperDept.includes('PREPARAZIONE') || upperDept.includes('PREP') || upperArea === 'PREP') {
         headerBgColor = 'FFF59E0B'; // Arancione/Ocra (#F59E0B)
-    } else if (upperDept.includes('REPARTO BARRE') || upperDept.includes('BARRE')) {
+    } else if (upperDept.includes('REPARTO BARRE') || upperDept.includes('BARRE') || upperDept.includes('BF') || upperArea === 'BF') {
         headerBgColor = 'FF0EA5E9'; // Azzurro/Ciano (#0EA5E9)
-    } else if (upperDept.includes('CONNESSIONI GRANDI') || upperDept.includes('GRANDI')) {
+    } else if (upperDept.includes('CONNESSIONI GRANDI') || upperDept.includes('GRANDI') || upperDept.includes('CG') || upperArea === 'CG') {
         headerBgColor = 'FF10B981'; // Verde Smeraldo (#10B981)
-    } else if (upperDept.includes('CONNESSIONI PICCOLE') || upperDept.includes('PICCOLE')) {
+    } else if (upperDept.includes('CONNESSIONI PICCOLE') || upperDept.includes('PICCOLE') || upperDept.includes('CP') || upperArea === 'CP') {
         headerBgColor = 'FFEA580C'; // Arancione Scuro (#EA580C)
-    } else if (upperDept.includes('PACK') || upperDept.includes('QUALITÀ') || upperDept.includes('QUALITA')) {
+    } else if (upperDept.includes('PACK') || upperDept.includes('QUALITÀ') || upperDept.includes('QUALITA') || upperArea === 'PACK') {
         headerBgColor = 'FF64748B'; // Grigio Scuro / Slate (#64748B)
     }
 
@@ -124,15 +128,15 @@ export async function exportPlanningToExcel(
     headerRow.height = 30;
     headerRow.eachCell((cell, colNumber) => {
         cell.font = { 
-            name: 'Arial',
-            size: 11,
+            name: 'Arial', 
+            size: 11, 
             bold: true, 
             color: { argb: 'FFFFFFFF' } // Bianco
         };
-        cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: headerBgColor }
+        cell.fill = { 
+            type: 'pattern', 
+            pattern: 'solid', 
+            fgColor: { argb: headerBgColor } 
         };
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
         
@@ -151,12 +155,29 @@ export async function exportPlanningToExcel(
             ? (job.dataFinePreparazione || job.dataConsegnaFinale) 
             : job.dataConsegnaFinale;
             
+        let formattedDate = 'N/D';
+        if (contextualDate) {
+            try {
+                const parsed = parseISO(contextualDate);
+                if (!isNaN(parsed.getTime())) {
+                    formattedDate = format(parsed, 'dd/MM/yyyy');
+                } else {
+                    const fallback = new Date(contextualDate);
+                    if (!isNaN(fallback.getTime())) {
+                        formattedDate = format(fallback, 'dd/MM/yyyy');
+                    }
+                }
+            } catch {
+                formattedDate = String(contextualDate);
+            }
+        }
+
         const row = worksheet.addRow({
             cliente: job.cliente?.toUpperCase() || '',
             ordinePF: job.ordinePF?.toUpperCase() || '',
             details: job.details?.toUpperCase() || '',
             qta: job.qta || 0,
-            data: contextualDate ? format(parseISO(contextualDate), 'dd/MM/yyyy') : 'N/D',
+            data: formattedDate,
             odl: job.numeroODLInterno || ''
         });
 
@@ -177,18 +198,38 @@ export async function exportPlanningToExcel(
         });
     });
 
-    // 7. Generazione Blob e Download
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const fileName = `Report_Planning_${macroArea}_${weekTitle.replace(/\s+/g, '_')}.xlsx`;
+    return workbook;
+}
 
-    // Metodo di download universale per browser
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = fileName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(anchor);
+export async function generatePlanningExcelBuffer(
+    jobs: ExportJobData[],
+    macroArea: 'PREP' | 'CORE' | 'PACK' | string,
+    weekTitle: string,
+    deptName: string = 'PRODUZIONE'
+): Promise<Buffer | ArrayBuffer> {
+    const workbook = buildPlanningWorkbook(jobs, macroArea, weekTitle, deptName);
+    return await workbook.xlsx.writeBuffer();
+}
+
+export async function exportPlanningToExcel(
+    jobs: ExportJobData[],
+    macroArea: 'PREP' | 'CORE' | 'PACK' | string,
+    weekTitle: string,
+    deptName: string = 'PRODUZIONE'
+) {
+    const buffer = await generatePlanningExcelBuffer(jobs, macroArea, weekTitle, deptName);
+    if (typeof window !== 'undefined') {
+        const blob = new Blob([buffer as any], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const fileName = `Report_Planning_${macroArea}_${weekTitle.replace(/\s+/g, '_')}.xlsx`;
+
+        // Metodo di download universale per browser
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(anchor);
+    }
 }

@@ -16,12 +16,13 @@ import {
 } from '@/app/admin/data-management/actions';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { JobDisplayStatus } from '@/lib/job-status';
+import { getJobDisplayStatus, type JobDisplayStatus } from '@/lib/job-status';
 import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { fetchInChunks } from '@/lib/firestore-utils';
-import { getISOWeek, getISOWeekYear, format } from 'date-fns';
+import { getISOWeek, getISOWeekYear, format, addWeeks } from 'date-fns';
+import { generatePlanningExcelBuffer, type ExportJobData } from '@/lib/excel-export';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
@@ -1156,6 +1157,173 @@ export async function saveCapacityBucket(
         return { success: false, message: err?.message || "Errore nel salvataggio della capacità." };
     }
 }
+
+/**
+ * Determina il gruppo macro-reparto (CP, CG, BF, OTHER) per una commessa
+ */
+function getJobDepartmentGroup(job: JobOrder): 'CP' | 'CG' | 'BF' | 'OTHER' {
+    const d = (job.department || '').toUpperCase().trim();
+    if (d === 'CP' || d.includes('PICCOL') || d.includes('CONNESSIONI PICCOLE')) return 'CP';
+    if (d === 'CG' || d.includes('GRAND') || d.includes('CONNESSIONI GRANDI')) return 'CG';
+    if (d === 'BF' || d.includes('BARRE') || d.includes('REPARTO BARRE')) return 'BF';
+
+    if (job.phases && job.phases.length > 0) {
+        for (const p of job.phases) {
+            const pDepts = (p.departmentCodes || []).map(c => c.toUpperCase());
+            const pName = (p.name || '').toUpperCase();
+            if (pDepts.includes('CP') || pName.includes('PICCOL')) return 'CP';
+            if (pDepts.includes('CG') || pName.includes('GRAND')) return 'CG';
+            if (pDepts.includes('BF') || pName.includes('BARRE')) return 'BF';
+        }
+    }
+
+    return 'OTHER';
+}
+
+export interface ExportPlanningReportOptions {
+    scope: 'current' | 'next' | 'both';
+    dept: 'ALL' | 'CP' | 'CG' | 'BF' | string;
+    referenceDateIso?: string;
+    clientJobs?: JobOrder[];
+}
+
+export interface ExportPlanningReportResult {
+    success: boolean;
+    base64?: string;
+    filename?: string;
+    totalJobs?: number;
+    message?: string;
+}
+
+/**
+ * FASE 27: Server Action per l'esportazione del Report Excel (Programmazione Settimanale)
+ * Filtra tramite standard SSoT (getJobDisplayStatus === 'Pianificata' | 'In Produzione')
+ * ed esegue il ricalcolo ISO delle settimane con roll-over al presente.
+ */
+export async function exportPlanningReportAction(
+    options: ExportPlanningReportOptions
+): Promise<ExportPlanningReportResult> {
+    try {
+        const refDate = options.referenceDateIso ? new Date(options.referenceDateIso) : new Date();
+        const currentIsoWeek = getISOWeek(refDate);
+        const currentIsoYear = getISOWeekYear(refDate);
+
+        const nextDate = addWeeks(refDate, 1);
+        const nextIsoWeek = getISOWeek(nextDate);
+        const nextIsoYear = getISOWeekYear(nextDate);
+
+        // 1. Sorgente Dati: se il client passa le commesse attuali usiamo quelle, altrimenti query Firestore
+        let sourceJobs: JobOrder[] = [];
+        if (options.clientJobs && options.clientJobs.length > 0) {
+            sourceJobs = options.clientJobs;
+        } else {
+            const rawJobs = await fetchAllJobOrders();
+            sourceJobs = rawJobs;
+        }
+
+        // 2. Filtraggio SSoT: solo commesse 'Pianificata' e 'In Produzione'
+        const activeJobs = sourceJobs.filter(job => {
+            const displayStatus = getJobDisplayStatus(job);
+            return displayStatus === 'Pianificata' || displayStatus === 'In Produzione';
+        });
+
+        // 3. Filtraggio per Settimana ISO e Roll-over
+        const matchedJobs = activeJobs.filter(job => {
+            const targetDateStr = job.assignedDate || job.dataConsegnaFinale;
+            if (!targetDateStr) return false;
+            const parsed = parseRobustDate(targetDateStr);
+            if (!parsed) return false;
+
+            const jobWeek = getISOWeek(parsed);
+            const jobYear = getISOWeekYear(parsed);
+
+            // Roll-over: commesse attive nel passato slittano alla settimana corrente
+            const isPast = jobYear < currentIsoYear || (jobYear === currentIsoYear && jobWeek < currentIsoWeek);
+            const effectiveWeek = isPast ? currentIsoWeek : jobWeek;
+            const effectiveYear = isPast ? currentIsoYear : jobYear;
+
+            if (options.scope === 'current') {
+                return effectiveWeek === currentIsoWeek && effectiveYear === currentIsoYear;
+            }
+            if (options.scope === 'next') {
+                return effectiveWeek === nextIsoWeek && effectiveYear === nextIsoYear;
+            }
+            if (options.scope === 'both') {
+                return (
+                    (effectiveWeek === currentIsoWeek && effectiveYear === currentIsoYear) ||
+                    (effectiveWeek === nextIsoWeek && effectiveYear === nextIsoYear)
+                );
+            }
+            return false;
+        });
+
+        // 4. Filtraggio per Reparto
+        const deptFilteredJobs = matchedJobs.filter(job => {
+            if (options.dept === 'ALL') return true;
+            const group = getJobDepartmentGroup(job);
+            return group === options.dept;
+        });
+
+        if (deptFilteredJobs.length === 0) {
+            return {
+                success: true,
+                totalJobs: 0,
+                message: 'Nessuna commessa trovata per i criteri selezionati.'
+            };
+        }
+
+        // 5. Etichette e Nomi
+        let weekTitle = '';
+        if (options.scope === 'current') {
+            weekTitle = `Settimana ${currentIsoWeek}`;
+        } else if (options.scope === 'next') {
+            weekTitle = `Settimana ${nextIsoWeek}`;
+        } else {
+            weekTitle = `Settimane ${currentIsoWeek}-${nextIsoWeek}`;
+        }
+
+        let deptName = 'PRODUZIONE';
+        if (options.dept === 'CP') deptName = 'CONNESSIONI PICCOLE (CP)';
+        else if (options.dept === 'CG') deptName = 'CONNESSIONI GRANDI (CG)';
+        else if (options.dept === 'BF') deptName = 'REPARTO BARRE (BF)';
+
+        // 6. Generazione Excel con lo standard di formattazione Power Planning
+        const exportJobs: ExportJobData[] = deptFilteredJobs.map(j => ({
+            id: j.id,
+            cliente: j.cliente || '',
+            ordinePF: j.ordinePF || '',
+            details: j.details || '',
+            qta: j.qta || 0,
+            dataConsegnaFinale: j.dataConsegnaFinale,
+            numeroODLInterno: j.numeroODLInterno || (j as any).numeroODL || '',
+            department: j.department || ''
+        }));
+
+        const buffer = await generatePlanningExcelBuffer(
+            exportJobs,
+            options.dept === 'ALL' ? 'CORE' : options.dept,
+            weekTitle,
+            deptName
+        );
+
+        const base64 = Buffer.from(buffer as any).toString('base64');
+        const filename = `Report_Planning_${options.dept}_${weekTitle.replace(/\s+/g, '_')}.xlsx`;
+
+        return {
+            success: true,
+            base64,
+            filename,
+            totalJobs: deptFilteredJobs.length
+        };
+    } catch (err: any) {
+        console.error("Errore esportazione report planning:", err);
+        return {
+            success: false,
+            message: err?.message || 'Errore imprevisto durante la generazione del report Excel.'
+        };
+    }
+}
+
 
 
 

@@ -79,6 +79,18 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 import { parseRobustDate, cn } from '@/lib/utils';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle } from '@/types';
@@ -112,6 +124,7 @@ import {
   bulkStartProductionAndPrint,
   getCapacityBuckets,
   saveCapacityBucket,
+  exportPlanningReportAction,
   type DayCapacityConfigData
 } from './actions';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
@@ -892,6 +905,9 @@ export default function ProgrammazioneClientPage({
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
 
+  // FASE 27: Esportazione Report Excel (Programmazione Settimanale)
+  const [isExportingReport, setIsExportingReport] = useState(false);
+
   // FASE 17: Modale di Modifica Completa (Edit Job)
   const [isEditStandardModalOpen, setIsEditStandardModalOpen] = useState(false);
   const [jobToEdit, setJobToEdit] = useState<JobOrder | null>(null);
@@ -1011,6 +1027,78 @@ export default function ProgrammazioneClientPage({
   const selectedYear = useMemo(() => {
     return getISOWeekYear(currentDateReference);
   }, [currentDateReference]);
+
+  const reportCurrentIsoWeek = selectedWeekNumber;
+  const reportNextIsoWeek = useMemo(() => {
+    const nextDate = addWeeks(currentDateReference, 1);
+    return getISOWeek(nextDate);
+  }, [currentDateReference]);
+
+  const handleExportReport = async (scope: 'current' | 'next' | 'both', dept: 'ALL' | 'CP' | 'CG' | 'BF') => {
+    setIsExportingReport(true);
+    try {
+      toast({
+        title: "Generazione Report Excel",
+        description: "Estrazione commesse e formattazione foglio di lavoro in corso...",
+      });
+
+      const res = await exportPlanningReportAction({
+        scope,
+        dept,
+        referenceDateIso: currentDateReference.toISOString(),
+        clientJobs: jobs,
+      });
+
+      if (!res.success) {
+        toast({
+          title: "Errore Esportazione",
+          description: res.message || "Impossibile generare il report Excel.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!res.base64 || (res.totalJobs ?? 0) === 0) {
+        toast({
+          title: "Nessun Dato",
+          description: "Non ci sono commesse pianificate o in produzione per i criteri selezionati.",
+          variant: "default",
+        });
+        return;
+      }
+
+      // Download file Excel da base64
+      const byteCharacters = atob(res.base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = res.filename || 'Report_Planning.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+
+      toast({
+        title: "Report Scaricato",
+        description: `Generato con successo "${res.filename}" (${res.totalJobs} commesse).`,
+      });
+    } catch (error) {
+      console.error("Errore export report Excel:", error);
+      toast({
+        title: "Errore Esportazione",
+        description: "Si è verificato un errore durante la generazione del report Excel.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingReport(false);
+    }
+  };
 
   // Caricamento asincrono capacità al cambio settimana
   useEffect(() => {
@@ -2725,6 +2813,140 @@ export default function ProgrammazioneClientPage({
               <PlusCircle className="h-3.5 w-3.5" />
               <span>+ Manuale</span>
             </Button>
+
+            {/* 5. Scarica Report Excel (Dropdown Settimane e Reparti) */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isExportingReport}
+                  className="h-8 text-xs gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/30 shadow-xs"
+                >
+                  {isExportingReport ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                  )}
+                  <span>Scarica Report</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="text-blue-600 dark:text-blue-400 uppercase tracking-tighter font-black text-xs">
+                  Scarica Report Excel
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+
+                {/* SETTIMANA CORRENTE */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="cursor-pointer">
+                    <Calendar className="mr-2 h-4 w-4 text-blue-500" />
+                    <span>Settimana Corrente (W{reportCurrentIsoWeek})</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent className="w-56">
+                      <DropdownMenuItem
+                        className="cursor-pointer font-bold focus:bg-blue-600 focus:text-white"
+                        onClick={() => handleExportReport('current', 'ALL')}
+                      >
+                        TUTTI I REPARTI (Combinato)
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="cursor-pointer focus:bg-orange-600 focus:text-white"
+                        onClick={() => handleExportReport('current', 'CP')}
+                      >
+                        CONNESSIONI PICCOLE (CP)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer focus:bg-emerald-600 focus:text-white"
+                        onClick={() => handleExportReport('current', 'CG')}
+                      >
+                        CONNESSIONI GRANDI (CG)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer focus:bg-sky-600 focus:text-white"
+                        onClick={() => handleExportReport('current', 'BF')}
+                      >
+                        REPARTO BARRE (BF)
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
+
+                {/* SETTIMANA PROSSIMA */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="cursor-pointer">
+                    <Calendar className="mr-2 h-4 w-4 text-indigo-400 opacity-80" />
+                    <span>Settimana Prossima (W{reportNextIsoWeek})</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent className="w-56">
+                      <DropdownMenuItem
+                        className="cursor-pointer font-bold focus:bg-blue-600 focus:text-white"
+                        onClick={() => handleExportReport('next', 'ALL')}
+                      >
+                        TUTTI I REPARTI (Combinato)
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="cursor-pointer focus:bg-orange-600 focus:text-white"
+                        onClick={() => handleExportReport('next', 'CP')}
+                      >
+                        CONNESSIONI PICCOLE (CP)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer focus:bg-emerald-600 focus:text-white"
+                        onClick={() => handleExportReport('next', 'CG')}
+                      >
+                        CONNESSIONI GRANDI (CG)
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer focus:bg-sky-600 focus:text-white"
+                        onClick={() => handleExportReport('next', 'BF')}
+                      >
+                        REPARTO BARRE (BF)
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
+
+                <DropdownMenuSeparator />
+
+                {/* DUE SETTIMANE COMBINATE */}
+                <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase py-1 px-2 font-black tracking-widest">
+                  Due Settimane Combinate
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  className="cursor-pointer font-bold focus:bg-blue-600 focus:text-white"
+                  onClick={() => handleExportReport('both', 'ALL')}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4 text-blue-500" />
+                  TUTTI I REPARTI (Totale)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer focus:bg-orange-600 focus:text-white"
+                  onClick={() => handleExportReport('both', 'CP')}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4 text-orange-500" />
+                  CONNESSIONI PICCOLE (CP)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer focus:bg-emerald-600 focus:text-white"
+                  onClick={() => handleExportReport('both', 'CG')}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-500" />
+                  CONNESSIONI GRANDI (CG)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer focus:bg-sky-600 focus:text-white"
+                  onClick={() => handleExportReport('both', 'BF')}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4 text-sky-500" />
+                  REPARTO BARRE (BF)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {/* Aggiorna */}
             <Button
