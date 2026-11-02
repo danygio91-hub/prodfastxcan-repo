@@ -643,9 +643,20 @@ const JobTableRow = React.memo(function JobTableRow({
 
       {/* 4. ARTICOLO */}
       <td className="py-1.5 px-3 align-middle">
-        <span className="font-semibold text-foreground truncate block max-w-[250px]" title={job.details}>
-          {job.details || 'Articolo non indicato'}
-        </span>
+        {((job as any).articolo || job.details) ? (
+          <Link
+            href={`/admin/anagrafica-articoli?search=${encodeURIComponent(((job as any).articolo || job.details || '').trim())}`}
+            className="font-semibold text-blue-400 hover:text-blue-300 hover:underline cursor-pointer transition-colors truncate block max-w-[250px]"
+            title={`Apri anagrafica per ${((job as any).articolo || job.details)}`}
+            prefetch={false}
+          >
+            {((job as any).articolo || job.details)}
+          </Link>
+        ) : (
+          <span className="font-semibold text-muted-foreground truncate block max-w-[250px]">
+            Articolo non indicato
+          </span>
+        )}
       </td>
 
       {/* 5. Q.TÀ */}

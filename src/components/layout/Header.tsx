@@ -126,7 +126,8 @@ export default function Header() {
              <TooltipProvider delayDuration={0}>
                 <div className="flex items-center justify-center p-2 gap-2 flex-wrap">
                 {(isAdmin ? adminNavItems : supervisorNavItems).map((item) => {
-                    const isActive = pathname.startsWith(item.href);
+                    const isActive = pathname.startsWith(item.href) || 
+                      (item.href === '/admin/article-management' && pathname.startsWith('/admin/anagrafica-articoli'));
                     const showDot = item.icon === Bell && hasAlerts;
                     return (
                     <Tooltip key={item.href}>

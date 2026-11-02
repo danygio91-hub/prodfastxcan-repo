@@ -54,10 +54,10 @@ interface ArticleManagementClientPageProps {
 export default function ArticleManagementClientPage({ initialArticles }: ArticleManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const articleCodeFromUrl = searchParams.get('code');
+  const searchParamFromUrl = searchParams.get('search') || searchParams.get('q') || searchParams.get('code') || '';
 
-  const [searchTerm, setSearchTerm] = useState(articleCodeFromUrl || '');
-  const debouncedSearchTerm = useDebounce(searchTerm, 600);
+  const [searchTerm, setSearchTerm] = useState(searchParamFromUrl);
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isTimesOpen, setIsTimesOpen] = useState(false);
@@ -86,11 +86,11 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
   const { toast } = useToast();
 
   useEffect(() => {
-    if (articleCodeFromUrl) {
-      setSearchTerm(articleCodeFromUrl);
+    if (searchParamFromUrl && searchParamFromUrl !== searchTerm) {
+      setSearchTerm(searchParamFromUrl);
     }
     getWorkPhaseTemplates().then(setPhaseTemplates);
-  }, [articleCodeFromUrl]);
+  }, [searchParamFromUrl]);
 
   const isInitialMount = useRef(true);
   const [articles, setArticles] = useState<Article[]>(initialArticles);
@@ -101,8 +101,8 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
 
   const lastSearchTermRef = useRef(debouncedSearchTerm);
 
-  const refreshData = useCallback(async () => {
-    const currentSearch = debouncedSearchTerm;
+  const refreshData = useCallback(async (overrideTerm?: string) => {
+    const currentSearch = overrideTerm !== undefined ? overrideTerm : debouncedSearchTerm;
     lastSearchTermRef.current = currentSearch;
     setIsSearching(true);
     
@@ -125,10 +125,25 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
+      // Se il client monta con un parametro URL ma initialArticles non è già mirato a quel parametro, esegui query mirata
+      if (searchParamFromUrl) {
+        const isAlreadyFiltered = initialArticles.length > 0 && 
+          initialArticles.length < 50 && 
+          initialArticles.some(a => a.code.toUpperCase().includes(searchParamFromUrl.toUpperCase().trim()));
+        
+        if (!isAlreadyFiltered) {
+          refreshData(searchParamFromUrl);
+        }
+      }
       return;
     }
     refreshData();
-  }, [debouncedSearchTerm, refreshData]);
+  }, [debouncedSearchTerm, refreshData, searchParamFromUrl, initialArticles]);
+
+  useEffect(() => {
+    setArticles(initialArticles);
+    setHasMore(initialArticles.length >= 50);
+  }, [initialArticles]);
 
 
   const handleLoadMore = async () => {

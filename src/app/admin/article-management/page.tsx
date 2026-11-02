@@ -9,8 +9,15 @@ import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ArticleManagementPage() {
-  const initialArticles = await getArticles();
+interface PageProps {
+  searchParams?: { [key: string]: string | string[] | undefined };
+}
+
+export default async function ArticleManagementPage({ searchParams }: PageProps) {
+  const rawSearch = searchParams?.search || searchParams?.q || searchParams?.code;
+  const initialSearch = typeof rawSearch === 'string' ? rawSearch.trim() : undefined;
+
+  const initialArticles = await getArticles(initialSearch);
 
   return (
     <AdminAuthGuard>

@@ -36,7 +36,7 @@ const articleSchema = z.object({
 export async function getArticles(searchTerm?: string, lastCode?: string, limitCount: number = 50): Promise<Article[]> {
     let q: admin.firestore.Query = adminDb.collection('articles');
     const searchPart = (searchTerm || '').toUpperCase().trim();
-    if (searchPart.length >= 2) {
+    if (searchPart.length >= 1) {
         q = q.where('code', '>=', searchPart).where('code', '<=', searchPart + '\uf8ff').limit(100);
     } else if (searchTerm !== undefined && searchTerm.trim() !== '') {
         return [];
@@ -48,7 +48,16 @@ export async function getArticles(searchTerm?: string, lastCode?: string, limitC
         q = q.limit(limitCount);
     }
     const articlesSnapshot = await q.get();
-    const articles = articlesSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Article));
+    let articles = articlesSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Article));
+
+    // Fallback: se la query a prefisso non ha trovato corrispondenze, prova ricerca diretta per ID documento
+    if (articles.length === 0 && searchPart) {
+        const docSnap = await adminDb.collection('articles').doc(searchPart).get();
+        if (docSnap.exists) {
+            articles = [{ ...docSnap.data(), id: docSnap.id } as Article];
+        }
+    }
+
     return JSON.parse(JSON.stringify(articles));
 }
 
