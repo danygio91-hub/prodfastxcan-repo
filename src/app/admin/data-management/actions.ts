@@ -5,12 +5,17 @@ import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment, Client, BillOfMaterialsItem } from '@/types';
 import * as z from 'zod';
-import { convertTimestampsToDates, normalizeDateStr, parseRobustDate } from '@/lib/utils';
+import { convertTimestampsToDates, normalizeDateStr, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId } from '@/lib/utils';
 import { getISOWeek, getISOWeekYear } from 'date-fns';
-import { fetchInChunks } from '@/lib/firestore-utils';
+import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
 
+export async function checkJobExists(ordinePF: string, annoCompetenza?: number) {
+    const year = annoCompetenza ?? new Date().getFullYear();
+    return await checkJobOrderExists(adminDb, ordinePF, year);
+}
+export { checkJobOrderExists };
 
 function sanitizeDocumentId(id: string): string {
   return id.replace(/\//g, '-');
@@ -151,13 +156,16 @@ export async function saveManualJobOrder(data: any) {
         return { success: false, message: "La data fine preparazione non può essere successiva alla consegna finale." };
     }
     
-    const sanitizedId = sanitizeDocumentId(ordinePF);
-    const docRef = adminDb.collection("jobOrders").doc(sanitizedId);
-    const docSnap = await docRef.get();
+    const finalDeliveryDate = normalizeDateStr(dataConsegnaFinale) || '';
+    const annoCompetenza = extractAnnoCompetenza(finalDeliveryDate);
+    const compositeId = generateJobDocumentId(ordinePF, annoCompetenza);
     
-    if (docSnap.exists) {
-        return { success: false, message: "Esiste già una commessa con questo Ordine PF." };
+    const checkRes = await checkJobOrderExists(adminDb, ordinePF, annoCompetenza);
+    if (checkRes.exists) {
+        return { success: false, message: `Esiste già una commessa con questo Ordine PF (${ordinePF}) per l'anno ${annoCompetenza}.` };
     }
+
+    const docRef = adminDb.collection("jobOrders").doc(compositeId);
 
     const articleSnap = await adminDb.collection("articles").doc(articleCode.toUpperCase()).get();
     if (!articleSnap.exists) {
@@ -225,7 +233,6 @@ export async function saveManualJobOrder(data: any) {
         }
     }
 
-    const finalDeliveryDate = normalizeDateStr(dataConsegnaFinale) || '';
     let isoWeek: number | null = null;
     let weekYear: number | null = null;
     let targetWeek: string | null = null;
@@ -239,11 +246,12 @@ export async function saveManualJobOrder(data: any) {
     }
 
     const newJob: any = {
-        id: sanitizedId,
+        id: compositeId,
         status: 'IN_PIANIFICAZIONE',
         postazioneLavoro: 'Da Assegnare',
         cliente: cliente || "N/D",
         ordinePF: ordinePF,
+        annoCompetenza: annoCompetenza,
         numeroODL: "MANUALE",
         numeroODLInterno: odlToAssign,
         details: articleCode.toUpperCase(),
@@ -378,9 +386,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
             return opf ? sanitizeDocumentId(opf) : null;
         }).filter((id): id is string => id !== null && id !== '');
 
-        const uniqueIds = [...new Set(allPotentialIds)];
-        const existingJobsList = uniqueIds.length > 0 ? await fetchInChunks<JobOrder>(adminDb.collection("jobOrders"), admin.firestore.FieldPath.documentId(), uniqueIds) : [];
-        const existingIdsSet = new Set(existingJobsList.map(j => j.id));
+        const seenExcelKeys = new Set<string>();
 
         for (const row of data) {
             if (!row || typeof row !== 'object') continue;
@@ -440,10 +446,21 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 continue; 
             }
             
-            // 7. Check Commessa Duplicata
-            const sanitizedId = sanitizeDocumentId(mappedRow.ordinePF);
-            if (existingIdsSet.has(sanitizedId)) {
-                blockedJobs.push({ row, reason: "Commessa già presente nel sistema (Duplicata)." });
+            // FASE 31: Calcolo Anno di Competenza ed estrazione chiave composita
+            const annoCompetenza = extractAnnoCompetenza(mappedRow.dataConsegnaFinale);
+            const compositeKey = `${mappedRow.ordinePF.toUpperCase()}__${annoCompetenza}`;
+
+            // Check duplicati interni all'interno del file Excel
+            if (seenExcelKeys.has(compositeKey)) {
+                blockedJobs.push({ row, reason: `Commessa duplicata all'interno del file Excel per l'anno ${annoCompetenza}.` });
+                continue;
+            }
+            seenExcelKeys.add(compositeKey);
+
+            // 7. Check Commessa Duplicata su Firestore (Unicità Composita per Anno)
+            const existsCheck = await checkJobOrderExists(adminDb, mappedRow.ordinePF, annoCompetenza);
+            if (existsCheck.exists) {
+                blockedJobs.push({ row, reason: `Commessa già presente nel sistema per l'anno ${annoCompetenza} (Duplicata).` });
                 continue;
             }
 
@@ -541,12 +558,15 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 }
             }
 
+            const compositeId = generateJobDocumentId(mappedRow.ordinePF, annoCompetenza);
+
             newJobs.push({ 
-                id: sanitizedId, 
+                id: compositeId, 
                 status: 'Pianificata', 
                 postazioneLavoro: 'Da Assegnare', 
                 cliente: mappedRow.cliente, 
                 ordinePF: mappedRow.ordinePF, 
+                annoCompetenza: annoCompetenza,
                 numeroODL: mappedRow.numeroODL, 
                 numeroODLInterno: odlToAssign, 
                 details: articleCode, 
@@ -935,25 +955,29 @@ export async function updateJobOrder(jobId: string, data: {
         // Deep Sanitization to prevent "undefined" Firestore errors
         const sanitizedPayload = sanitizeFirestoreData(updatePayload);
 
-        const newJobId = sanitizeDocumentId(data.ordinePF);
+        const targetDeliveryDate = data.dataConsegnaFinale || job.dataConsegnaFinale;
+        const targetAnno = extractAnnoCompetenza(targetDeliveryDate);
+        const newJobId = generateJobDocumentId(data.ordinePF, targetAnno);
         const batch = adminDb.batch();
 
         if (newJobId !== jobId) {
             console.log(`[UPDATE_JOB] Renaming document ID from "${jobId}" to "${newJobId}"`);
             
-            // Check if a document already exists at the new ID to prevent overwrite collisions
-            const newDocRef = adminDb.collection("jobOrders").doc(newJobId);
-            const newDocSnap = await newDocRef.get();
-            if (newDocSnap.exists) {
-                return { success: false, message: "Esiste già una commessa con il nuovo Ordine PF specificato." };
+            // Check if a document already exists for this order PF and year
+            const existsCheck = await checkJobOrderExists(adminDb, data.ordinePF, targetAnno);
+            if (existsCheck.exists && existsCheck.existingJobId !== jobId) {
+                return { success: false, message: `Esiste già una commessa con l'Ordine PF specificato per l'anno ${targetAnno}.` };
             }
+
+            const newDocRef = adminDb.collection("jobOrders").doc(newJobId);
 
             // Create full migrated document data
             const migratedJob = {
                 ...job,
                 ...sanitizedPayload,
                 id: newJobId,
-                ordinePF: data.ordinePF
+                ordinePF: data.ordinePF,
+                annoCompetenza: targetAnno
             };
 
             batch.set(newDocRef, JSON.parse(JSON.stringify(migratedJob)));
@@ -1072,13 +1096,18 @@ export async function saveSmartJobOrder(data: {
     const { cliente, ordinePF, articleCode, description, dataConsegnaFinale, dataFinePreparazione, workCycleId, qta, billOfMaterials, expectedMinutes, fieldValues, department, isEdit } = data;
     
     try {
-        const sanitizedId = sanitizeDocumentId(ordinePF);
-        const jobRef = adminDb.collection("jobOrders").doc(sanitizedId);
+        const finalDeliveryDate = normalizeDateStr(dataConsegnaFinale) || '';
+        const annoCompetenza = extractAnnoCompetenza(finalDeliveryDate);
+        const compositeId = generateJobDocumentId(ordinePF, annoCompetenza);
+        const jobRef = adminDb.collection("jobOrders").doc(compositeId);
         
         // Check if job exists
         const existingJob = await jobRef.get();
-        if (existingJob.exists && !isEdit) {
-            return { success: false, message: "Esiste già una commessa con questo Ordine PF." };
+        if (!isEdit) {
+            const checkRes = await checkJobOrderExists(adminDb, ordinePF, annoCompetenza);
+            if (checkRes.exists) {
+                return { success: false, message: `Esiste già una commessa con questo Ordine PF (${ordinePF}) per l'anno ${annoCompetenza}.` };
+            }
         }
 
         // Data Freeze Security
@@ -1169,7 +1198,6 @@ export async function saveSmartJobOrder(data: {
             };
         });
 
-        const finalDeliveryDate = normalizeDateStr(dataConsegnaFinale) || '';
         let isoWeek: number | null = null;
         let weekYear: number | null = null;
         let targetWeek: string | null = null;
@@ -1183,9 +1211,10 @@ export async function saveSmartJobOrder(data: {
         }
 
         const newJob: any = {
-            id: sanitizedId,
+            id: compositeId,
             status: 'IN_PIANIFICAZIONE',
             ordinePF: ordinePF,
+            annoCompetenza: annoCompetenza,
             numeroODL: "", 
             cliente: cliente,
             qta: qta,
@@ -1638,17 +1667,29 @@ export async function saveSmartPastedJobOrders(data: {
 
         const newJobs: JobOrder[] = [];
         
-        // Bulk existence check for job ids
-        const allPotentialIds = data.map(row => sanitizeDocumentId(row.ordinePF)).filter(id => id !== '');
-        const uniqueIds = [...new Set(allPotentialIds)];
-        const existingJobsList = uniqueIds.length > 0 ? await fetchInChunks<JobOrder>(adminDb.collection("jobOrders"), admin.firestore.FieldPath.documentId(), uniqueIds) : [];
-        const existingIdsSet = new Set(existingJobsList.map(j => j.id));
+        // 1. Controllo duplicati interni nel set incollato (per ordinePF + anno)
+        const seenKeys = new Set<string>();
+        for (const row of data) {
+            const anno = extractAnnoCompetenza(row.dataConsegnaFinale);
+            const key = `${row.ordinePF.trim().toUpperCase()}__${anno}`;
+            if (seenKeys.has(key)) {
+                return { success: false, message: `Ordine PF duplicato nell'elenco incollato per l'anno ${anno}: "${row.ordinePF}".` };
+            }
+            seenKeys.add(key);
+        }
+
+        // 2. Controllo duplicati su Firestore con query composita ordinePF + annoCompetenza
+        for (const row of data) {
+            const anno = extractAnnoCompetenza(row.dataConsegnaFinale);
+            const checkRes = await checkJobOrderExists(adminDb, row.ordinePF, anno);
+            if (checkRes.exists) {
+                return { success: false, message: `La commessa ${row.ordinePF} esiste già per l'anno ${anno}.` };
+            }
+        }
 
         for (const row of data) {
-            const sanitizedId = sanitizeDocumentId(row.ordinePF);
-            if (existingIdsSet.has(sanitizedId)) {
-                return { success: false, message: `La commessa ${row.ordinePF} esiste già.` };
-            }
+            const annoCompetenza = extractAnnoCompetenza(row.dataConsegnaFinale);
+            const compositeId = generateJobDocumentId(row.ordinePF, annoCompetenza);
 
             const articleCode = row.details.toUpperCase().trim();
             const articleData = articlesMap.get(articleCode);
@@ -1707,11 +1748,12 @@ export async function saveSmartPastedJobOrders(data: {
             }
 
             newJobs.push({
-                id: sanitizedId,
+                id: compositeId,
                 status: 'IN_PIANIFICAZIONE',
                 postazioneLavoro: 'Da Assegnare',
                 cliente: row.cliente ? row.cliente.trim() : 'N/D', 
                 ordinePF: row.ordinePF,
+                annoCompetenza: annoCompetenza,
                 numeroODL: 'N/D',
                 numeroODLInterno: null,
                 details: articleCode,

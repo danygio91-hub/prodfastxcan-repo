@@ -17,10 +17,10 @@ import {
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { getJobDisplayStatus, type JobDisplayStatus } from '@/lib/job-status';
-import { convertTimestampsToDates, parseRobustDate } from '@/lib/utils';
+import { convertTimestampsToDates, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId } from '@/lib/utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
-import { fetchInChunks } from '@/lib/firestore-utils';
+import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
 import { getISOWeek, getISOWeekYear, format, addWeeks } from 'date-fns';
 import { generatePlanningExcelBuffer, type ExportJobData } from '@/lib/excel-export';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
@@ -53,7 +53,11 @@ export async function getDepartments(): Promise<Department[]> {
     return await fetchAllDepartments();
 }
 
-export { saveManualJobOrder, getWorkCycles };
+export { saveManualJobOrder, getWorkCycles, checkJobOrderExists };
+export async function checkJobExists(ordinePF: string, annoCompetenza?: number) {
+    const year = annoCompetenza ?? new Date().getFullYear();
+    return await checkJobOrderExists(adminDb, ordinePF, year);
+}
 
 /**
  * Targeted Fetching MRP:
@@ -539,12 +543,15 @@ export async function saveQuickJobOrder(data: {
             return { success: false, message: "Compilare Ordine, Cliente, Articolo e Quantità." };
         }
 
-        const sanitizedId = ordinePF.replace(/\//g, '-').trim();
-        const docRef = adminDb.collection("jobOrders").doc(sanitizedId);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            return { success: false, message: `Esiste già una commessa con Ordine PF ${ordinePF}.` };
+        const annoCompetenza = extractAnnoCompetenza(dataConsegnaFinale);
+        const compositeId = generateJobDocumentId(ordinePF, annoCompetenza);
+        
+        const checkRes = await checkJobOrderExists(adminDb, ordinePF, annoCompetenza);
+        if (checkRes.exists) {
+            return { success: false, message: `Esiste già una commessa con Ordine PF ${ordinePF} per l'anno ${annoCompetenza}.` };
         }
+
+        const docRef = adminDb.collection("jobOrders").doc(compositeId);
 
         let phases: any[] = [];
         let jobBOM: JobBillOfMaterialsItem[] = [];
@@ -643,8 +650,9 @@ export async function saveQuickJobOrder(data: {
         }
 
         const newJob: any = {
-            id: sanitizedId,
+            id: compositeId,
             ordinePF: ordinePF.trim(),
+            annoCompetenza: annoCompetenza,
             cliente: cliente.trim(),
             details: articleCode.toUpperCase().trim(),
             qta: Number(qta) || 1,
@@ -733,26 +741,24 @@ export async function saveManualMultiJobOrders(items: {
             }
         }
 
-        // 2. Controllo duplicati interni
-        const seenPFs = new Set<string>();
+        // 2. Controllo duplicati interni (Unicità per Ordine PF + Anno di Competenza)
+        const seenKeys = new Set<string>();
         for (const row of items) {
-            const pf = row.ordinePF.trim().toUpperCase();
-            if (seenPFs.has(pf)) {
-                return { success: false, message: `Ordine PF duplicato nell'elenco inviato: "${row.ordinePF}".` };
+            const anno = extractAnnoCompetenza(row.dataConsegnaFinale);
+            const key = `${row.ordinePF.trim().toUpperCase()}__${anno}`;
+            if (seenKeys.has(key)) {
+                return { success: false, message: `Ordine PF duplicato nell'elenco inviato per l'anno ${anno}: "${row.ordinePF}".` };
             }
-            seenPFs.add(pf);
+            seenKeys.add(key);
         }
 
-        // 3. Controllo duplicati su Firestore
-        const sanitizedIds = items.map(r => r.ordinePF.replace(/\//g, '-').trim());
-        const existingDocs = await fetchInChunks<JobOrder>(
-            adminDb.collection("jobOrders"),
-            admin.firestore.FieldPath.documentId(),
-            sanitizedIds
-        );
-        if (existingDocs.length > 0) {
-            const duplicatePFs = existingDocs.map(d => d.ordinePF || d.id).join(', ');
-            return { success: false, message: `Commesse già esistenti nel sistema: ${duplicatePFs}.` };
+        // 3. Controllo duplicati su Firestore (Unicità combinata ordinePF + annoCompetenza)
+        for (const row of items) {
+            const anno = extractAnnoCompetenza(row.dataConsegnaFinale);
+            const checkRes = await checkJobOrderExists(adminDb, row.ordinePF, anno);
+            if (checkRes.exists) {
+                return { success: false, message: `Commessa già esistente nel sistema: "${row.ordinePF}" per l'anno ${anno}.` };
+            }
         }
 
         // 4. Caricamento Anagrafiche Articoli
@@ -818,7 +824,8 @@ export async function saveManualMultiJobOrders(items: {
         const newJobs: JobOrder[] = [];
 
         for (const row of items) {
-            const sanitizedId = row.ordinePF.replace(/\//g, '-').trim();
+            const annoCompetenza = extractAnnoCompetenza(row.dataConsegnaFinale);
+            const compositeId = generateJobDocumentId(row.ordinePF, annoCompetenza);
             const artCode = row.articleCode.trim().toUpperCase();
             const artData = articlesMap.get(artCode)!;
             const qtaNum = Number(row.qta) || 1;
@@ -903,8 +910,9 @@ export async function saveManualMultiJobOrders(items: {
             }
 
             newJobs.push({
-                id: sanitizedId,
+                id: compositeId,
                 ordinePF: row.ordinePF.trim(),
+                annoCompetenza: annoCompetenza,
                 cliente: row.cliente.trim(),
                 details: artCode,
                 qta: qtaNum,

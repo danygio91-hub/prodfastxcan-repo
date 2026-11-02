@@ -42,13 +42,26 @@ async function getJobOrderRefAndSnap(
     if (!jobSnap.exists) {
         const querySnap = await adminDb.collection('jobOrders')
             .where('ordinePF', '==', rawId)
-            .limit(1)
             .get();
         
         if (!querySnap.empty) {
-            const foundSnap = querySnap.docs[0];
-            jobRef = foundSnap.ref;
-            jobSnap = transaction ? await transaction.get(jobRef) : foundSnap;
+            let selectedDoc = querySnap.docs[0];
+            if (querySnap.docs.length > 1) {
+                const finishedStatuses = ['completed', 'CHIUSO', 'FINE PRODUZIONE', 'FINE_PRODUZIONE', 'SPEDITA', 'Spedito', 'shipped'];
+                const activeDoc = querySnap.docs.find(d => !finishedStatuses.includes(d.data().status));
+                if (activeDoc) {
+                    selectedDoc = activeDoc;
+                } else {
+                    const sorted = [...querySnap.docs].sort((a, b) => {
+                        const yearA = a.data().annoCompetenza || 0;
+                        const yearB = b.data().annoCompetenza || 0;
+                        return yearB - yearA;
+                    });
+                    selectedDoc = sorted[0];
+                }
+            }
+            jobRef = selectedDoc.ref;
+            jobSnap = transaction ? await transaction.get(jobRef) : selectedDoc;
         }
     }
 
@@ -323,17 +336,30 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
   const scannedCode = scannedData.ordinePF || '';
   if (!scannedCode) return { error: 'ID Commessa non valido.', title: 'Errore' };
   
-  // NUCLEAR FIX: ONLY EXACT MATCH ON SSoT 'ordinePF' for QR SCANS
+  // NUCLEAR FIX: SSoT 'ordinePF' for QR SCANS (predilige commessa attiva dell'anno corrente)
   const querySnap = await adminDb.collection('jobOrders')
       .where('ordinePF', '==', scannedCode)
-      .limit(1)
       .get();
 
   if (querySnap.empty) {
       return { error: `Commessa "${scannedCode}" non trovata (Ricerca esatta fallita).`, title: 'Errore SSoT' };
   }
   
-  const jobSnap = querySnap.docs[0];
+  let jobSnap = querySnap.docs[0];
+  if (querySnap.docs.length > 1) {
+      const finishedStatuses = ['completed', 'CHIUSO', 'FINE PRODUZIONE', 'FINE_PRODUZIONE', 'SPEDITA', 'Spedito', 'shipped'];
+      const activeDoc = querySnap.docs.find(d => !finishedStatuses.includes(d.data().status));
+      if (activeDoc) {
+          jobSnap = activeDoc;
+      } else {
+          const sorted = [...querySnap.docs].sort((a, b) => {
+              const yearA = a.data().annoCompetenza || 0;
+              const yearB = b.data().annoCompetenza || 0;
+              return yearB - yearA;
+          });
+          jobSnap = sorted[0];
+      }
+  }
   
   let job = convertTimestampsToDates(jobSnap.data()) as JobOrder;
   job.id = jobSnap.id;

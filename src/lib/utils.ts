@@ -114,3 +114,35 @@ export function normalizeDateStr(input: any): string | null {
     return `${year}-${month}-${day}`;
 }
 
+/**
+ * FASE 31: Estrae l'anno di competenza da una data di consegna (o fallback alla data odierna/creazione).
+ */
+export function extractAnnoCompetenza(dateInput?: any, fallbackDate: Date = new Date()): number {
+    if (dateInput) {
+        if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
+            return dateInput.getFullYear();
+        }
+        const parsed = parseRobustDate(dateInput);
+        if (parsed && !isNaN(parsed.getTime())) {
+            return parsed.getFullYear();
+        }
+        const d = new Date(String(dateInput));
+        if (!isNaN(d.getTime())) {
+            return d.getFullYear();
+        }
+    }
+    return fallbackDate.getFullYear();
+}
+
+/**
+ * FASE 31: Genera l'ID univoco composito per il documento Firestore di una commessa (es. 840-PF_2026).
+ * Se l'ID fornito include già il suffisso dell'anno, non lo duplica.
+ */
+export function generateJobDocumentId(ordinePF: string, annoCompetenza: number): string {
+    const base = (ordinePF || '').replace(/\//g, '-').trim();
+    if (base.endsWith(`_${annoCompetenza}`)) {
+        return base;
+    }
+    return `${base}_${annoCompetenza}`;
+}
+

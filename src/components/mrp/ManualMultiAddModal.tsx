@@ -354,11 +354,14 @@ export function ManualMultiAddModal({
   const validationResults = useMemo(() => {
     const seenPFs = new Map<string, number>();
 
-    // Conta duplicati di Ordine PF
+    // Conta duplicati di Ordine PF combinati per anno
     rows.forEach((r) => {
       const pf = r.ordinePF.trim().toUpperCase();
       if (pf) {
-        seenPFs.set(pf, (seenPFs.get(pf) || 0) + 1);
+        const parsedD = parseRobustDate(r.dataConsegnaFinale);
+        const year = parsedD && !isNaN(parsedD.getTime()) ? parsedD.getFullYear() : new Date().getFullYear();
+        const key = `${pf}__${year}`;
+        seenPFs.set(key, (seenPFs.get(key) || 0) + 1);
       }
     });
 
@@ -374,10 +377,13 @@ export function ManualMultiAddModal({
       const warnings: string[] = [];
 
       const pf = r.ordinePF.trim();
+      const parsedD = parseRobustDate(r.dataConsegnaFinale);
+      const year = parsedD && !isNaN(parsedD.getTime()) ? parsedD.getFullYear() : new Date().getFullYear();
+      const key = `${pf.toUpperCase()}__${year}`;
       if (!pf) {
         errors.push('Ordine PF obbligatorio');
-      } else if ((seenPFs.get(pf.toUpperCase()) || 0) > 1) {
-        errors.push('Ordine PF duplicato nella tabella');
+      } else if ((seenPFs.get(key) || 0) > 1) {
+        errors.push(`Ordine PF duplicato nella tabella per l'anno ${year}`);
       }
 
       if (!r.cliente.trim()) {

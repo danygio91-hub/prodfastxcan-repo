@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { DraftJobOrder, JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem } from '@/types';
-import { convertTimestampsToDates } from '@/lib/utils';
+import { convertTimestampsToDates, extractAnnoCompetenza, generateJobDocumentId } from '@/lib/utils';
 
 function sanitizeDocumentId(id: string): string {
   return id.replace(/\//g, '-');
@@ -108,14 +108,16 @@ export async function convertDraftToJobOrder(draftId: string, customJobId?: stri
             const randomHex = Math.floor(Math.random() * 65535).toString(16).toUpperCase().padStart(4, '0');
             finalJobId = `SIM-${yyyy}${mm}${dd}-${randomHex}`;
         }
-        const sanitizedId = sanitizeDocumentId(finalJobId);
+        const annoCompetenza = extractAnnoCompetenza(draft.deliveryDate);
+        const compositeId = generateJobDocumentId(finalJobId, annoCompetenza);
 
         const newJob: JobOrder = {
-            id: sanitizedId,
+            id: compositeId,
             status: 'IN_PIANIFICAZIONE',
             postazioneLavoro: 'Da Assegnare',
             cliente: "SIMULAZIONE MRP",
             ordinePF: finalJobId,
+            annoCompetenza: annoCompetenza,
             numeroODL: "SIMULAZIONE",
             numeroODLInterno: null,
             details: articleCode,
@@ -131,13 +133,13 @@ export async function convertDraftToJobOrder(draftId: string, customJobId?: stri
         };
 
         const batch = adminDb.batch();
-        batch.set(adminDb.collection("jobOrders").doc(sanitizedId), JSON.parse(JSON.stringify(newJob)));
+        batch.set(adminDb.collection("jobOrders").doc(compositeId), JSON.parse(JSON.stringify(newJob)));
         batch.delete(draftRef);
         await batch.commit();
 
         revalidatePath('/admin/mrp-simulation');
         revalidatePath('/admin/data-management');
-        return { success: true, message: `Convertito in Commessa ${sanitizedId}` };
+        return { success: true, message: `Convertito in Commessa ${finalJobId}` };
     } catch (error) {
         console.error("Error converting draft:", error);
         return { success: false, message: "Errore durante la conversione della bozza." };

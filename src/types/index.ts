@@ -112,6 +112,7 @@ export interface JobOrder {
   department: string;
   details: string;
   ordinePF: string;
+  annoCompetenza?: number;
   numeroODL: string;
   dataConsegnaFinale: string;
   postazioneLavoro: string;

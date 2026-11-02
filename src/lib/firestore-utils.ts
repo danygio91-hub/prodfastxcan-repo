@@ -1,4 +1,53 @@
 import * as admin from 'firebase-admin';
+import { generateJobDocumentId, extractAnnoCompetenza } from '@/lib/utils';
+
+/**
+ * FASE 31: Verifica unicità composita (ordinePF + annoCompetenza) su Firestore.
+ * Esegue la query where('ordinePF', '==', ...).where('annoCompetenza', '==', ...)
+ * e verifica sia l'ID composito sia eventuali record legacy dello stesso anno.
+ */
+export async function checkJobOrderExists(
+    adminDb: admin.firestore.Firestore,
+    ordinePF: string,
+    annoCompetenza: number
+): Promise<{ exists: boolean; existingJobId?: string }> {
+    const cleanPF = (ordinePF || '').trim();
+    if (!cleanPF) return { exists: false };
+
+    // 1. Query combinata Firestore su campo ordinePF e annoCompetenza
+    const querySnap = await adminDb.collection('jobOrders')
+        .where('ordinePF', '==', cleanPF)
+        .where('annoCompetenza', '==', annoCompetenza)
+        .limit(1)
+        .get();
+
+    if (!querySnap.empty) {
+        return { exists: true, existingJobId: querySnap.docs[0].id };
+    }
+
+    // 2. Controllo diretto su ID documento composito (es. 840-PF_2026)
+    const compositeId = generateJobDocumentId(cleanPF, annoCompetenza);
+    const docSnap = await adminDb.collection('jobOrders').doc(compositeId).get();
+    if (docSnap.exists) {
+        return { exists: true, existingJobId: docSnap.id };
+    }
+
+    // 3. Controllo retrocompatibilità record legacy (senza anno nell'ID)
+    const legacyId = cleanPF.replace(/\//g, '-').trim();
+    const legacySnap = await adminDb.collection('jobOrders').doc(legacyId).get();
+    if (legacySnap.exists) {
+        const legacyData = legacySnap.data() as any;
+        const legacyYear = legacyData?.annoCompetenza ?? extractAnnoCompetenza(
+            legacyData?.dataConsegnaFinale,
+            legacyData?.createdAt ? (legacyData.createdAt.toDate ? legacyData.createdAt.toDate() : new Date(legacyData.createdAt)) : undefined
+        );
+        if (legacyYear === annoCompetenza) {
+            return { exists: true, existingJobId: legacySnap.id };
+        }
+    }
+
+    return { exists: false };
+}
 
 /**
  * Executes a Firestore 'in' query in chunks to overcome the 30-item limit.
@@ -55,17 +104,30 @@ export async function getJobOrderRefAndSnap(
     let jobRef = adminDb.collection('jobOrders').doc(sanitizedId);
     let jobSnap = transaction ? await transaction.get(jobRef) : await jobRef.get();
 
-    // FALLBACK 1: Ricerca per campo testuale esatto (Risolve disallineamento ID/campo)
+    // FALLBACK 1: Ricerca per campo testuale esatto (Risolve disallineamento ID/campo e ID compositi)
     if (!jobSnap.exists) {
         const querySnap = await adminDb.collection('jobOrders')
             .where('ordinePF', '==', rawId)
-            .limit(1)
             .get();
         
         if (!querySnap.empty) {
-            const foundSnap = querySnap.docs[0];
-            jobRef = foundSnap.ref;
-            jobSnap = transaction ? await transaction.get(jobRef) : foundSnap;
+            let selectedDoc = querySnap.docs[0];
+            if (querySnap.docs.length > 1) {
+                const finishedStatuses = ['completed', 'CHIUSO', 'FINE PRODUZIONE', 'FINE_PRODUZIONE', 'SPEDITA', 'Spedito', 'shipped'];
+                const activeDoc = querySnap.docs.find(d => !finishedStatuses.includes(d.data().status));
+                if (activeDoc) {
+                    selectedDoc = activeDoc;
+                } else {
+                    const sorted = [...querySnap.docs].sort((a, b) => {
+                        const yearA = a.data().annoCompetenza || 0;
+                        const yearB = b.data().annoCompetenza || 0;
+                        return yearB - yearA;
+                    });
+                    selectedDoc = sorted[0];
+                }
+            }
+            jobRef = selectedDoc.ref;
+            jobSnap = transaction ? await transaction.get(jobRef) : selectedDoc;
         }
     }
 
