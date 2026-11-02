@@ -110,9 +110,11 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
         }
 
         const isRed = componentEntries.some(ce => ce.entry.status === 'RED');
-        const isLate = !isRed && componentEntries.some(ce => ce.entry.status === 'LATE');
-        const isOrdered = !isRed && !isLate && componentEntries.some(ce => ce.entry.status === 'ORDERED');
-        const isAmber = !isRed && !isLate && !isOrdered && componentEntries.some(ce => ce.entry.status === 'AMBER');
+        const isSupplierLate = !isRed && componentEntries.some(ce => ce.entry.status === 'SUPPLIER_LATE');
+        const isExpediteNeeded = !isRed && !isSupplierLate && componentEntries.some(ce => ce.entry.status === 'EXPEDITE_NEEDED');
+        const isLate = !isRed && !isSupplierLate && !isExpediteNeeded && componentEntries.some(ce => ce.entry.status === 'LATE');
+        const isOrdered = !isRed && !isSupplierLate && !isExpediteNeeded && !isLate && componentEntries.some(ce => ce.entry.status === 'ORDERED');
+        const isAmber = !isRed && !isSupplierLate && !isExpediteNeeded && !isLate && !isOrdered && componentEntries.some(ce => ce.entry.status === 'AMBER');
         const isFrozen = componentEntries.some(ce => ce.entry.isFrozen);
         
         const aggregatedEntries = aggregateMRPRequirements(componentEntries);
@@ -141,6 +143,8 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
         }
 
         if (isRed) return { color: 'text-red-500', icon: XCircle, label: 'MANCANZA MATERIALI', details: combinedDetails };
+        if (isSupplierLate) return { color: 'text-red-600', icon: AlertTriangle, label: 'RITARDO FORN.', details: combinedDetails };
+        if (isExpediteNeeded) return { color: 'text-amber-500', icon: AlertTriangle, label: 'DA ANTICIPARE', details: combinedDetails };
         if (isLate) return { color: 'text-orange-600', icon: AlertTriangle, label: 'IN RITARDO', details: combinedDetails };
         if (isOrdered) return { color: 'text-indigo-500 dark:text-indigo-400', icon: AlertTriangle, label: 'ORDINATO', details: combinedDetails };
         if (isAmber) return { color: 'text-yellow-500', icon: AlertTriangle, label: 'COPERTURA DA ORDINE', details: combinedDetails };

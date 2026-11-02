@@ -774,10 +774,18 @@ export default function DataManagementClientPage({
                               variant="outline" 
                               className={cn(
                                 "text-[9px] py-0 px-1 font-bold",
-                                worstCategoryStatus === 'RED' ? "border-red-400 text-red-600 bg-red-50/50" : "border-amber-400 text-amber-600 bg-amber-50/50"
+                                worstCategoryStatus === 'RED' 
+                                  ? "border-red-400 text-red-600 bg-red-50/50" 
+                                  : worstCategoryStatus === 'SUPPLIER_LATE'
+                                    ? "border-red-500 text-red-600 bg-red-50/50"
+                                    : "border-amber-400 text-amber-600 bg-amber-50/50"
                               )}
                             >
-                              {worstCategoryStatus === 'RED' ? '🔴 MANCANTI' : '🟠 IN RITARDO'}
+                              {worstCategoryStatus === 'RED' 
+                                ? '🔴 MANCANTI' 
+                                : worstCategoryStatus === 'SUPPLIER_LATE' 
+                                  ? '🔴 RITARDO FORNITORE' 
+                                  : '🟠 DA ANTICIPARE'}
                             </Badge>
                           </div>
                           <div className="h-px bg-border flex-1"></div>
@@ -790,10 +798,22 @@ export default function DataManagementClientPage({
                                 <div className="flex items-center justify-between w-full pr-4">
                                   <span className="font-bold text-sm">{matCode}</span>
                                   <Badge 
-                                    variant={worstStatus === 'RED' ? 'destructive' : 'secondary'} 
-                                    className={worstStatus === 'LATE' ? 'bg-amber-500 hover:bg-amber-600 text-white font-bold' : 'font-bold'}
+                                    variant={worstStatus === 'RED' || worstStatus === 'SUPPLIER_LATE' ? 'destructive' : 'secondary'} 
+                                    className={
+                                      worstStatus === 'SUPPLIER_LATE'
+                                        ? 'bg-red-600 hover:bg-red-700 text-white font-bold'
+                                        : worstStatus === 'EXPEDITE_NEEDED' || worstStatus === 'LATE'
+                                          ? 'bg-amber-500 hover:bg-amber-600 text-white font-bold'
+                                          : 'font-bold'
+                                    }
                                   >
-                                    {worstStatus === 'RED' ? 'MANCANTE' : 'IN RITARDO'}
+                                    {worstStatus === 'RED' 
+                                      ? 'MANCANTE' 
+                                      : worstStatus === 'SUPPLIER_LATE'
+                                        ? 'RITARDO FORN.'
+                                        : worstStatus === 'EXPEDITE_NEEDED'
+                                          ? 'DA ANTICIPARE'
+                                          : 'IN RITARDO'}
                                   </Badge>
                                 </div>
                                 <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
@@ -808,9 +828,9 @@ export default function DataManagementClientPage({
                                       key={i} 
                                       className={cn(
                                         "p-2 rounded-md border text-sm", 
-                                        visualStatus === 'RED' 
+                                        visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE'
                                           ? "border-red-200 bg-red-50/30" 
-                                          : visualStatus === 'LATE' 
+                                          : visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE'
                                             ? "border-amber-200 bg-amber-50/30" 
                                             : visualStatus === 'ORDERED' 
                                               ? "border-indigo-200 bg-indigo-50/30" 
@@ -825,8 +845,8 @@ export default function DataManagementClientPage({
                                         <span className="text-muted-foreground">Fabbisogno: {entry.requiredQty.toFixed(2)}</span>
                                         <span className={cn(
                                           "font-bold", 
-                                          visualStatus === 'RED' ? "text-red-600" : 
-                                          visualStatus === 'LATE' ? "text-amber-600" : 
+                                          visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE' ? "text-red-600" : 
+                                          visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE' ? "text-amber-600" : 
                                           visualStatus === 'ORDERED' ? "text-indigo-600" : 
                                           "text-emerald-600"
                                         )}>

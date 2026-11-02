@@ -303,7 +303,7 @@ export function formatDateForDisplay(isoOrStr?: string): string {
 }
 
 export type JobMRPSummary = {
-  state: 'RED' | 'LATE' | 'GREEN' | 'NO_BOM' | 'LOADING' | 'COMPLETED';
+  state: 'RED' | 'SUPPLIER_LATE' | 'EXPEDITE_NEEDED' | 'LATE' | 'ORDERED' | 'GREEN' | 'NO_BOM' | 'LOADING' | 'COMPLETED';
   label: string;
   badgeClass: string;
   dotClass: string;
@@ -1605,13 +1605,7 @@ export default function ProgrammazioneClientPage({
   }, [classifiedMRPAlarms]);
 
   // Stato Semaforo Singola Commessa con Gestione Visiva Corretta "In Verifica" e Short-circuit per Completate
-  const getJobMRPStatus = useCallback((job: JobOrder): {
-    state: 'RED' | 'LATE' | 'GREEN' | 'NO_BOM' | 'LOADING' | 'COMPLETED';
-    label: string;
-    badgeClass: string;
-    dotClass: string;
-    details: string[];
-  } => {
+  const getJobMRPStatus = useCallback((job: JobOrder): JobMRPSummary => {
     // 0. SHORT-CIRCUIT A MONTE: Se la commessa è completata o spedita, bypassa completamente il calcolo MRP
     if (isJobFinished(job)) {
       const isShipped = normalizeJobStatus(job) === 'Spedito';
@@ -1694,10 +1688,13 @@ export default function ProgrammazioneClientPage({
 
     // MAPPATURA RIGOROSA DEGLI STATI MRP (HIERARCHY):
     // 1. MANCANTE (Red): Stock Proiettato < 0 E nessun PO a copertura. Azione: comprare.
-    // 2. IN RITARDO (Orange): Stock Proiettato < 0 MA coperto da PO con data successiva. Azione: sollecitare fornitore.
-    // 3. ORDINATO / IN ARRIVO (Indigo): Coperto da PO in arrivo entro la data consegna.
-    // 4. PRONTO (Green): Coperto da stock fisico o prelevato.
+    // 2. RITARDO FORNITORE (Supplier Late): Coperto da PO con data < oggi scaduto non consegnato. Azione: sollecitare fornitore.
+    // 3. DA ANTICIPARE (Expedite Needed): Coperto da PO futuro ma successivo a consegna commessa. Azione: anticipare fornitura o riprogrammare.
+    // 4. ORDINATO / IN ARRIVO (Indigo): Coperto da PO in arrivo entro la data consegna.
+    // 5. PRONTO (Green): Coperto da stock fisico o prelevato.
     let hasRed = false;
+    let hasSupplierLate = false;
+    let hasExpediteNeeded = false;
     let hasLate = false;
     let hasOrderedInTime = false;
 
@@ -1714,6 +1711,12 @@ export default function ProgrammazioneClientPage({
         if (e.entry.status === 'RED') {
           hasRed = true;
           statusText = '🔴 MANCANTE (Stock fisico e ordini fornitore insufficienti)';
+        } else if (e.entry.status === 'SUPPLIER_LATE') {
+          hasSupplierLate = true;
+          statusText = '🔴 RITARDO FORNITORE (Ordine scaduto non ancora consegnato)';
+        } else if (e.entry.status === 'EXPEDITE_NEEDED') {
+          hasExpediteNeeded = true;
+          statusText = '🟠 ARRIVO LUNGO / DA ANTICIPARE (Ordine in arrivo dopo la consegna commessa)';
         } else if (e.entry.status === 'LATE') {
           hasLate = true;
           statusText = '🟠 RITARDO MATERIALE (Fornitore in ritardo o consegna successiva)';
@@ -1743,6 +1746,26 @@ export default function ProgrammazioneClientPage({
       };
     }
 
+    if (hasSupplierLate) {
+      return {
+        state: 'SUPPLIER_LATE',
+        label: 'RITARDO FORN.',
+        badgeClass: 'bg-red-600/15 text-red-600 dark:text-red-400 border-red-600/30 font-bold',
+        dotClass: 'bg-red-600 animate-pulse',
+        details,
+      };
+    }
+
+    if (hasExpediteNeeded) {
+      return {
+        state: 'EXPEDITE_NEEDED',
+        label: 'DA ANTICIPARE',
+        badgeClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold',
+        dotClass: 'bg-amber-500',
+        details,
+      };
+    }
+
     if (hasLate) {
       return {
         state: 'LATE',
@@ -1755,7 +1778,7 @@ export default function ProgrammazioneClientPage({
 
     if (hasOrderedInTime) {
       return {
-        state: 'LATE',
+        state: 'ORDERED',
         label: 'In Arrivo',
         badgeClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 font-semibold',
         dotClass: 'bg-indigo-500',
@@ -2877,10 +2900,16 @@ export default function ProgrammazioneClientPage({
                                   "text-[9px] py-0 px-1 font-bold",
                                   worstCategoryStatus === 'RED'
                                     ? "border-red-400 text-red-600 bg-red-50/50 dark:bg-red-950/20"
-                                    : "border-amber-400 text-amber-600 bg-amber-50/50 dark:bg-amber-950/20"
+                                    : worstCategoryStatus === 'SUPPLIER_LATE'
+                                      ? "border-red-500 text-red-600 bg-red-50/50 dark:bg-red-950/20"
+                                      : "border-amber-400 text-amber-600 bg-amber-50/50 dark:bg-amber-950/20"
                                 )}
                               >
-                                {worstCategoryStatus === 'RED' ? '🔴 MANCANTI' : '🟠 IN RITARDO'}
+                                {worstCategoryStatus === 'RED' 
+                                  ? '🔴 MANCANTI' 
+                                  : worstCategoryStatus === 'SUPPLIER_LATE' 
+                                    ? '🔴 RITARDO FORNITORE' 
+                                    : '🟠 DA ANTICIPARE'}
                               </Badge>
                             </div>
                             <div className="h-px bg-border flex-1"></div>
@@ -2889,10 +2918,16 @@ export default function ProgrammazioneClientPage({
                           {/* Accordion Materiali della Categoria */}
                           <Accordion type="single" collapsible className="w-full space-y-2">
                             {materials.map((mat) => {
-                              const worstLabel = mat.worstStatus === 'RED' ? 'MANCANTE' : 'IN RITARDO';
-                              const worstBadgeClass = mat.worstStatus === 'RED' 
-                                ? 'bg-red-600 text-white' 
-                                : 'bg-amber-500 text-white';
+                              const worstLabel = 
+                                mat.worstStatus === 'RED' ? 'MANCANTE' :
+                                mat.worstStatus === 'SUPPLIER_LATE' ? 'RITARDO FORN.' :
+                                mat.worstStatus === 'EXPEDITE_NEEDED' ? 'DA ANTICIPARE' :
+                                mat.worstStatus === 'LATE' ? 'IN RITARDO' : 'ORDINATO';
+
+                              const worstBadgeClass = 
+                                mat.worstStatus === 'RED' || mat.worstStatus === 'SUPPLIER_LATE'
+                                  ? 'bg-red-600 text-white font-bold' 
+                                  : 'bg-amber-500 text-white font-bold';
 
                               return (
                                 <AccordionItem key={mat.matCode} value={mat.matCode} className="border rounded-md px-2">
@@ -2915,7 +2950,13 @@ export default function ProgrammazioneClientPage({
                                         {mat.countRed > 0 && (
                                           <span className="text-red-500 font-bold">{mat.countRed} mancanti</span>
                                         )}
-                                        {mat.countLate > 0 && (
+                                        {mat.countSupplierLate > 0 && (
+                                          <span className="text-red-600 dark:text-red-400 font-bold">{mat.countSupplierLate} ritardo forn.</span>
+                                        )}
+                                        {mat.countExpediteNeeded > 0 && (
+                                          <span className="text-amber-500 font-bold">{mat.countExpediteNeeded} da anticipare</span>
+                                        )}
+                                        {mat.countLate > 0 && mat.countSupplierLate === 0 && mat.countExpediteNeeded === 0 && (
                                           <span className="text-amber-500 font-bold">{mat.countLate} in ritardo</span>
                                         )}
                                         <span className="text-muted-foreground">su {mat.entriesWithVisual.length}</span>
@@ -2928,9 +2969,9 @@ export default function ProgrammazioneClientPage({
                                         key={idx} 
                                         className={cn(
                                           "p-2.5 rounded-md border text-[11px] space-y-1.5 transition-colors",
-                                          visualStatus === 'RED'
+                                          visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE'
                                             ? "border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-950/20"
-                                            : visualStatus === 'LATE'
+                                            : visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE'
                                               ? "border-amber-200 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20"
                                               : visualStatus === 'ORDERED'
                                                 ? "border-indigo-200 bg-indigo-50/30 dark:border-indigo-900/40 dark:bg-indigo-950/15"
@@ -2941,8 +2982,8 @@ export default function ProgrammazioneClientPage({
                                           <div className="flex items-center gap-1.5">
                                             <span className={cn(
                                               "font-bold",
-                                              visualStatus === 'RED' ? "text-red-700 dark:text-red-300" :
-                                              visualStatus === 'LATE' ? "text-amber-700 dark:text-amber-300" :
+                                              visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE' ? "text-red-700 dark:text-red-300" :
+                                              visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE' ? "text-amber-700 dark:text-amber-300" :
                                               visualStatus === 'ORDERED' ? "text-indigo-700 dark:text-indigo-300" :
                                               "text-foreground"
                                             )}>
@@ -2963,9 +3004,9 @@ export default function ProgrammazioneClientPage({
                                           </span>
                                           <span className={cn(
                                             "font-bold uppercase text-[9px] px-1.5 py-0.2 rounded-xs",
-                                            visualStatus === 'RED'
+                                            visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE'
                                               ? "bg-red-500/20 text-red-700 dark:text-red-300"
-                                              : visualStatus === 'LATE'
+                                              : visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE'
                                                 ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
                                                 : visualStatus === 'ORDERED'
                                                   ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400"
@@ -2973,11 +3014,15 @@ export default function ProgrammazioneClientPage({
                                           )}>
                                             {visualStatus === 'RED' 
                                               ? '🔴 Mancante' 
-                                              : visualStatus === 'LATE' 
-                                                ? '🟠 In Ritardo' 
-                                                : visualStatus === 'ORDERED' 
-                                                  ? '💜 Ordinato' 
-                                                  : '🟢 Coperto'
+                                              : visualStatus === 'SUPPLIER_LATE'
+                                                ? '🔴 Ritardo Forn.'
+                                                : visualStatus === 'EXPEDITE_NEEDED'
+                                                  ? '🟠 Da Anticipare'
+                                                  : visualStatus === 'LATE' 
+                                                    ? '🟠 In Ritardo' 
+                                                    : visualStatus === 'ORDERED' 
+                                                      ? '💜 Ordinato' 
+                                                      : '🟢 Coperto'
                                             }
                                           </span>
                                         </div>
@@ -2988,9 +3033,9 @@ export default function ProgrammazioneClientPage({
                                           </span>
                                           <span className={cn(
                                             "font-bold text-[11px]",
-                                            visualStatus === 'RED'
+                                            visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE'
                                               ? "text-red-600 dark:text-red-400"
-                                              : visualStatus === 'LATE'
+                                              : visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE'
                                                 ? "text-amber-600 dark:text-amber-400"
                                                 : visualStatus === 'ORDERED'
                                                   ? "text-indigo-600 dark:text-indigo-400"

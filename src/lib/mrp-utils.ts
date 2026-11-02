@@ -10,7 +10,7 @@ export interface MRPTimelineEntry {
     jobId: string;
     materialCode: string;
     requiredQty: number;
-    status: 'GREEN' | 'LOW_STOCK' | 'ORDERED' | 'AMBER' | 'LATE' | 'RED';
+    status: 'GREEN' | 'LOW_STOCK' | 'ORDERED' | 'AMBER' | 'SUPPLIER_LATE' | 'EXPEDITE_NEEDED' | 'LATE' | 'RED';
     projectedBalance: number;
     supplyArrivalDate?: string; 
     details: string[]; 
@@ -258,7 +258,9 @@ export function calculateMRPTimelines(
                 let coveredByLateArrivalPO = 0;
                 let uncoveredQty = 0;
 
-                const coveringDetails: string[] = [];
+                const overduePODetails: string[] = [];
+                const expeditePODetails: { orderNumber: string; supplierDate: string }[] = [];
+                const onTimePODetails: string[] = [];
                 let supplyArrivalDate: string | undefined = undefined;
 
                 // 1. Priorità assoluta allo stock fisico presente a magazzino
@@ -284,19 +286,19 @@ export function calculateMRPTimelines(
                         const formattedDate = supply.parsedDate ? format(supply.parsedDate, 'dd/MM/yyyy') : 'N/D';
 
                         if (supply.isOverdue) {
-                            // Ordine fornitore scaduto nel passato (< oggi) -> RITARDO FORNITORE
+                            // Ordine fornitore scaduto nel passato (< oggi) -> SUPPLIER_LATE
                             coveredByOverduePO += take;
-                            coveringDetails.push(`PO ${supply.orderNumber} scaduto il ${formattedDate} (IN RITARDO)`);
+                            overduePODetails.push(`PO ${supply.orderNumber} del ${formattedDate}`);
                             if (!supplyArrivalDate) supplyArrivalDate = supply.dateStr;
                         } else if (supplyTime > demandTime) {
-                            // Ordine fornitore futuro ma che arriva dopo la data richiesta dalla commessa
+                            // Ordine fornitore futuro ma che arriva dopo la data richiesta dalla commessa -> EXPEDITE_NEEDED
                             coveredByLateArrivalPO += take;
-                            coveringDetails.push(`PO ${supply.orderNumber} in arrivo il ${formattedDate} (dopo data richiesta)`);
+                            expeditePODetails.push({ orderNumber: supply.orderNumber, supplierDate: formattedDate });
                             if (!supplyArrivalDate) supplyArrivalDate = supply.dateStr;
                         } else {
                             // Ordine fornitore in arrivo in tempo
                             coveredByOnTimePO += take;
-                            coveringDetails.push(`PO ${supply.orderNumber} in arrivo il ${formattedDate}`);
+                            onTimePODetails.push(`PO ${supply.orderNumber} in arrivo il ${formattedDate}`);
                             if (!supplyArrivalDate) supplyArrivalDate = supply.dateStr;
                         }
                     }
@@ -314,19 +316,23 @@ export function calculateMRPTimelines(
                 }
                 details.push(`Fabbisogno: ${dem.qty.toFixed(2)} ${mat.unitOfMeasure}`);
 
-                // REGOLE TIME-PHASED MRP RIGOROSE:
+                const demandFormattedDate = dem.parsedDate ? format(dem.parsedDate, 'dd/MM/yyyy') : 'N/D';
+
+                // REGOLE TIME-PHASED MRP RIGOROSE (SDOPPIAMENTO FASE 35):
                 if (uncoveredQty > 0.0001) {
                     status = 'RED';
                     details.push(`❌ MANCANTE: Stock fisico e ordini insufficienti (Mancano ${uncoveredQty.toFixed(2)} ${mat.unitOfMeasure}). Necessario acquistare.`);
                 } else if (coveredByOverduePO > 0.0001) {
-                    status = 'LATE';
-                    details.push(`🟠 RITARDO FORNITORE: Coperto da ordine fornitore SCADUTO non ancora consegnato (${coveringDetails.join('; ')}). Sollecitare fornitore!`);
+                    status = 'SUPPLIER_LATE';
+                    const poOverdueStr = overduePODetails.join('; ');
+                    details.push(`🔴 RITARDO FORNITORE: Coperto da ordine SCADUTO non ancora consegnato (${poOverdueStr}). Sollecitare fornitore!`);
                 } else if (coveredByLateArrivalPO > 0.0001) {
-                    status = 'LATE';
-                    details.push(`🟠 IN RITARDO: Coperto da ordine fornitore con consegna successiva alla data richiesta (${coveringDetails.join('; ')}).`);
+                    status = 'EXPEDITE_NEEDED';
+                    const supplyDatesStr = expeditePODetails.map(e => `${e.supplierDate}${e.orderNumber && e.orderNumber !== 'N/D' ? ` (PO ${e.orderNumber})` : ''}`).join(', ');
+                    details.push(`🟠 ARRIVO LUNGO: Coperto da ordine in arrivo il ${supplyDatesStr}, successivo alla consegna commessa (${demandFormattedDate}). Anticipare fornitura o riprogrammare!`);
                 } else if (coveredByOnTimePO > 0.0001) {
                     status = 'ORDERED';
-                    details.push(`💜 ORDINATO: Coperto da ordine fornitore nei tempi (${coveringDetails.join('; ')}). In arrivo nei tempi.`);
+                    details.push(`💜 ORDINATO: Coperto da ordine fornitore nei tempi (${onTimePODetails.join('; ')}). In arrivo nei tempi.`);
                 } else {
                     if (availablePhysicalStock < safeStock) {
                         status = 'LOW_STOCK';
@@ -349,7 +355,7 @@ export function calculateMRPTimelines(
                     projectedBalance = -(coveredByOverduePO + coveredByLateArrivalPO + uncoveredQty);
                 }
 
-                const dbg = ` [DBG: PhysStock=${initialStock.toFixed(2)}, Dem=${dem.qty.toFixed(2)}, PhysCov=${coveredByPhysical.toFixed(2)}, OnTimePO=${coveredByOnTimePO.toFixed(2)}, LatePO=${(coveredByOverduePO + coveredByLateArrivalPO).toFixed(2)}, Missing=${uncoveredQty.toFixed(2)}, BalAtDate=${projectedBalance.toFixed(2)}]`;
+                const dbg = ` [DBG: PhysStock=${initialStock.toFixed(2)}, Dem=${dem.qty.toFixed(2)}, PhysCov=${coveredByPhysical.toFixed(2)}, OnTimePO=${coveredByOnTimePO.toFixed(2)}, OverduePO=${coveredByOverduePO.toFixed(2)}, LateArrivalPO=${coveredByLateArrivalPO.toFixed(2)}, Missing=${uncoveredQty.toFixed(2)}, BalAtDate=${projectedBalance.toFixed(2)}]`;
                 details.push(dbg);
 
                 materialEntries.push({
@@ -399,9 +405,11 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
     groups.forEach((group, code) => {
         const totalQty = group.entries.reduce((sum, e) => sum + (e.requiredQty || 0), 0);
         
-        // Priorità Stato: RED > LATE > ORDERED > LOW_STOCK > AMBER > GREEN
+        // Priorità Stato: RED > SUPPLIER_LATE > EXPEDITE_NEEDED > LATE > ORDERED > LOW_STOCK > AMBER > GREEN
         let finalStatus: MRPTimelineEntry['status'] = 'GREEN';
         if (group.entries.some(e => e.status === 'RED')) finalStatus = 'RED';
+        else if (group.entries.some(e => e.status === 'SUPPLIER_LATE')) finalStatus = 'SUPPLIER_LATE';
+        else if (group.entries.some(e => e.status === 'EXPEDITE_NEEDED')) finalStatus = 'EXPEDITE_NEEDED';
         else if (group.entries.some(e => e.status === 'LATE')) finalStatus = 'LATE';
         else if (group.entries.some(e => e.status === 'ORDERED')) finalStatus = 'ORDERED';
         else if (group.entries.some(e => e.status === 'LOW_STOCK')) finalStatus = 'LOW_STOCK';
@@ -428,6 +436,24 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
         if (finalStatus === 'RED') {
             newDetails.push(`❌ MANCANTE: Stock e ordini totali insufficienti. ${debugString}`);
             newDetails.push("VERIFICARE PIANO ACQUISTI.");
+        } else if (finalStatus === 'SUPPLIER_LATE') {
+            const entry = group.entries.find(e => e.status === 'SUPPLIER_LATE');
+            const specificDetail = entry?.details.find(d => d.includes('RITARDO FORNITORE')) || '';
+            if (specificDetail) {
+                newDetails.push(`${specificDetail} ${debugString}`);
+            } else {
+                newDetails.push(`🔴 RITARDO FORNITORE: Coperto da ordine SCADUTO non ancora consegnato. Sollecitare fornitore! ${debugString}`);
+            }
+            newDetails.push("Sollecitare immediatamente il fornitore.");
+        } else if (finalStatus === 'EXPEDITE_NEEDED') {
+            const entry = group.entries.find(e => e.status === 'EXPEDITE_NEEDED');
+            const specificDetail = entry?.details.find(d => d.includes('ARRIVO LUNGO')) || '';
+            if (specificDetail) {
+                newDetails.push(`${specificDetail} ${debugString}`);
+            } else {
+                newDetails.push(`🟠 ARRIVO LUNGO: Coperto da ordine in arrivo dopo la consegna commessa. Anticipare fornitura o riprogrammare! ${debugString}`);
+            }
+            newDetails.push("Anticipare fornitura o riprogrammare commessa.");
         } else if (finalStatus === 'LATE') {
             const lateEntry = group.entries.find(e => e.status === 'LATE');
             const arrivalStr = lateEntry?.supplyArrivalDate ? ` (Arrivo previsto: ${new Date(lateEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })})` : '';
@@ -464,7 +490,7 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
     return aggregated;
 }
 
-export type MRPVisualAlarmStatus = 'RED' | 'LATE' | 'ORDERED' | 'LOW_STOCK' | 'GREEN';
+export type MRPVisualAlarmStatus = 'RED' | 'SUPPLIER_LATE' | 'EXPEDITE_NEEDED' | 'LATE' | 'ORDERED' | 'LOW_STOCK' | 'GREEN';
 
 export interface MRPAlarmTimelineEntry<TJob = any> {
     entry: MRPTimelineEntry;
@@ -479,9 +505,11 @@ export interface MaterialAlarmItem<TJob = any> {
     materialName: string;
     materialType: string; // Categoria / Famiglia merceologica (es. "GUAINA", "TUBI", "CAVO FLEX")
     worstStatus: MRPVisualAlarmStatus;
-    isAlarm: boolean; // True SOLO se worstStatus è 'RED' o 'LATE'
+    isAlarm: boolean; // True SOLO se worstStatus è 'RED', 'SUPPLIER_LATE', 'EXPEDITE_NEEDED' (o legacy 'LATE')
     isUnderControl: boolean; // True se worstStatus è 'ORDERED' (coperte da PO in tempo)
     countRed: number;
+    countSupplierLate: number;
+    countExpediteNeeded: number;
     countLate: number;
     countOrdered: number;
     entriesWithVisual: MRPAlarmTimelineEntry<TJob>[];
@@ -489,7 +517,7 @@ export interface MaterialAlarmItem<TJob = any> {
 
 export interface GroupedAlarmCategory<TJob = any> {
     category: string;
-    worstCategoryStatus: 'RED' | 'LATE';
+    worstCategoryStatus: 'RED' | 'SUPPLIER_LATE' | 'EXPEDITE_NEEDED' | 'LATE';
     materials: MaterialAlarmItem<TJob>[];
 }
 
@@ -500,7 +528,7 @@ export interface GroupedUnderControlCategory<TJob = any> {
 
 export interface ClassifiedMRPAlarms<TJob = any> {
     alarmMaterials: MaterialAlarmItem<TJob>[];
-    alarmCount: number; // SSoT per i badge rossi: solo materiali con RED o LATE
+    alarmCount: number; // SSoT per i badge rossi: solo materiali con RED, SUPPLIER_LATE o EXPEDITE_NEEDED
     underControlMaterials: MaterialAlarmItem<TJob>[];
     underControlCount: number;
     groupedAlarms: GroupedAlarmCategory<TJob>[];
@@ -519,7 +547,7 @@ export interface ClassifyMRPAlarmsParams<TJob = any> {
  * 
  * REGOLA TASSATIVA:
  * Un materiale è considerato un "Allarme" (e incrementa i badge numerici rossi) SOLO SE ha almeno
- * una commessa in stato 🔴 MANCANTE (Red) o 🟠 IN RITARDO (Orange).
+ * una commessa in stato 🔴 MANCANTE (Red), 🔴 RITARDO FORNITORE (Supplier Late) o 🟠 DA ANTICIPARE (Expedite Needed).
  * 
  * Se per un materiale TUTTE le commesse scoperte sono in stato 💜 ORDINATO / IN ARRIVO
  * (coperte da PO nei tempi corretti), quel materiale NON DEVE figurare nel conteggio degli allarmi globali.
@@ -556,11 +584,19 @@ export function classifyGlobalMRPAlarms<TJob = any>({
             const job = allJobs.find(j => (j as any).id === entry.jobId);
             const jobDate = (job as any)?.dataFinePreparazione || (job as any)?.dataConsegnaFinale;
             
-            const isUncovered = entry.status === 'RED' || entry.status === 'LATE' || entry.projectedBalance < -0.001;
+            const isUncovered = entry.status === 'RED' || 
+                entry.status === 'SUPPLIER_LATE' || 
+                entry.status === 'EXPEDITE_NEEDED' || 
+                entry.status === 'LATE' || 
+                entry.projectedBalance < -0.001;
 
             let visualStatus: MRPVisualAlarmStatus;
             if (entry.status === 'RED') {
                 visualStatus = 'RED';
+            } else if (entry.status === 'SUPPLIER_LATE') {
+                visualStatus = 'SUPPLIER_LATE';
+            } else if (entry.status === 'EXPEDITE_NEEDED') {
+                visualStatus = 'EXPEDITE_NEEDED';
             } else if (entry.status === 'LATE') {
                 visualStatus = 'LATE';
             } else if (entry.status === 'ORDERED' || entry.status === 'AMBER') {
@@ -585,17 +621,22 @@ export function classifyGlobalMRPAlarms<TJob = any>({
         });
 
         const countRed = entriesWithVisual.filter(e => e.visualStatus === 'RED').length;
-        const countLate = entriesWithVisual.filter(e => e.visualStatus === 'LATE').length;
+        const countSupplierLate = entriesWithVisual.filter(e => e.visualStatus === 'SUPPLIER_LATE').length;
+        const countExpediteNeeded = entriesWithVisual.filter(e => e.visualStatus === 'EXPEDITE_NEEDED').length;
+        const countLate = entriesWithVisual.filter(e => e.visualStatus === 'LATE' || e.visualStatus === 'SUPPLIER_LATE' || e.visualStatus === 'EXPEDITE_NEEDED').length;
         const countOrdered = entriesWithVisual.filter(e => e.visualStatus === 'ORDERED').length;
 
         const worstStatus: MRPVisualAlarmStatus = 
             countRed > 0 ? 'RED' :
+            countSupplierLate > 0 ? 'SUPPLIER_LATE' :
+            countExpediteNeeded > 0 ? 'EXPEDITE_NEEDED' :
             countLate > 0 ? 'LATE' :
             countOrdered > 0 ? 'ORDERED' :
             entriesWithVisual.some(e => e.visualStatus === 'LOW_STOCK') ? 'LOW_STOCK' : 'GREEN';
 
         // REGOLA TASSATIVA SSoT:
-        const isAlarm = countRed > 0 || countLate > 0;
+        // Entrambi gli stati SUPPLIER_LATE ed EXPEDITE_NEEDED contribuiscono al conteggio allarmi
+        const isAlarm = countRed > 0 || countSupplierLate > 0 || countExpediteNeeded > 0 || countLate > 0;
         const isUnderControl = !isAlarm && countOrdered > 0;
 
         const item: MaterialAlarmItem<TJob> = {
@@ -606,6 +647,8 @@ export function classifyGlobalMRPAlarms<TJob = any>({
             isAlarm,
             isUnderControl,
             countRed,
+            countSupplierLate,
+            countExpediteNeeded,
             countLate,
             countOrdered,
             entriesWithVisual
@@ -618,6 +661,16 @@ export function classifyGlobalMRPAlarms<TJob = any>({
         }
     });
 
+    const getSeverityRank = (status: string) => {
+        switch (status) {
+            case 'RED': return 0;
+            case 'SUPPLIER_LATE': return 1;
+            case 'EXPEDITE_NEEDED': return 2;
+            case 'LATE': return 3;
+            default: return 99;
+        }
+    };
+
     // Raggruppamento Allarmi per Categoria/Famiglia
     const alarmCategoriesMap = new Map<string, MaterialAlarmItem<TJob>[]>();
     alarmMaterials.forEach(mat => {
@@ -628,13 +681,17 @@ export function classifyGlobalMRPAlarms<TJob = any>({
     });
 
     const groupedAlarms: GroupedAlarmCategory<TJob>[] = Array.from(alarmCategoriesMap.entries()).map(([category, items]) => {
-        const hasRed = items.some(m => m.worstStatus === 'RED');
-        const worstCategoryStatus: 'RED' | 'LATE' = hasRed ? 'RED' : 'LATE';
+        let worstCategoryStatus: 'RED' | 'SUPPLIER_LATE' | 'EXPEDITE_NEEDED' | 'LATE' = 'EXPEDITE_NEEDED';
+        if (items.some(m => m.worstStatus === 'RED')) worstCategoryStatus = 'RED';
+        else if (items.some(m => m.worstStatus === 'SUPPLIER_LATE')) worstCategoryStatus = 'SUPPLIER_LATE';
+        else if (items.some(m => m.worstStatus === 'EXPEDITE_NEEDED')) worstCategoryStatus = 'EXPEDITE_NEEDED';
+        else worstCategoryStatus = 'LATE';
 
-        // Ordine materiali nel gruppo: RED prima di LATE, poi alfabetico per codice
+        // Ordine materiali nel gruppo: RED prima di SUPPLIER_LATE prima di EXPEDITE_NEEDED, poi alfabetico per codice
         items.sort((a, b) => {
-            if (a.worstStatus === 'RED' && b.worstStatus !== 'RED') return -1;
-            if (a.worstStatus !== 'RED' && b.worstStatus === 'RED') return 1;
+            const rankA = getSeverityRank(a.worstStatus);
+            const rankB = getSeverityRank(b.worstStatus);
+            if (rankA !== rankB) return rankA - rankB;
             return a.matCode.localeCompare(b.matCode);
         });
 
@@ -646,11 +703,12 @@ export function classifyGlobalMRPAlarms<TJob = any>({
     });
 
     // ORDINAMENTO VISIVO GRUPPI:
-    // In cima i gruppi con materiali 🔴 MANCANTE, a seguire quelli 🟠 IN RITARDO.
+    // In cima i gruppi con materiali 🔴 MANCANTE, a seguire 🔴 RITARDO FORNITORE, poi 🟠 DA ANTICIPARE.
     // A parità di severità, ordine alfabetico per categoria.
     groupedAlarms.sort((a, b) => {
-        if (a.worstCategoryStatus === 'RED' && b.worstCategoryStatus !== 'RED') return -1;
-        if (a.worstCategoryStatus !== 'RED' && b.worstCategoryStatus === 'RED') return 1;
+        const rankA = getSeverityRank(a.worstCategoryStatus);
+        const rankB = getSeverityRank(b.worstCategoryStatus);
+        if (rankA !== rankB) return rankA - rankB;
         return a.category.localeCompare(b.category);
     });
 

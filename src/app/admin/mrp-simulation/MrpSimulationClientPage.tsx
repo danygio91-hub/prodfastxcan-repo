@@ -324,8 +324,17 @@ export default function MrpSimulationClientPage({
 
         const aggregated = aggregateMRPRequirements(componentEntries);
 
-        // UI ENHANCEMENT: Smart Sorting (RED > LATE/AMBER > GREEN)
-        const statusWeight: Record<string, number> = { RED: 1, LATE: 2, AMBER: 2, GREEN: 3 };
+        // UI ENHANCEMENT: Smart Sorting (RED > SUPPLIER_LATE > EXPEDITE_NEEDED > LATE/AMBER > GREEN)
+        const statusWeight: Record<string, number> = { 
+            RED: 1, 
+            SUPPLIER_LATE: 2, 
+            EXPEDITE_NEEDED: 3, 
+            LATE: 3, 
+            ORDERED: 4, 
+            LOW_STOCK: 5, 
+            AMBER: 5, 
+            GREEN: 6 
+        };
         
         aggregated.sort((a, b) => {
             const weightA = statusWeight[a.entry.status] || 99;
@@ -411,6 +420,8 @@ export default function MrpSimulationClientPage({
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'RED': return <AlertTriangle className="h-5 w-5 text-destructive" />;
+            case 'SUPPLIER_LATE': return <AlertTriangle className="h-5 w-5 text-red-600" />;
+            case 'EXPEDITE_NEEDED': return <Clock className="h-5 w-5 text-amber-500" />;
             case 'LATE': return <Clock className="h-5 w-5 text-orange-500" />;
             case 'ORDERED': return <CheckCircle2 className="h-5 w-5 text-indigo-500" />;
             case 'LOW_STOCK': return <AlertTriangle className="h-5 w-5 text-cyan-500" />;
