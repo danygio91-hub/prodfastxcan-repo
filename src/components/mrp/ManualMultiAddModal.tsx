@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -33,14 +33,6 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -56,9 +48,10 @@ import {
   Loader2,
   Table as TableIcon,
   ChevronsUpDown,
+  Search,
 } from 'lucide-react';
-import { parseRobustDate } from '@/lib/utils';
-import { saveManualMultiJobOrders } from '@/app/admin/programmazione/actions';
+import { cn, parseRobustDate } from '@/lib/utils';
+import { saveManualMultiJobOrders, searchArticlesAction } from '@/app/admin/programmazione/actions';
 import type { JobOrder, Department, Article } from '@/types';
 
 export interface ManualMultiRow {
@@ -90,6 +83,208 @@ const createInitialRow = (dept: string = 'CP'): ManualMultiRow => ({
   dataConsegnaFinale: '',
 });
 
+/**
+ * FASE 29: Componente Cella Ricerca Articolo con Debounce (400ms) e Ricerca Server-Side su Firestore
+ */
+interface ArticleSearchPopoverCellProps {
+  value: string;
+  onChange: (val: string) => void;
+  allKnownArticles: Article[];
+  onArticlesDiscovered: (articles: Article[]) => void;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function ArticleSearchPopoverCell({
+  value,
+  onChange,
+  allKnownArticles,
+  onArticlesDiscovered,
+  isOpen,
+  onOpenChange,
+}: ArticleSearchPopoverCellProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [displayedArticles, setDisplayedArticles] = useState<Article[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Inizializza elenco quando il dropdown si apre
+  useEffect(() => {
+    if (isOpen) {
+      setSearchQuery('');
+      setDisplayedArticles(allKnownArticles.slice(0, 30));
+      setIsSearching(false);
+    }
+  }, [isOpen, allKnownArticles]);
+
+  // Debounced search logic (400ms) con Server Action su Firestore
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const trimmed = searchQuery.trim();
+
+    // Se meno di 2 caratteri: filtro rapido in memoria locale
+    if (trimmed.length < 2) {
+      if (!trimmed) {
+        setDisplayedArticles(allKnownArticles.slice(0, 30));
+      } else {
+        const upper = trimmed.toUpperCase();
+        const filtered = allKnownArticles
+          .filter((art) => {
+            const code = String(art.code || art.id).toUpperCase();
+            const desc = String(art.description || '').toUpperCase();
+            return code.includes(upper) || desc.includes(upper);
+          })
+          .slice(0, 30);
+        setDisplayedArticles(filtered);
+      }
+      setIsSearching(false);
+      return;
+    }
+
+    // Termine >= 2 caratteri: feedback visivo immediato di ricerca attiva
+    setIsSearching(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const serverResults = await searchArticlesAction(trimmed);
+        setDisplayedArticles(serverResults);
+        if (serverResults && serverResults.length > 0) {
+          onArticlesDiscovered(serverResults);
+        }
+      } catch (err) {
+        console.error('Errore durante la ricerca articoli su Firestore:', err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, isOpen, allKnownArticles, onArticlesDiscovered]);
+
+  const handleSelect = (art: Article) => {
+    const code = String(art.code || art.id).trim().toUpperCase();
+    onChange(code);
+    onOpenChange(false);
+  };
+
+  return (
+    <Popover open={isOpen} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <div className="relative flex items-center w-full">
+          <Input
+            value={value}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+            placeholder="Seleziona o digita..."
+            className="h-7 text-xs font-mono font-bold px-2 pr-7 uppercase py-0"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="absolute right-0 top-0 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            onClick={() => onOpenChange(!isOpen)}
+          >
+            <ChevronsUpDown className="h-3 w-3" />
+          </Button>
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[340px] p-2" align="start">
+        <div className="relative flex items-center mb-1.5">
+          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Cerca codice o descrizione..."
+            className="pl-8 pr-8 h-8 text-xs font-mono"
+            autoFocus
+          />
+          {isSearching && (
+            <Loader2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 animate-spin text-primary" />
+          )}
+        </div>
+
+        {/* Indicatore di caricamento o debounce */}
+        {isSearching && (
+          <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground bg-muted/60 rounded mb-1.5 animate-pulse">
+            <Loader2 className="h-3 w-3 animate-spin text-primary" />
+            <span>Ricerca su database in corso...</span>
+          </div>
+        )}
+
+        {!isSearching && searchQuery.trim().length === 1 && (
+          <div className="px-2 py-0.5 text-[10px] text-muted-foreground italic mb-1">
+            Digita almeno 2 caratteri per la ricerca sul database
+          </div>
+        )}
+
+        <ScrollArea className="max-h-[220px]">
+          {displayedArticles.length === 0 ? (
+            <div className="p-4 text-center text-xs text-muted-foreground">
+              {isSearching ? (
+                <div className="flex items-center justify-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  <span>Ricerca in corso...</span>
+                </div>
+              ) : (
+                <div>
+                  <p className="font-medium text-foreground">Nessun articolo trovato</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Nessun riscontro per &quot;{searchQuery}&quot; nel database
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {displayedArticles.map((art) => {
+                const code = String(art.code || art.id).trim().toUpperCase();
+                const hasBOM = art.billOfMaterials && art.billOfMaterials.length > 0;
+                const isSelected = value.toUpperCase() === code;
+                return (
+                  <div
+                    key={art.id || code}
+                    onClick={() => handleSelect(art)}
+                    className={cn(
+                      'flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors text-xs',
+                      isSelected ? 'bg-primary/10 border border-primary/20' : 'hover:bg-accent/60'
+                    )}
+                  >
+                    <div className="flex flex-col min-w-0 pr-2">
+                      <span className="font-mono font-bold text-foreground truncate">{code}</span>
+                      {art.description && (
+                        <span className="text-[10px] text-muted-foreground truncate max-w-[210px]">
+                          {art.description}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {hasBOM ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] px-1.5 py-0 text-emerald-600 border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20"
+                        >
+                          BOM OK
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] px-1.5 py-0 text-destructive border-destructive/30 bg-destructive/5"
+                        >
+                          No BOM
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function ManualMultiAddModal({
   isOpen,
   onClose,
@@ -109,15 +304,43 @@ export function ManualMultiAddModal({
   const [isSaving, setIsSaving] = useState(false);
   const [activeArticlePopoverRowId, setActiveArticlePopoverRowId] = useState<string | null>(null);
 
-  // Mappa di ricerca rapida per codice articolo
+  // FASE 29: Cache articoli scoperti tramite ricerca server-side su Firestore
+  const [discoveredArticles, setDiscoveredArticles] = useState<Map<string, Article>>(new Map());
+
+  const handleArticlesDiscovered = useCallback((newArticles: Article[]) => {
+    setDiscoveredArticles((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      newArticles.forEach((art) => {
+        const code = String(art.code || art.id).toUpperCase().trim();
+        if (code && !next.has(code)) {
+          next.set(code, art);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  // Mappa di ricerca rapida per codice articolo (prop iniziale + articoli scoperti da Firestore)
   const articlesMap = useMemo(() => {
     const map = new Map<string, Article>();
     articles.forEach((a) => {
       const code = String(a.code || a.id).toUpperCase().trim();
       if (code) map.set(code, a);
     });
+    discoveredArticles.forEach((art, code) => {
+      if (!map.has(code)) {
+        map.set(code, art);
+      }
+    });
     return map;
-  }, [articles]);
+  }, [articles, discoveredArticles]);
+
+  // Lista combinata per i dropdown
+  const allKnownArticles = useMemo(() => {
+    return Array.from(articlesMap.values());
+  }, [articlesMap]);
 
   // Lista codici reparti validi
   const validDepartments = useMemo(() => {
@@ -426,77 +649,16 @@ export function ManualMultiAddModal({
                         />
                       </TableCell>
 
-                      {/* Articolo con Popover / Autocomplete */}
+                      {/* Articolo con Popover Debounced / Ricerca Server Firestore */}
                       <TableCell className="px-1.5 py-1">
-                        <Popover
-                          open={activeArticlePopoverRowId === row.id}
+                        <ArticleSearchPopoverCell
+                          value={row.articleCode}
+                          onChange={(val) => updateRow(row.id, 'articleCode', val)}
+                          allKnownArticles={allKnownArticles}
+                          onArticlesDiscovered={handleArticlesDiscovered}
+                          isOpen={activeArticlePopoverRowId === row.id}
                           onOpenChange={(open) => setActiveArticlePopoverRowId(open ? row.id : null)}
-                        >
-                          <PopoverTrigger asChild>
-                            <div className="relative flex items-center w-full">
-                              <Input
-                                value={row.articleCode}
-                                onChange={(e) => updateRow(row.id, 'articleCode', e.target.value.toUpperCase())}
-                                placeholder="Seleziona o digita..."
-                                className="h-7 text-xs font-mono font-bold px-2 pr-7 uppercase py-0"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="absolute right-0 top-0 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                                onClick={() => setActiveArticlePopoverRowId(row.id)}
-                              >
-                                <ChevronsUpDown className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[320px] p-0" align="start">
-                            <Command>
-                              <CommandInput placeholder="Cerca codice o descrizione..." className="h-8 text-xs" />
-                              <CommandList className="max-h-[220px]">
-                                <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
-                                <CommandGroup heading="Anagrafica Articoli">
-                                  {articles.slice(0, 30).map((art) => {
-                                    const code = art.code || art.id;
-                                    const hasBOM = art.billOfMaterials && art.billOfMaterials.length > 0;
-                                    return (
-                                      <CommandItem
-                                        key={art.id}
-                                        value={code}
-                                        onSelect={() => {
-                                          updateRow(row.id, 'articleCode', code);
-                                          setActiveArticlePopoverRowId(null);
-                                        }}
-                                        className="cursor-pointer text-xs flex items-center justify-between py-1.5"
-                                      >
-                                        <div className="flex flex-col">
-                                          <span className="font-mono font-bold">{code}</span>
-                                          {art.description && (
-                                            <span className="text-[10px] text-muted-foreground truncate max-w-[200px]">
-                                              {art.description}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                          {hasBOM ? (
-                                            <Badge variant="outline" className="text-[9px] px-1 py-0 text-emerald-600 border-emerald-300">
-                                              BOM OK
-                                            </Badge>
-                                          ) : (
-                                            <Badge variant="outline" className="text-[9px] px-1 py-0 text-destructive border-destructive/30">
-                                              No BOM
-                                            </Badge>
-                                          )}
-                                        </div>
-                                      </CommandItem>
-                                    );
-                                  })}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
+                        />
                       </TableCell>
 
                       {/* Quantità */}

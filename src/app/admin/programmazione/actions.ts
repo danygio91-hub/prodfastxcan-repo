@@ -767,6 +767,20 @@ export async function saveManualMultiJobOrders(items: {
             if (a.code) articlesMap.set(a.code.toUpperCase().trim(), a);
         });
 
+        // Fallback per articoli con ID documento uguale al codice
+        const missingCodes = uniqueArticleCodes.filter(c => !articlesMap.has(c));
+        if (missingCodes.length > 0) {
+            const byIdSnap = await fetchInChunks<Article>(
+                adminDb.collection("articles"),
+                admin.firestore.FieldPath.documentId(),
+                missingCodes
+            );
+            byIdSnap.forEach(a => {
+                const code = String(a.code || a.id).toUpperCase().trim();
+                if (code) articlesMap.set(code, a);
+            });
+        }
+
         // 5. Verifica Bloccante (Rosso) di Anagrafica e Distinta Base (BOM)
         for (let i = 0; i < items.length; i++) {
             const row = items[i];
@@ -1450,6 +1464,106 @@ export async function bulkDeleteJobOrders(
         };
     }
 }
+
+/**
+ * FASE 29: Ricerca Server-Side Debounced per Anagrafica Articoli
+ * Supporta query su Firestore con operatori di range (prefix matching) su code e description
+ */
+export async function searchArticlesAction(searchTerm: string): Promise<Article[]> {
+    try {
+        const rawTerm = (searchTerm || '').trim();
+        if (!rawTerm || rawTerm.length < 2) {
+            // Se il termine è troppo breve, restituisce i primi 30 articoli
+            const snap = await adminDb.collection("articles")
+                .select("code", "description", "department", "billOfMaterials", "workCycleId", "expectedMinutesDefault")
+                .limit(30)
+                .get();
+
+            const articles = snap.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    ...convertTimestampsToDates(data),
+                    id: doc.id,
+                    code: String(data.code || doc.id).trim(),
+                } as Article;
+            });
+            return JSON.parse(JSON.stringify(articles));
+        }
+
+        const upperTerm = rawTerm.toUpperCase();
+        const resultsMap = new Map<string, Article>();
+
+        const addDocToResults = (doc: admin.firestore.DocumentSnapshot) => {
+            if (!resultsMap.has(doc.id)) {
+                const data = doc.data();
+                if (data) {
+                    resultsMap.set(doc.id, {
+                        ...convertTimestampsToDates(data),
+                        id: doc.id,
+                        code: String(data.code || data.codice || doc.id).trim(),
+                        description: data.description || data.descrizione || '',
+                        department: data.department || data.reparto || '',
+                        billOfMaterials: data.billOfMaterials || data.distintaBase || [],
+                        workCycleId: data.workCycleId || data.cicloLavorazioneId || undefined,
+                        expectedMinutesDefault: Number(data.expectedMinutesDefault) || 0,
+                    } as Article);
+                }
+            }
+        };
+
+        // 1. Ricerca per 'code' in maiuscolo (prefix search)
+        const codeSnap = await adminDb.collection("articles")
+            .where("code", ">=", upperTerm)
+            .where("code", "<=", upperTerm + "\uf8ff")
+            .limit(30)
+            .get();
+        codeSnap.docs.forEach(addDocToResults);
+
+        // 2. Ricerca per document ID
+        if (resultsMap.size < 30) {
+            const idSnap = await adminDb.collection("articles")
+                .where(admin.firestore.FieldPath.documentId(), ">=", upperTerm)
+                .where(admin.firestore.FieldPath.documentId(), "<=", upperTerm + "\uf8ff")
+                .limit(30)
+                .get();
+            idSnap.docs.forEach(addDocToResults);
+        }
+
+        // 3. Ricerca per 'description' (se non abbiamo ancora 30 risultati)
+        if (resultsMap.size < 30) {
+            try {
+                const descSnap = await adminDb.collection("articles")
+                    .where("description", ">=", rawTerm)
+                    .where("description", "<=", rawTerm + "\uf8ff")
+                    .limit(20)
+                    .get();
+                descSnap.docs.forEach(addDocToResults);
+            } catch {
+                // Ignore se description non è indicizzato
+            }
+        }
+
+        // 4. Ricerca per 'codice' (italiano)
+        if (resultsMap.size < 30) {
+            try {
+                const codiceSnap = await adminDb.collection("articles")
+                    .where("codice", ">=", upperTerm)
+                    .where("codice", "<=", upperTerm + "\uf8ff")
+                    .limit(20)
+                    .get();
+                codiceSnap.docs.forEach(addDocToResults);
+            } catch {
+                // Ignore
+            }
+        }
+
+        return JSON.parse(JSON.stringify(Array.from(resultsMap.values())));
+    } catch (error) {
+        console.error("Errore in searchArticlesAction:", error);
+        return [];
+    }
+}
+
 
 
 
