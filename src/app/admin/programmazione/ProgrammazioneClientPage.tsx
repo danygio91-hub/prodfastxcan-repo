@@ -195,6 +195,7 @@ export function getJobDepartmentGroup(job: JobOrder): 'CP' | 'CG' | 'BF' | 'OTHE
 }
 
 export type JobStatusOption = JobDisplayStatus;
+export type StatusFilterOption = 'ALL' | 'Pianificata' | 'In Produzione' | 'Completato Prod.' | 'Spedita';
 
 export function normalizeJobStatus(jobOrStatus: JobOrder | string | undefined): JobStatusOption {
   if (!jobOrStatus) return 'Pianificata';
@@ -1051,6 +1052,9 @@ export default function ProgrammazioneClientPage({
   // Filtro Ricerca
   const [searchQuery, setSearchQuery] = useState('');
 
+  // FASE 34: Filtro Stato Commessa (Default: 'ALL' / Tutti gli stati)
+  const [statusFilter, setStatusFilter] = useState<StatusFilterOption>('ALL');
+
   // Ordinamento Colonne
   const [sortField, setSortField] = useState<SortField | null>('ordinePF');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -1304,7 +1308,16 @@ export default function ProgrammazioneClientPage({
         }
       }
 
-      // 3. Bivio: Vista per Settimana vs Vista Globale
+      // 3. FASE 34: Filtro Stato Commessa (Default: 'ALL' / Tutti gli stati)
+      if (statusFilter !== 'ALL') {
+        const jobStatus: string = normalizeJobStatus(job);
+        const matchesSpedita = statusFilter === 'Spedita' && (jobStatus === 'Spedito' || jobStatus === 'Spedita');
+        if (!matchesSpedita && jobStatus !== statusFilter) {
+          return false;
+        }
+      }
+
+      // 4. Bivio: Vista per Settimana vs Vista Globale
       if (viewMode === 'settimana') {
         if (!showAllWeeks) {
           // FASE 16: Roll-over al presente per commesse attive in ritardo
@@ -1328,7 +1341,7 @@ export default function ProgrammazioneClientPage({
 
       return true;
     });
-  }, [jobs, selectedDept, viewMode, globalTab, showAllWeeks, selectedWeekNumber, selectedYear, searchQuery]);
+  }, [jobs, selectedDept, viewMode, globalTab, showAllWeeks, selectedWeekNumber, selectedYear, searchQuery, statusFilter]);
 
   // Ordinamento Risultati
   const sortedAndFilteredJobs = useMemo(() => {
@@ -3413,16 +3426,31 @@ export default function ProgrammazioneClientPage({
                 </button>
               </div>
 
-              {/* Ricerca Rapida */}
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Cerca PF, cliente, articolo, ODL..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-7 h-7 text-xs"
-                />
+              {/* Ricerca Rapida e Filtro Stato */}
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <Select value={statusFilter} onValueChange={(val: StatusFilterOption) => setStatusFilter(val)}>
+                  <SelectTrigger className="h-7 text-xs w-[145px] shrink-0 bg-background" title="Filtra le commesse per stato">
+                    <SelectValue placeholder="Filtra per Stato" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL" className="text-xs">Tutti gli stati</SelectItem>
+                    <SelectItem value="Pianificata" className="text-xs text-blue-600 dark:text-blue-400 font-medium">Pianificata</SelectItem>
+                    <SelectItem value="In Produzione" className="text-xs text-amber-600 dark:text-amber-400 font-medium">In Produzione</SelectItem>
+                    <SelectItem value="Completato Prod." className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Completato Prod.</SelectItem>
+                    <SelectItem value="Spedita" className="text-xs text-purple-600 dark:text-purple-400 font-medium">Spedita</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <div className="relative w-full md:w-64">
+                  <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Cerca PF, cliente, articolo, ODL..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-7 h-7 text-xs"
+                  />
+                </div>
               </div>
             </div>
 
@@ -3585,15 +3613,30 @@ export default function ProgrammazioneClientPage({
                 </Button>
               </div>
 
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Cerca PF, cliente, articolo, ODL..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-7 h-7 text-xs"
-                />
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <Select value={statusFilter} onValueChange={(val: StatusFilterOption) => setStatusFilter(val)}>
+                  <SelectTrigger className="h-7 text-xs w-[145px] shrink-0 bg-background" title="Filtra le commesse per stato">
+                    <SelectValue placeholder="Filtra per Stato" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL" className="text-xs">Tutti gli stati</SelectItem>
+                    <SelectItem value="Pianificata" className="text-xs text-blue-600 dark:text-blue-400 font-medium">Pianificata</SelectItem>
+                    <SelectItem value="In Produzione" className="text-xs text-amber-600 dark:text-amber-400 font-medium">In Produzione</SelectItem>
+                    <SelectItem value="Completato Prod." className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Completato Prod.</SelectItem>
+                    <SelectItem value="Spedita" className="text-xs text-purple-600 dark:text-purple-400 font-medium">Spedita</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <div className="relative w-full md:w-64">
+                  <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Cerca PF, cliente, articolo, ODL..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-7 h-7 text-xs"
+                  />
+                </div>
               </div>
             </div>
 
@@ -3881,6 +3924,7 @@ export default function ProgrammazioneClientPage({
                                   setShowAllWeeks(true);
                                 }
                                 setSearchQuery('');
+                                setStatusFilter('ALL');
                               }}
                               className="mt-1 text-xs h-7 cursor-pointer"
                             >
