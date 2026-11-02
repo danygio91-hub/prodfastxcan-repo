@@ -113,7 +113,7 @@ export interface JobOrder {
   details: string;
   ordinePF: string;
   annoCompetenza?: number;
-  numeroODL: string;
+  numeroODL?: string | null;
   dataConsegnaFinale: string;
   postazioneLavoro: string;
   phases: JobPhase[];

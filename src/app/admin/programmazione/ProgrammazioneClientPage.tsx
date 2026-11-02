@@ -463,16 +463,25 @@ interface InlineOdlCellProps {
   onSaveOdl: (job: JobOrder, newOdl: string) => Promise<void> | void;
 }
 
+export const getCleanOdlValue = (raw: string | null | undefined): string => {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (trimmed === 'N/D' || trimmed === 'N/A' || trimmed === 'MANUALE' || trimmed === '---') {
+    return '';
+  }
+  return trimmed;
+};
+
 const InlineOdlCell = React.memo(function InlineOdlCell({
   job,
   onSaveOdl,
 }: InlineOdlCellProps) {
-  const originalVal = (job.numeroODLInterno || job.numeroODL || '').trim();
-  const [localVal, setLocalVal] = useState<string>(originalVal);
+  const currentOdl = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+  const [localVal, setLocalVal] = useState<string>(currentOdl);
   const isSubmittingRef = useRef(false);
 
   useEffect(() => {
-    setLocalVal((job.numeroODLInterno || job.numeroODL || '').trim());
+    setLocalVal(getCleanOdlValue(job.numeroODLInterno || job.numeroODL));
   }, [job.numeroODLInterno, job.numeroODL]);
 
   const handleCommit = async () => {
@@ -480,9 +489,10 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
     isSubmittingRef.current = true;
     try {
       const trimmed = localVal.trim();
-      const currentOriginal = (job.numeroODLInterno || job.numeroODL || '').trim();
-      if (trimmed === currentOriginal) return;
-      await onSaveOdl(job, trimmed);
+      const cleanToSave = getCleanOdlValue(trimmed);
+      const currentClean = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+      if (cleanToSave === currentClean) return;
+      await onSaveOdl(job, cleanToSave);
     } finally {
       isSubmittingRef.current = false;
     }
@@ -492,7 +502,7 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
     <input
       type="text"
       value={localVal}
-      placeholder="Es. 185/PF"
+      placeholder="N/D"
       onChange={(e) => setLocalVal(e.target.value)}
       onBlur={handleCommit}
       onKeyDown={(e) => {
@@ -501,15 +511,16 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
           e.currentTarget.blur();
         } else if (e.key === 'Escape') {
           e.preventDefault();
-          setLocalVal((job.numeroODLInterno || job.numeroODL || '').trim());
+          setLocalVal(getCleanOdlValue(job.numeroODLInterno || job.numeroODL));
           e.currentTarget.blur();
         }
       }}
       className={cn(
         "h-6 text-[11px] font-mono font-bold text-center px-1 py-0 w-full rounded border transition-colors",
+        "placeholder:text-gray-400 dark:placeholder:text-gray-500 placeholder:font-normal placeholder:opacity-80",
         "hover:border-primary/50 focus:border-primary focus:ring-1 focus:ring-primary",
         !localVal 
-          ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
+          ? "border-dashed border-muted-foreground/30 bg-muted/10 text-muted-foreground" 
           : "border-border bg-background text-foreground"
       )}
     />
@@ -1813,30 +1824,33 @@ export default function ProgrammazioneClientPage({
 
   // Aggiornamento N° ODL (on blur / Enter differito)
   const handleSaveOdl = useCallback(async (job: JobOrder, draftVal: string) => {
-    const currentVal = (job.numeroODLInterno || job.numeroODL || '').trim();
-    if (draftVal === currentVal) return;
+    const currentClean = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+    const cleanDraft = getCleanOdlValue(draftVal);
+    if (cleanDraft === currentClean) return;
 
     setJobs((prev) =>
       prev.map((j) =>
         j.id === job.id
-          ? { ...j, numeroODLInterno: draftVal, numeroODL: draftVal }
+          ? { ...j, numeroODLInterno: cleanDraft || null, numeroODL: cleanDraft || null }
           : j
       )
     );
 
     try {
-      const res = await updateJobOdlNumber(job.id, draftVal);
+      const res = await updateJobOdlNumber(job.id, cleanDraft);
       if (res.success) {
         toast({
           title: "N° ODL Aggiornato",
-          description: `Commessa ${job.ordinePF}: impostato ODL "${draftVal}".`,
+          description: cleanDraft
+            ? `Commessa ${job.ordinePF}: impostato ODL "${cleanDraft}".`
+            : `Commessa ${job.ordinePF}: ODL rimosso.`,
         });
       }
     } catch (e: any) {
       setJobs((prev) =>
         prev.map((j) =>
           j.id === job.id
-            ? { ...j, numeroODLInterno: currentVal, numeroODL: currentVal }
+            ? { ...j, numeroODLInterno: currentClean || null, numeroODL: currentClean || null }
             : j
         )
       );

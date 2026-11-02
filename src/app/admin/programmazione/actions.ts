@@ -207,9 +207,11 @@ export async function markJobAsPrintedAndInProduction(jobId: string): Promise<bo
 export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise<{ success: boolean; message: string }> {
     try {
         const val = (newOdl || '').trim();
+        const isPlaceholderVal = !val || val === 'N/D' || val === 'N/A' || val === 'MANUALE' || val === '---';
+        const finalVal = isPlaceholderVal ? null : val;
         await adminDb.collection("jobOrders").doc(jobId).update({
-            numeroODLInterno: val || null,
-            numeroODL: val || null,
+            numeroODLInterno: finalVal,
+            numeroODL: finalVal,
             updatedAt: admin.firestore.Timestamp.now(),
         });
         return { success: true, message: 'N° ODL aggiornato con successo.' };
@@ -659,7 +661,7 @@ export async function saveQuickJobOrder(data: {
             department: targetDept,
             dataConsegnaFinale: dataConsegnaFinale || '',
             numeroODLInterno: odlToAssign,
-            numeroODL: odlToAssign || 'N/D',
+            numeroODL: odlToAssign || null,
             status: 'Pianificata',
             phases,
             billOfMaterials: jobBOM,
@@ -919,7 +921,7 @@ export async function saveManualMultiJobOrders(items: {
                 department: targetDept,
                 dataConsegnaFinale: normalizedDeliveryDate,
                 numeroODLInterno: odlToAssign,
-                numeroODL: odlToAssign || 'N/D',
+                numeroODL: odlToAssign || null,
                 status: 'Pianificata', // SSoT Pianificata
                 phases,
                 billOfMaterials: jobBOM,
