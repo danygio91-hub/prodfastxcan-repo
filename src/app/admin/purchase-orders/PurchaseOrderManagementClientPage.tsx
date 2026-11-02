@@ -58,7 +58,7 @@ import { type PurchaseOrder, type RawMaterial } from '@/types';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { cn } from '@/lib/utils';
+import { cn, parseRobustDate } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSearchParams } from 'next/navigation';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
@@ -336,19 +336,34 @@ export default function PurchaseOrderManagementClientPage({
         <CardContent>
           <ScrollArea className="h-[600px] pr-4">
             <Accordion type="multiple" className="space-y-4">
-                {groupedOrders.length > 0 ? groupedOrders.map((group) => (
-                    <AccordionItem key={group.orderNumber} value={group.orderNumber} className="border rounded-lg bg-card overflow-hidden">
+                {groupedOrders.length > 0 ? groupedOrders.map((group) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const hasLateItems = group.items.some(item => {
+                        const residual = item.quantity - (item.receivedQuantity || 0);
+                        const expDate = parseRobustDate(item.expectedDeliveryDate);
+                        return residual > 0 && expDate !== null && expDate.getTime() < today.getTime();
+                    });
+
+                    return (
+                    <AccordionItem key={group.orderNumber} value={group.orderNumber} className={cn("border rounded-lg bg-card overflow-hidden", hasLateItems && "border-red-300 dark:border-red-900/60")}>
                         <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30">
                             <div className="flex flex-1 items-center justify-between gap-4 text-left">
                                 <div className="flex items-center gap-4">
-                                    <Badge 
-                                        className={cn(
-                                            "min-w-[100px] justify-center uppercase font-bold",
-                                            group.status === 'pending' ? "bg-amber-500 hover:bg-amber-600" : "bg-green-600 hover:bg-green-700"
-                                        )}
-                                    >
-                                        {group.status === 'pending' ? 'In Attesa' : 'Ricevuto'}
-                                    </Badge>
+                                    {hasLateItems ? (
+                                        <Badge className="min-w-[100px] justify-center uppercase font-bold bg-red-600 hover:bg-red-700 text-white shadow-xs">
+                                            IN RITARDO
+                                        </Badge>
+                                    ) : (
+                                        <Badge 
+                                            className={cn(
+                                                "min-w-[100px] justify-center uppercase font-bold",
+                                                group.status === 'pending' ? "bg-amber-500 hover:bg-amber-600" : "bg-green-600 hover:bg-green-700"
+                                            )}
+                                        >
+                                            {group.status === 'pending' ? 'In Attesa' : 'Ricevuto'}
+                                        </Badge>
+                                    )}
                                     <div>
                                         <p className="font-bold text-lg font-mono">{group.orderNumber}</p>
                                         <p className="text-xs text-muted-foreground">{group.supplierName}</p>
@@ -356,9 +371,9 @@ export default function PurchaseOrderManagementClientPage({
                                 </div>
                                 <div className="text-right mr-4">
                                     <p className="text-[10px] uppercase font-bold text-muted-foreground">Scadenza Prossima</p>
-                                    <p className="font-semibold text-sm flex items-center gap-1 justify-end">
+                                    <p className={cn("font-semibold text-sm flex items-center gap-1 justify-end", hasLateItems && "text-red-600 font-bold")}>
                                         <CalendarIcon className="h-3 w-3" />
-                                        {group.earliestDelivery ? format(parseISO(group.earliestDelivery), 'dd/MM/yy') : '---'}
+                                        {group.earliestDelivery ? (parseRobustDate(group.earliestDelivery) ? format(parseRobustDate(group.earliestDelivery)!, 'dd/MM/yy') : group.earliestDelivery) : '---'}
                                     </p>
                                 </div>
                             </div>
@@ -400,16 +415,29 @@ export default function PurchaseOrderManagementClientPage({
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {group.items.map(item => (
-                                        <TableRow key={item.id}>
+                                    {group.items.map(item => {
+                                        const residual = item.quantity - (item.receivedQuantity || 0);
+                                        const expDate = parseRobustDate(item.expectedDeliveryDate);
+                                        const isLate = residual > 0 && expDate !== null && expDate.getTime() < today.getTime();
+
+                                        return (
+                                        <TableRow key={item.id} className={cn(isLate && "bg-red-500/5 hover:bg-red-500/10")}>
                                             <TableCell className="font-semibold">{item.materialCode}</TableCell>
                                             <TableCell>{item.quantity} {item.unitOfMeasure.toUpperCase()}</TableCell>
                                             <TableCell>{item.receivedQuantity || 0} {item.unitOfMeasure.toUpperCase()}</TableCell>
-                                            <TableCell>{format(parseISO(item.expectedDeliveryDate), 'dd/MM/yy')}</TableCell>
+                                            <TableCell className={cn("font-medium", isLate && "text-red-600 font-bold")}>
+                                                {expDate ? format(expDate, 'dd/MM/yy') : (item.expectedDeliveryDate || '---')}
+                                            </TableCell>
                                             <TableCell>
-                                                <Badge variant={item.status === 'received' ? 'default' : 'outline'} className={cn(item.status === 'received' && 'bg-green-600 hover:bg-green-700')}>
-                                                    {item.status === 'received' ? 'OK' : item.status === 'partially_received' ? 'Parziale' : 'In Attesa'}
-                                                </Badge>
+                                                {isLate ? (
+                                                    <Badge variant="destructive" className="bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] uppercase">
+                                                        IN RITARDO
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant={item.status === 'received' ? 'default' : 'outline'} className={cn(item.status === 'received' && 'bg-green-600 hover:bg-green-700')}>
+                                                        {item.status === 'received' ? 'OK' : item.status === 'partially_received' ? 'Parziale' : 'In Attesa'}
+                                                    </Badge>
+                                                )}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 {item.status !== 'received' && (
@@ -436,12 +464,14 @@ export default function PurchaseOrderManagementClientPage({
                                                 )}
                                             </TableCell>
                                         </TableRow>
-                                    ))}
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
                         </AccordionContent>
                     </AccordionItem>
-                )) : (
+                    );
+                }) : (
                     <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                         <Package2 className="h-16 w-16 opacity-20 mb-4" />
                         <p>Nessun ordine trovato.</p>

@@ -97,7 +97,7 @@ import {
   Upload
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, parseRobustDate } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
 import CommitmentManagementClientPage from './CommitmentManagementClientPage';
 import BatchFormDialog from '../batch-management/BatchFormDialog';
@@ -622,9 +622,68 @@ export default function RawMaterialManagementClientPage({
       <Dialog open={isOrderedDialogOpen} onOpenChange={setIsOrderedDialogOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader><DialogTitle>Dettaglio Ordinato: {activeMaterialForOrderedDetails}</DialogTitle></DialogHeader>
-          <ScrollArea className="max-h-[60vh] mt-4"><Table><TableHeader><TableRow><TableHead>N° Ordine</TableHead><TableHead>Fornitore</TableHead><TableHead className="text-right">Residuo</TableHead><TableHead>Prevista</TableHead></TableRow></TableHeader>
-            <TableBody>{isLoadingOrdered ? (<TableRow><TableCell colSpan={4} className="text-center h-32"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></TableCell></TableRow>) : orderedDetails.map((det, idx) => (<TableRow key={idx}><TableCell className="font-mono">{det.orderNumber}</TableCell><TableCell className="text-xs">{det.supplierName}</TableCell><TableCell className="text-right font-bold text-primary">{(det.quantity - det.receivedQuantity).toFixed(2)}</TableCell><TableCell>{format(parseISO(det.expectedDeliveryDate), 'dd/MM/yy')}</TableCell></TableRow>))}</TableBody>
-          </Table></ScrollArea>
+          <ScrollArea className="max-h-[60vh] mt-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>N° Ordine</TableHead>
+                  <TableHead>Fornitore</TableHead>
+                  <TableHead className="text-right">Residuo</TableHead>
+                  <TableHead>Prevista</TableHead>
+                  <TableHead>Stato</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoadingOrdered ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center h-32">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto" />
+                    </TableCell>
+                  </TableRow>
+                ) : orderedDetails.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-6 text-muted-foreground text-xs">
+                      Nessun ordine aperto per questo materiale.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  orderedDetails.map((det, idx) => {
+                    const residual = Number(det.quantity || 0) - Number(det.receivedQuantity || 0);
+                    const parsedDate = parseRobustDate(det.expectedDeliveryDate);
+                    const todayMidnight = new Date();
+                    todayMidnight.setHours(0, 0, 0, 0);
+                    const isLate = residual > 0 && parsedDate !== null && parsedDate.getTime() < todayMidnight.getTime();
+
+                    return (
+                      <TableRow key={idx} className={cn(isLate && "bg-red-500/5 hover:bg-red-500/10")}>
+                        <TableCell className="font-mono font-semibold">{det.orderNumber}</TableCell>
+                        <TableCell className="text-xs">{det.supplierName}</TableCell>
+                        <TableCell className="text-right font-bold text-primary">{residual.toFixed(2)}</TableCell>
+                        <TableCell className={cn("font-medium", isLate && "text-red-600 font-bold")}>
+                          {parsedDate ? format(parsedDate, 'dd/MM/yy') : (det.expectedDeliveryDate || 'N/D')}
+                        </TableCell>
+                        <TableCell>
+                          {isLate ? (
+                            <Badge variant="destructive" className="bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] tracking-wide">
+                              IN RITARDO
+                            </Badge>
+                          ) : residual <= 0 ? (
+                            <Badge variant="outline" className="text-emerald-600 border-emerald-300 text-[10px]">
+                              Ricevuto
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-amber-600 border-amber-300 text-[10px]">
+                              In Attesa
+                            </Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
 

@@ -1684,17 +1684,17 @@ export default function ProgrammazioneClientPage({
         const isUncovered = e.entry.projectedBalance < -0.001;
 
         let statusText: string;
-        if (isUncovered) {
-          if (hasAnyPO || e.entry.status === 'LATE') {
-            hasLate = true;
-            statusText = '🟠 IN RITARDO (Coperto da ordine fornitore, consegna successiva)';
-          } else {
-            hasRed = true;
-            statusText = '🔴 MANCANTE (Nessun ordine fornitore a copertura)';
-          }
+        if (e.entry.status === 'RED') {
+          hasRed = true;
+          statusText = '🔴 MANCANTE (Stock fisico e ordini fornitore insufficienti)';
+        } else if (e.entry.status === 'LATE') {
+          hasLate = true;
+          statusText = '🟠 RITARDO MATERIALE (Fornitore in ritardo o consegna successiva)';
         } else if (e.entry.status === 'ORDERED' || e.entry.status === 'AMBER') {
           hasOrderedInTime = true;
           statusText = '💜 IN ARRIVO (Coperto da ordine fornitore in tempo)';
+        } else if (e.entry.status === 'LOW_STOCK') {
+          statusText = '⚠️ SOTTOSCORTA (Disponibile da stock, ma sotto scorta)';
         } else {
           statusText = '🟢 DISPONIBILE (Stock fisico)';
         }

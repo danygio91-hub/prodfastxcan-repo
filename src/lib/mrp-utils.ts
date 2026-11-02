@@ -3,6 +3,8 @@ import { JobOrder, Article, RawMaterial, PurchaseOrder, ManualCommitment } from 
 import { getDerivedJobStatus } from './job-status';
 import { GlobalSettings } from './settings-types';
 import { calculateBOMRequirement } from './inventory-utils';
+import { parseRobustDate } from './utils';
+import { format } from 'date-fns';
 
 export interface MRPTimelineEntry {
     jobId: string;
@@ -56,15 +58,26 @@ export function calculateMRPTimelines(
             const config = (globalSettings?.rawMaterialTypes || []).find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
             const safeStock = Number(mat.minStockLevel) || 0;
 
-            // STEP 1: Isolamento e Sanitizzazione
+            // STEP 1: Isolamento Stock Fisico Attuale
             const rawStock = Number(mat.currentStockUnits ?? mat.stock ?? 0);
             const initialStock = rawStock < 0 ? 0 : rawStock;
-            let currentBalance = initialStock;
+            const todayMidnight = new Date();
+            todayMidnight.setHours(0, 0, 0, 0);
 
-            // STEP 2: Normalizzazione Eventi
-            const events: { type: 'SUPPLY' | 'DEMAND', date: string, qty: number, data: any, id: string, isFrozen?: boolean }[] = [];
+            // STEP 2A: Normalizzazione SUPPLY (Purchase Orders)
+            interface SupplyEntry {
+                id: string;
+                orderNumber: string;
+                supplierName: string;
+                qty: number;
+                remainingQty: number;
+                parsedDate: Date | null;
+                supplyDateObj: Date;
+                dateStr: string;
+                isOverdue: boolean;
+            }
 
-            // 2A. SUPPLY (Purchase Orders)
+            const supplies: SupplyEntry[] = [];
             purchaseOrders.forEach(po => {
                 if (!po) return;
                 const status = (po.status as string || '').toLowerCase();
@@ -79,41 +92,51 @@ export function calculateMRPTimelines(
                 const qty = (Number(po.quantity) || 0) - (Number(po.receivedQuantity) || 0);
                 if (qty <= 0) return;
 
-                let eventDateStr: string;
-                try {
-                    let poDateRaw = po.expectedDeliveryDate;
-                    let poDate: Date;
-                    
-                    if (poDateRaw && typeof poDateRaw === 'object' && poDateRaw !== null && 'toDate' in (poDateRaw as any)) {
-                        poDate = (poDateRaw as any).toDate();
-                    } else if (poDateRaw) {
-                        poDate = new Date(poDateRaw);
-                    } else {
-                        poDate = new Date(NaN); 
-                    }
+                const parsedDate = parseRobustDate(po.expectedDeliveryDate);
+                const isOverdue = parsedDate !== null && parsedDate.getTime() < todayMidnight.getTime();
 
-                    const todayMidnight = new Date();
-                    todayMidnight.setHours(0, 0, 0, 0);
-
-                    if (isNaN(poDate.getTime()) || poDate < todayMidnight) {
-                        const fallbackDate = new Date();
-                        fallbackDate.setUTCHours(8, 0, 0, 0);
-                        eventDateStr = fallbackDate.toISOString();
-                    } else {
-                        const safeDate = new Date(poDate);
-                        safeDate.setUTCHours(8, 0, 0, 0);
-                        eventDateStr = safeDate.toISOString();
-                    }
-                } catch (e) {
-                    const fallbackDate = new Date();
-                    fallbackDate.setUTCHours(8, 0, 0, 0);
-                    eventDateStr = fallbackDate.toISOString();
+                let supplyDateObj: Date;
+                if (parsedDate) {
+                    supplyDateObj = new Date(parsedDate);
+                    supplyDateObj.setHours(8, 0, 0, 0);
+                } else {
+                    supplyDateObj = new Date();
+                    supplyDateObj.setHours(8, 0, 0, 0);
                 }
 
-                events.push({ type: 'SUPPLY', date: eventDateStr, qty, data: po, id: po.id });
+                supplies.push({
+                    id: po.id,
+                    orderNumber: po.orderNumber || (po as any).numeroOrdine || 'N/D',
+                    supplierName: po.supplierName || 'Fornitore',
+                    qty,
+                    remainingQty: qty,
+                    parsedDate,
+                    supplyDateObj,
+                    dateStr: supplyDateObj.toISOString(),
+                    isOverdue
+                });
             });
 
-            // 2B. DEMAND (Commesse)
+            supplies.sort((a, b) => {
+                const diff = a.supplyDateObj.getTime() - b.supplyDateObj.getTime();
+                if (diff !== 0) return diff;
+                return a.id.localeCompare(b.id);
+            });
+
+            // STEP 2B: Normalizzazione DEMAND (Commesse + Manual Commitments)
+            interface DemandEntry {
+                id: string;
+                qty: number;
+                parsedDate: Date | null;
+                demandDateObj: Date;
+                dateStr: string;
+                data: any;
+                isFrozen?: boolean;
+            }
+
+            const demands: DemandEntry[] = [];
+
+            // Commesse
             allJobs.forEach(job => {
                 const status = (job.status || '').trim().toUpperCase();
                 const isVolatile = job.id.startsWith('VOLATILE');
@@ -149,34 +172,31 @@ export function calculateMRPTimelines(
                         
                         if (finalQty <= 0) return;
 
-                        let eventDateStr: string;
-                        try {
-                            const demandDateRaw = job.dataFinePreparazione || job.dataConsegnaFinale;
-                            let demandDate = new Date(demandDateRaw || Date.now());
-                            const todayMidnight = new Date();
-                            todayMidnight.setHours(0, 0, 0, 0);
-                            
-                            if (isNaN(demandDate.getTime()) || demandDate < todayMidnight) {
-                                const fallbackDate = new Date();
-                                fallbackDate.setUTCHours(16, 0, 0, 0);
-                                eventDateStr = fallbackDate.toISOString();
-                            } else {
-                                const safeDate = new Date(demandDate);
-                                safeDate.setUTCHours(16, 0, 0, 0);
-                                eventDateStr = safeDate.toISOString();
-                            }
-                        } catch (e) {
-                            const fallbackDate = new Date();
-                            fallbackDate.setUTCHours(16, 0, 0, 0);
-                            eventDateStr = fallbackDate.toISOString();
+                        const demandDateRaw = job.dataFinePreparazione || job.dataConsegnaFinale;
+                        const parsedDemandDate = parseRobustDate(demandDateRaw);
+                        let demandDateObj: Date;
+                        if (parsedDemandDate) {
+                            demandDateObj = new Date(parsedDemandDate);
+                            demandDateObj.setHours(16, 0, 0, 0);
+                        } else {
+                            demandDateObj = new Date();
+                            demandDateObj.setHours(16, 0, 0, 0);
                         }
 
-                        events.push({ type: 'DEMAND', date: eventDateStr, qty: finalQty, data: job, id: job.id, isFrozen });
+                        demands.push({
+                            id: job.id,
+                            qty: finalQty,
+                            parsedDate: parsedDemandDate,
+                            demandDateObj,
+                            dateStr: demandDateObj.toISOString(),
+                            data: job,
+                            isFrozen
+                        });
                     }
                 });
             });
 
-            // 2C. DEMAND (Manual Commitments)
+            // Manual Commitments
             manualCommitments.filter(c => c && c.status === 'pending').forEach(c => {
                 let finalQty = 0;
                 const art = articles.find(a => a && a.code.toUpperCase() === (c.articleCode || '').toUpperCase());
@@ -194,122 +214,156 @@ export function calculateMRPTimelines(
 
                 if (finalQty <= 0) return;
 
-                let eventDateStr: string;
-                try {
-                    let demandDate = new Date(c.deliveryDate || Date.now());
-                    const todayMidnight = new Date();
-                    todayMidnight.setHours(0, 0, 0, 0);
-
-                    if (isNaN(demandDate.getTime()) || demandDate < todayMidnight) {
-                        const fallbackDate = new Date();
-                        fallbackDate.setUTCHours(16, 0, 0, 0);
-                        eventDateStr = fallbackDate.toISOString();
-                    } else {
-                        const safeDate = new Date(demandDate);
-                        safeDate.setUTCHours(16, 0, 0, 0);
-                        eventDateStr = safeDate.toISOString();
-                    }
-                } catch(e) {
-                    const fallbackDate = new Date();
-                    fallbackDate.setUTCHours(16, 0, 0, 0);
-                    eventDateStr = fallbackDate.toISOString();
+                const parsedDemandDate = parseRobustDate(c.deliveryDate);
+                let demandDateObj: Date;
+                if (parsedDemandDate) {
+                    demandDateObj = new Date(parsedDemandDate);
+                    demandDateObj.setHours(16, 0, 0, 0);
+                } else {
+                    demandDateObj = new Date();
+                    demandDateObj.setHours(16, 0, 0, 0);
                 }
 
-                events.push({ type: 'DEMAND', date: eventDateStr, qty: finalQty, data: c, id: c.id });
+                demands.push({
+                    id: c.id,
+                    qty: finalQty,
+                    parsedDate: parsedDemandDate,
+                    demandDateObj,
+                    dateStr: demandDateObj.toISOString(),
+                    data: c
+                });
             });
 
-            // STEP 3: Ordinamento Infallibile
-            events.sort((a, b) => {
-                const dateA = new Date(a.date).getTime();
-                const dateB = new Date(b.date).getTime();
-                if (dateA !== dateB) return dateA - dateB;
-                
-                if (a.type === 'SUPPLY' && b.type === 'DEMAND') return -1;
-                if (a.type === 'DEMAND' && b.type === 'SUPPLY') return 1;
-                
+            // STEP 3: Ordinamento Cronologico Fabbisogni
+            demands.sort((a, b) => {
+                const diff = a.demandDateObj.getTime() - b.demandDateObj.getTime();
+                if (diff !== 0) return diff;
                 return a.id.localeCompare(b.id);
             });
 
-            // STEP 4 & 5: Simulazione Running Balance e Valutazione Cronologica per Singola Commessa
-            const materialEntries: MRPTimelineEntry[] = [];
-            const totalPO = events.filter(e => e.type === 'SUPPLY').reduce((acc, e) => acc + e.qty, 0);
-            const totalSimQtyDemand = events.filter(e => e.type === 'DEMAND' && e.id.startsWith('VOLATILE')).reduce((sum, e) => sum + e.qty, 0);
-            const totalDemand = events.filter(e => e.type === 'DEMAND').reduce((acc, e) => acc + e.qty, 0);
+            // STEP 4 & 5: Simulazione MRP Time-Phased con Pegging tra Stock Fisico e Ordini Fornitore
+            let availablePhysicalStock = initialStock;
+            const totalPO = supplies.reduce((acc, s) => acc + s.qty, 0);
+            const totalSimQtyDemand = demands.filter(d => d.id.startsWith('VOLATILE')).reduce((sum, d) => sum + d.qty, 0);
+            const totalDemand = demands.reduce((acc, d) => acc + d.qty, 0);
             const absoluteFinalBalance = initialStock + totalPO - totalDemand;
 
-            events.forEach(ev => {
-                if (ev.type === 'SUPPLY') {
-                    currentBalance += ev.qty;
-                } else if (ev.type === 'DEMAND') {
-                    currentBalance -= ev.qty;
-                    const curBalanceAtEvent = currentBalance;
+            const materialEntries: MRPTimelineEntry[] = [];
 
-                    // Ordini fornitore arrivati prima o alla stessa data di questa commessa
-                    const cumulativePO = events
-                        .filter(e => e.type === 'SUPPLY' && new Date(e.date).getTime() <= new Date(ev.date).getTime())
-                        .reduce((sum, e) => sum + Number(e.qty), 0);
+            demands.forEach(dem => {
+                let neededQty = dem.qty;
+                let coveredByPhysical = 0;
+                let coveredByOnTimePO = 0;
+                let coveredByOverduePO = 0;
+                let coveredByLateArrivalPO = 0;
+                let uncoveredQty = 0;
 
-                    // Ordini fornitore futuri (consegna successiva alla data di questa commessa)
-                    const futureSupply = events.filter(e => e.type === 'SUPPLY' && new Date(e.date).getTime() > new Date(ev.date).getTime());
-                    const totalFuturePO = futureSupply.reduce((sum, e) => sum + Number(e.qty), 0);
+                const coveringDetails: string[] = [];
+                let supplyArrivalDate: string | undefined = undefined;
 
-                    let status: MRPTimelineEntry['status'] = 'RED';
-                    let supplyArrivalDate: string | undefined = undefined;
-                    const details: string[] = [];
-
-                    if (ev.isFrozen) {
-                        details.push("⏳ In attesa chiusura Sessione Officina");
-                    }
-                    details.push(`Fabbisogno: ${ev.qty.toFixed(2)} ${mat.unitOfMeasure}`);
-
-                    // RUNNING BALANCE TIME-PHASED:
-                    // Il semaforo dipende ESCLUSIVAMENTE dallo Stock Proiettato (CurBalance) al momento di QUESTA specifica commessa
-                    if (curBalanceAtEvent >= -0.001) {
-                        // COPERTO: Stock proiettato sufficiente
-                        if (curBalanceAtEvent - cumulativePO >= -0.001) {
-                            if (curBalanceAtEvent < safeStock) {
-                                status = 'LOW_STOCK';
-                                details.push("⚠️ SOTTOSCORTA.");
-                            } else {
-                                status = 'GREEN';
-                                details.push("✅ DISPONIBILE (Stock fisico o coperto).");
-                            }
-                        } else {
-                            status = 'ORDERED';
-                            const lastPO = events.filter(e => e.type === 'SUPPLY' && new Date(e.date).getTime() <= new Date(ev.date).getTime()).pop();
-                            supplyArrivalDate = lastPO?.date;
-                            details.push(`💜 ORDINATO: Coperto da ordine fornitore.`);
-                        }
-                    } else {
-                        // SCOPERTO (CurBalance < 0 alla data della commessa)
-                        // C'è un ordine d'acquisto (PO) emesso per questo materiale (futuro o pendente)?
-                        const hasCoveringPO = futureSupply.length > 0 || totalPO > 0;
-                        if (hasCoveringPO) {
-                            status = 'LATE';
-                            supplyArrivalDate = futureSupply[0]?.date;
-                            details.push("🟠 IN RITARDO: Merce coperta da ordine fornitore ma con arrivo successivo alla data richiesta.");
-                        } else {
-                            status = 'RED';
-                            details.push("❌ MANCANTE: Nessun ordine fornitore a copertura. Necessario acquistare.");
-                        }
-                    }
-
-                    const dbg = ` [DBG: Init=${initialStock.toFixed(2)}, PO=${totalPO.toFixed(2)}, CurBalance=${curBalanceAtEvent.toFixed(2)}, FinalBalance=${absoluteFinalBalance.toFixed(2)}]`;
-                    details.push(dbg);
-
-                    materialEntries.push({
-                        jobId: ev.id,
-                        materialCode: matCode,
-                        requiredQty: ev.qty,
-                        status,
-                        projectedBalance: curBalanceAtEvent,
-                        supplyArrivalDate,
-                        details,
-                        totalPO,
-                        totalSimQty: totalSimQtyDemand,
-                        isFrozen: ev.isFrozen
-                    });
+                // 1. Priorità assoluta allo stock fisico presente a magazzino
+                if (availablePhysicalStock > 0) {
+                    const take = Math.min(availablePhysicalStock, neededQty);
+                    coveredByPhysical += take;
+                    availablePhysicalStock -= take;
+                    neededQty -= take;
                 }
+
+                // 2. Se lo stock fisico non basta, attinge agli ordini fornitore in ordine cronologico
+                if (neededQty > 0.0001) {
+                    for (const supply of supplies) {
+                        if (neededQty <= 0.0001) break;
+                        if (supply.remainingQty <= 0.0001) continue;
+
+                        const take = Math.min(supply.remainingQty, neededQty);
+                        supply.remainingQty -= take;
+                        neededQty -= take;
+
+                        const supplyTime = supply.supplyDateObj.getTime();
+                        const demandTime = dem.demandDateObj.getTime();
+                        const formattedDate = supply.parsedDate ? format(supply.parsedDate, 'dd/MM/yyyy') : 'N/D';
+
+                        if (supply.isOverdue) {
+                            // Ordine fornitore scaduto nel passato (< oggi) -> RITARDO FORNITORE
+                            coveredByOverduePO += take;
+                            coveringDetails.push(`PO ${supply.orderNumber} scaduto il ${formattedDate} (IN RITARDO)`);
+                            if (!supplyArrivalDate) supplyArrivalDate = supply.dateStr;
+                        } else if (supplyTime > demandTime) {
+                            // Ordine fornitore futuro ma che arriva dopo la data richiesta dalla commessa
+                            coveredByLateArrivalPO += take;
+                            coveringDetails.push(`PO ${supply.orderNumber} in arrivo il ${formattedDate} (dopo data richiesta)`);
+                            if (!supplyArrivalDate) supplyArrivalDate = supply.dateStr;
+                        } else {
+                            // Ordine fornitore in arrivo in tempo
+                            coveredByOnTimePO += take;
+                            coveringDetails.push(`PO ${supply.orderNumber} in arrivo il ${formattedDate}`);
+                            if (!supplyArrivalDate) supplyArrivalDate = supply.dateStr;
+                        }
+                    }
+                }
+
+                if (neededQty > 0.0001) {
+                    uncoveredQty = neededQty;
+                }
+
+                let status: MRPTimelineEntry['status'] = 'RED';
+                const details: string[] = [];
+
+                if (dem.isFrozen) {
+                    details.push("⏳ In attesa chiusura Sessione Officina");
+                }
+                details.push(`Fabbisogno: ${dem.qty.toFixed(2)} ${mat.unitOfMeasure}`);
+
+                // REGOLE TIME-PHASED MRP RIGOROSE:
+                if (uncoveredQty > 0.0001) {
+                    status = 'RED';
+                    details.push(`❌ MANCANTE: Stock fisico e ordini insufficienti (Mancano ${uncoveredQty.toFixed(2)} ${mat.unitOfMeasure}). Necessario acquistare.`);
+                } else if (coveredByOverduePO > 0.0001) {
+                    status = 'LATE';
+                    details.push(`🟠 RITARDO FORNITORE: Coperto da ordine fornitore SCADUTO non ancora consegnato (${coveringDetails.join('; ')}). Sollecitare fornitore!`);
+                } else if (coveredByLateArrivalPO > 0.0001) {
+                    status = 'LATE';
+                    details.push(`🟠 IN RITARDO: Coperto da ordine fornitore con consegna successiva alla data richiesta (${coveringDetails.join('; ')}).`);
+                } else if (coveredByOnTimePO > 0.0001) {
+                    status = 'ORDERED';
+                    details.push(`💜 ORDINATO: Coperto da ordine fornitore nei tempi (${coveringDetails.join('; ')}). In arrivo nei tempi.`);
+                } else {
+                    if (availablePhysicalStock < safeStock) {
+                        status = 'LOW_STOCK';
+                        details.push(`⚠️ SOTTOSCORTA: Coperto da stock fisico attuale, residuo sotto scorta minima (${safeStock} ${mat.unitOfMeasure}).`);
+                    } else {
+                        status = 'GREEN';
+                        details.push("✅ DISPONIBILE: Coperto da stock fisico presente a magazzino.");
+                    }
+                }
+
+                // Saldo proiettato alla data della commessa:
+                // Se coperto da stock fisico o PO in tempo: >= 0
+                // Se coperto da PO in ritardo o mancante: valore negativo indicante la scopertura
+                let projectedBalance: number;
+                if (status === 'GREEN' || status === 'LOW_STOCK') {
+                    projectedBalance = availablePhysicalStock;
+                } else if (status === 'ORDERED') {
+                    projectedBalance = 0;
+                } else {
+                    projectedBalance = -(coveredByOverduePO + coveredByLateArrivalPO + uncoveredQty);
+                }
+
+                const dbg = ` [DBG: PhysStock=${initialStock.toFixed(2)}, Dem=${dem.qty.toFixed(2)}, PhysCov=${coveredByPhysical.toFixed(2)}, OnTimePO=${coveredByOnTimePO.toFixed(2)}, LatePO=${(coveredByOverduePO + coveredByLateArrivalPO).toFixed(2)}, Missing=${uncoveredQty.toFixed(2)}, BalAtDate=${projectedBalance.toFixed(2)}]`;
+                details.push(dbg);
+
+                materialEntries.push({
+                    jobId: dem.id,
+                    materialCode: matCode,
+                    requiredQty: dem.qty,
+                    status,
+                    projectedBalance,
+                    supplyArrivalDate,
+                    details,
+                    totalPO,
+                    totalSimQty: totalSimQtyDemand,
+                    isFrozen: dem.isFrozen
+                });
             });
 
             timelines.set(matCode, materialEntries);
@@ -502,27 +556,19 @@ export function classifyGlobalMRPAlarms<TJob = any>({
             const job = allJobs.find(j => (j as any).id === entry.jobId);
             const jobDate = (job as any)?.dataFinePreparazione || (job as any)?.dataConsegnaFinale;
             
-            const isUncovered = entry.projectedBalance < -0.001;
-            const hasPO = pendingPOs.length > 0 || (entry.totalPO || 0) > 0;
+            const isUncovered = entry.status === 'RED' || entry.status === 'LATE' || entry.projectedBalance < -0.001;
 
             let visualStatus: MRPVisualAlarmStatus;
-
-            if (isUncovered) {
-                // Stock Proiettato < 0: se coperto da PO con arrivo successivo -> LATE, altrimenti RED
-                if (entry.status === 'LATE' || hasPO) {
-                    visualStatus = 'LATE';
-                } else {
-                    visualStatus = 'RED';
-                }
+            if (entry.status === 'RED') {
+                visualStatus = 'RED';
+            } else if (entry.status === 'LATE') {
+                visualStatus = 'LATE';
+            } else if (entry.status === 'ORDERED' || entry.status === 'AMBER') {
+                visualStatus = 'ORDERED';
+            } else if (entry.status === 'LOW_STOCK') {
+                visualStatus = 'LOW_STOCK';
             } else {
-                // Stock Proiettato >= 0: se coperto grazie a PO -> ORDERED, altrimenti GREEN o LOW_STOCK
-                if (entry.status === 'ORDERED' || entry.status === 'AMBER') {
-                    visualStatus = 'ORDERED';
-                } else if (entry.status === 'LOW_STOCK') {
-                    visualStatus = 'LOW_STOCK';
-                } else {
-                    visualStatus = 'GREEN';
-                }
+                visualStatus = 'GREEN';
             }
 
             return {
