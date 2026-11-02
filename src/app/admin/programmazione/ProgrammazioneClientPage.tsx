@@ -123,6 +123,8 @@ import {
   bulkUpdateJobDeliveryDate,
   bulkShipJobs,
   bulkStartProductionAndPrint,
+  bulkStartProduction,
+  bulkMarkJobsAsPrinted,
   getCapacityBuckets,
   saveCapacityBucket,
   exportPlanningReportAction,
@@ -964,6 +966,7 @@ export default function ProgrammazioneClientPage({
   // FASE 16: Selezione Multipla (Checkbox) e Azioni Massive (Bulk Actions)
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [isBulkPrinting, setIsBulkPrinting] = useState(false);
   const [isBulkDateOpen, setIsBulkDateOpen] = useState(false);
   const [bulkDateInput, setBulkDateInput] = useState('');
 
@@ -2096,8 +2099,205 @@ export default function ProgrammazioneClientPage({
     }
   }, []);
 
-  // 1. Bulk Start Production and Print ODL
-  const handleBulkStartAndPrint = async () => {
+  // FASE 33: Helper comune per recupero distinta, fasi e materiali per la stampa ODL
+  const prepareJobForPrint = useCallback(async (job: JobOrder) => {
+    const articleCode = (job.details || '').trim().toUpperCase();
+    let article = articles.find((a) => a.code.toUpperCase() === articleCode) 
+      || articlesCacheRef.current.get(articleCode) 
+      || null;
+
+    if (!article && articleCode) {
+      try {
+        const targeted = await getTargetedMRPData([], [articleCode]);
+        if (targeted.articles.length > 0) {
+          article = targeted.articles[0];
+          articlesCacheRef.current.set(articleCode, article);
+        }
+      } catch (e) {
+        console.warn("Impossibile caricare articolo per ODL:", e);
+      }
+    }
+
+    let bomItems = job.billOfMaterials || [];
+    if ((!bomItems || bomItems.length === 0) && article?.billOfMaterials) {
+      bomItems = article.billOfMaterials.map((item) => ({
+        ...item,
+        status: 'pending',
+        isFromTemplate: true,
+      }));
+    }
+
+    let jobPhases = job.phases || [];
+    if ((!jobPhases || jobPhases.length === 0) && (job.workCycleId || article?.workCycleId)) {
+      const cycleId = job.workCycleId || article?.workCycleId;
+      const cycle = workCycles.find((c) => c.id === cycleId);
+      if (cycle && (cycle as any).phases) {
+        jobPhases = (cycle as any).phases;
+      }
+    }
+
+    const requiredMatCodes = bomItems
+      .map((i) => (i.component || '').trim().toUpperCase())
+      .filter(Boolean);
+    const missingMatCodes = requiredMatCodes.filter((c) => !materialsCacheRef.current.has(c));
+
+    if (missingMatCodes.length > 0) {
+      try {
+        const targeted = await getTargetedMRPData(missingMatCodes, articleCode ? [articleCode] : []);
+        targeted.rawMaterials.forEach((m) => {
+          if (m.code) materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
+        });
+      } catch (e) {
+        console.warn("Impossibile scaricare anagrafica materiali mancanti per ODL:", e);
+      }
+    }
+
+    const currentOdl = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+    const enrichedJob: JobOrder = {
+      ...job,
+      numeroODL: currentOdl,
+      numeroODLInterno: currentOdl,
+      billOfMaterials: bomItems,
+      phases: jobPhases,
+    };
+
+    const materialsList = Array.from(materialsCacheRef.current.values());
+
+    return {
+      enrichedJob,
+      article,
+      materials: materialsList,
+      currentOdl,
+    };
+  }, [articles, workCycles]);
+
+  // 1. FASE 33: Stampa Massiva ODL (Solo Stampa, senza alterare lo stato)
+  const handleBulkPrintODL = async () => {
+    if (selectedJobIds.length === 0) return;
+
+    const selectedJobs = jobs.filter((j) => selectedJobIds.includes(j.id));
+    if (selectedJobs.length === 0) return;
+
+    // Validazione N° ODL obbligatorio su TUTTE le commesse selezionate
+    const missingOdlJobs = selectedJobs.filter((j) => !getCleanOdlValue(j.numeroODLInterno || j.numeroODL));
+    if (missingOdlJobs.length > 0) {
+      toast({
+        variant: "destructive",
+        title: "Attenzione: N° ODL Mancante",
+        description: `Attenzione: inserire il N° ODL per tutte le commesse selezionate prima di stampare (${missingOdlJobs.map(j => j.ordinePF || j.id).join(', ')}).`,
+      });
+      return;
+    }
+
+    setIsBulkProcessing(true);
+    setIsBulkPrinting(true);
+
+    try {
+      toast({
+        title: "Generazione PDF ODL in corso",
+        description: `Elaborazione di ${selectedJobs.length} commesse selezionate...`,
+      });
+
+      const pdf = new jsPDF({ 
+        orientation: 'landscape', 
+        unit: 'mm', 
+        format: 'a4', 
+        compress: true 
+      });
+
+      let totalPagesAdded = 0;
+
+      for (let i = 0; i < selectedJobs.length; i++) {
+        const currentJob = selectedJobs[i];
+        const { enrichedJob, article, materials } = await prepareJobForPrint(currentJob);
+
+        setPdfData({
+          job: enrichedJob,
+          article,
+          materials,
+          printDate: new Date(),
+        });
+
+        // Attesa rendering del template nascosto nel DOM
+        await new Promise((r) => setTimeout(r, 600));
+
+        const container = document.getElementById('odl-pdf-pages');
+        if (!container) {
+          throw new Error("Template di stampa ODL non trovato nel DOM.");
+        }
+
+        const pageElements = container.querySelectorAll('.odl-page');
+        if (pageElements.length === 0) {
+          throw new Error(`Nessuna pagina ODL generata per la commessa ${currentJob.ordinePF}.`);
+        }
+
+        for (let pIdx = 0; pIdx < pageElements.length; pIdx++) {
+          const page = pageElements[pIdx] as HTMLElement;
+          const canvas = await html2canvas(page, { 
+            scale: 2.5, 
+            useCORS: true, 
+            logging: false, 
+            backgroundColor: '#ffffff' 
+          });
+          const imgData = canvas.toDataURL('image/png', 1.0);
+          if (totalPagesAdded > 0) {
+            pdf.addPage();
+          }
+          pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
+          totalPagesAdded++;
+        }
+      }
+
+      if (totalPagesAdded > 0) {
+        if (selectedJobs.length === 1) {
+          const cleanOdl = getCleanOdlValue(selectedJobs[0].numeroODLInterno || selectedJobs[0].numeroODL).replace(/\//g, '_');
+          const cleanPf = (selectedJobs[0].ordinePF || '').replace(/\//g, '_');
+          pdf.save(`ODL_${cleanOdl}_${cleanPf}.pdf`);
+        } else {
+          pdf.save(`ODL_Stampa_Massiva_${selectedJobs.length}_Commesse.pdf`);
+        }
+      }
+
+      // Aggiorna stato locale di stampa (isPrinted: true, odlPrinted: true) SENZA cambiare status
+      const printedIds = selectedJobs.map((j) => j.id);
+      const printedSet = new Set(printedIds);
+
+      setJobs((prev) =>
+        prev.map((j) => {
+          if (printedSet.has(j.id)) {
+            return {
+              ...j,
+              isPrinted: true,
+              odlPrinted: true,
+            };
+          }
+          return j;
+        })
+      );
+
+      toast({
+        title: "Stampa ODL Completata",
+        description: `${selectedJobs.length} ODL generati in PDF e contrassegnati come stampati.`,
+      });
+
+      // Persisti flag isPrinted su Firestore
+      await bulkMarkJobsAsPrinted(printedIds);
+    } catch (error: any) {
+      console.error("Errore generazione ODL PDF massivo:", error);
+      toast({
+        variant: "destructive",
+        title: "Errore Stampa Massiva ODL",
+        description: error?.message || "Impossibile generare o scaricare il file PDF.",
+      });
+    } finally {
+      setPdfData(null);
+      setIsBulkPrinting(false);
+      setIsBulkProcessing(false);
+    }
+  };
+
+  // 2. FASE 33: Avvio Massivo in Produzione (Solo Avvio Produzione)
+  const handleBulkStartProduction = async () => {
     if (selectedJobIds.length === 0) return;
 
     const selectedJobs = jobs.filter((j) => selectedJobIds.includes(j.id));
@@ -2114,8 +2314,9 @@ export default function ProgrammazioneClientPage({
     }
 
     setIsBulkProcessing(true);
+    setIsBulkPrinting(false);
     try {
-      const res = await bulkStartProductionAndPrint(jobsWithDate.map((j) => j.id));
+      const res = await bulkStartProduction(jobsWithDate.map((j) => j.id));
       if (!res.success) {
         toast({
           variant: "destructive",
@@ -2135,8 +2336,6 @@ export default function ProgrammazioneClientPage({
             return {
               ...j,
               status: 'DA_INIZIARE',
-              isPrinted: true,
-              odlPrinted: true,
               numeroODLInterno: startedInfo?.numeroODLInterno || j.numeroODLInterno,
             };
           }
@@ -2148,7 +2347,7 @@ export default function ProgrammazioneClientPage({
       setSelectedJobIds((prev) => prev.filter((id) => !startedIdsSet.has(id)));
 
       toast({
-        title: "Avvio e Stampa Massiva Completati",
+        title: "Avvio Produzione Completato",
         description: res.message,
       });
 
@@ -2163,12 +2362,15 @@ export default function ProgrammazioneClientPage({
       toast({
         variant: "destructive",
         title: "Errore Operazione Massiva",
-        description: e?.message || "Impossibile completare l'avvio massivo.",
+        description: e?.message || "Impossibile completare l'avvio massivo in produzione.",
       });
     } finally {
       setIsBulkProcessing(false);
     }
   };
+
+  // Backward compatibility alias
+  const handleBulkStartAndPrint = handleBulkStartProduction;
 
   // 2. Bulk Change Delivery Date
   const handleBulkChangeDeliveryDate = async () => {
@@ -2373,8 +2575,8 @@ export default function ProgrammazioneClientPage({
       return;
     }
 
-    // Risolvi il N° ODL dal valore salvato della commessa
-    const currentOdl = (job.numeroODLInterno || job.numeroODL || '').trim();
+    // Risolvi il N° ODL dal valore salvato della commessa (esclude N/D o vuoto)
+    const currentOdl = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
 
     if (!currentOdl) {
       toast({
@@ -2390,72 +2592,7 @@ export default function ProgrammazioneClientPage({
     setIsDownloadingPdf(job.id);
 
     try {
-
-      // 1. Recupero Articolo e arricchimento dati per il PDF
-      const articleCode = (job.details || '').trim().toUpperCase();
-      let article = articles.find((a) => a.code.toUpperCase() === articleCode) 
-        || articlesCacheRef.current.get(articleCode) 
-        || null;
-
-      // Se non abbiamo ancora l'articolo completo in cache, tentiamo di caricarlo
-      if (!article && articleCode) {
-        try {
-          const targeted = await getTargetedMRPData([], [articleCode]);
-          if (targeted.articles.length > 0) {
-            article = targeted.articles[0];
-            articlesCacheRef.current.set(articleCode, article);
-          }
-        } catch (e) {
-          console.warn("Impossibile caricare articolo per ODL:", e);
-        }
-      }
-
-      // Costruisci la distinta base completa (BOM) se assente sulla commessa
-      let bomItems = job.billOfMaterials || [];
-      if ((!bomItems || bomItems.length === 0) && article?.billOfMaterials) {
-        bomItems = article.billOfMaterials.map((item) => ({
-          ...item,
-          status: 'pending',
-          isFromTemplate: true,
-        }));
-      }
-
-      // Costruisci le fasi del ciclo se assenti sulla commessa
-      let jobPhases = job.phases || [];
-      if ((!jobPhases || jobPhases.length === 0) && (job.workCycleId || article?.workCycleId)) {
-        const cycleId = job.workCycleId || article?.workCycleId;
-        const cycle = workCycles.find((c) => c.id === cycleId);
-        if (cycle && (cycle as any).phases) {
-          jobPhases = (cycle as any).phases;
-        }
-      }
-
-      // Verifica che tutti i materiali della distinta siano in materialsCacheRef
-      const requiredMatCodes = bomItems
-        .map((i) => (i.component || '').trim().toUpperCase())
-        .filter(Boolean);
-      const missingMatCodes = requiredMatCodes.filter((c) => !materialsCacheRef.current.has(c));
-
-      if (missingMatCodes.length > 0) {
-        try {
-          const targeted = await getTargetedMRPData(missingMatCodes, articleCode ? [articleCode] : []);
-          targeted.rawMaterials.forEach((m) => {
-            if (m.code) materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
-          });
-        } catch (e) {
-          console.warn("Impossibile scaricare anagrafica materiali mancanti per ODL:", e);
-        }
-      }
-
-      const enrichedJob: JobOrder = {
-        ...job,
-        numeroODL: currentOdl,
-        numeroODLInterno: currentOdl,
-        billOfMaterials: bomItems,
-        phases: jobPhases,
-      };
-
-      const materialsList = Array.from(materialsCacheRef.current.values());
+      const { enrichedJob, article, materials } = await prepareJobForPrint(job);
 
       // =========================================================================
       // PASSO 1 (Azione Fisica): Monta il template e forza download PDF
@@ -2463,7 +2600,7 @@ export default function ProgrammazioneClientPage({
       setPdfData({
         job: enrichedJob,
         article,
-        materials: materialsList,
+        materials,
         printDate: new Date(),
       });
 
@@ -2539,7 +2676,7 @@ export default function ProgrammazioneClientPage({
       setPdfData(null);
       setIsDownloadingPdf(null);
     }
-  }, [articles, workCycles, toast, isDownloadingPdf]);
+  }, [prepareJobForPrint, toast, isDownloadingPdf]);
 
   // Settimane per il dropdown rapido (Standard ISO 8601)
   const weekOptions = useMemo(() => {
@@ -3803,23 +3940,36 @@ export default function ProgrammazioneClientPage({
               </button>
             </div>
 
-            {/* 1. Stampa ODL / Avvia Produzione */}
+            {/* 1. Stampa ODL (Solo Stampa) */}
             <Button
               size="sm"
               disabled={isBulkProcessing}
-              onClick={handleBulkStartAndPrint}
-              className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
-              title="Avvia in produzione e segna come stampate le commesse selezionate (esclude quelle prive di data)"
+              onClick={handleBulkPrintODL}
+              className="h-8 gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
+              title="Genera e scarica i PDF ODL per le commesse selezionate (richiede N° ODL compilato)"
             >
-              {isBulkProcessing ? (
+              {isBulkProcessing && isBulkPrinting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <>
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                  <Printer className="h-3.5 w-3.5" />
-                </>
+                <Printer className="h-3.5 w-3.5" />
               )}
-              <span>Stampa ODL / Avvia</span>
+              <span>Stampa ODL</span>
+            </Button>
+
+            {/* 2. Avvia Produzione (Solo Avvio Produzione) */}
+            <Button
+              size="sm"
+              disabled={isBulkProcessing}
+              onClick={handleBulkStartProduction}
+              className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
+              title="Avvia in produzione le commesse selezionate (richiede Data di Consegna compilata)"
+            >
+              {isBulkProcessing && !isBulkPrinting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5 fill-current" />
+              )}
+              <span>Avvia</span>
             </Button>
 
             {/* 2. Cambia Data Consegna */}

@@ -1112,6 +1112,109 @@ export async function bulkStartProductionAndPrint(
     }
 }
 
+/**
+ * FASE 33: Avvio massivo commesse in produzione (Solo Avvio Produzione)
+ * Transiziona le commesse a DA_INIZIARE e genera i timestamp/ODL SSoT senza marcare come stampate
+ */
+export async function bulkStartProduction(
+    jobIds: string[]
+): Promise<{ 
+    success: boolean; 
+    message: string; 
+    startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[];
+    skippedNoDate: string[];
+}> {
+    try {
+        const startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[] = [];
+        const skippedNoDate: string[] = [];
+
+        for (const id of jobIds) {
+            const docSnap = await adminDb.collection("jobOrders").doc(id).get();
+            if (!docSnap.exists) continue;
+            const job = docSnap.data() as JobOrder;
+            if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
+                skippedNoDate.push(job.ordinePF || id);
+                continue;
+            }
+
+            const currentStatusLower = (job.status || '').toLowerCase().trim();
+            const isAlreadyStarted = ['da_iniziare', 'in_preparazione', 'pronto_prod', 'in_produzione', 'fine_produzione', 'qlty_pack', 'chiuso', 'in produzione', 'completato prod.', 'spedito'].includes(currentStatusLower);
+
+            let odlNum = job.numeroODLInterno;
+            if (!isAlreadyStarted) {
+                const res = await createODL(id);
+                if (res.success) {
+                    const refreshed = await adminDb.collection("jobOrders").doc(id).get();
+                    odlNum = (refreshed.data() as JobOrder)?.numeroODLInterno || odlNum;
+                    startedJobs.push({
+                        id,
+                        ordinePF: job.ordinePF || id,
+                        numeroODLInterno: odlNum || undefined
+                    });
+                } else {
+                    console.warn(`Impossibile avviare commessa ${id}:`, res.message);
+                }
+            } else {
+                startedJobs.push({
+                    id,
+                    ordinePF: job.ordinePF || id,
+                    numeroODLInterno: odlNum || undefined
+                });
+            }
+        }
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+
+        const message = startedJobs.length > 0 
+            ? `Avviate in produzione ${startedJobs.length} commesse.${skippedNoDate.length > 0 ? ` Escluse ${skippedNoDate.length} prive di data di consegna.` : ''}`
+            : `Nessuna commessa avviata.${skippedNoDate.length > 0 ? ` Tutte le ${skippedNoDate.length} commesse selezionate erano prive di data di consegna.` : ''}`;
+
+        return {
+            success: startedJobs.length > 0,
+            message,
+            startedJobs,
+            skippedNoDate
+        };
+    } catch (e: any) {
+        console.error("Errore in bulkStartProduction:", e);
+        return { success: false, message: e?.message || "Errore durante l'avvio massivo in produzione.", startedJobs: [], skippedNoDate: [] };
+    }
+}
+
+/**
+ * FASE 33: Marcatura massiva commesse come stampate (Solo Stampa ODL)
+ * Imposta isPrinted: true e odlPrinted: true senza modificare lo stato della commessa
+ */
+export async function bulkMarkJobsAsPrinted(
+    jobIds: string[]
+): Promise<{ success: boolean; message: string }> {
+    try {
+        const batchSize = 250;
+        for (let i = 0; i < jobIds.length; i += batchSize) {
+            const chunk = jobIds.slice(i, i + batchSize);
+            const batch = adminDb.batch();
+            chunk.forEach(id => {
+                const ref = adminDb.collection("jobOrders").doc(id);
+                batch.update(ref, {
+                    isPrinted: true,
+                    odlPrinted: true,
+                    updatedAt: admin.firestore.Timestamp.now(),
+                });
+            });
+            await batch.commit();
+        }
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        return { success: true, message: `${jobIds.length} commesse contrassegnate come stampate.` };
+    } catch (e: any) {
+        console.error("Errore durante bulkMarkJobsAsPrinted:", e);
+        return { success: false, message: e?.message || "Errore durante la marcatura di stampa massiva." };
+    }
+}
+
 // =========================================================================
 // FASE 18: GESTIONE PERSISTENZA CAPACITÀ SETTIMANALE E AGGREGAZIONE REPARTI
 // =========================================================================

@@ -686,7 +686,10 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
         'planned', 
         'IN_ATTESA', 
         'In Pianificazione', 
-        'IN_PIANIFICAZIONE'
+        'IN_PIANIFICAZIONE',
+        'Pianificata',
+        'pianificata',
+        'PIANIFICATA'
       ];
       
       if (!validBacklogStatuses.includes(job.status)) {
