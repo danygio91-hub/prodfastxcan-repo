@@ -1324,6 +1324,134 @@ export async function exportPlanningReportAction(
     }
 }
 
+/**
+ * FASE 28: Eliminazione Singola Commessa
+ * Regola di sicurezza: Solo le commesse in stato 'Pianificata' possono essere eliminate.
+ * Se la commessa è in produzione, completata o spedita, viene bloccata.
+ */
+export async function deleteJobOrder(
+    jobId: string
+): Promise<{ success: boolean; message: string }> {
+    try {
+        const cleanId = (jobId || '').trim();
+        if (!cleanId) {
+            return { success: false, message: 'ID commessa mancante o non valido.' };
+        }
+
+        const docRef = adminDb.collection('jobOrders').doc(cleanId);
+        const docSnap = await docRef.get();
+        if (!docSnap.exists) {
+            return { success: false, message: 'Commessa non trovata nel database.' };
+        }
+
+        const job = docSnap.data() as JobOrder;
+        const displayStatus = getJobDisplayStatus(job);
+
+        if (displayStatus !== 'Pianificata') {
+            return {
+                success: false,
+                message: `Impossibile eliminare una commessa in stato "${displayStatus}". Esegui prima il rollback a "Pianificata".`
+            };
+        }
+
+        await docRef.delete();
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+
+        return {
+            success: true,
+            message: `Commessa ${job.ordinePF || cleanId} eliminata con successo.`
+        };
+    } catch (error: any) {
+        console.error('Errore deleteJobOrder:', error);
+        return {
+            success: false,
+            message: error?.message || "Errore imprevisto durante l'eliminazione della commessa."
+        };
+    }
+}
+
+/**
+ * FASE 28: Eliminazione Massiva Commesse Selezionate
+ * Regola di sicurezza: Elimina solo ed esclusivamente le commesse nello stato 'Pianificata'.
+ */
+export async function bulkDeleteJobOrders(
+    jobIds: string[]
+): Promise<{ success: boolean; message: string; deletedCount: number; deletedIds: string[] }> {
+    try {
+        if (!jobIds || jobIds.length === 0) {
+            return { success: false, message: 'Nessuna commessa specificata per l\'eliminazione.', deletedCount: 0, deletedIds: [] };
+        }
+
+        const eligibleIds: string[] = [];
+        const skippedNonPlanned: string[] = [];
+
+        // Validazione preventiva su Firestore di ogni commessa
+        for (const id of jobIds) {
+            const cleanId = (id || '').trim();
+            if (!cleanId) continue;
+            const docSnap = await adminDb.collection('jobOrders').doc(cleanId).get();
+            if (!docSnap.exists) continue;
+
+            const job = docSnap.data() as JobOrder;
+            const displayStatus = getJobDisplayStatus(job);
+
+            if (displayStatus === 'Pianificata') {
+                eligibleIds.push(cleanId);
+            } else {
+                skippedNonPlanned.push(job.ordinePF || cleanId);
+            }
+        }
+
+        if (eligibleIds.length === 0) {
+            return {
+                success: false,
+                message: 'Nessuna delle commesse selezionate è in stato "Pianificata". L\'eliminazione è stata bloccata per salvaguardare i dati di produzione.',
+                deletedCount: 0,
+                deletedIds: []
+            };
+        }
+
+        // Esecuzione batch deletion (a blocchi di 250)
+        const batchSize = 250;
+        for (let i = 0; i < eligibleIds.length; i += batchSize) {
+            const chunk = eligibleIds.slice(i, i + batchSize);
+            const batch = adminDb.batch();
+            chunk.forEach(id => {
+                batch.delete(adminDb.collection('jobOrders').doc(id));
+            });
+            await batch.commit();
+        }
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+
+        let msg = `${eligibleIds.length} commesse eliminate definitivamente.`;
+        if (skippedNonPlanned.length > 0) {
+            msg += ` (${skippedNonPlanned.length} non eliminate poiché non pianificate)`;
+        }
+
+        return {
+            success: true,
+            message: msg,
+            deletedCount: eligibleIds.length,
+            deletedIds: eligibleIds
+        };
+    } catch (error: any) {
+        console.error('Errore bulkDeleteJobOrders:', error);
+        return {
+            success: false,
+            message: error?.message || "Errore imprevisto durante l'eliminazione massiva delle commesse.",
+            deletedCount: 0,
+            deletedIds: []
+        };
+    }
+}
+
+
 
 
 

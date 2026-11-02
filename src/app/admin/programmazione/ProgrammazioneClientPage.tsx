@@ -36,7 +36,8 @@ import {
   Pencil,
   RotateCcw,
   Undo2,
-  Lock
+  Lock,
+  Trash2
 } from 'lucide-react';
 import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -125,6 +126,8 @@ import {
   getCapacityBuckets,
   saveCapacityBucket,
   exportPlanningReportAction,
+  deleteJobOrder,
+  bulkDeleteJobOrders,
   type DayCapacityConfigData
 } from './actions';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
@@ -532,6 +535,7 @@ interface JobTableRowProps {
   onStartProduction: (job: JobOrder) => void;
   onRollbackJob: (job: JobOrder) => void;
   onOpenEditModal: (job: JobOrder) => void;
+  onDeleteJob: (job: JobOrder) => void;
 }
 
 const JobTableRow = React.memo(function JobTableRow({
@@ -549,6 +553,7 @@ const JobTableRow = React.memo(function JobTableRow({
   onStartProduction,
   onRollbackJob,
   onOpenEditModal,
+  onDeleteJob,
 }: JobTableRowProps) {
   const hours = calculateJobHours(job);
   const weekInfo = getJobWeekAndYear(job);
@@ -862,6 +867,25 @@ const JobTableRow = React.memo(function JobTableRow({
               Modifica dettagli commessa
             </TooltipContent>
           </Tooltip>
+
+          {/* FASE 28: Elimina Commessa Singola (solo stato Pianificata) */}
+          {currentStatus === 'Pianificata' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onDeleteJob(job)}
+                  className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/15 cursor-pointer transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Elimina commessa pianificata
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </td>
     </tr>
@@ -1929,6 +1953,54 @@ export default function ProgrammazioneClientPage({
     await handleStatusChange(job, 'Pianificata', true);
   }, [handleStatusChange]);
 
+  // FASE 28: Handler dedicato per eliminazione singola commessa (solo stato Pianificata)
+  const handleDeleteJob = useCallback(async (job: JobOrder) => {
+    const status = normalizeJobStatus(job);
+    if (status !== 'Pianificata') {
+      toast({
+        variant: "destructive",
+        title: "Azione non consentita",
+        description: "Solo le commesse in stato 'Pianificata' possono essere eliminate. Esegui prima il rollback.",
+      });
+      return;
+    }
+
+    const confirmDelete = window.confirm(
+      `Sei sicuro di voler eliminare la commessa ${job.ordinePF ? `"${job.ordinePF}"` : ''}? L'azione è irreversibile.`
+    );
+    if (!confirmDelete) return;
+
+    // Optimistic UI: rimuovi subito la commessa
+    const previousJobs = [...jobs];
+    setJobs((prev) => prev.filter((j) => j.id !== job.id));
+    setSelectedJobIds((prev) => prev.filter((id) => id !== job.id));
+
+    try {
+      const res = await deleteJobOrder(job.id);
+      if (!res.success) {
+        setJobs(previousJobs);
+        toast({
+          variant: "destructive",
+          title: "Errore durante l'eliminazione",
+          description: res.message || "Impossibile eliminare la commessa su Firestore.",
+        });
+      } else {
+        toast({
+          title: "Commessa eliminata",
+          description: `La commessa ${job.ordinePF || ''} è stata eliminata definitivamente.`,
+        });
+      }
+    } catch (error: any) {
+      setJobs(previousJobs);
+      console.error("Errore handleDeleteJob:", error);
+      toast({
+        variant: "destructive",
+        title: "Errore imprevisto",
+        description: error?.message || "Si è verificato un errore durante l'eliminazione.",
+      });
+    }
+  }, [jobs, toast]);
+
   // 4. Workflow Avvio Produzione: richiama createODL transazionale
   const handleStartProduction = useCallback(async (job: JobOrder) => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
@@ -2204,6 +2276,69 @@ export default function ProgrammazioneClientPage({
         variant: "destructive",
         title: "Errore Spedizione",
         description: e?.message || "Impossibile completare la spedizione massiva.",
+      });
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  // FASE 28: Bulk Delete Jobs (solo stato Pianificata)
+  const handleBulkDelete = async () => {
+    if (selectedJobIds.length === 0) return;
+
+    // Filtra commesse selezionate che sono effettivamente in stato 'Pianificata'
+    const selectedJobs = jobs.filter((j) => selectedJobIds.includes(j.id));
+    const plannedJobs = selectedJobs.filter((j) => normalizeJobStatus(j) === 'Pianificata');
+    const nonPlannedCount = selectedJobs.length - plannedJobs.length;
+
+    if (plannedJobs.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Nessuna commessa eliminabile",
+        description: "Nessuna delle commesse selezionate è in stato 'Pianificata'. Solo le commesse pianificate possono essere eliminate.",
+      });
+      return;
+    }
+
+    let confirmMsg = `Sei sicuro di voler eliminare definitivamente le ${plannedJobs.length} commesse pianificate selezionate? L'azione è irreversibile.`;
+    if (nonPlannedCount > 0) {
+      confirmMsg += `\n\nNota: ${nonPlannedCount} commesse selezionate NON verranno eliminate perché già avviate, completate o spedite.`;
+    }
+
+    const confirmed = window.confirm(confirmMsg);
+    if (!confirmed) return;
+
+    setIsBulkProcessing(true);
+
+    const plannedIds = plannedJobs.map((j) => j.id);
+    const previousJobs = [...jobs];
+
+    // Optimistic UI: rimuovi subito le commesse pianificate eliminate
+    setJobs((prev) => prev.filter((j) => !plannedIds.includes(j.id)));
+    setSelectedJobIds((prev) => prev.filter((id) => !plannedIds.includes(id)));
+
+    try {
+      const res = await bulkDeleteJobOrders(plannedIds);
+      if (!res.success) {
+        setJobs(previousJobs);
+        toast({
+          variant: "destructive",
+          title: "Errore eliminazione massiva",
+          description: res.message || "Impossibile eliminare le commesse selezionate.",
+        });
+      } else {
+        toast({
+          title: "Eliminazione completata",
+          description: res.message,
+        });
+      }
+    } catch (error: any) {
+      setJobs(previousJobs);
+      console.error("Errore handleBulkDelete:", error);
+      toast({
+        variant: "destructive",
+        title: "Errore imprevisto",
+        description: error?.message || "Si è verificato un errore durante l'eliminazione massiva.",
       });
     } finally {
       setIsBulkProcessing(false);
@@ -3552,7 +3687,7 @@ export default function ProgrammazioneClientPage({
                   <th className="py-2 px-2 text-center w-[145px] bg-muted/80">Stato Commessa</th>
 
                   {/* 12. AZIONI */}
-                  <th className="py-2 px-2 text-center w-[115px] bg-muted/80">Azioni</th>
+                  <th className="py-2 px-2 text-center w-[135px] bg-muted/80">Azioni</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border font-normal">
@@ -3623,6 +3758,7 @@ export default function ProgrammazioneClientPage({
                       onStartProduction={handleStartProduction}
                       onRollbackJob={handleRollbackJob}
                       onOpenEditModal={handleOpenEditModal}
+                      onDeleteJob={handleDeleteJob}
                     />
                   ))
                 )}
@@ -3739,6 +3875,23 @@ export default function ProgrammazioneClientPage({
                 <Truck className="h-3.5 w-3.5" />
               )}
               <span>Spedisci</span>
+            </Button>
+
+            {/* 4. FASE 28: Elimina Selezionate (solo commesse Pianificate) */}
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={isBulkProcessing}
+              onClick={handleBulkDelete}
+              className="h-8 gap-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
+              title="Elimina definitivamente le commesse selezionate in stato Pianificata"
+            >
+              {isBulkProcessing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              <span>Elimina Selezionate</span>
             </Button>
           </div>
         )}
