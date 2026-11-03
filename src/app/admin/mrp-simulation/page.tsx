@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 import MrpSimulationClientPage from './MrpSimulationClientPage';
 import { getPlannedJobOrders, getProductionJobOrders, getCompletedJobOrders, getRequiredDataForJobs } from '../data-management/actions';
 import { getManualCommitments } from '../raw-material-management/actions';
-import { getTargetedPOs } from '../purchase-orders/actions';
+import { getPurchaseOrders } from '../purchase-orders/actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { getDrafts } from './actions';
 import { adminDb } from '@/lib/firebase-admin';
@@ -69,7 +69,12 @@ export default async function AdminMrpSimulationPage() {
     const requiredData = await getRequiredDataForJobs(allJobs, manualCommitments);
     const materialCodes = requiredData.materials.map((m: any) => m.code);
     
-    const purchaseOrders = await getTargetedPOs(materialCodes);
+    // Scarichiamo tutti gli ordini fornitore attivi per garantire la copertura PO a qualsiasi articolo simulato
+    const allPOs = await getPurchaseOrders();
+    const purchaseOrders = allPOs.filter(po => {
+        const status = (po.status || '').toLowerCase();
+        return status !== 'completed' && status !== 'cancelled' && status !== 'received';
+    });
     const globalSettings = await getGlobalSettings();
     const drafts = await getDrafts();
 

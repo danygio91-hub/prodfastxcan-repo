@@ -415,9 +415,9 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
         else if (group.entries.some(e => e.status === 'LOW_STOCK')) finalStatus = 'LOW_STOCK';
         else if (group.entries.some(e => e.status === 'AMBER')) finalStatus = 'AMBER';
 
-        // Prendi il primo item e entry come rappresentativi per metadati (UOM, etc)
+        // Prendi il primo item e l'entry corrispondente al finalStatus per mostrare il corretto glass-box debug
         const repItem = group.items[0];
-        const repEntry = group.entries[0];
+        const repEntry = group.entries.find(e => e.status === finalStatus) || group.entries[0];
 
         // Estrazione Glass-Box Debug dall'entry rappresentativa (se presente)
         const debugString = repEntry.details.find(d => d.includes('[DBG:'))?.match(/\[DBG:[^\]]+\]/)?.[0] || '';
@@ -460,7 +460,7 @@ export function aggregateMRPRequirements(componentEntries: { entry: MRPTimelineE
             newDetails.push(`🟠 IN RITARDO: Merce in arrivo o in piazzale, ma tempi non allineati${arrivalStr}. ${debugString}`);
             newDetails.push("Verificare carico a magazzino o anticipare consegna.");
         } else if (finalStatus === 'ORDERED') {
-            const orderedEntry = group.entries.find(e => e.status === 'ORDERED' && e.supplyArrivalDate);
+            const orderedEntry = group.entries.find(e => e.status === 'ORDERED' && e.supplyArrivalDate) || group.entries.find(e => e.status === 'ORDERED');
             newDetails.push(`💜 ORDINATO: In arrivo il ${orderedEntry?.supplyArrivalDate ? new Date(orderedEntry.supplyArrivalDate).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : 'N/D'}. ${debugString}`);
             newDetails.push("Monitorare fornitore.");
         } else if (finalStatus === 'LOW_STOCK') {

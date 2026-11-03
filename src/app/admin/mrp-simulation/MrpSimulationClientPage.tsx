@@ -19,6 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { syncJobBOMItems } from '@/lib/inventory-utils';
+import { parseRobustDate } from '@/lib/utils';
 
 interface MrpSimulationClientPageProps {
     initialArticles: Article[];
@@ -50,6 +51,13 @@ export default function MrpSimulationClientPage({
     
     // Rapid Input State
     const [rows, setRows] = useState<SimulationRow[]>([{ id: crypto.randomUUID(), articleCode: '', quantity: '', deliveryDate: '' }]);
+    const [currentPurchaseOrders, setCurrentPurchaseOrders] = useState<PurchaseOrder[]>(purchaseOrders);
+
+    useEffect(() => {
+        if (purchaseOrders) {
+            setCurrentPurchaseOrders(purchaseOrders);
+        }
+    }, [purchaseOrders]);
     
     // Paste from Excel State
     const [isPasteDialogOpen, setIsPasteDialogOpen] = useState(false);
@@ -119,13 +127,14 @@ export default function MrpSimulationClientPage({
             }
         }
         
-        // Fallback: prova parsing nativo di JS
-        try {
-            const d = new Date(s);
-            if (!isNaN(d.getTime())) {
-                return d.toISOString().split('T')[0];
-            }
-        } catch (_) {}
+        // Fallback: prova parsing robusto universale
+        const parsed = parseRobustDate(s);
+        if (parsed && !isNaN(parsed.getTime())) {
+            const cleanYear = parsed.getFullYear();
+            const cleanMonth = String(parsed.getMonth() + 1).padStart(2, '0');
+            const cleanDay = String(parsed.getDate()).padStart(2, '0');
+            return `${cleanYear}-${cleanMonth}-${cleanDay}`;
+        }
         
         return '';
     };
@@ -254,7 +263,14 @@ export default function MrpSimulationClientPage({
 
     // Volatile MRP Calculation
     const simulatedBOM = useMemo(() => {
-        const validRows = rows.filter(r => r.articleCode && validArticles.some(a => a.code === r.articleCode) && r.quantity && Number(r.quantity) > 0 && r.deliveryDate);
+        const validRows = rows.filter(r => 
+            r.articleCode && 
+            validArticles.some(a => a.code === r.articleCode) && 
+            r.quantity && 
+            Number(r.quantity) > 0 && 
+            r.deliveryDate && 
+            parseRobustDate(r.deliveryDate) !== null
+        );
         if (validRows.length === 0) return null;
 
         const volatileJobs: JobOrder[] = [];
@@ -264,10 +280,10 @@ export default function MrpSimulationClientPage({
             const article = validArticles.find(a => a.code === row.articleCode);
             if (!article) return;
 
-            // Fix Data / Timezone: Converti in Date, fissa a mezzogiorno e poi ISO string
-            const deliveryDateObj = new Date(row.deliveryDate);
-            deliveryDateObj.setHours(12, 0, 0, 0);
-            const isoDeliveryDate = deliveryDateObj.toISOString();
+            // Fix Data / Timezone: Usa parseRobustDate per gestire GG/MM/AAAA, AAAA-MM-GG, GG/MM/AA, ecc.
+            const parsedDate = parseRobustDate(row.deliveryDate) || new Date();
+            parsedDate.setHours(12, 0, 0, 0);
+            const isoDeliveryDate = parsedDate.toISOString();
             const volatileJobId = `VOLATILE-SIMULATION-JOB-${index}`;
 
             const jobQta = Number(row.quantity);
@@ -298,10 +314,14 @@ export default function MrpSimulationClientPage({
 
         const jobsWithSimulation = [...allJobs, ...volatileJobs];
         
-        console.log("MRP DEBUG - jobsWithSimulation dates:", jobsWithSimulation.map(j => ({ id: j.id, date: j.dataFinePreparazione || j.dataConsegnaFinale })));
-        console.log("MRP DEBUG - purchaseOrders dates:", purchaseOrders.map(p => ({ id: p.id, date: p.expectedDeliveryDate })));
-
-        const timelines = calculateMRPTimelines(jobsWithSimulation, initialMaterials, purchaseOrders, manualCommitments, downloadedArticles, globalSettings);
+        const timelines = calculateMRPTimelines(
+            jobsWithSimulation, 
+            initialMaterials, 
+            currentPurchaseOrders, 
+            manualCommitments, 
+            downloadedArticles, 
+            globalSettings
+        );
         
         // Aggregazione finale per la UI: Raccogliamo tutte le entries dei materiali coinvolti nella simulazione
         timelines.forEach((matTimeline, matCode) => {
@@ -324,16 +344,16 @@ export default function MrpSimulationClientPage({
 
         const aggregated = aggregateMRPRequirements(componentEntries);
 
-        // UI ENHANCEMENT: Smart Sorting (RED > SUPPLIER_LATE > EXPEDITE_NEEDED > LATE/AMBER > GREEN)
+        // UI ENHANCEMENT: Smart Sorting (RED > SUPPLIER_LATE > EXPEDITE_NEEDED > LATE > ORDERED > LOW_STOCK > AMBER > GREEN)
         const statusWeight: Record<string, number> = { 
             RED: 1, 
             SUPPLIER_LATE: 2, 
             EXPEDITE_NEEDED: 3, 
-            LATE: 3, 
-            ORDERED: 4, 
-            LOW_STOCK: 5, 
-            AMBER: 5, 
-            GREEN: 6 
+            LATE: 4, 
+            ORDERED: 5, 
+            LOW_STOCK: 6, 
+            AMBER: 7, 
+            GREEN: 8 
         };
         
         aggregated.sort((a, b) => {
@@ -349,20 +369,31 @@ export default function MrpSimulationClientPage({
         });
 
         return aggregated;
-    }, [rows, validArticles, allJobs, initialMaterials, purchaseOrders, manualCommitments, downloadedArticles, globalSettings]);
+    }, [rows, validArticles, allJobs, initialMaterials, currentPurchaseOrders, manualCommitments, downloadedArticles, globalSettings]);
 
     const handleSaveDraft = async () => {
-        const validRows = rows.filter(r => r.articleCode && validArticles.some(a => a.code === r.articleCode) && r.quantity && Number(r.quantity) > 0 && r.deliveryDate);
+        const validRows = rows.filter(r => 
+            r.articleCode && 
+            validArticles.some(a => a.code === r.articleCode) && 
+            r.quantity && 
+            Number(r.quantity) > 0 && 
+            r.deliveryDate && 
+            parseRobustDate(r.deliveryDate) !== null
+        );
         if (validRows.length === 0) return;
         
         setIsSaving(true);
         try {
             let successCount = 0;
             for (const row of validRows) {
+                const parsed = parseRobustDate(row.deliveryDate);
+                const normalizedDate = parsed 
+                    ? `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`
+                    : row.deliveryDate;
                 const res = await saveDraft({
                     articleCode: row.articleCode,
                     quantity: Number(row.quantity),
-                    deliveryDate: row.deliveryDate
+                    deliveryDate: normalizedDate
                 });
                 if (res.success) successCount++;
             }
@@ -417,17 +448,70 @@ export default function MrpSimulationClientPage({
         return drafts.filter(d => d.articleCode.toLowerCase().includes(lowerSearch));
     }, [drafts, draftSearchTerm]);
 
-    const getStatusIcon = (status: string) => {
+    const renderStatusBadge = (status: string) => {
         switch (status) {
-            case 'RED': return <AlertTriangle className="h-5 w-5 text-destructive" />;
-            case 'SUPPLIER_LATE': return <AlertTriangle className="h-5 w-5 text-red-600" />;
-            case 'EXPEDITE_NEEDED': return <Clock className="h-5 w-5 text-amber-500" />;
-            case 'LATE': return <Clock className="h-5 w-5 text-orange-500" />;
-            case 'ORDERED': return <CheckCircle2 className="h-5 w-5 text-indigo-500" />;
-            case 'LOW_STOCK': return <AlertTriangle className="h-5 w-5 text-cyan-500" />;
-            case 'AMBER': return <CheckCircle2 className="h-5 w-5 text-yellow-500" />;
-            case 'GREEN': return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-            default: return null;
+            case 'RED':
+                return (
+                    <Badge variant="outline" className="bg-red-500/15 text-red-500 dark:text-red-400 border-red-500/30 font-bold text-xs gap-1.5 py-1 px-3 whitespace-nowrap shadow-sm">
+                        <AlertTriangle className="h-3.5 w-3.5 text-red-500 dark:text-red-400" />
+                        MANCANTE
+                    </Badge>
+                );
+            case 'SUPPLIER_LATE':
+                return (
+                    <Badge variant="outline" className="bg-red-600/15 text-red-600 dark:text-red-400 border-red-600/40 font-bold text-xs gap-1.5 py-1 px-3 whitespace-nowrap shadow-sm">
+                        <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                        RITARDO FORN.
+                    </Badge>
+                );
+            case 'EXPEDITE_NEEDED':
+                return (
+                    <Badge variant="outline" className="bg-amber-500/15 text-amber-500 dark:text-amber-400 border-amber-500/30 font-bold text-xs gap-1.5 py-1 px-3 whitespace-nowrap shadow-sm">
+                        <Clock className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />
+                        DA ANTICIPARE
+                    </Badge>
+                );
+            case 'LATE':
+                return (
+                    <Badge variant="outline" className="bg-orange-500/15 text-orange-500 dark:text-orange-400 border-orange-500/30 font-bold text-xs gap-1.5 py-1 px-3 whitespace-nowrap shadow-sm">
+                        <Clock className="h-3.5 w-3.5 text-orange-500 dark:text-orange-400" />
+                        IN RITARDO
+                    </Badge>
+                );
+            case 'ORDERED':
+                return (
+                    <Badge variant="outline" className="bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 border-indigo-500/40 font-bold text-xs gap-1.5 py-1 px-3 whitespace-nowrap shadow-sm">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                        ORDINATO
+                    </Badge>
+                );
+            case 'LOW_STOCK':
+                return (
+                    <Badge variant="outline" className="bg-cyan-500/15 text-cyan-500 dark:text-cyan-400 border-cyan-500/30 font-bold text-xs gap-1.5 py-1 px-3 whitespace-nowrap shadow-sm">
+                        <AlertTriangle className="h-3.5 w-3.5 text-cyan-500 dark:text-cyan-400" />
+                        SOTTOSCORTA
+                    </Badge>
+                );
+            case 'AMBER':
+                return (
+                    <Badge variant="outline" className="bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30 font-bold text-xs gap-1.5 py-1 px-3 whitespace-nowrap shadow-sm">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />
+                        ORDINATO
+                    </Badge>
+                );
+            case 'GREEN':
+                return (
+                    <Badge variant="outline" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold text-xs gap-1.5 py-1 px-3 whitespace-nowrap shadow-sm">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        DISPONIBILE
+                    </Badge>
+                );
+            default:
+                return (
+                    <Badge variant="secondary" className="font-bold text-xs">
+                        {status}
+                    </Badge>
+                );
         }
     };
 
@@ -525,9 +609,11 @@ export default function MrpSimulationClientPage({
                                         <div className="space-y-1 md:col-span-3">
                                             {index === 0 && <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Consegna Prevista</Label>}
                                             <Input 
-                                                type="date" 
+                                                type="text" 
+                                                placeholder="Es. 20/11/2026 o 2026-11-20"
                                                 value={row.deliveryDate} 
                                                 onChange={(e) => updateRow(row.id, 'deliveryDate', e.target.value)} 
+                                                className="font-mono text-sm"
                                             />
                                         </div>
                                         <div className="md:col-span-1 pb-1 flex justify-center">
@@ -560,7 +646,7 @@ export default function MrpSimulationClientPage({
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead className="w-10 text-center">Stato</TableHead>
+                                            <TableHead className="w-44 text-center">Stato MRP</TableHead>
                                             <TableHead>Materiale</TableHead>
                                             <TableHead className="w-1/2">Dettagli Fabbisogno</TableHead>
                                         </TableRow>
@@ -569,7 +655,7 @@ export default function MrpSimulationClientPage({
                                         {simulatedBOM.map((b, i) => (
                                             <TableRow key={`${b.entry.materialCode}-${i}`}>
                                                 <TableCell className="text-center">
-                                                    {getStatusIcon(b.entry.status)}
+                                                    {renderStatusBadge(b.entry.status)}
                                                 </TableCell>
                                                 <TableCell className="font-mono font-medium">
                                                     {b.entry.materialCode}
@@ -637,7 +723,7 @@ export default function MrpSimulationClientPage({
                                             <div>
                                                 <p className="font-bold font-mono text-lg">{draft.articleCode}</p>
                                                 <p className="text-sm text-muted-foreground">Qta: <span className="font-medium text-foreground">{draft.quantity}</span></p>
-                                                <p className="text-sm text-muted-foreground">Consegna: <span className="font-medium text-foreground">{format(parseISO(draft.deliveryDate), 'dd/MM/yyyy', { locale: it })}</span></p>
+                                                <p className="text-sm text-muted-foreground">Consegna: <span className="font-medium text-foreground">{format(parseRobustDate(draft.deliveryDate) || new Date(), 'dd/MM/yyyy', { locale: it })}</span></p>
                                             </div>
                                             <Badge variant="secondary" className="text-[10px]">BOZZA</Badge>
                                         </div>

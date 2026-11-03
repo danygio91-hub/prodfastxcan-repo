@@ -77,9 +77,13 @@ export function parseRobustDate(dateInput: any): Date | null {
             const d = new Date(trimmed);
             return isNaN(d.getTime()) ? null : d;
         }
-        const italianMatch = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
+        const italianMatch = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})/);
         if (italianMatch) {
-            return new Date(parseInt(italianMatch[3], 10), parseInt(italianMatch[2], 10) - 1, parseInt(italianMatch[1], 10), 12, 0, 0);
+            let year = parseInt(italianMatch[3], 10);
+            if (italianMatch[3].length === 2) {
+                year = year < 70 ? 2000 + year : 1900 + year;
+            }
+            return new Date(year, parseInt(italianMatch[2], 10) - 1, parseInt(italianMatch[1], 10), 12, 0, 0);
         }
     }
     
