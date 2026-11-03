@@ -145,6 +145,14 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
     setHasMore(initialArticles.length >= 50);
   }, [initialArticles]);
 
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      refreshData();
+    };
+    window.addEventListener('app:refresh', handleGlobalRefresh);
+    return () => window.removeEventListener('app:refresh', handleGlobalRefresh);
+  }, [refreshData]);
+
 
   const handleLoadMore = async () => {
       if (articles.length === 0) return;

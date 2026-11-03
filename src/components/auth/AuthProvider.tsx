@@ -6,7 +6,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/types';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot, deleteField } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
@@ -28,6 +28,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [operator, setOperator] = useState<Operator | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
   const operatorRef = useRef(operator);
   operatorRef.current = operator;
@@ -183,21 +186,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           localStorage.setItem(LAST_LOGIN_TIMESTAMP_KEY, Date.now().toString());
 
-          // Perform redirect after login is confirmed and state is set
-           const targetPath = localStorage.getItem('login_redirect_path');
-           localStorage.removeItem('login_redirect_path'); // Clean up
-
-          // If the operator has an active job, always redirect to the scan-job page
-          if (operatorProfile.activeJobId) {
-              router.replace('/scan-job');
-          } else if (targetPath) {
-              router.replace(targetPath);
-          } else if (operatorProfile.role === 'admin') {
-              router.replace('/admin/dashboard');
-          } else if (operatorProfile.role === 'supervisor') {
-              router.replace('/supervisor/dashboard');
+          // Perform redirect ONLY when coming from login/root or when an explicit targetPath was saved
+          const targetPath = localStorage.getItem('login_redirect_path');
+          if (targetPath) {
+            localStorage.removeItem('login_redirect_path'); // Clean up
+            router.replace(targetPath);
           } else {
-              router.replace('/dashboard');
+            // Check current path to prevent kicking users out of their page on hard reload (F5)
+            const currentPath = typeof window !== 'undefined' ? window.location.pathname : (pathnameRef.current || '');
+            const isAtRootOrLogin = !currentPath || currentPath === '/' || currentPath === '/login';
+
+            // Only redirect to role home if we are at root/login
+            if (isAtRootOrLogin) {
+              if (operatorProfile.activeJobId && operatorProfile.role !== 'admin') {
+                router.replace('/scan-job');
+              } else if (operatorProfile.role === 'admin') {
+                router.replace('/admin/dashboard');
+              } else if (operatorProfile.role === 'supervisor') {
+                router.replace('/supervisor/dashboard');
+              } else {
+                router.replace('/dashboard');
+              }
+            }
+            // If already on a specific page (e.g. /admin/programmazione), preserve pathname and stay there!
           }
           
         } else {

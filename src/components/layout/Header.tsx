@@ -67,10 +67,21 @@ export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
+  const [isGlobalRefreshing, setIsGlobalRefreshing] = React.useState(false);
   
   const handleRefresh = () => {
+    setIsGlobalRefreshing(true);
     router.refresh();
-    toast({ title: "Aggiornamento in corso...", description: "Sto sincronizzando i dati in tempo reale." });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('app:refresh'));
+    }
+    toast({ 
+      title: "Aggiornamento in corso...", 
+      description: "Sincronizzazione dati in tempo reale della pagina corrente." 
+    });
+    setTimeout(() => {
+      setIsGlobalRefreshing(false);
+    }, 800);
   };
 
   const handleExitJobScreen = () => {
@@ -216,12 +227,19 @@ export default function Header() {
             )}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={handleRefresh} aria-label="Aggiorna pagina">
-                  <RefreshCw className="h-5 w-5" />
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={handleRefresh} 
+                  disabled={isGlobalRefreshing}
+                  aria-label="Aggiorna pagina"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <RefreshCw className={cn("h-5 w-5 transition-transform", isGlobalRefreshing && "animate-spin text-primary")} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Aggiorna pagina</p>
+                <p>Aggiorna dati pagina (Soft Reload)</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

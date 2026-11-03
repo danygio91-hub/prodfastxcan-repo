@@ -147,6 +147,65 @@ export async function getTargetedMRPData(
 }
 
 /**
+ * FASE 37: Server Action per forzare la rilettura completa dello stock,
+ * degli ordini fornitore e ricalcolare lo stato MRP per tutte le commesse attive.
+ */
+export async function forceRecalculateMRPAction(): Promise<{
+    success: boolean;
+    jobs: JobOrder[];
+    rawMaterials: RawMaterial[];
+    purchaseOrders: PurchaseOrder[];
+    articles: Article[];
+    globalSettings: GlobalSettings | null;
+    message: string;
+}> {
+    try {
+        console.log("[MRP-RECALC] Avvio ricalcolo forzato MRP...");
+        
+        // 1. Rileggi tutte le commesse attive (inclusi inserimenti massivi recenti)
+        const jobs = await getActiveJobOrders();
+        
+        // 2. Raccogli tutti i codici materiale e articolo
+        const matCodes = new Set<string>();
+        const artCodes = new Set<string>();
+
+        jobs.forEach(job => {
+            if (job.billOfMaterials && job.billOfMaterials.length > 0) {
+                job.billOfMaterials.forEach(b => {
+                    if (b.component) matCodes.add(b.component.trim().toUpperCase());
+                });
+            } else if (job.details) {
+                artCodes.add(job.details.trim().toUpperCase());
+            }
+        });
+
+        // 3. Esegui la rilettura mirata e profonda di articoli, stock materie prime e PO fornitori
+        const mrpData = await getTargetedMRPData(Array.from(matCodes), Array.from(artCodes));
+
+        return {
+            success: true,
+            jobs,
+            rawMaterials: mrpData.rawMaterials,
+            purchaseOrders: mrpData.purchaseOrders,
+            articles: mrpData.articles,
+            globalSettings: mrpData.globalSettings,
+            message: `Ricalcolo completato: verificate ${jobs.length} commesse con ${mrpData.rawMaterials.length} materie prime e ${mrpData.purchaseOrders.length} ordini fornitore.`,
+        };
+    } catch (error: any) {
+        console.error("[MRP-RECALC] Errore ricalcolo MRP:", error);
+        return {
+            success: false,
+            jobs: [],
+            rawMaterials: [],
+            purchaseOrders: [],
+            articles: [],
+            globalSettings: null,
+            message: error?.message || "Errore durante il ricalcolo forzato dell'MRP.",
+        };
+    }
+}
+
+/**
  * Toggle ODL stampato per commessa (Workflow ODL)
  * Se autoMoveToProduction è true, aggiorna anche lo stato della commessa a 'In Produzione'.
  */

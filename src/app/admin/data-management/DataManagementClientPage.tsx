@@ -337,6 +337,35 @@ export default function DataManagementClientPage({
     });
   }, []);
 
+  // Sincronizzazione dati da Server Component su soft reload (router.refresh())
+  useEffect(() => {
+    if (initialPlanned) setPlannedJobOrders(initialPlanned);
+  }, [initialPlanned]);
+
+  useEffect(() => {
+    if (initialProduction) setProductionJobOrders(initialProduction);
+  }, [initialProduction]);
+
+  useEffect(() => {
+    if (initialCompleted) setCompletedJobOrders(initialCompleted);
+  }, [initialCompleted]);
+
+  useEffect(() => {
+    if (initialMaterials) setRawMaterials(initialMaterials);
+  }, [initialMaterials]);
+
+  useEffect(() => {
+    if (initialPurchaseOrders) setPurchaseOrders(initialPurchaseOrders);
+  }, [initialPurchaseOrders]);
+
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      router.refresh();
+    };
+    window.addEventListener('app:refresh', handleGlobalRefresh);
+    return () => window.removeEventListener('app:refresh', handleGlobalRefresh);
+  }, [router]);
+
   const handleSearchArticle = (term: string) => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
       if (term.length < 2) {

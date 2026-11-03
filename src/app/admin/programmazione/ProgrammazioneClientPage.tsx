@@ -37,7 +37,8 @@ import {
   RotateCcw,
   Undo2,
   Lock,
-  Trash2
+  Trash2,
+  Calculator
 } from 'lucide-react';
 import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -111,6 +112,7 @@ import {
   getActiveJobOrders,
   fetchCompletedJobOrdersAction,
   getTargetedMRPData, 
+  forceRecalculateMRPAction,
   toggleJobPrinted, 
   markJobAsPrinted,
   markJobAsPrintedAndInProduction,
@@ -947,6 +949,7 @@ export default function ProgrammazioneClientPage({
   const qrRule = globalSettings?.jobOrderQrCodeRule || (globalSettings as any)?.qrCodeRule || "{ordinePF}@{details}@{qta}";
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRecalculatingMrp, setIsRecalculatingMrp] = useState(false);
 
   // Modali Inserimento
   const [isSmartJobOpen, setIsSmartJobOpen] = useState(false);
@@ -1287,6 +1290,101 @@ export default function ProgrammazioneClientPage({
       setIsRefreshing(false);
     }
   };
+
+  // FASE 37: Ricalcolo Completo MRP (Forzatura rilettura stock, PO e commesse)
+  const handleRecalculateMRP = useCallback(async () => {
+    setIsRecalculatingMrp(true);
+    try {
+      const result = await forceRecalculateMRPAction();
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      if (result.jobs && result.jobs.length > 0) {
+        setJobs(result.jobs);
+      }
+
+      // Svuota e ripopola la cache delle materie prime con lo stock aggiornato da Firestore
+      materialsCacheRef.current.clear();
+      result.rawMaterials.forEach((m) => {
+        if (m.code) {
+          materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
+        }
+      });
+
+      // Svuota e ripopola la cache degli ordini fornitore
+      poCacheRef.current.clear();
+      result.purchaseOrders.forEach((po) => {
+        const code = (po.materialCode || '').trim().toUpperCase();
+        if (code) {
+          const list = poCacheRef.current.get(code) || [];
+          list.push(po);
+          poCacheRef.current.set(code, list);
+        }
+      });
+
+      // Aggiorna gli articoli
+      if (result.articles && result.articles.length > 0) {
+        setArticles(result.articles);
+        result.articles.forEach((art) => {
+          if (art.code) {
+            articlesCacheRef.current.set(art.code.trim().toUpperCase(), art);
+          }
+        });
+      }
+
+      if (result.globalSettings) {
+        globalSettingsRef.current = result.globalSettings;
+      }
+
+      // Incrementa versione per forzare ricalcolo reattivo di mrpTimelines e semafori
+      setMrpCacheVersion((v) => v + 1);
+
+      toast({
+        title: "MRP Ricalcolato",
+        description: result.message,
+      });
+    } catch (error: any) {
+      console.error("Errore ricalcolo MRP:", error);
+      toast({
+        title: "Errore Ricalcolo MRP",
+        description: error?.message || "Impossibile ricalcolare l'MRP.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRecalculatingMrp(false);
+    }
+  }, [toast]);
+
+  // Sincronizzazione props in caso di soft reload (router.refresh())
+  useEffect(() => {
+    if (initialJobs) {
+      setJobs(initialJobs);
+    }
+  }, [initialJobs]);
+
+  useEffect(() => {
+    if (initialArticles && initialArticles.length > 0) {
+      setArticles(initialArticles);
+      initialArticles.forEach((art) => {
+        if (art.code) {
+          articlesCacheRef.current.set(art.code.toUpperCase().trim(), art);
+        }
+      });
+      setMrpCacheVersion((v) => v + 1);
+    }
+  }, [initialArticles]);
+
+  // Ascolta l'evento di Soft Reload globale dalla Top Nav (Frecce circolari)
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      handleRecalculateMRP();
+    };
+    window.addEventListener('app:refresh', handleGlobalRefresh);
+    return () => {
+      window.removeEventListener('app:refresh', handleGlobalRefresh);
+    };
+  }, [handleRecalculateMRP]);
 
   // Ordinamento Colonne
   const handleSort = (field: SortField) => {
@@ -3303,16 +3401,21 @@ export default function ProgrammazioneClientPage({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Aggiorna */}
+            {/* Ricalcola MRP (FASE 37) */}
             <Button
               variant="outline"
               size="sm"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="h-8 text-xs gap-1 px-2.5"
+              onClick={handleRecalculateMRP}
+              disabled={isRecalculatingMrp || isRefreshing}
+              className="h-8 text-xs gap-1.5 px-3 border-amber-500/30 hover:border-amber-500/60 bg-amber-500/5 hover:bg-amber-500/10 text-amber-500 dark:text-amber-400 font-semibold transition-all shadow-sm"
+              title="Forza rilettura completa stock, ordini fornitore e ricalcola semafori MRP"
             >
-              <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span>{isRefreshing ? '...' : 'Aggiorna'}</span>
+              {isRecalculatingMrp ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+              ) : (
+                <Calculator className="h-3.5 w-3.5 text-amber-500" />
+              )}
+              <span>{isRecalculatingMrp ? 'Ricalcolo...' : 'Ricalcola MRP'}</span>
             </Button>
           </div>
         </div>
