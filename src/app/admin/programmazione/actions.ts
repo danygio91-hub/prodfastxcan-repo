@@ -261,6 +261,68 @@ export async function markJobAsPrintedAndInProduction(jobId: string): Promise<bo
 }
 
 /**
+ * Server Action: Validazione Unicità Numero ODL (Anti-Doppione)
+ * Interroga Firestore per verificare se esiste già un documento con quel numeroODL.
+ * Esclude la commessa corrente (l'id non deve coincidere) per evitare falsi positivi.
+ */
+export async function checkUniqueODL(
+    numeroODL: string, 
+    currentJobId: string
+): Promise<{ isUnique: boolean; message?: string; conflictingJob?: { id: string; ordinePF: string } }> {
+    try {
+        const val = (numeroODL || '').trim();
+        const isPlaceholderVal = !val || val === 'N/D' || val === 'N/A' || val === 'MANUALE' || val === '---';
+        if (isPlaceholderVal) {
+            return { isUnique: true };
+        }
+
+        // Query Firestore sia su numeroODLInterno che su numeroODL
+        const queries: Promise<FirebaseFirestore.QuerySnapshot>[] = [
+            adminDb.collection("jobOrders").where("numeroODLInterno", "==", val).get(),
+            adminDb.collection("jobOrders").where("numeroODL", "==", val).get(),
+        ];
+
+        // Se è un numero puro (es. "2396"), interroga anche il tipo numerico per retrocompatibilità
+        if (!isNaN(Number(val)) && !val.includes('-') && !val.includes('/')) {
+            const num = Number(val);
+            queries.push(
+                adminDb.collection("jobOrders").where("numeroODLInterno", "==", num).get(),
+                adminDb.collection("jobOrders").where("numeroODL", "==", num).get()
+            );
+        }
+
+        const snapshots = await Promise.all(queries);
+        const conflictDocs = new Map<string, FirebaseFirestore.DocumentData>();
+
+        for (const snap of snapshots) {
+            snap.forEach(doc => {
+                if (doc.id !== currentJobId) {
+                    conflictDocs.set(doc.id, doc.data());
+                }
+            });
+        }
+
+        if (conflictDocs.size > 0) {
+            const [conflictId, conflictData] = Array.from(conflictDocs.entries())[0];
+            const pf = conflictData?.ordinePF ? ` (${conflictData.ordinePF})` : '';
+            return {
+                isUnique: false,
+                message: `Errore: Il numero ODL '${val}' è già assegnato a un'altra commessa${pf}.`,
+                conflictingJob: {
+                    id: conflictId,
+                    ordinePF: conflictData?.ordinePF || conflictId,
+                }
+            };
+        }
+
+        return { isUnique: true };
+    } catch (error: any) {
+        console.error("Errore validazione unicità ODL:", error);
+        return { isUnique: false, message: "Errore durante la verifica di unicità dell'ODL." };
+    }
+}
+
+/**
  * Aggiornamento rapido N° ODL (on blur)
  */
 export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise<{ success: boolean; message: string }> {
@@ -268,6 +330,18 @@ export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise
         const val = (newOdl || '').trim();
         const isPlaceholderVal = !val || val === 'N/D' || val === 'N/A' || val === 'MANUALE' || val === '---';
         const finalVal = isPlaceholderVal ? null : val;
+
+        // Validazione server-side unicità ODL
+        if (finalVal) {
+            const check = await checkUniqueODL(finalVal, jobId);
+            if (!check.isUnique) {
+                return {
+                    success: false,
+                    message: check.message || `Errore: Il numero ODL '${finalVal}' è già assegnato a un'altra commessa.`
+                };
+            }
+        }
+
         await adminDb.collection("jobOrders").doc(jobId).update({
             numeroODLInterno: finalVal,
             numeroODL: finalVal,

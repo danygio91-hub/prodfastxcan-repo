@@ -844,10 +844,32 @@ export async function markJobAsPrinted(jobId: string) {
 
 export async function updateJobOrderOdlNumber(jobId: string, newOdl: string) {
     try {
-        await adminDb.collection("jobOrders").doc(jobId).update({ numeroODLInterno: newOdl });
+        const val = (newOdl || '').trim();
+        const isPlaceholderVal = !val || val === 'N/D' || val === 'N/A' || val === 'MANUALE' || val === '---';
+        const finalVal = isPlaceholderVal ? null : val;
+
+        if (finalVal) {
+            const [snapInterno, snapOdl] = await Promise.all([
+                adminDb.collection("jobOrders").where("numeroODLInterno", "==", finalVal).get(),
+                adminDb.collection("jobOrders").where("numeroODL", "==", finalVal).get()
+            ]);
+            const conflict = snapInterno.docs.find(d => d.id !== jobId) || snapOdl.docs.find(d => d.id !== jobId);
+            if (conflict) {
+                const conflictData = conflict.data();
+                const pf = conflictData?.ordinePF ? ` (${conflictData.ordinePF})` : '';
+                return { success: false, message: `Errore: Il numero ODL '${finalVal}' è già assegnato a un'altra commessa${pf}.` };
+            }
+        }
+
+        await adminDb.collection("jobOrders").doc(jobId).update({ 
+            numeroODLInterno: finalVal,
+            numeroODL: finalVal,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
         revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/programmazione');
         return { success: true, message: 'N° ODL aggiornato.' };
     } catch (error) {
         console.error("Error updating ODL:", error);

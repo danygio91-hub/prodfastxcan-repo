@@ -119,6 +119,7 @@ import {
   startJobProduction,
   updateJobExecutionStatus,
   updateJobOdlNumber, 
+  checkUniqueODL,
   updateJobStatus,
   updateJobDeliveryDate,
   updateJobAssignedWeek,
@@ -465,7 +466,7 @@ const InlineDeliveryDateCell = React.memo(function InlineDeliveryDateCell({
 
 interface InlineOdlCellProps {
   job: JobOrder;
-  onSaveOdl: (job: JobOrder, newOdl: string) => Promise<void> | void;
+  onSaveOdl: (job: JobOrder, newOdl: string) => Promise<boolean | void> | void;
 }
 
 export const getCleanOdlValue = (raw: string | null | undefined): string => {
@@ -483,23 +484,41 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
 }: InlineOdlCellProps) {
   const currentOdl = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
   const [localVal, setLocalVal] = useState<string>(currentOdl);
+  const [isError, setIsError] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const isSubmittingRef = useRef(false);
 
   useEffect(() => {
     setLocalVal(getCleanOdlValue(job.numeroODLInterno || job.numeroODL));
+    setIsError(false);
   }, [job.numeroODLInterno, job.numeroODL]);
 
   const handleCommit = async () => {
     if (isSubmittingRef.current) return;
+    const trimmed = localVal.trim();
+    const cleanToSave = getCleanOdlValue(trimmed);
+    const currentClean = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+    if (cleanToSave === currentClean) {
+      setLocalVal(currentClean);
+      return;
+    }
+
     isSubmittingRef.current = true;
+    setIsSubmitting(true);
     try {
-      const trimmed = localVal.trim();
-      const cleanToSave = getCleanOdlValue(trimmed);
-      const currentClean = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
-      if (cleanToSave === currentClean) return;
-      await onSaveOdl(job, cleanToSave);
+      const success = await onSaveOdl(job, cleanToSave);
+      if (success === false) {
+        setIsError(true);
+        setLocalVal(currentClean);
+        setTimeout(() => setIsError(false), 2500);
+      }
+    } catch {
+      setIsError(true);
+      setLocalVal(currentClean);
+      setTimeout(() => setIsError(false), 2500);
     } finally {
       isSubmittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -508,7 +527,11 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
       type="text"
       value={localVal}
       placeholder="N/D"
-      onChange={(e) => setLocalVal(e.target.value)}
+      disabled={isSubmitting}
+      onChange={(e) => {
+        if (isError) setIsError(false);
+        setLocalVal(e.target.value);
+      }}
       onBlur={handleCommit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -517,6 +540,7 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
         } else if (e.key === 'Escape') {
           e.preventDefault();
           setLocalVal(getCleanOdlValue(job.numeroODLInterno || job.numeroODL));
+          setIsError(false);
           e.currentTarget.blur();
         }
       }}
@@ -524,9 +548,10 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
         "h-6 text-[11px] font-mono font-bold text-center px-1 py-0 w-full rounded border transition-colors",
         "placeholder:text-gray-400 dark:placeholder:text-gray-500 placeholder:font-normal placeholder:opacity-80",
         "hover:border-primary/50 focus:border-primary focus:ring-1 focus:ring-primary",
-        !localVal 
-          ? "border-dashed border-muted-foreground/30 bg-muted/10 text-muted-foreground" 
-          : "border-border bg-background text-foreground"
+        isError && "border-red-500 bg-red-500/10 text-red-500 ring-1 ring-red-500",
+        !isError && !localVal && "border-dashed border-muted-foreground/30 bg-muted/10 text-muted-foreground",
+        !isError && localVal && "border-border bg-background text-foreground",
+        isSubmitting && "opacity-60 cursor-wait"
       )}
     />
   );
@@ -544,7 +569,7 @@ interface JobTableRowProps {
   getJobMRPStatus: (job: JobOrder) => JobMRPSummary;
   onToggleSelect: (jobId: string, checked: boolean) => void;
   onSaveDeliveryDate: (job: JobOrder, isoFormatted: string, parsedDate?: Date) => Promise<void> | void;
-  onSaveOdl: (job: JobOrder, newOdl: string) => Promise<void> | void;
+  onSaveOdl: (job: JobOrder, newOdl: string) => Promise<boolean | void> | void;
   onAssignJobWeek: (job: JobOrder, newWeekVal: string) => void;
   onStatusChange: (job: JobOrder, newStatus: JobStatusOption) => void;
   onTogglePrintODL: (job: JobOrder) => void;
@@ -1970,12 +1995,49 @@ export default function ProgrammazioneClientPage({
     }
   }, [toast]);
 
-  // Aggiornamento N° ODL (on blur / Enter differito)
-  const handleSaveOdl = useCallback(async (job: JobOrder, draftVal: string) => {
+  // Aggiornamento N° ODL (on blur / Enter differito con validazione unicità anti-doppione)
+  const handleSaveOdl = useCallback(async (job: JobOrder, draftVal: string): Promise<boolean> => {
     const currentClean = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
     const cleanDraft = getCleanOdlValue(draftVal);
-    if (cleanDraft === currentClean) return;
+    if (cleanDraft === currentClean) return true;
 
+    // Se l'utente imposta un valore ODL, convalida l'unicità
+    if (cleanDraft) {
+      // 1. Controllo rapido in memoria locale sulle commesse caricate
+      const localConflict = jobs.find(
+        (j) => j.id !== job.id && getCleanOdlValue(j.numeroODLInterno || j.numeroODL).toLowerCase() === cleanDraft.toLowerCase()
+      );
+      if (localConflict) {
+        toast({
+          variant: "destructive",
+          title: "Errore N° ODL",
+          description: `Errore: Il numero ODL '${cleanDraft}' è già assegnato a un'altra commessa (${localConflict.ordinePF || localConflict.id}).`,
+        });
+        return false;
+      }
+
+      // 2. Controllo Firestore globale escludendo la commessa corrente
+      try {
+        const checkRes = await checkUniqueODL(cleanDraft, job.id);
+        if (!checkRes.isUnique) {
+          toast({
+            variant: "destructive",
+            title: "Errore N° ODL",
+            description: checkRes.message || `Errore: Il numero ODL '${cleanDraft}' è già assegnato a un'altra commessa.`,
+          });
+          return false;
+        }
+      } catch (err: any) {
+        toast({
+          variant: "destructive",
+          title: "Errore Verifica N° ODL",
+          description: err?.message || "Impossibile verificare l'univocità del N° ODL.",
+        });
+        return false;
+      }
+    }
+
+    // Se unico (o svuotato), procedi con l'aggiornamento
     setJobs((prev) =>
       prev.map((j) =>
         j.id === job.id
@@ -1993,6 +2055,22 @@ export default function ProgrammazioneClientPage({
             ? `Commessa ${job.ordinePF}: impostato ODL "${cleanDraft}".`
             : `Commessa ${job.ordinePF}: ODL rimosso.`,
         });
+        return true;
+      } else {
+        // Ripristino ottimistico in caso di rifiuto server
+        setJobs((prev) =>
+          prev.map((j) =>
+            j.id === job.id
+              ? { ...j, numeroODLInterno: currentClean || null, numeroODL: currentClean || null }
+              : j
+          )
+        );
+        toast({
+          variant: "destructive",
+          title: "Errore N° ODL",
+          description: res.message || "Impossibile salvare il N° ODL.",
+        });
+        return false;
       }
     } catch (e: any) {
       setJobs((prev) =>
@@ -2007,8 +2085,9 @@ export default function ProgrammazioneClientPage({
         title: "Errore N° ODL",
         description: e?.message || "Impossibile salvare il N° ODL.",
       });
+      return false;
     }
-  }, [toast]);
+  }, [jobs, toast]);
 
   // Modifica Stato Commessa (4 stati SSoT rigorosi)
   const handleStatusChange = useCallback(async (job: JobOrder, newStatus: JobStatusOption, isConfirmed?: boolean) => {
