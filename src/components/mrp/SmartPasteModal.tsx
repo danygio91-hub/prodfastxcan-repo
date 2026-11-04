@@ -12,6 +12,7 @@ import { Article, Department } from '@/types';
 import { parse, isValid, format } from 'date-fns';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { useToast } from '@/hooks/use-toast';
+import { parseRobustDate } from '@/lib/utils';
 import { saveSmartPastedJobOrders } from '@/app/admin/data-management/actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { doc, getDoc } from 'firebase/firestore';
@@ -124,19 +125,8 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
   const parseEuropeanDate = (dateStr: string): string | null => {
     if (!dateStr || dateStr.trim() === '') return null;
     const cleanStr = dateStr.trim();
-    
-    // Try DD/MM/YYYY
-    let parsedDate = parse(cleanStr, 'dd/MM/yyyy', new Date());
-    if (isValid(parsedDate)) return format(parsedDate, 'yyyy-MM-dd');
-    
-    // Try DD-MM-YYYY
-    parsedDate = parse(cleanStr, 'dd-MM-yyyy', new Date());
-    if (isValid(parsedDate)) return format(parsedDate, 'yyyy-MM-dd');
-
-    // Try YYYY-MM-DD (Fallback)
-    parsedDate = parse(cleanStr, 'yyyy-MM-dd', new Date());
-    if (isValid(parsedDate)) return format(parsedDate, 'yyyy-MM-dd');
-
+    const parsedDate = parseRobustDate(cleanStr);
+    if (parsedDate && isValid(parsedDate)) return format(parsedDate, 'yyyy-MM-dd');
     return null; // Invalid
   };
 
@@ -381,7 +371,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                                                 value={row.cliente} 
                                                 onChange={(e) => updateRow(row.id, 'cliente', e.target.value)}
                                                 placeholder="Cliente"
-                                                className={`h-8 text-xs ${!row.hasCliente ? 'border-red-300 bg-red-50 focus-visible:ring-red-500' : ''}`}
+                                                className={`h-8 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 ${!row.hasCliente ? 'border-red-400 bg-red-50 text-gray-900 dark:bg-red-950/60 dark:text-red-100 dark:border-red-500 focus-visible:ring-red-500' : ''}`}
                                             />
                                         </TableCell>
                                         <TableCell>
@@ -389,7 +379,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                                                 value={row.ordinePF} 
                                                 onChange={(e) => updateRow(row.id, 'ordinePF', e.target.value)}
                                                 placeholder="Es. 123/PF..."
-                                                className={`h-8 text-xs ${!row.hasPF ? 'border-red-300 bg-red-50 focus-visible:ring-red-500' : ''}`}
+                                                className={`h-8 text-xs font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 ${!row.hasPF ? 'border-red-400 bg-red-50 text-gray-900 dark:bg-red-950/60 dark:text-red-100 dark:border-red-500 focus-visible:ring-red-500' : ''}`}
                                             />
                                         </TableCell>
                                         <TableCell>
@@ -398,7 +388,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                                                     value={row.articleCode} 
                                                     onChange={(e) => updateRow(row.id, 'articleCode', e.target.value.replace(/[\r\n\t]/g, '').trimStart().toUpperCase())}
                                                     placeholder="Codice Articolo"
-                                                    className={`h-8 text-xs font-mono font-bold ${!row.articleExists ? 'border-red-300 bg-red-50 text-red-600 focus-visible:ring-red-500' : ''}`}
+                                                    className={`h-8 text-xs font-mono font-bold text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 ${!row.articleExists ? 'border-red-400 bg-red-50 text-gray-900 dark:bg-red-950/60 dark:text-red-100 dark:border-red-500 focus-visible:ring-red-500' : ''}`}
                                                 />
                                                 {!row.articleExists && <span className="text-[10px] text-red-500 leading-tight">Articolo inesistente</span>}
                                             </div>
@@ -428,7 +418,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                                             <MaskedDatePicker 
                                                 value={row.prepDateParsed ? parse(row.prepDateParsed, 'yyyy-MM-dd', new Date()) : null}
                                                 onChange={(d) => updateRow(row.id, 'prepDateParsed', d ? format(d, 'yyyy-MM-dd') : null)}
-                                                className="h-8 text-xs w-full"
+                                                className="h-8 text-xs w-full text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                                             />
                                         </TableCell>
                                         <TableCell>
@@ -436,9 +426,9 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                                                 <MaskedDatePicker 
                                                     value={row.deliveryDateParsed ? parse(row.deliveryDateParsed, 'yyyy-MM-dd', new Date()) : null}
                                                     onChange={(d) => updateRow(row.id, 'deliveryDateParsed', d ? format(d, 'yyyy-MM-dd') : null)}
-                                                    className={`h-8 text-xs w-full ${!row.hasDate ? 'border-red-300 bg-red-50 focus-within:ring-red-500' : ''}`}
+                                                    className={`h-8 text-xs w-full text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 ${!row.hasDate ? 'border-red-400 bg-red-50 text-gray-900 dark:bg-red-950/60 dark:text-red-100 dark:border-red-500 placeholder:text-gray-500 dark:placeholder:text-red-300/60 focus-within:ring-red-500' : ''}`}
                                                 />
-                                                {!row.hasDate && <span className="text-[10px] text-red-500 leading-tight">Data errata ({row.deliveryDateRaw})</span>}
+                                                {!row.hasDate && <span className="text-[10px] text-red-500 leading-tight font-medium">Data errata ({row.deliveryDateRaw})</span>}
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-right">

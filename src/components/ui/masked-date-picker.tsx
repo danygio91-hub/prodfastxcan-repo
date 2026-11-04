@@ -1,12 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { format, parse, isValid } from "date-fns";
+import { format, isValid } from "date-fns";
 import { CalendarIcon } from "lucide-react";
-import { IMaskInput } from "react-imask";
-import { IMask } from "react-imask";
 
-import { cn } from "@/lib/utils";
+import { cn, formatToDateInputMask, parseRobustDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -45,16 +43,17 @@ export function MaskedDatePicker({
     }
   }, [value]);
 
-  const handleInputChange = (val: string) => {
-    setInputValue(val);
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawVal = e.target.value;
+    const formatted = formatToDateInputMask(rawVal);
+    setInputValue(formatted);
     
-    // When the input is complete (10 characters), try to parse and trigger onChange
-    if (val.length === 10) {
-      const parsedDate = parse(val, "dd/MM/yyyy", new Date());
-      if (isValid(parsedDate)) {
-        // Only trigger onChange if the date is actually different from the current value
+    // When the input is complete (10 characters: GG/MM/AAAA), try to parse and trigger onChange
+    if (formatted.length === 10) {
+      const parsedDate = parseRobustDate(formatted);
+      if (parsedDate && isValid(parsedDate)) {
         const currentRef = value ? format(value, "dd/MM/yyyy") : "";
-        if (val !== currentRef) {
+        if (formatted !== currentRef) {
           onChange(parsedDate);
         }
       } else {
@@ -62,29 +61,34 @@ export function MaskedDatePicker({
       }
     } 
     // Handle clear
-    else if (val.length === 0 || val === "__/__/____") {
+    else if (formatted.length === 0) {
       onChange(null);
     }
-    // For intermediate lengths, we don't trigger onChange to avoid partial/invalid dates in the form state
-    // unless the field was already populated and is being cleared
+    // For intermediate lengths, if value was set, clear it to avoid stale valid dates
     else if (value) {
-        onChange(null);
+      onChange(null);
     }
   };
 
   return (
-    <div className={cn("relative flex items-center w-full", className)}>
-      <IMaskInput
-        mask="00/00/0000"
+    <div className="relative flex items-center w-full">
+      <input
+        type="text"
         value={inputValue}
-        unmask={false}
-        onAccept={(val: string) => handleInputChange(val)}
+        onChange={handleInputChange}
         placeholder={placeholder}
+        disabled={disabled}
+        maxLength={10}
         className={cn(
-          "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 pr-10",
+          "flex h-9 w-full rounded-md border border-input bg-background px-2.5 py-1 text-xs shadow-xs transition-colors",
+          "text-gray-900 dark:text-gray-100", // Testo digitato sempre ad alto contrasto
+          "placeholder:text-gray-400 dark:placeholder:text-gray-500 placeholder:opacity-100", // Placeholder ben visibile
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          "disabled:cursor-not-allowed disabled:opacity-50 pr-7 font-mono",
+          // Se la classe include uno sfondo rosso chiaro (bg-red-50), forza colore scuro per evitare testo bianco su bianco
+          className?.includes("bg-red-50") && "text-gray-900 font-medium",
           className
         )}
-        disabled={disabled}
       />
       <div className="absolute right-0 flex items-center pr-1 h-full">
         <Popover>
@@ -92,11 +96,11 @@ export function MaskedDatePicker({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 hover:bg-muted"
+              className="h-6 w-6 hover:bg-muted p-0"
               disabled={disabled}
               type="button"
             >
-              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+              <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="sr-only">Apri calendario</span>
             </Button>
           </PopoverTrigger>
@@ -105,7 +109,13 @@ export function MaskedDatePicker({
               mode="single"
               selected={value || undefined}
               onSelect={(date) => {
-                onChange(date || null);
+                if (date && isValid(date)) {
+                  setInputValue(format(date, "dd/MM/yyyy"));
+                  onChange(date);
+                } else {
+                  setInputValue("");
+                  onChange(null);
+                }
               }}
               initialFocus
             />

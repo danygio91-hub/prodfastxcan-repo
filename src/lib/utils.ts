@@ -85,6 +85,16 @@ export function parseRobustDate(dateInput: any): Date | null {
             }
             return new Date(year, parseInt(italianMatch[2], 10) - 1, parseInt(italianMatch[1], 10), 12, 0, 0);
         }
+        // Supporto per formato raw a 8 cifre senza separatori (DDMMYYYY es. 20112026)
+        const eightDigitsMatch = trimmed.match(/^(\d{2})(\d{2})(\d{4})$/);
+        if (eightDigitsMatch) {
+            const day = parseInt(eightDigitsMatch[1], 10);
+            const month = parseInt(eightDigitsMatch[2], 10);
+            const year = parseInt(eightDigitsMatch[3], 10);
+            if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                return new Date(year, month - 1, day, 12, 0, 0);
+            }
+        }
     }
     
     // Date object
@@ -148,5 +158,28 @@ export function generateJobDocumentId(ordinePF: string, annoCompetenza: number):
         return base;
     }
     return `${base}_${annoCompetenza}`;
+}
+
+/**
+ * FASE 42: Auto-formattazione input data in tempo reale:
+ * Rimuove i caratteri non numerici, inserisce gli slash (DD/MM/YYYY) e limita a 10 caratteri.
+ * Supporta anche l'incolla di formati ISO (YYYY-MM-DD -> DD/MM/YYYY).
+ */
+export function formatToDateInputMask(value: string): string {
+    if (!value) return '';
+    const trimmed = value.trim();
+    // Se l'utente incolla una data ISO YYYY-MM-DD
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+        return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+    }
+    const digits = value.replace(/\D/g, '').slice(0, 8);
+    if (digits.length <= 2) {
+        return digits;
+    }
+    if (digits.length <= 4) {
+        return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    }
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
 }
 

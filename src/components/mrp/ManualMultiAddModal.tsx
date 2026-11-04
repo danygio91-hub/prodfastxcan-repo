@@ -51,7 +51,7 @@ import {
   ChevronsUpDown,
   Search,
 } from 'lucide-react';
-import { cn, parseRobustDate } from '@/lib/utils';
+import { cn, parseRobustDate, formatToDateInputMask } from '@/lib/utils';
 import { saveManualMultiJobOrders, searchArticlesAction } from '@/app/admin/programmazione/actions';
 import type { JobOrder, Department, Article } from '@/types';
 
@@ -625,12 +625,12 @@ export function ManualMultiAddModal({
                           value={row.department}
                           onValueChange={(val) => updateRow(row.id, 'department', val)}
                         >
-                          <SelectTrigger className="h-7 text-xs font-bold font-mono px-2 py-0 w-full">
+                          <SelectTrigger className="h-7 text-xs font-bold font-mono px-2 py-0 w-full text-gray-900 dark:text-gray-100">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             {validDepartments.map((dept) => (
-                              <SelectItem key={dept} value={dept} className="text-xs font-bold">
+                              <SelectItem key={dept} value={dept} className="text-xs font-bold font-mono">
                                 {dept}
                               </SelectItem>
                             ))}
@@ -644,7 +644,10 @@ export function ManualMultiAddModal({
                           value={row.ordinePF}
                           onChange={(e) => updateRow(row.id, 'ordinePF', e.target.value)}
                           placeholder="es. 123/PF.1-1"
-                          className="h-7 text-xs font-mono font-bold px-2 py-0"
+                          className={cn(
+                            "h-7 text-xs font-mono font-bold px-2 py-0 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500",
+                            !val?.isCompletelyEmpty && val?.errors.some(err => err.includes('PF')) && "border-red-400 bg-red-50 text-gray-900 dark:bg-red-950/60 dark:text-red-100 dark:border-red-500 focus-visible:ring-red-500"
+                          )}
                         />
                       </TableCell>
 
@@ -654,7 +657,10 @@ export function ManualMultiAddModal({
                           value={row.cliente}
                           onChange={(e) => updateRow(row.id, 'cliente', e.target.value)}
                           placeholder="es. CLIENTE ROSSI"
-                          className="h-7 text-xs px-2 py-0"
+                          className={cn(
+                            "h-7 text-xs px-2 py-0 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500",
+                            !val?.isCompletelyEmpty && val?.errors.some(err => err.includes('Cliente')) && "border-red-400 bg-red-50 text-gray-900 dark:bg-red-950/60 dark:text-red-100 dark:border-red-500 focus-visible:ring-red-500"
+                          )}
                         />
                       </TableCell>
 
@@ -678,17 +684,24 @@ export function ManualMultiAddModal({
                           value={row.qta}
                           onChange={(e) => updateRow(row.id, 'qta', e.target.value)}
                           placeholder="100"
-                          className="h-7 text-xs font-mono font-bold text-right px-2 py-0"
+                          className={cn(
+                            "h-7 text-xs font-mono font-bold text-right px-2 py-0 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500",
+                            !val?.isCompletelyEmpty && val?.errors.some(err => err.includes('Quantità')) && "border-red-400 bg-red-50 text-gray-900 dark:bg-red-950/60 dark:text-red-100 dark:border-red-500 focus-visible:ring-red-500"
+                          )}
                         />
                       </TableCell>
 
-                      {/* Data Consegna */}
+                      {/* Data Consegna con auto-formattazione DD/MM/YYYY */}
                       <TableCell className="px-1.5 py-1 text-center">
                         <Input
                           value={row.dataConsegnaFinale}
-                          onChange={(e) => updateRow(row.id, 'dataConsegnaFinale', e.target.value)}
+                          onChange={(e) => updateRow(row.id, 'dataConsegnaFinale', formatToDateInputMask(e.target.value))}
                           placeholder="GG/MM/AAAA"
-                          className="h-7 text-xs font-mono text-center px-1 py-0"
+                          maxLength={10}
+                          className={cn(
+                            "h-7 text-xs font-mono text-center px-1 py-0 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500",
+                            !val?.isCompletelyEmpty && val?.errors.some(err => err.toLowerCase().includes('data')) && "border-red-400 bg-red-50 text-gray-900 dark:bg-red-950/60 dark:text-red-100 dark:border-red-500 placeholder:text-gray-500 dark:placeholder:text-red-300/60 focus-visible:ring-red-500"
+                          )}
                         />
                       </TableCell>
 
