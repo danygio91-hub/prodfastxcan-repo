@@ -84,7 +84,7 @@ export function getDerivedJobStatus(item: JobOrder | WorkGroup): OverallStatus {
     // 3. Fallback SSoT: Se non c'è attività sulle fasi (tutte pending o assenti),
     // usiamo lo stato del Database per distinguere tra "Pianificata" e "In Preparazione" (Rilasciata) o "Pronta".
     const statusLowerRaw = (item.status || '').toLowerCase().trim();
-    const isActuallyPlanned = ['planned', 'in_attesa', 'in pianificazione', 'in_pianificazione', 'pianificata', 'pianificato'].includes(statusLowerRaw);
+    const isActuallyPlanned = !statusLowerRaw || ['pending', 'planned', 'in_attesa', 'in pianificazione', 'in_pianificazione', 'pianificata', 'pianificato'].includes(statusLowerRaw);
     
     // Check per etichette che indicano Preparazione Finita
     const isPrepFinishedByLabel = [
@@ -153,8 +153,9 @@ export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
         return 'Spedito';
     }
 
-    // 2. Pianificata: stato formale di pianificazione SENZA alcuna fase attiva/completata
-    const isBacklogPlanned = [
+    // 2. Pianificata: stato formale di pianificazione SENZA alcuna fase attiva/completata (gestisce anche null/empty/pending)
+    const isBacklogPlanned = !statusLower || [
+        'pending',
         'planned',
         'in_attesa',
         'in pianificazione',

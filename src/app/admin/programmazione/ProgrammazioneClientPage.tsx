@@ -994,14 +994,12 @@ export default function ProgrammazioneClientPage({
     setIsEditStandardModalOpen(true);
   }, []);
 
-  const handleJobUpdated = (updatedJob: JobOrder) => {
+  const handleJobUpdated = useCallback((updatedJob: JobOrder) => {
     const oldId = jobToEdit?.id;
     setJobs((prev) =>
       prev.map((j) => (j.id === oldId || j.id === updatedJob.id ? { ...j, ...updatedJob } : j))
     );
-    setIsEditStandardModalOpen(false);
-    setJobToEdit(null);
-  };
+  }, [jobToEdit]);
 
   // FASE 16: Selezione Multipla (Checkbox) e Azioni Massive (Bulk Actions)
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);

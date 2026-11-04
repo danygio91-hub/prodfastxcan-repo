@@ -10,6 +10,7 @@ import { getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
+import { getJobDisplayStatus } from '@/lib/job-status';
 
 export async function checkJobExists(ordinePF: string, annoCompetenza?: number) {
     const year = annoCompetenza ?? new Date().getFullYear();
@@ -931,16 +932,32 @@ export async function updateJobOrder(jobId: string, data: {
         
         const job = jobSnap.data() as JobOrder;
 
+        // FASE 43: SSoT Security Check - Only "Pianificata" (or null/pending) can be edited.
+        // Block modification if status is "In Produzione", "Completato Prod." or "Spedito".
+        const displayStatus = getJobDisplayStatus(job);
+        if (displayStatus === 'In Produzione' || displayStatus === 'Completato Prod.' || displayStatus === 'Spedito') {
+            return {
+                success: false,
+                message: `La commessa si trova nello stato "${displayStatus}" e non può essere modificata. Solo le commesse in stato "Pianificata" sono modificabili.`
+            };
+        }
+
         const finalArticle = (data.details || data.articleCode || '').trim().toUpperCase();
+        const oldArticle = (job.details || '').trim().toUpperCase();
+        const isArticleChanged = Boolean(finalArticle && finalArticle !== oldArticle);
+
+        // Normalizzazione date nel formato standard YYYY-MM-DD
+        const normalizedPrep = normalizeDateStr(data.dataFinePreparazione) || '';
+        const normalizedDelivery = normalizeDateStr(data.dataConsegnaFinale) || '';
 
         // Logic: Only update phases if the work cycle has changed
         const updatePayload: any = {
-            cliente: data.cliente,
-            ordinePF: data.ordinePF,
-            qta: data.qta,
-            department: data.department,
-            dataFinePreparazione: normalizeDateStr(data.dataFinePreparazione),
-            dataConsegnaFinale: normalizeDateStr(data.dataConsegnaFinale),
+            cliente: (data.cliente || '').trim(),
+            ordinePF: (data.ordinePF || '').trim(),
+            qta: Number(data.qta) || 1,
+            department: data.department || '',
+            dataFinePreparazione: normalizedPrep,
+            dataConsegnaFinale: normalizedDelivery,
             updatedAt: admin.firestore.Timestamp.now()
         };
 
@@ -957,7 +974,7 @@ export async function updateJobOrder(jobId: string, data: {
             }
         }
 
-        if (data.workCycleId !== job.workCycleId) {
+        if (data.workCycleId && data.workCycleId !== job.workCycleId) {
             console.log(`Cycle changed from ${job.workCycleId} to ${data.workCycleId}. Regenerating phases...`);
             updatePayload.workCycleId = data.workCycleId;
             updatePayload.phases = await createPhasesFromCycle(data.workCycleId);
@@ -965,15 +982,20 @@ export async function updateJobOrder(jobId: string, data: {
 
         // SMART REMAINDER TRIGGER: If total time changed or phases were regenerated
         const newExpectedMinutes = data.expectedMinutes ?? job.expectedMinutesDefault;
-        if (newExpectedMinutes !== undefined && (data.expectedMinutes !== undefined || data.workCycleId !== job.workCycleId)) {
-            const targetArtCode = (finalArticle || job.details || '').toUpperCase().trim();
-            const articleRef = adminDb.collection("articles").doc(targetArtCode);
-            const articleSnap = await articleRef.get();
-            const article = articleSnap.exists ? articleSnap.data() as Article : null;
+        if (newExpectedMinutes !== undefined && (data.expectedMinutes !== undefined || (data.workCycleId && data.workCycleId !== job.workCycleId))) {
+            const targetArtCode = (finalArticle || oldArticle).toUpperCase().trim();
+            let article: Article | null = null;
+            if (targetArtCode) {
+                const articleRef = adminDb.collection("articles").doc(targetArtCode);
+                const articleSnap = await articleRef.get();
+                article = articleSnap.exists ? articleSnap.data() as Article : null;
+            }
             const historicalAverages = article?.historicalTimes?.averagePhaseTimes || [];
             
             const currentPhases = updatePayload.phases || job.phases || [];
-            updatePayload.phases = distributeTheoreticalTimes(newExpectedMinutes, currentPhases, historicalAverages, data.qta);
+            if (currentPhases.length > 0) {
+                updatePayload.phases = distributeTheoreticalTimes(newExpectedMinutes, currentPhases, historicalAverages, updatePayload.qta);
+            }
             updatePayload.expectedMinutesDefault = newExpectedMinutes;
         }
 
@@ -981,21 +1003,35 @@ export async function updateJobOrder(jobId: string, data: {
         const globalSettingsSnap = await adminDb.collection("settings").doc("global").get();
         const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
 
-        const articleRefForBOM = adminDb.collection("articles").doc(job.details.toUpperCase().trim());
-        const articleSnapForBOM = await articleRefForBOM.get();
-        const articleForBOM = articleSnapForBOM.exists ? articleSnapForBOM.data() as Article : null;
+        const targetArtCodeForBOM = (finalArticle || oldArticle).toUpperCase().trim();
+        let articleForBOM: Article | null = null;
+        if (targetArtCodeForBOM) {
+            const articleRefForBOM = adminDb.collection("articles").doc(targetArtCodeForBOM);
+            const articleSnapForBOM = await articleRefForBOM.get();
+            if (articleSnapForBOM.exists) {
+                articleForBOM = articleSnapForBOM.data() as Article;
+            }
+        }
 
-        const compCodes = (job.billOfMaterials || []).map(item => item.component.toUpperCase().trim());
+        const baseBOM = isArticleChanged
+            ? (articleForBOM?.billOfMaterials || [])
+            : (job.billOfMaterials || articleForBOM?.billOfMaterials || []);
+
+        const compCodes = Array.from(new Set([
+            ...baseBOM.map((item: any) => item?.component?.toUpperCase()?.trim()),
+            ...(articleForBOM?.billOfMaterials || []).map((item: any) => item?.component?.toUpperCase()?.trim())
+        ].filter(Boolean)));
+
         const rawMaterials = compCodes.length > 0 ? await fetchInChunks<RawMaterial>(
             adminDb.collection("rawMaterials"),
             "code",
             compCodes
         ) : [];
 
-        if (job.billOfMaterials && job.billOfMaterials.length > 0) {
+        if (baseBOM.length > 0 || (articleForBOM?.billOfMaterials && articleForBOM.billOfMaterials.length > 0)) {
             updatePayload.billOfMaterials = syncJobBOMItems(
-                Number(data.qta),
-                job.billOfMaterials,
+                Number(updatePayload.qta),
+                baseBOM,
                 articleForBOM?.billOfMaterials || [],
                 rawMaterials,
                 globalSettings
@@ -1005,16 +1041,16 @@ export async function updateJobOrder(jobId: string, data: {
         // Deep Sanitization to prevent "undefined" Firestore errors
         const sanitizedPayload = sanitizeFirestoreData(updatePayload);
 
-        const targetDeliveryDate = data.dataConsegnaFinale || job.dataConsegnaFinale;
+        const targetDeliveryDate = updatePayload.dataConsegnaFinale || job.dataConsegnaFinale;
         const targetAnno = extractAnnoCompetenza(targetDeliveryDate);
-        const newJobId = generateJobDocumentId(data.ordinePF, targetAnno);
+        const newJobId = generateJobDocumentId(updatePayload.ordinePF, targetAnno);
         const batch = adminDb.batch();
 
         if (newJobId !== jobId) {
             console.log(`[UPDATE_JOB] Renaming document ID from "${jobId}" to "${newJobId}"`);
             
             // Check if a document already exists for this order PF and year
-            const existsCheck = await checkJobOrderExists(adminDb, data.ordinePF, targetAnno);
+            const existsCheck = await checkJobOrderExists(adminDb, updatePayload.ordinePF, targetAnno);
             if (existsCheck.exists && existsCheck.existingJobId !== jobId) {
                 return { success: false, message: `Esiste già una commessa con l'Ordine PF specificato per l'anno ${targetAnno}.` };
             }
@@ -1026,7 +1062,7 @@ export async function updateJobOrder(jobId: string, data: {
                 ...job,
                 ...sanitizedPayload,
                 id: newJobId,
-                ordinePF: data.ordinePF,
+                ordinePF: updatePayload.ordinePF,
                 annoCompetenza: targetAnno
             };
 
@@ -1041,7 +1077,7 @@ export async function updateJobOrder(jobId: string, data: {
             workGroupsSnap.forEach(wgDoc => {
                 const groupData = wgDoc.data();
                 const jobOrderIds = (groupData.jobOrderIds || []).map((id: string) => id === jobId ? newJobId : id);
-                const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => pf === jobId || pf === job.ordinePF ? data.ordinePF : pf);
+                const jobOrderPFs = (groupData.jobOrderPFs || []).map((pf: string) => pf === jobId || pf === job.ordinePF ? updatePayload.ordinePF : pf);
                 batch.update(wgDoc.ref, { jobOrderIds, jobOrderPFs });
             });
 
@@ -1052,7 +1088,7 @@ export async function updateJobOrder(jobId: string, data: {
             withdrawalsSnap1.forEach(wDoc => {
                 const wData = wDoc.data();
                 const jobIds = (wData.jobIds || []).map((id: string) => id === jobId ? newJobId : id);
-                const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => pf === jobId || pf === job.ordinePF ? data.ordinePF : pf);
+                const jobOrderPFs = (wData.jobOrderPFs || []).map((pf: string) => pf === jobId || pf === job.ordinePF ? updatePayload.ordinePF : pf);
                 batch.update(wDoc.ref, { jobIds, jobOrderPFs });
             });
 
@@ -1061,7 +1097,7 @@ export async function updateJobOrder(jobId: string, data: {
                 .where("jobOrderCode", "==", job.ordinePF)
                 .get();
             commitmentsSnap.forEach(cDoc => {
-                batch.update(cDoc.ref, { jobOrderCode: data.ordinePF });
+                batch.update(cDoc.ref, { jobOrderCode: updatePayload.ordinePF });
             });
 
             // 4. operators
@@ -1073,32 +1109,36 @@ export async function updateJobOrder(jobId: string, data: {
             });
 
             // 5. packingLists
-            const packingListsSnap = await adminDb.collection("packingLists").get();
-            packingListsSnap.forEach(plDoc => {
-                const plData = plDoc.data();
-                let modified = false;
-                const items = (plData.items || []).map((item: any) => {
-                    let itemMod = false;
-                    let newJobIdVal = item.jobId;
-                    let newOrderPFVal = item.orderPF;
-                    if (item.jobId === jobId) {
-                        newJobIdVal = newJobId;
-                        itemMod = true;
+            try {
+                const packingListsSnap = await adminDb.collection("packingLists").get();
+                packingListsSnap.forEach(plDoc => {
+                    const plData = plDoc.data();
+                    let modified = false;
+                    const items = (plData.items || []).map((item: any) => {
+                        let itemMod = false;
+                        let newJobIdVal = item.jobId;
+                        let newOrderPFVal = item.orderPF;
+                        if (item.jobId === jobId) {
+                            newJobIdVal = newJobId;
+                            itemMod = true;
+                        }
+                        if (item.orderPF === jobId || item.orderPF === job.ordinePF) {
+                            newOrderPFVal = updatePayload.ordinePF;
+                            itemMod = true;
+                        }
+                        if (itemMod) {
+                            modified = true;
+                            return { ...item, jobId: newJobIdVal, orderPF: newOrderPFVal };
+                        }
+                        return item;
+                    });
+                    if (modified) {
+                        batch.update(plDoc.ref, { items });
                     }
-                    if (item.orderPF === jobId || item.orderPF === job.ordinePF) {
-                        newOrderPFVal = data.ordinePF;
-                        itemMod = true;
-                    }
-                    if (itemMod) {
-                        modified = true;
-                        return { ...item, jobId: newJobIdVal, orderPF: newOrderPFVal };
-                    }
-                    return item;
                 });
-                if (modified) {
-                    batch.update(plDoc.ref, { items });
-                }
-            });
+            } catch (plCascadeErr) {
+                console.warn("[UPDATE_JOB] Error cascading packing lists update:", plCascadeErr);
+            }
         } else {
             // Document ID is not changing, just update in place
             batch.update(jobRef, sanitizedPayload);

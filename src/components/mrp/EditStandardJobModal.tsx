@@ -16,9 +16,10 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { JobOrder, WorkCycle, Department } from '@/types';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { updateJobOrder } from '@/app/admin/data-management/actions';
+import { parseRobustDate, normalizeDateStr } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 
 interface EditStandardJobModalProps {
@@ -54,8 +55,8 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       setOrdinePF(job.ordinePF || '');
       setDetails(job.details || '');
       setQta(job.qta?.toString() || '1');
-      setDataConsegna(job.dataConsegnaFinale || '');
-      setDataPrep(job.dataFinePreparazione || '');
+      setDataConsegna(normalizeDateStr(job.dataConsegnaFinale) || job.dataConsegnaFinale || '');
+      setDataPrep(normalizeDateStr(job.dataFinePreparazione) || job.dataFinePreparazione || '');
       setSelectedCycleId(job.workCycleId || '');
       
       const deptCode = departments.find(d => d.name === job.department || d.code === job.department)?.code || job.department || '';
@@ -72,17 +73,43 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       return;
     }
 
+    // FASE 43: Normalizzazione robusta delle date PRIMA dell'invio del payload
+    const normalizedPrep = normalizeDateStr(dataPrep) || '';
+    const normalizedConsegna = normalizeDateStr(dataConsegna) || '';
+
+    // Snapshot commessa precedente per rollback in caso di errore
+    const previousJob: JobOrder = { ...job };
+
+    // Oggetto ottimistico da visualizzare istantaneamente a schermo
+    const optimisticJob: JobOrder = {
+      ...job,
+      cliente: cliente.trim(),
+      ordinePF: ordinePF.trim(),
+      qta: Number(qta) || 1,
+      department: selectedDept,
+      workCycleId: selectedCycleId,
+      dataFinePreparazione: normalizedPrep,
+      dataConsegnaFinale: normalizedConsegna,
+      details: details.trim().toUpperCase() || job.details,
+      expectedMinutesDefault: Number(expectedMinutes) || 0
+    };
+
+    // Applicazione Optimistic UI Update immediata
+    if (onJobUpdated) {
+      onJobUpdated(optimisticJob);
+    }
+
     setLoading(true);
     try {
       const res = await updateJobOrder(job.id, {
-        cliente,
-        ordinePF,
-        qta: Number(qta),
+        cliente: cliente.trim(),
+        ordinePF: ordinePF.trim(),
+        qta: Number(qta) || 1,
         department: selectedDept,
         workCycleId: selectedCycleId,
-        dataFinePreparazione: dataPrep,
-        dataConsegnaFinale: dataConsegna,
-        expectedMinutes: Number(expectedMinutes),
+        dataFinePreparazione: normalizedPrep,
+        dataConsegnaFinale: normalizedConsegna,
+        expectedMinutes: Number(expectedMinutes) || 0,
         details: details.trim().toUpperCase()
       });
 
@@ -90,18 +117,9 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
         toast({ title: "Successo", description: res.message });
         if (onJobUpdated) {
           const updatedJob: JobOrder = {
-            ...job,
+            ...optimisticJob,
             ...((res as any).updatedFields || {}),
-            id: (res as any).newJobId || job.id,
-            cliente,
-            ordinePF,
-            qta: Number(qta),
-            department: selectedDept,
-            workCycleId: selectedCycleId,
-            dataFinePreparazione: dataPrep,
-            dataConsegnaFinale: dataConsegna,
-            details: details.trim().toUpperCase() || job.details,
-            expectedMinutesDefault: Number(expectedMinutes)
+            id: (res as any).newJobId || job.id
           };
           onJobUpdated(updatedJob);
         }
@@ -110,10 +128,18 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
           router.refresh();
         });
       } else {
-        toast({ variant: "destructive", title: "Errore", description: res.message });
+        // FASE 43: Rollback UI Ottimistica in caso di reale fallimento server-side
+        if (onJobUpdated) {
+          onJobUpdated(previousJob);
+        }
+        toast({ variant: "destructive", title: "Errore", description: res.message || "Impossibile aggiornare la commessa." });
       }
     } catch (err) {
-      toast({ variant: "destructive", title: "Errore", description: "Impossibile aggiornare la commessa." });
+      // FASE 43: Rollback UI Ottimistica in caso di eccezione
+      if (onJobUpdated) {
+        onJobUpdated(previousJob);
+      }
+      toast({ variant: "destructive", title: "Errore", description: err instanceof Error ? err.message : "Impossibile aggiornare la commessa." });
     } finally {
       setLoading(false);
     }
@@ -176,7 +202,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
             <div className="space-y-2">
               <Label className="text-amber-500 font-black uppercase text-[10px] tracking-widest">Fine Prep. (Magazzino)</Label>
               <MaskedDatePicker 
-                value={dataPrep ? parseISO(dataPrep) : null} 
+                value={parseRobustDate(dataPrep)} 
                 onChange={(date) => setDataPrep(date ? format(date, 'yyyy-MM-dd') : '')} 
                 className="border-amber-500/30 focus:border-amber-500 bg-amber-500/5"
               />
@@ -184,7 +210,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
             <div className="space-y-2">
               <Label className="text-emerald-500 font-black uppercase text-[10px] tracking-widest">Consegna Finale (Cliente)</Label>
               <MaskedDatePicker 
-                value={dataConsegna ? parseISO(dataConsegna) : null} 
+                value={parseRobustDate(dataConsegna)} 
                 onChange={(date) => setDataConsegna(date ? format(date, 'yyyy-MM-dd') : '')} 
                 className="border-emerald-500/30 focus:border-emerald-500 bg-emerald-500/5"
               />
