@@ -1830,6 +1830,7 @@ export async function saveSmartPastedJobOrders(data: {
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');
+        revalidatePath('/admin/programmazione');
         return { success: true, message: `${newJobs.length} commesse create con successo.`, jobs: JSON.parse(JSON.stringify(newJobs)) };
     } catch (error) {
         console.error("Error in saveSmartPastedJobOrders:", error);

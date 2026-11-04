@@ -37,6 +37,41 @@ export interface ParsedRow {
   prepDateParsed: string | null;
 }
 
+const DEPARTMENT_LABEL_MAP: Record<string, string> = {
+  'Connessioni Piccole': 'CP',
+  'Connessioni Grandi': 'CG',
+  'Reparto Barre': 'BF',
+  'Magazzino': 'MAG',
+  'CP': 'CP',
+  'CG': 'CG',
+  'BF': 'BF',
+  'MAG': 'MAG',
+};
+
+export const getDepartmentSigla = (dept: Department | string | undefined): string => {
+  if (!dept) return 'CP';
+  if (typeof dept === 'object') {
+    const code = (dept.code || '').trim();
+    if (DEPARTMENT_LABEL_MAP[code]) return DEPARTMENT_LABEL_MAP[code];
+    const name = (dept.name || '').trim();
+    if (DEPARTMENT_LABEL_MAP[name]) return DEPARTMENT_LABEL_MAP[name];
+    if (name.toLowerCase().includes('piccol')) return 'CP';
+    if (name.toLowerCase().includes('grand')) return 'CG';
+    if (name.toLowerCase().includes('barre')) return 'BF';
+    if (name.toLowerCase().includes('magazz')) return 'MAG';
+    return code || 'CP';
+  }
+  const clean = dept.trim();
+  if (DEPARTMENT_LABEL_MAP[clean]) return DEPARTMENT_LABEL_MAP[clean];
+  const upper = clean.toUpperCase();
+  if (DEPARTMENT_LABEL_MAP[upper]) return DEPARTMENT_LABEL_MAP[upper];
+  if (clean.toLowerCase().includes('piccol')) return 'CP';
+  if (clean.toLowerCase().includes('grand')) return 'CG';
+  if (clean.toLowerCase().includes('barre')) return 'BF';
+  if (clean.toLowerCase().includes('magazz')) return 'MAG';
+  return upper || 'CP';
+};
+
 export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobsCreated }: SmartPasteModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [pasteText, setPasteText] = useState('');
@@ -46,11 +81,45 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
   const [isValidatingArticles, setIsValidatingArticles] = useState(false);
   const { toast } = useToast();
 
-  const productionDepartments = useMemo(() => 
-    departments.filter(d => d.macroAreas?.includes('PRODUZIONE') || d.code === 'MAG'),
-  [departments]);
+  const departmentOptions = useMemo(() => {
+    // Sigle standard previste dal gestionale
+    const standardList: { value: string; label: string }[] = [
+      { value: 'CP', label: 'CP' },
+      { value: 'CG', label: 'CG' },
+      { value: 'BF', label: 'BF' },
+      { value: 'MAG', label: 'MAG' },
+    ];
 
-  const defaultDept = productionDepartments.length > 0 ? (productionDepartments.find(d => d.code === 'CP') || productionDepartments[0]).code : '';
+    const map = new Map<string, { value: string; label: string }>();
+
+    // Aggiungi dai dipartimenti ricevuti (PRODUZIONE o MAG)
+    if (departments && departments.length > 0) {
+      const filtered = departments.filter(d => 
+        d.macroAreas?.includes('PRODUZIONE') || 
+        d.code === 'MAG' || 
+        d.code === 'CP' || 
+        d.code === 'CG' || 
+        d.code === 'BF'
+      );
+      filtered.forEach(d => {
+        const sigla = getDepartmentSigla(d);
+        map.set(sigla, { value: sigla, label: sigla });
+      });
+    }
+
+    // Assicura che le 4 sigle standard siano sempre presenti
+    standardList.forEach(item => {
+      if (!map.has(item.value)) {
+        map.set(item.value, item);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [departments]);
+
+  const defaultDept = useMemo(() => {
+    return departmentOptions.find(d => d.value === 'CP')?.value || departmentOptions[0]?.value || 'CP';
+  }, [departmentOptions]);
 
   const parseEuropeanDate = (dateStr: string): string | null => {
     if (!dateStr || dateStr.trim() === '') return null;
@@ -223,7 +292,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
               qta: r.quantity,
               dataConsegnaFinale: r.deliveryDateParsed!,
               dataFinePreparazione: r.prepDateParsed || r.deliveryDateParsed!, // Fallback to delivery if no prep
-              department: r.department
+              department: getDepartmentSigla(r.department)
           }));
 
           const res = await saveSmartPastedJobOrders(payload);
@@ -295,7 +364,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                                     <TableHead className="w-[150px]">Ordine PF <span className="text-destructive">*</span></TableHead>
                                     <TableHead className="w-[200px]">Articolo</TableHead>
                                     <TableHead className="w-[100px]">Quantità</TableHead>
-                                    <TableHead className="w-[150px]">Reparto <span className="text-destructive">*</span></TableHead>
+                                    <TableHead className="w-[110px]">Reparto <span className="text-destructive">*</span></TableHead>
                                     <TableHead className="w-[160px]">Fine Prep.</TableHead>
                                     <TableHead className="w-[160px]">Consegna Finale <span className="text-destructive">*</span></TableHead>
                                     <TableHead className="w-[50px] text-right">Azioni</TableHead>
@@ -339,13 +408,18 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                                             {!row.hasQta && <span className="text-[10px] text-red-500 block leading-tight">Qta invalida</span>}
                                         </TableCell>
                                         <TableCell>
-                                            <Select value={row.department} onValueChange={(v) => updateRow(row.id, 'department', v)}>
-                                                <SelectTrigger className="h-8 text-xs">
-                                                    <SelectValue />
+                                            <Select 
+                                                value={getDepartmentSigla(row.department)} 
+                                                onValueChange={(v) => updateRow(row.id, 'department', v)}
+                                            >
+                                                <SelectTrigger className="h-8 text-xs font-mono font-bold w-full">
+                                                    <SelectValue placeholder="Rep." />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {productionDepartments.map(d => (
-                                                        <SelectItem key={d.code} value={d.code}>{d.name}</SelectItem>
+                                                    {departmentOptions.map(opt => (
+                                                        <SelectItem key={opt.value} value={opt.value} className="text-xs font-mono font-bold">
+                                                            {opt.label}
+                                                        </SelectItem>
                                                     ))}
                                                 </SelectContent>
                                             </Select>
