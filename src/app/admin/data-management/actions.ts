@@ -78,7 +78,20 @@ export async function getJobOrders(): Promise<JobOrder[]> {
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
   const snap = await adminDb.collection("jobOrders")
-    .where("status", "in", ["planned", "IN_ATTESA", "In Pianificazione", "IN_PIANIFICAZIONE", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO", "PREP", "CONFIRMED"] as any[])
+    .where("status", "in", [
+      "Pianificata",
+      "pianificata",
+      "PIANIFICATA",
+      "planned", 
+      "PLANNED",
+      "IN_ATTESA", 
+      "In Pianificazione", 
+      "IN_PIANIFICAZIONE", 
+      "PIANIFICATE", 
+      "PIANIFICATO", 
+      "PREP", 
+      "CONFIRMED"
+    ])
     .get();
   return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
 }
@@ -98,7 +111,19 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
 
 export async function getCompletedJobOrders(): Promise<JobOrder[]> {
     const snap = await adminDb.collection("jobOrders")
-        .where("status", "in", ["Completata", "CHIUSO", "completed", "shipped", "closed", "COMPLETATA", "FINE PROD", "SPEDITA"])
+        .where("status", "in", [
+            "Completata", 
+            "CHIUSO", 
+            "completed", 
+            "shipped", 
+            "closed", 
+            "COMPLETATA", 
+            "FINE PROD", 
+            "SPEDITA",
+            "Spedita",
+            "Spedito",
+            "Completato Prod."
+        ])
         .get(); 
     return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
 }
@@ -247,7 +272,7 @@ export async function saveManualJobOrder(data: any) {
 
     const newJob: any = {
         id: compositeId,
-        status: 'IN_PIANIFICAZIONE',
+        status: 'Pianificata',
         postazioneLavoro: 'Da Assegnare',
         cliente: cliente || "N/D",
         ordinePF: ordinePF,
@@ -1282,7 +1307,7 @@ export async function saveSmartJobOrder(data: {
 export async function forceRecalculateEstimates() {
     try {
         const jobsSnap = await adminDb.collection("jobOrders")
-            .where("status", "in", ["planned", "IN_ATTESA", "In Pianificazione", "IN_PIANIFICAZIONE", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO"])
+            .where("status", "in", ["Pianificata", "pianificata", "planned", "IN_ATTESA", "In Pianificazione", "IN_PIANIFICAZIONE", "PIANIFICATE", "PIANIFICATA", "PLANNED", "PIANIFICATO"])
             .get();
 
         if (jobsSnap.empty) return { success: true, message: "Nessuna commessa pianificata da processare." };

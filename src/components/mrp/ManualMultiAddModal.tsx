@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Dialog,
   DialogContent,
@@ -294,6 +295,7 @@ export function ManualMultiAddModal({
   defaultDepartment = 'CP',
 }: ManualMultiAddModalProps) {
   const { toast } = useToast();
+  const router = useRouter();
 
   const initialDept = defaultDepartment !== 'ALL' ? defaultDepartment : (departments[0]?.code || 'CP');
   const [rows, setRows] = useState<ManualMultiRow[]>([
@@ -527,6 +529,7 @@ export function ManualMultiAddModal({
           onJobsCreated(res.jobs);
         }
 
+        router.refresh();
         handleClearAll();
         onClose();
       } else {

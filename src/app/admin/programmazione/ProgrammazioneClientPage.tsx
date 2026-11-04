@@ -4405,7 +4405,23 @@ export default function ProgrammazioneClientPage({
           departments={departments}
           defaultDepartment={selectedDept !== 'ALL' ? selectedDept : 'CP'}
           onJobsCreated={(newJobs) => {
-            setJobs((prev) => [...newJobs, ...prev]);
+            setJobs((prev) => {
+              const existingIds = new Set(prev.map((j) => j.id));
+              const uniqueNew = newJobs.filter((j) => !existingIds.has(j.id));
+              return [...uniqueNew, ...prev];
+            });
+
+            // Se l'utente è nella vista settimanale, naviga alla data di consegna della nuova commessa
+            if (viewMode === 'settimana' && newJobs.length > 0 && newJobs[0].dataConsegnaFinale) {
+              const d = parseRobustDate(newJobs[0].dataConsegnaFinale);
+              if (d) setCurrentDateReference(d);
+            } else if (viewMode === 'globale') {
+              setGlobalTab('PIANIFICATE');
+            }
+
+            // Ricalcolo immediato MRP per le nuove righe
+            handleRecalculateMRP();
+
             toast({
               title: "Commesse Inserite",
               description: `${newJobs.length} commesse create con successo con stato Pianificata.`,

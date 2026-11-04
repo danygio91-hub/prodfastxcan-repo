@@ -1050,9 +1050,15 @@ export async function saveManualMultiJobOrders(items: {
                 annoCompetenza: annoCompetenza,
                 cliente: row.cliente.trim(),
                 details: artCode,
+                articleCode: artCode,
+                articolo: artCode,
                 qta: qtaNum,
                 department: targetDept,
                 dataConsegnaFinale: normalizedDeliveryDate,
+                dataFinePreparazione: normalizedDeliveryDate,
+                assignedDate: normalizedDeliveryDate,
+                postazioneLavoro: 'Da Assegnare',
+                sortIndex: 0,
                 numeroODLInterno: odlToAssign,
                 numeroODL: odlToAssign || null,
                 status: 'Pianificata', // SSoT Pianificata
@@ -1070,11 +1076,16 @@ export async function saveManualMultiJobOrders(items: {
             } as JobOrder);
         }
 
-        // 8. Scrittura Batch Atomica
+        // 8. Scrittura Batch Atomica con Timestamp nativi Firestore
         const batch = adminDb.batch();
         newJobs.forEach(job => {
             const ref = adminDb.collection("jobOrders").doc(job.id);
-            batch.set(ref, sanitizeFirestoreData(job));
+            const firestorePayload = {
+                ...job,
+                createdAt: admin.firestore.Timestamp.fromDate(now),
+                updatedAt: admin.firestore.Timestamp.fromDate(now),
+            };
+            batch.set(ref, sanitizeFirestoreData(firestorePayload));
         });
         await batch.commit();
 
