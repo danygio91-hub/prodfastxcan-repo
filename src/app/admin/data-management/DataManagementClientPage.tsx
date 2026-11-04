@@ -464,7 +464,9 @@ export default function DataManagementClientPage({
         underControlMaterials: [],
         underControlCount: 0,
         groupedAlarms: [],
-        groupedUnderControl: []
+        groupedUnderControl: [],
+        mutedAlarms: [],
+        mutedCount: 0
       };
     }
     return classifyGlobalMRPAlarms({

@@ -498,6 +498,20 @@ export interface MRPAlarmTimelineEntry<TJob = any> {
     visualStatus: MRPVisualAlarmStatus;
     jobDate?: string;
     isUncovered: boolean;
+    isMuted?: boolean;
+}
+
+export interface MutedMRPAlarmItem<TJob = any> {
+    jobId: string;
+    job?: TJob;
+    matCode: string;
+    materialName?: string;
+    materialType?: string;
+    requiredQty: number;
+    projectedBalance: number;
+    jobDate?: string;
+    visualStatus: MRPVisualAlarmStatus;
+    details?: string[];
 }
 
 export interface MaterialAlarmItem<TJob = any> {
@@ -533,6 +547,8 @@ export interface ClassifiedMRPAlarms<TJob = any> {
     underControlCount: number;
     groupedAlarms: GroupedAlarmCategory<TJob>[];
     groupedUnderControl: GroupedUnderControlCategory<TJob>[];
+    mutedAlarms: MutedMRPAlarmItem<TJob>[]; // FASE 44: Allarmi silenziati per singola commessa
+    mutedCount: number;
 }
 
 export interface ClassifyMRPAlarmsParams<TJob = any> {
@@ -561,6 +577,7 @@ export function classifyGlobalMRPAlarms<TJob = any>({
 }: ClassifyMRPAlarmsParams<TJob>): ClassifiedMRPAlarms<TJob> {
     const alarmMaterials: MaterialAlarmItem<TJob>[] = [];
     const underControlMaterials: MaterialAlarmItem<TJob>[] = [];
+    const mutedAlarms: MutedMRPAlarmItem<TJob>[] = [];
 
     mrpTimelines.forEach((entries, matCode) => {
         if (!entries || entries.length === 0) return;
@@ -580,7 +597,9 @@ export function classifyGlobalMRPAlarms<TJob = any>({
             return poCode === normalizedCode || (po as any).materialId === normalizedCode || (material?.id && (po as any).materialId === material.id);
         });
 
-        const entriesWithVisual: MRPAlarmTimelineEntry<TJob>[] = entries.map(entry => {
+        const entriesWithVisual: MRPAlarmTimelineEntry<TJob>[] = [];
+
+        entries.forEach(entry => {
             const job = allJobs.find(j => (j as any).id === entry.jobId);
             const jobDate = (job as any)?.dataFinePreparazione || (job as any)?.dataConsegnaFinale;
             
@@ -607,14 +626,46 @@ export function classifyGlobalMRPAlarms<TJob = any>({
                 visualStatus = 'GREEN';
             }
 
-            return {
+            // FASE 44: Filtro Silenzioso mirato per singola commessa
+            const jobMutedList: string[] = (job as any)?.mutedMaterials || [];
+            const isMuted = Array.isArray(jobMutedList) && jobMutedList.some(
+                (code: string) => (code || '').toUpperCase().trim() === normalizedCode
+            );
+
+            if (isMuted) {
+                // Se la commessa ha silenziato questo materiale ed è in deficit, raccoglie in mutedAlarms
+                if (isUncovered) {
+                    mutedAlarms.push({
+                        jobId: entry.jobId,
+                        job,
+                        matCode: normalizedCode,
+                        materialName,
+                        materialType,
+                        requiredQty: entry.requiredQty,
+                        projectedBalance: entry.projectedBalance,
+                        jobDate,
+                        visualStatus,
+                        details: entry.details
+                    });
+                }
+                // Escluso dalla lista principale e dai conteggi rossi degli allarmi!
+                return;
+            }
+
+            entriesWithVisual.push({
                 entry,
                 job,
                 visualStatus,
                 jobDate,
-                isUncovered
-            };
-        }).sort((a, b) => {
+                isUncovered,
+                isMuted: false
+            });
+        });
+
+        // Se tutti i fabbisogni sono stati silenziati o non ce ne sono, non creare allarmi attivi per questo materiale
+        if (entriesWithVisual.length === 0) return;
+
+        entriesWithVisual.sort((a, b) => {
             const dateA = a.jobDate || '9999-12-31';
             const dateB = b.jobDate || '9999-12-31';
             return dateA.localeCompare(dateB);
@@ -658,6 +709,35 @@ export function classifyGlobalMRPAlarms<TJob = any>({
             alarmMaterials.push(item);
         } else if (isUnderControl) {
             underControlMaterials.push(item);
+        }
+    });
+
+    // Raccoglie eventuali ulteriori materiali silenziati presenti sulle commesse ma non incontrati nel loop sopra
+    allJobs.forEach(job => {
+        const jobMuted = (job as any)?.mutedMaterials;
+        if (Array.isArray(jobMuted) && jobMuted.length > 0) {
+            jobMuted.forEach((matCode: string) => {
+                const norm = (matCode || '').toUpperCase().trim();
+                if (!norm) return;
+                const alreadyIncluded = mutedAlarms.some(
+                    m => m.jobId === (job as any).id && m.matCode === norm
+                );
+                if (!alreadyIncluded) {
+                    const material = rawMaterials.find(m => (m?.code || '').toUpperCase().trim() === norm);
+                    mutedAlarms.push({
+                        jobId: (job as any).id,
+                        job,
+                        matCode: norm,
+                        materialName: material?.description || '',
+                        materialType: ((material as any)?.category || material?.description?.split(' ')[0] || 'ALTRO').toUpperCase().trim(),
+                        requiredQty: 0,
+                        projectedBalance: 0,
+                        jobDate: (job as any).dataFinePreparazione || (job as any).dataConsegnaFinale,
+                        visualStatus: 'RED',
+                        details: ['Silenziato per questa commessa']
+                    });
+                }
+            });
         }
     });
 
@@ -735,7 +815,9 @@ export function classifyGlobalMRPAlarms<TJob = any>({
         underControlMaterials,
         underControlCount: underControlMaterials.length,
         groupedAlarms,
-        groupedUnderControl
+        groupedUnderControl,
+        mutedAlarms,
+        mutedCount: mutedAlarms.length
     };
 }
 

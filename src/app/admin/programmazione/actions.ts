@@ -1821,6 +1821,64 @@ export async function searchArticlesAction(searchTerm: string): Promise<Article[
     }
 }
 
+/**
+ * FASE 44: Silenzia un materiale per una specifica commessa (arrayUnion su mutedMaterials)
+ */
+export async function muteMaterialOnJob(jobId: string, materialCode: string): Promise<{ success: boolean; message: string }> {
+    try {
+        if (!jobId || !materialCode) {
+            return { success: false, message: "Commessa o codice materiale mancante." };
+        }
+        const cleanCode = materialCode.trim().toUpperCase();
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        const snap = await jobRef.get();
+        if (!snap.exists) {
+            return { success: false, message: "Commessa non trovata." };
+        }
+
+        await jobRef.update({
+            mutedMaterials: admin.firestore.FieldValue.arrayUnion(cleanCode),
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        return { success: true, message: `Materiale ${cleanCode} silenziato con successo per la commessa.` };
+    } catch (error: any) {
+        console.error("Errore in muteMaterialOnJob:", error);
+        return { success: false, message: error?.message || "Errore durante il silenziamento del materiale." };
+    }
+}
+
+/**
+ * FASE 44: Riattiva un materiale silenziato per una specifica commessa (arrayRemove su mutedMaterials)
+ */
+export async function unmuteMaterialOnJob(jobId: string, materialCode: string): Promise<{ success: boolean; message: string }> {
+    try {
+        if (!jobId || !materialCode) {
+            return { success: false, message: "Commessa o codice materiale mancante." };
+        }
+        const cleanCode = materialCode.trim().toUpperCase();
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        const snap = await jobRef.get();
+        if (!snap.exists) {
+            return { success: false, message: "Commessa non trovata." };
+        }
+
+        await jobRef.update({
+            mutedMaterials: admin.firestore.FieldValue.arrayRemove(cleanCode),
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        return { success: true, message: `Materiale ${cleanCode} riattivato con successo per la commessa.` };
+    } catch (error: any) {
+        console.error("Errore in unmuteMaterialOnJob:", error);
+        return { success: false, message: error?.message || "Errore durante la riattivazione del materiale." };
+    }
+}
+
 
 
 

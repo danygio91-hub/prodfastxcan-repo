@@ -161,6 +161,7 @@ export interface JobOrder {
   isSuspended?: boolean;
   hasMaterialShortage?: boolean;
   dailySequence?: number;
+  mutedMaterials?: string[]; // FASE 44: Array di codici articolo silenziati per la singola commessa
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';

@@ -21,6 +21,8 @@ import {
   Upload,
   Combine,
   BellRing,
+  BellOff,
+  Bell,
   HelpCircle,
   Loader2,
   Zap,
@@ -133,6 +135,8 @@ import {
   exportPlanningReportAction,
   deleteJobOrder,
   bulkDeleteJobOrders,
+  muteMaterialOnJob,
+  unmuteMaterialOnJob,
   type DayCapacityConfigData
 } from './actions';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
@@ -1000,6 +1004,132 @@ export default function ProgrammazioneClientPage({
       prev.map((j) => (j.id === oldId || j.id === updatedJob.id ? { ...j, ...updatedJob } : j))
     );
   }, [jobToEdit]);
+
+  // FASE 44: Gestione Silenziamento e Riattivazione Allarmi MRP per Singola Commessa
+  const handleMuteMaterial = useCallback(async (jobId: string, materialCode: string) => {
+    if (!jobId || !materialCode) return;
+    const cleanCode = materialCode.trim().toUpperCase();
+
+    // Optimistic Update locale per far sparire immediatamente la riga a schermo
+    setJobs(prevJobs => prevJobs.map(j => {
+      if (j.id === jobId) {
+        const currentMuted = j.mutedMaterials || [];
+        if (!currentMuted.includes(cleanCode)) {
+          return {
+            ...j,
+            mutedMaterials: [...currentMuted, cleanCode]
+          };
+        }
+      }
+      return j;
+    }));
+
+    try {
+      const res = await muteMaterialOnJob(jobId, cleanCode);
+      if (res.success) {
+        toast({
+          title: "Allarme silenziato",
+          description: `Allarme per ${cleanCode} silenziato su questa commessa.`
+        });
+      } else {
+        // Rollback
+        setJobs(prevJobs => prevJobs.map(j => {
+          if (j.id === jobId) {
+            return {
+              ...j,
+              mutedMaterials: (j.mutedMaterials || []).filter(m => m !== cleanCode)
+            };
+          }
+          return j;
+        }));
+        toast({
+          variant: "destructive",
+          title: "Errore",
+          description: res.message || "Impossibile silenziare l'allarme."
+        });
+      }
+    } catch (err: any) {
+      // Rollback
+      setJobs(prevJobs => prevJobs.map(j => {
+        if (j.id === jobId) {
+          return {
+            ...j,
+            mutedMaterials: (j.mutedMaterials || []).filter(m => m !== cleanCode)
+          };
+        }
+        return j;
+      }));
+      toast({
+        variant: "destructive",
+        title: "Errore",
+        description: err?.message || "Errore imprevisto durante il silenziamento."
+      });
+    }
+  }, [toast]);
+
+  const handleUnmuteMaterial = useCallback(async (jobId: string, materialCode: string) => {
+    if (!jobId || !materialCode) return;
+    const cleanCode = materialCode.trim().toUpperCase();
+
+    // Optimistic Update locale per ripristinare immediatamente l'allarme
+    setJobs(prevJobs => prevJobs.map(j => {
+      if (j.id === jobId) {
+        return {
+          ...j,
+          mutedMaterials: (j.mutedMaterials || []).filter(m => m !== cleanCode)
+        };
+      }
+      return j;
+    }));
+
+    try {
+      const res = await unmuteMaterialOnJob(jobId, cleanCode);
+      if (res.success) {
+        toast({
+          title: "Allarme riattivato",
+          description: `Allarme per ${cleanCode} ripristinato per questa commessa.`
+        });
+      } else {
+        // Rollback
+        setJobs(prevJobs => prevJobs.map(j => {
+          if (j.id === jobId) {
+            const currentMuted = j.mutedMaterials || [];
+            if (!currentMuted.includes(cleanCode)) {
+              return {
+                ...j,
+                mutedMaterials: [...currentMuted, cleanCode]
+              };
+            }
+          }
+          return j;
+        }));
+        toast({
+          variant: "destructive",
+          title: "Errore",
+          description: res.message || "Impossibile riattivare l'allarme."
+        });
+      }
+    } catch (err: any) {
+      // Rollback
+      setJobs(prevJobs => prevJobs.map(j => {
+        if (j.id === jobId) {
+          const currentMuted = j.mutedMaterials || [];
+          if (!currentMuted.includes(cleanCode)) {
+            return {
+              ...j,
+              mutedMaterials: [...currentMuted, cleanCode]
+            };
+          }
+        }
+        return j;
+      }));
+      toast({
+        variant: "destructive",
+        title: "Errore",
+        description: err?.message || "Errore imprevisto durante la riattivazione."
+      });
+    }
+  }, [toast]);
 
   // FASE 16: Selezione Multipla (Checkbox) e Azioni Massive (Bulk Actions)
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
@@ -3188,29 +3318,53 @@ export default function ProgrammazioneClientPage({
                                           <span>
                                             Data Cons: <strong className="text-foreground">{job?.dataConsegnaFinale ? formatDateForDisplay(job.dataConsegnaFinale) : 'N/D'}</strong>
                                           </span>
-                                          <span className={cn(
-                                            "font-bold uppercase text-[9px] px-1.5 py-0.2 rounded-xs",
-                                            visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE'
-                                              ? "bg-red-500/20 text-red-700 dark:text-red-300"
-                                              : visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE'
-                                                ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
-                                                : visualStatus === 'ORDERED'
-                                                  ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400"
-                                                  : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                                          )}>
-                                            {visualStatus === 'RED' 
-                                              ? '🔴 Mancante' 
-                                              : visualStatus === 'SUPPLIER_LATE'
-                                                ? '🔴 Ritardo Forn.'
-                                                : visualStatus === 'EXPEDITE_NEEDED'
-                                                  ? '🟠 Da Anticipare'
-                                                  : visualStatus === 'LATE' 
-                                                    ? '🟠 In Ritardo' 
-                                                    : visualStatus === 'ORDERED' 
-                                                      ? '💜 Ordinato' 
-                                                      : '🟢 Coperto'
-                                            }
-                                          </span>
+                                          <div className="flex items-center gap-1.5">
+                                            <span className={cn(
+                                              "font-bold uppercase text-[9px] px-1.5 py-0.2 rounded-xs",
+                                              visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE'
+                                                ? "bg-red-500/20 text-red-700 dark:text-red-300"
+                                                : visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE'
+                                                  ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                                                  : visualStatus === 'ORDERED'
+                                                    ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400"
+                                                    : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                            )}>
+                                              {visualStatus === 'RED' 
+                                                ? '🔴 Mancante' 
+                                                : visualStatus === 'SUPPLIER_LATE'
+                                                  ? '🔴 Ritardo Forn.'
+                                                  : visualStatus === 'EXPEDITE_NEEDED'
+                                                    ? '🟠 Da Anticipare'
+                                                    : visualStatus === 'LATE' 
+                                                      ? '🟠 In Ritardo' 
+                                                      : visualStatus === 'ORDERED' 
+                                                        ? '💜 Ordinato' 
+                                                        : '🟢 Coperto'
+                                              }
+                                            </span>
+
+                                            {/* FASE 44: Bottone Silenzia Allarme per singola commessa */}
+                                            {job && (
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleMuteMaterial(job.id, mat.matCode);
+                                                    }}
+                                                    className="h-5 w-5 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-500/15 dark:hover:text-red-400 rounded-sm"
+                                                  >
+                                                    <BellOff className="h-3 w-3" />
+                                                  </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="top" className="text-xs">
+                                                  Silenzia per questa commessa
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            )}
+                                          </div>
                                         </div>
 
                                         <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/40 font-mono">
@@ -3289,6 +3443,88 @@ export default function ProgrammazioneClientPage({
                                       </div>
                                     ))}
                                   </div>
+                                </div>
+                              ))}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      </Accordion>
+                    </div>
+                  )}
+
+                  {/* FASE 44: Sezione Accordion "Allarmi Silenziati (Gestiti offline)" */}
+                  {classifiedMRPAlarms.mutedCount > 0 && (
+                    <div className="mt-6 pt-4 border-t border-dashed">
+                      <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="allarmi-silenziati-prog" className="border-slate-300 dark:border-slate-700 bg-slate-100/50 dark:bg-slate-800/30 rounded-lg px-2.5 border">
+                          <AccordionTrigger className="hover:no-underline py-2.5">
+                            <div className="flex items-center justify-between w-full pr-2 text-left">
+                              <div className="flex items-center gap-2">
+                                <BellOff className="h-4 w-4 text-slate-500" />
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                  Allarmi Silenziati (Gestiti offline)
+                                </span>
+                                <Badge variant="secondary" className="text-[10px] font-bold py-0 px-1.5">
+                                  {classifiedMRPAlarms.mutedCount}
+                                </Badge>
+                              </div>
+                              <span className="text-[11px] text-muted-foreground">
+                                Allarmi esclusi manualmente
+                              </span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="pt-2 pb-4">
+                            <p className="text-[11px] text-muted-foreground mb-3">
+                              Questi fabbisogni sono stati silenziati specificamente per la singola commessa indicata (es. prelievo manuale già effettuato). Non incidono sul conteggio allarmi globale.
+                            </p>
+                            <div className="space-y-2">
+                              {classifiedMRPAlarms.mutedAlarms.map((item, idx) => (
+                                <div 
+                                  key={`${item.jobId}-${item.matCode}-${idx}`}
+                                  className="p-2.5 rounded-md border border-slate-200 dark:border-slate-700/60 bg-card text-xs flex justify-between items-center gap-3"
+                                >
+                                  <div className="space-y-1 min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 font-mono">
+                                      <span className="font-bold text-foreground truncate max-w-[150px]">
+                                        {item.job?.ordinePF || item.jobId}
+                                      </span>
+                                      {item.job && (
+                                        <Badge variant="outline" className="text-[9px] py-0 px-1 font-bold">
+                                          {getJobDepartmentGroup(item.job)}
+                                        </Badge>
+                                      )}
+                                      <span className="text-muted-foreground text-[10px] truncate max-w-[120px]">
+                                        {item.job?.cliente}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 font-mono text-[11px]">
+                                      <span className="font-bold text-blue-600 dark:text-blue-400">
+                                        {item.matCode}
+                                      </span>
+                                      {item.materialName && (
+                                        <span className="text-muted-foreground text-[10px] truncate max-w-[180px]">
+                                          {item.materialName}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {item.jobDate && (
+                                      <div className="text-[10px] text-muted-foreground">
+                                        Data Cons: <strong className="text-foreground">{formatDateForDisplay(item.jobDate)}</strong>
+                                        {item.requiredQty > 0 && (
+                                          <span className="ml-2">Fabbisogno: {item.requiredQty.toFixed(2)}</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleUnmuteMaterial(item.jobId, item.matCode)}
+                                    className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 shrink-0"
+                                  >
+                                    <Bell className="h-3.5 w-3.5" />
+                                    <span>Riattiva</span>
+                                  </Button>
                                 </div>
                               ))}
                             </div>
