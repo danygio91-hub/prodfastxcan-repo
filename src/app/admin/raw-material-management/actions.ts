@@ -313,19 +313,39 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             );
 
             const weightFromGross = (grossWeight > 0) ? (grossWeight - tareWeight) : finalNetWeightKg;
-            
-            const newBatch: RawMaterialBatch = { 
-                id: `batch-${Date.now()}`, 
-                date: new Date(rawData.date as string).toISOString(), 
-                ddt: (rawData.ddt as string) || 'CARICO', 
-                netQuantity: finalUnits, 
-                tareWeight: tareWeight, 
-                grossWeight: grossWeight > 0 ? grossWeight : (weightFromGross + tareWeight),
-                tareName: tareName,
-                lotto: (rawData.lotto as string) || null,
-                packagingId: (rawData.packagingId as string) || undefined
-            };
-            const updatedBatches = [...(material.batches || []), newBatch];
+            const lottoStr = ((rawData.lotto as string) || '').trim();
+            const existingBatches = material.batches || [];
+            const existingBatchIndex = lottoStr ? existingBatches.findIndex(b => (b.lotto || '').trim() === lottoStr) : -1;
+            let updatedBatches = [...existingBatches];
+
+            // FASE 50: Se il lotto esiste già, aggiorna netQuantity senza creare il clone "Batch 2"
+            if (existingBatchIndex !== -1) {
+                const existingBatch = updatedBatches[existingBatchIndex];
+                const newNetQuantity = Number(((existingBatch.netQuantity || 0) + finalUnits).toFixed(3));
+                const newGrossWeight = grossWeight > 0
+                    ? Number(grossWeight.toFixed(3))
+                    : Number(((existingBatch.grossWeight || 0) + finalNetWeightKg).toFixed(3));
+
+                updatedBatches[existingBatchIndex] = {
+                    ...existingBatch,
+                    netQuantity: newNetQuantity,
+                    grossWeight: newGrossWeight,
+                    isExhausted: false,
+                };
+            } else {
+                const newBatch: RawMaterialBatch = { 
+                    id: `batch-${Date.now()}`, 
+                    date: new Date(rawData.date as string).toISOString(), 
+                    ddt: (rawData.ddt as string) || 'CARICO', 
+                    netQuantity: Number(finalUnits.toFixed(3)), 
+                    tareWeight: Number(tareWeight.toFixed(3)), 
+                    grossWeight: grossWeight > 0 ? Number(grossWeight.toFixed(3)) : Number((weightFromGross + tareWeight).toFixed(3)),
+                    tareName: tareName,
+                    lotto: lottoStr || null,
+                    packagingId: (rawData.packagingId as string) || undefined
+                };
+                updatedBatches.push(newBatch);
+            }
             
             transaction.update(materialRef, { batches: updatedBatches });
 
@@ -383,8 +403,9 @@ export async function returnMaterialToBatch(formData: FormData): Promise<{ succe
                 true
             );
             
-            batches[idx].netQuantity = (batches[idx].netQuantity || 0) + finalUnits;
-            batches[idx].grossWeight = (batches[idx].grossWeight || 0) + finalWeightKg;
+            // FASE 50: Arrotondamento anti-polvere decimale (Floating Point)
+            batches[idx].netQuantity = Number(((batches[idx].netQuantity || 0) + finalUnits).toFixed(3));
+            batches[idx].grossWeight = Number(((batches[idx].grossWeight || 0) + finalWeightKg).toFixed(3));
             if (batches[idx].netQuantity > 0.001) batches[idx].isExhausted = false;
 
             transaction.update(materialRef, { batches });

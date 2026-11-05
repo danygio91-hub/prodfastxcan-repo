@@ -115,18 +115,25 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               }
           }
 
-          const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
-          const newWeightKg = (material.currentWeightKg || 0) + netWeightKg;
+          const newStockUnits = Number(((material.currentStockUnits || 0) + unitsToAdd).toFixed(3));
+          const newWeightKg = Number(((material.currentWeightKg || 0) + netWeightKg).toFixed(3));
 
           const existingBatchIndex = lotto ? existingBatches.findIndex((b: any) => b.lotto === lotto) : -1;
           let updatedBatches = [...existingBatches];
 
           if (existingBatchIndex !== -1) {
               const existingBatch = updatedBatches[existingBatchIndex];
+              // FASE 50: Fix Doppia Tara e Polvere Decimale.
+              // Se viene inserito formGross (peso letto dalla bilancia), esso rappresenta il lordo totale attuale del lotto e NON deve sommare il vecchio lordo.
+              // Se formGross non è inserito, somma solo il netWeightKg incrementale, senza risommare la tara.
+              const newGrossWeight = (typeof formGross === 'number' && formGross > 0)
+                  ? Number(formGross.toFixed(3))
+                  : Number(((existingBatch.grossWeight || 0) + netWeightKg).toFixed(3));
+
               updatedBatches[existingBatchIndex] = {
                   ...existingBatch,
                   netQuantity: Number(((existingBatch.netQuantity || 0) + unitsToAdd).toFixed(3)),
-                  grossWeight: Number(((existingBatch.grossWeight || 0) + (formGross ?? (netWeightKg + tareWeight))).toFixed(3)),
+                  grossWeight: newGrossWeight,
                   isExhausted: false
               };
               
@@ -141,9 +148,9 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
                 id: `batch-load-${Date.now()}`,
                 date: new Date(date).toISOString(),
                 ddt: ddt || 'CARICO_RAPIDO',
-                netQuantity: unitsToAdd, 
-                tareWeight: formTare ?? tareWeight,
-                grossWeight: formGross ?? (netWeightKg + tareWeight),
+                netQuantity: Number(unitsToAdd.toFixed(3)), 
+                tareWeight: Number((formTare ?? tareWeight).toFixed(3)),
+                grossWeight: Number((formGross ?? (netWeightKg + tareWeight)).toFixed(3)),
                 tareName: tareName || 'Nessuna Tara',
                 lotto: lotto || null,
               };
