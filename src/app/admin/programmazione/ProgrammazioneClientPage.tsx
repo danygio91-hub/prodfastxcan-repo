@@ -109,6 +109,7 @@ import { SmartPasteModal } from '@/components/mrp/SmartPasteModal';
 import { ExcelImportModal } from '@/components/mrp/ExcelImportModal';
 import { ManualMultiAddModal } from '@/components/mrp/ManualMultiAddModal';
 import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
+import { ContoLavoroModal } from '@/components/mrp/ContoLavoroModal';
 import { 
   getJobOrders, 
   getActiveJobOrders,
@@ -137,6 +138,7 @@ import {
   bulkDeleteJobOrders,
   muteMaterialOnJob,
   unmuteMaterialOnJob,
+  toggleExternalizedMaterial,
   type DayCapacityConfigData
 } from './actions';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
@@ -581,6 +583,7 @@ interface JobTableRowProps {
   onRollbackJob: (job: JobOrder) => void;
   onOpenEditModal: (job: JobOrder) => void;
   onDeleteJob: (job: JobOrder) => void;
+  onOpenContoLavoroModal: (job: JobOrder) => void;
 }
 
 const JobTableRow = React.memo(function JobTableRow({
@@ -599,6 +602,7 @@ const JobTableRow = React.memo(function JobTableRow({
   onRollbackJob,
   onOpenEditModal,
   onDeleteJob,
+  onOpenContoLavoroModal,
 }: JobTableRowProps) {
   const hours = calculateJobHours(job);
   const weekInfo = getJobWeekAndYear(job);
@@ -609,6 +613,7 @@ const JobTableRow = React.memo(function JobTableRow({
   const isPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
   const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
   const effectiveWeekInfo = getJobEffectiveWeek(job);
+  const hasExternalized = Boolean(job.externalizedMaterials && job.externalizedMaterials.length > 0);
 
   return (
     <tr
@@ -712,27 +717,42 @@ const JobTableRow = React.memo(function JobTableRow({
 
       {/* 9. STATO MRP */}
       <td className="py-1.5 px-1.5 text-center align-middle">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] border cursor-help ${mrp.badgeClass}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${mrp.dotClass}`}></span>
-              <span>{mrp.label}</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-[340px] text-xs p-2.5">
-            <div className="font-bold border-b pb-1 mb-1 text-[11px] flex items-center justify-between">
-              <span>Fabbisogni MRP • {job.ordinePF}</span>
-              <span className="font-normal text-muted-foreground text-[10px]">{mrp.label}</span>
-            </div>
-            <ul className="space-y-1 text-[10px]">
-              {mrp.details.map((d, idx) => (
-                <li key={idx} className="leading-tight">
-                  {d}
-                </li>
-              ))}
-            </ul>
-          </TooltipContent>
-        </Tooltip>
+        <div className="flex flex-col items-center justify-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] border cursor-help ${mrp.badgeClass}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${mrp.dotClass}`}></span>
+                <span>{mrp.label}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[340px] text-xs p-2.5">
+              <div className="font-bold border-b pb-1 mb-1 text-[11px] flex items-center justify-between">
+                <span>Fabbisogni MRP • {job.ordinePF}</span>
+                <span className="font-normal text-muted-foreground text-[10px]">{mrp.label}</span>
+              </div>
+              <ul className="space-y-1 text-[10px]">
+                {mrp.details.map((d, idx) => (
+                  <li key={idx} className="leading-tight">
+                    {d}
+                  </li>
+                ))}
+              </ul>
+            </TooltipContent>
+          </Tooltip>
+
+          {/* FASE 45: Badge C.to Lavoro se presenti materiali esternalizzati */}
+          {hasExternalized && (
+            <Badge 
+              variant="outline" 
+              onClick={() => onOpenContoLavoroModal(job)}
+              className="bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30 text-[9px] font-bold py-0 px-1.5 gap-1 inline-flex items-center cursor-pointer hover:bg-purple-500/25 transition-colors"
+              title={`C.to Lavoro: ${job.externalizedMaterials!.join(', ')} esternalizzati. Clicca per gestire.`}
+            >
+              <Truck className="h-2.5 w-2.5 text-purple-600 dark:text-purple-400" />
+              <span>C.to Lavoro ({job.externalizedMaterials!.length})</span>
+            </Badge>
+          )}
+        </div>
       </td>
 
       {/* 10. SETTIMANA ASSEGNATA */}
@@ -942,6 +962,30 @@ const JobTableRow = React.memo(function JobTableRow({
               </TooltipContent>
             </Tooltip>
           )}
+
+          {/* FASE 45: Gestione C.to Lavoro (Terzista) */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onOpenContoLavoroModal(job)}
+                className={cn(
+                  "h-7 w-7 cursor-pointer transition-colors",
+                  hasExternalized
+                    ? "text-purple-600 dark:text-purple-400 bg-purple-500/15 hover:bg-purple-500/25"
+                    : "text-muted-foreground hover:text-purple-600 hover:bg-purple-500/10"
+                )}
+              >
+                <Truck className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {hasExternalized
+                ? `C.to Lavoro (${job.externalizedMaterials!.length} materiali esternalizzati)`
+                : "Gestione C.to Lavoro (esternalizzazione materiali)"}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </td>
     </tr>
@@ -1004,6 +1048,77 @@ export default function ProgrammazioneClientPage({
       prev.map((j) => (j.id === oldId || j.id === updatedJob.id ? { ...j, ...updatedJob } : j))
     );
   }, [jobToEdit]);
+
+  // FASE 45: Modale di Gestione Conto Lavoro (C.to Lavoro)
+  const [isContoLavoroModalOpen, setIsContoLavoroModalOpen] = useState(false);
+  const [contoLavoroJob, setContoLavoroJob] = useState<JobOrder | null>(null);
+
+  const handleOpenContoLavoroModal = useCallback((job: JobOrder) => {
+    setContoLavoroJob(job);
+    setIsContoLavoroModalOpen(true);
+  }, []);
+
+  const handleToggleContoLavoroMaterial = useCallback(async (jobId: string, materialCode: string, isExternalized: boolean): Promise<boolean> => {
+    if (!jobId || !materialCode) return false;
+    const cleanCode = materialCode.trim().toUpperCase();
+
+    // Optimistic Update su lista jobs
+    setJobs((prev) =>
+      prev.map((j) => {
+        if (j.id !== jobId) return j;
+        const current = j.externalizedMaterials || [];
+        const updated = isExternalized
+          ? (current.includes(cleanCode) ? current : [...current, cleanCode])
+          : current.filter((c) => (c || '').trim().toUpperCase() !== cleanCode);
+        return { ...j, externalizedMaterials: updated };
+      })
+    );
+
+    // Optimistic Update sul job attivo nel modale
+    setContoLavoroJob((prev) => {
+      if (!prev || prev.id !== jobId) return prev;
+      const current = prev.externalizedMaterials || [];
+      const updated = isExternalized
+        ? (current.includes(cleanCode) ? current : [...current, cleanCode])
+        : current.filter((c) => (c || '').trim().toUpperCase() !== cleanCode);
+      return { ...prev, externalizedMaterials: updated };
+    });
+
+    const res = await toggleExternalizedMaterial(jobId, cleanCode, isExternalized);
+    if (res.success) {
+      toast({
+        title: isExternalized ? "C.to Lavoro Attivato" : "C.to Lavoro Ripristinato",
+        description: res.message,
+      });
+      return true;
+    } else {
+      // Rollback optimistic update
+      setJobs((prev) =>
+        prev.map((j) => {
+          if (j.id !== jobId) return j;
+          const current = j.externalizedMaterials || [];
+          const rolledBack = !isExternalized
+            ? (current.includes(cleanCode) ? current : [...current, cleanCode])
+            : current.filter((c) => (c || '').trim().toUpperCase() !== cleanCode);
+          return { ...j, externalizedMaterials: rolledBack };
+        })
+      );
+      setContoLavoroJob((prev) => {
+        if (!prev || prev.id !== jobId) return prev;
+        const current = prev.externalizedMaterials || [];
+        const rolledBack = !isExternalized
+          ? (current.includes(cleanCode) ? current : [...current, cleanCode])
+          : current.filter((c) => (c || '').trim().toUpperCase() !== cleanCode);
+        return { ...prev, externalizedMaterials: rolledBack };
+      });
+      toast({
+        variant: "destructive",
+        title: "Errore C.to Lavoro",
+        description: res.message,
+      });
+      return false;
+    }
+  }, [toast]);
 
   // FASE 44: Gestione Silenziamento e Riattivazione Allarmi MRP per Singola Commessa
   const handleMuteMaterial = useCallback(async (jobId: string, materialCode: string) => {
@@ -1908,17 +2023,27 @@ export default function ProgrammazioneClientPage({
       };
     }
 
-    const pendingItems = bom.filter((i) => i.status !== 'withdrawn');
-    const withdrawnItems = bom.filter((i) => i.status === 'withdrawn');
+    const extMaterials: string[] = (job.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim());
+    const isExternalized = (code: string) => extMaterials.includes((code || '').toUpperCase().trim());
 
-    // Tutti i componenti già prelevati
+    const pendingItems = bom.filter((i) => i.status !== 'withdrawn' && !isExternalized(i.component));
+    const withdrawnItems = bom.filter((i) => i.status === 'withdrawn');
+    const externalizedItems = bom.filter((i) => isExternalized(i.component));
+
+    // Tutti i componenti già prelevati o esternalizzati in C.to Lavoro
     if (pendingItems.length === 0) {
+      const isAllExternalized = externalizedItems.length > 0 && withdrawnItems.length === 0;
       return {
         state: 'GREEN',
-        label: 'Prelevato',
-        badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-        dotClass: 'bg-emerald-500',
-        details: withdrawnItems.map((i) => `✅ ${i.component} - Materiale già prelevato`),
+        label: isAllExternalized ? 'C.to Lavoro' : 'Prelevato',
+        badgeClass: isAllExternalized
+          ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30 font-semibold'
+          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+        dotClass: isAllExternalized ? 'bg-purple-500' : 'bg-emerald-500',
+        details: [
+          ...withdrawnItems.map((i) => `✅ ${i.component} - Materiale già prelevato`),
+          ...externalizedItems.map((i) => `🚚 ${i.component} - Inviato a terzista (C.to Lavoro)`),
+        ],
       };
     }
 
@@ -1962,6 +2087,7 @@ export default function ProgrammazioneClientPage({
 
     const details: string[] = [
       ...withdrawnItems.map((i) => `✅ ${i.component} - Prelevato`),
+      ...externalizedItems.map((i) => `🚚 ${i.component} - Inviato a terzista (C.to Lavoro)`),
       ...entries.map((e) => {
         if (!e.entry) return `📦 ${e.component}: Verifica disponibilità`;
         const matCode = (e.component || '').trim().toUpperCase();
@@ -4426,6 +4552,7 @@ export default function ProgrammazioneClientPage({
                       onRollbackJob={handleRollbackJob}
                       onOpenEditModal={handleOpenEditModal}
                       onDeleteJob={handleDeleteJob}
+                      onOpenContoLavoroModal={handleOpenContoLavoroModal}
                     />
                   ))
                 )}
@@ -4695,6 +4822,21 @@ export default function ProgrammazioneClientPage({
           departments={departments}
           articles={articles}
           onJobUpdated={handleJobUpdated}
+        />
+
+        {/* =========================================================================
+            6. MODALE GESTIONE CONTO LAVORO (FASE 45)
+        ========================================================================== */}
+        <ContoLavoroModal
+          isOpen={isContoLavoroModalOpen}
+          onClose={() => {
+            setIsContoLavoroModalOpen(false);
+            setContoLavoroJob(null);
+          }}
+          job={contoLavoroJob}
+          articles={articles}
+          rawMaterials={Array.from(materialsCacheRef.current.values())}
+          onToggleMaterial={handleToggleContoLavoroMaterial}
         />
       </div>
     </TooltipProvider>

@@ -569,8 +569,13 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
                              ['PRONTO', 'PRONTO PROD', 'IN PROD', 'FINE PROD'].includes((job.status || '').toUpperCase());
 
         (job.billOfMaterials || []).forEach(item => {
+            const code = (item.component || '').toLowerCase().trim();
+            // FASE 45: Esclusione C.to Lavoro
+            const isExternalized = Array.isArray(job.externalizedMaterials) &&
+                job.externalizedMaterials.some(m => (m || '').toLowerCase().trim() === code);
+            if (isExternalized) return;
+
             if (item.status !== 'withdrawn') {
-                const code = item.component.toLowerCase().trim();
                 const mat = codeToMat.get(code);
                 if (mat) {
                     // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
@@ -693,7 +698,13 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
                              ['PRONTO', 'PRONTO PROD', 'IN PROD', 'FINE PROD'].includes((job.status || '').toUpperCase());
 
         (job.billOfMaterials || []).forEach(item => {
-            if (item.component.toLowerCase().trim() === norm && item.status !== 'withdrawn') {
+            const code = (item.component || '').toLowerCase().trim();
+            // FASE 45: Esclusione C.to Lavoro
+            const isExternalized = Array.isArray(job.externalizedMaterials) &&
+                job.externalizedMaterials.some(m => (m || '').toLowerCase().trim() === code);
+            if (isExternalized) return;
+
+            if (code === norm && item.status !== 'withdrawn') {
                 // [MRP EXCEPTION: ACTIVE SESSIONS OVERRIDE]
                 if (isPrepFinished) {
                     const hasActiveSession = activeSessionsSnap.docs.some(doc => {

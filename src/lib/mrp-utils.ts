@@ -164,7 +164,15 @@ export function calculateMRPTimelines(
                 if (!isVolatile && !isFrozen && !MRP_ACTIVE_STATUSES.includes(status)) return;
 
                 (job.billOfMaterials || []).forEach(item => {
-                    if (item.status !== 'withdrawn' && (item.component || '').toUpperCase().trim() === matCode) {
+                    const compCode = (item.component || '').toUpperCase().trim();
+                    if (item.status !== 'withdrawn' && compCode === matCode) {
+                        // FASE 45: Esclusione C.to Lavoro (Silenziatore Impegni per Commessa)
+                        // Se l'articolo in esame è presente nell'array externalizedMaterials di questa commessa,
+                        // la sua quantità NON viene sommata al fabbisogno: l'impegno è silenziato.
+                        const isExternalized = Array.isArray(job.externalizedMaterials) &&
+                            job.externalizedMaterials.some(m => (m || '').toUpperCase().trim() === matCode);
+                        if (isExternalized) return;
+
                         const req = calculateBOMRequirement(job.qta, item, mat, config as any);
                         const finalQty = (item.fabbisognoTotale !== undefined && item.fabbisognoTotale !== null) 
                             ? Number(item.fabbisognoTotale) 

@@ -1879,6 +1879,50 @@ export async function unmuteMaterialOnJob(jobId: string, materialCode: string): 
     }
 }
 
+/**
+ * FASE 45: Gestione Semplificata C.to Lavoro (Silenziatore Impegni per Commessa)
+ * Aggiunge o rimuove un codice articolo dall'array externalizedMaterials della commessa.
+ */
+export async function toggleExternalizedMaterial(
+    jobId: string,
+    materialCode: string,
+    isExternalized: boolean
+): Promise<{ success: boolean; message: string }> {
+    try {
+        if (!jobId || !materialCode) {
+            return { success: false, message: "Commessa o codice materiale mancante." };
+        }
+        const cleanCode = materialCode.trim().toUpperCase();
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        const snap = await jobRef.get();
+        if (!snap.exists) {
+            return { success: false, message: "Commessa non trovata." };
+        }
+
+        const updateOperation = isExternalized
+            ? admin.firestore.FieldValue.arrayUnion(cleanCode)
+            : admin.firestore.FieldValue.arrayRemove(cleanCode);
+
+        await jobRef.update({
+            externalizedMaterials: updateOperation,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        return { 
+            success: true, 
+            message: isExternalized 
+                ? `Materiale ${cleanCode} inviato in C.to Lavoro (impegno silenziato).` 
+                : `Materiale ${cleanCode} rimosso da C.to Lavoro (impegno ripristinato).` 
+        };
+    } catch (error: any) {
+        console.error("Errore in toggleExternalizedMaterial:", error);
+        return { success: false, message: error?.message || "Errore durante l'aggiornamento del Conto Lavoro." };
+    }
+}
+
+
 
 
 

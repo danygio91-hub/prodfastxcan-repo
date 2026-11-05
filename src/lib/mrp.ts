@@ -35,8 +35,14 @@ export function buildMRPTimelines(
     const allJobs = jobOrders.filter(j => j.status !== 'completed');
     allJobs.forEach(job => {
         (job.billOfMaterials || []).forEach(item => {
+            const compCode = (item.component || '').toUpperCase().trim();
+            // FASE 45: Esclusione C.to Lavoro
+            const isExternalized = Array.isArray(job.externalizedMaterials) &&
+                job.externalizedMaterials.some(m => (m || '').toUpperCase().trim() === compCode);
+            if (isExternalized) return;
+
             if (item.status !== 'withdrawn') {
-                const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
+                const mat = rawMaterials.find(m => m.code.toUpperCase() === compCode);
                 if (mat) {
                     const config = materialTypesConfig.find(c => c.id === mat.type);
                     demands.push({
