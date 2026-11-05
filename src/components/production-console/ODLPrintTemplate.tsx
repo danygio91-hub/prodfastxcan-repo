@@ -36,16 +36,19 @@ export default function ODLPrintTemplate({
   });
 
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
+  const extList = (job.externalizedMaterials || []).map((m: string) => (m || '').toUpperCase().trim());
 
   const allItems = (job.billOfMaterials || []).map(item => {
-    const mat = materialsMap.get(item.component.toUpperCase());
+    const compUpper = (item.component || '').toUpperCase().trim();
+    const mat = materialsMap.get(compUpper);
     const type = mat?.type?.toUpperCase() || 'TRECCIA';
+    const isExternalized = extList.includes(compUpper);
     
     // FALLBACK LOGIC: If job item has no notes, try to find them in the Article BOM
     let finalNote = (item.note || '').trim();
     if (!finalNote && article?.billOfMaterials) {
         const articleMatch = article.billOfMaterials.find(aItem => 
-            aItem.component.toUpperCase().trim() === item.component.toUpperCase().trim() &&
+            aItem.component.toUpperCase().trim() === compUpper &&
             (aItem.lunghezzaTaglioMm || 0) === (item.lunghezzaTaglioMm || 0)
         );
         if (articleMatch?.note) {
@@ -53,7 +56,7 @@ export default function ODLPrintTemplate({
         }
     }
 
-    return { ...item, note: finalNote, type, mat };
+    return { ...item, note: finalNote, type, mat, isExternalized };
   });
 
   const trecciaItems = allItems.filter(i => ['BOB', 'PF3V0', 'BARRA', 'TRECCIA'].includes(i.type));
@@ -510,6 +513,12 @@ export default function ODLPrintTemplate({
             const configMat = globalSettings?.rawMaterialTypes.find(t => t.id === item.mat?.type) || { defaultUnit: item.mat?.unitOfMeasure };
             const req = calculateBOMRequirement(job.qta, item, item.mat as any, configMat as any);
             
+            // FASE 47: Verifica materiale esternalizzato in Conto Lavoro (externalizedMaterials)
+            const isExternalized = Boolean(
+              item.isExternalized ?? 
+              extList.includes((item.component || '').toUpperCase().trim())
+            );
+
             const data: any = {
               codice: item.component,
               lunghezzaTaglio: item.lunghezzaTaglioMm || 0,
@@ -517,20 +526,31 @@ export default function ODLPrintTemplate({
               pesoTotale: req.weightKg.toFixed(1),
               metriTotali: req.totalMeters?.toFixed(2) || '0.00',
               placeholder: '',
-              checkbox: '□',
+              checkbox: isExternalized ? '☑ ESTERNO' : '□',
               tempoPrevisto: '',
               note: item.note || ''
             };
 
+            const rowBg = isExternalized 
+              ? '#e5e7eb' // Grigio chiaro per riga esternalizzata (bg-gray-200)
+              : (sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina);
+
             return (
-              <tr key={`${sectionType}-${i}`} style={{ minHeight: '9.2mm', backgroundColor: sectionType === 'treccia' ? config.colors.bgTreccia : sectionType === 'tubi' ? config.colors.bgTubi : config.colors.bgGuaina }}>
+              <tr 
+                key={`${sectionType}-${i}`} 
+                style={{ 
+                  minHeight: '9.2mm', 
+                  backgroundColor: rowBg,
+                  color: isExternalized ? '#374151' : undefined
+                }}
+              >
                 {visibleCols.map((col) => {
                   const isTempoPrevisto = col.field === 'tempoPrevisto';
                   const cellFontSize = col.fontSize || config.typography.baseFontSize;
                   if (isTempoPrevisto) {
                     if (i === 0) {
                       return (
-                        <td key={col.id} rowSpan={items.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: `${cellFontSize}pt`, backgroundColor: 'white' }}>
+                        <td key={col.id} rowSpan={items.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: `${cellFontSize}pt`, backgroundColor: isExternalized ? '#e5e7eb' : 'white' }}>
                           <div style={getCellFlexStyles(col)}>
                               {config.layout.showEstimatedTimes ? getEstimatedTimeForSection(
                                   sectionType === 'treccia' ? 'phase-template-1' : 
@@ -542,13 +562,48 @@ export default function ODLPrintTemplate({
                     }
                     return null;
                   }
+
                   const displayValue = col.field === 'note' ? (data.note || '') : (data[col.field] ?? '---');
+                  const cellBg = col.isAuxiliary 
+                    ? (isExternalized ? '#e5e7eb' : 'white') 
+                    : (isExternalized ? '#e5e7eb' : undefined);
+
                   return (
-                    <td key={col.id} style={{ ...styles.cell, fontSize: `${cellFontSize}pt`, backgroundColor: col.isAuxiliary ? 'white' : undefined }}>
+                    <td key={col.id} style={{ ...styles.cell, fontSize: `${cellFontSize}pt`, backgroundColor: cellBg }}>
                       <div style={getCellFlexStyles(col)}>
                         {col.field === 'placeholder' ? (
-                          <div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div>
-                        ) : displayValue}
+                          isExternalized ? (
+                            <span style={{ color: '#b91c1c', fontSize: '6.5pt', fontWeight: 'bold', fontStyle: 'italic', letterSpacing: '0.3px' }}>
+                              ESTERNO
+                            </span>
+                          ) : (
+                            <div style={styles.verificaGrid}><div style={styles.verificaSlot}></div><div style={styles.verificaSlot}></div><div style={{ flex: 1 }}></div></div>
+                          )
+                        ) : col.field === 'codice' && isExternalized ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexWrap: 'wrap' }}>
+                            <span style={{ textDecoration: 'line-through', opacity: 0.75, fontWeight: 'bold' }}>
+                              {item.component}
+                            </span>
+                            <span style={{
+                              backgroundColor: '#dc2626',
+                              color: 'white',
+                              fontSize: '6pt',
+                              fontWeight: '900',
+                              padding: '1px 3.5px',
+                              borderRadius: '2px',
+                              letterSpacing: '0.4px',
+                              lineHeight: '1.1'
+                            }}>
+                              ESTERNO
+                            </span>
+                          </div>
+                        ) : col.field === 'checkbox' && isExternalized ? (
+                          <span style={{ color: '#b91c1c', fontWeight: '900', fontSize: '7.5pt', letterSpacing: '0.4px' }}>
+                            ☑ ESTERNO
+                          </span>
+                        ) : (
+                          displayValue
+                        )}
                       </div>
                     </td>
                   );

@@ -534,6 +534,9 @@ export interface MaterialAlarmItem<TJob = any> {
     countExpediteNeeded: number;
     countLate: number;
     countOrdered: number;
+    criticalDate?: string | null; // FASE 46: Data grezza di consegna più imminente tra le commesse in allarme
+    criticalDateFormatted?: string | null; // FASE 46: Data formattata "DD/MM/YYYY"
+    isCriticalDateUrgent?: boolean; // FASE 46: True se la data critica è oggi o nel passato
     entriesWithVisual: MRPAlarmTimelineEntry<TJob>[];
 }
 
@@ -698,6 +701,40 @@ export function classifyGlobalMRPAlarms<TJob = any>({
         const isAlarm = countRed > 0 || countSupplierLate > 0 || countExpediteNeeded > 0 || countLate > 0;
         const isUnderControl = !isAlarm && countOrdered > 0;
 
+        // FASE 46: Calcolo Data Critica (First Needed Date tra le commesse in stato di allarme)
+        const alarmEntries = entriesWithVisual.filter(e =>
+            e.visualStatus === 'RED' ||
+            e.visualStatus === 'SUPPLIER_LATE' ||
+            e.visualStatus === 'EXPEDITE_NEEDED' ||
+            e.visualStatus === 'LATE'
+        );
+
+        const candidateEntries = alarmEntries.length > 0 ? alarmEntries : entriesWithVisual;
+        let criticalDate: string | null = null;
+        let criticalDateFormatted: string | null = null;
+        let isCriticalDateUrgent = false;
+
+        const parsedCandidateDates = candidateEntries
+            .map(e => {
+                const raw = (e.job as any)?.dataConsegnaFinale || e.jobDate;
+                const parsed = parseRobustDate(raw);
+                return parsed ? { date: new Date(parsed), raw } : null;
+            })
+            .filter((d): d is { date: Date; raw: string } => d !== null)
+            .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+        if (parsedCandidateDates.length > 0) {
+            const earliest = parsedCandidateDates[0];
+            criticalDate = earliest.raw;
+            criticalDateFormatted = format(earliest.date, 'dd/MM/yyyy');
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const targetDay = new Date(earliest.date);
+            targetDay.setHours(0, 0, 0, 0);
+            isCriticalDateUrgent = targetDay.getTime() <= today.getTime();
+        }
+
         const item: MaterialAlarmItem<TJob> = {
             matCode: normalizedCode,
             materialName,
@@ -710,6 +747,9 @@ export function classifyGlobalMRPAlarms<TJob = any>({
             countExpediteNeeded,
             countLate,
             countOrdered,
+            criticalDate,
+            criticalDateFormatted,
+            isCriticalDateUrgent,
             entriesWithVisual
         };
 

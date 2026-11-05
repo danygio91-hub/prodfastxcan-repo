@@ -244,14 +244,183 @@ function calculateJobHours(job: JobOrder): number {
   return Math.round((((job.qta || 0) * 10) / 60) * 10) / 10;
 }
 
+export interface WeekOption {
+  value: string;
+  weekNumber: number;
+  year: number;
+  label: string;
+  shortLabel: string;
+  date: Date;
+}
+
+/**
+ * FASE 48: Generatore Dinamico delle Opzioni Settimana (Standard ISO 8601)
+ * Analizza TUTTE le commesse caricate (jobs), estrae il minimo e massimo delle date (consegna / fine prep. / assegnata),
+ * e genera ininterrottamente tutte le settimane dell'intervallo garantendo:
+ * - Baseline minima (almeno da -4 a +12 settimane rispetto alla data corrente) per pianificazione rapida
+ * - Copertura dinamica continua per qualsiasi commessa distante nel futuro (es. Marzo anno successivo)
+ * - Inclusione dell'anno (es. "Sett. 1 / 2027") se l'elenco scavalca l'anno corrente o tocca più anni
+ */
+export function generateAvailableWeeksFromJobs(jobs: JobOrder[] = []): WeekOption[] {
+  const now = new Date();
+  const currentIsoWeek = getISOWeek(now);
+  const currentIsoYear = getISOWeekYear(now);
+  const currentMonday = startOfISOWeek(now);
+  currentMonday.setHours(12, 0, 0, 0);
+
+  // Baseline minima per navigazione immediata attorno ad oggi
+  let minDate = addWeeks(currentMonday, -4);
+  let maxDate = addWeeks(currentMonday, 12);
+
+  // Analizza TUTTE le commesse caricate
+  for (const job of jobs) {
+    const candidates = [
+      job.assignedDate,
+      job.dataConsegnaFinale,
+      job.dataFinePreparazione,
+    ];
+
+    for (const cand of candidates) {
+      if (!cand || typeof cand !== 'string' || !cand.trim()) continue;
+      const d = parseRobustDate(cand);
+      if (d && !isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        if (y >= 2020 && y <= 2040) {
+          if (d.getTime() < minDate.getTime()) minDate = d;
+          if (d.getTime() > maxDate.getTime()) maxDate = d;
+        }
+      }
+    }
+
+    // Se la commessa ha un targetWeek esplicito nel formato YYYY-Www
+    if (job.targetWeek && typeof job.targetWeek === 'string') {
+      const match = job.targetWeek.match(/^(\d{4})-W(\d{1,2})$/i);
+      if (match) {
+        const y = parseInt(match[1], 10);
+        const w = parseInt(match[2], 10);
+        if (y >= 2020 && y <= 2040 && w >= 1 && w <= 53) {
+          const jan4 = new Date(y, 0, 4, 12, 0, 0);
+          const mondayW1 = startOfISOWeek(jan4);
+          const mondayTarget = addWeeks(mondayW1, w - 1);
+          if (mondayTarget.getTime() < minDate.getTime()) minDate = mondayTarget;
+          if (mondayTarget.getTime() > maxDate.getTime()) maxDate = mondayTarget;
+        }
+      }
+    }
+  }
+
+  // Aggiungi un buffer di 2 settimane dopo la data massima per consentire slittamenti futuri
+  maxDate = addWeeks(maxDate, 2);
+
+  const startMonday = startOfISOWeek(minDate);
+  startMonday.setHours(12, 0, 0, 0);
+
+  const endMonday = startOfISOWeek(maxDate);
+  endMonday.setHours(12, 0, 0, 0);
+
+  const minYear = getISOWeekYear(startMonday);
+  const maxYear = getISOWeekYear(endMonday);
+  const hasMultipleYears = minYear !== maxYear || minYear !== currentIsoYear || maxYear !== currentIsoYear;
+
+  const options: WeekOption[] = [];
+  let cursor = new Date(startMonday);
+  const maxIterations = 260; // Failsafe (fino a 5 anni di settimane continue)
+  let iterations = 0;
+
+  while (cursor.getTime() <= endMonday.getTime() && iterations < maxIterations) {
+    iterations++;
+    const w = getISOWeek(cursor);
+    const y = getISOWeekYear(cursor);
+    const start = startOfISOWeek(cursor);
+    const end = endOfISOWeek(cursor);
+    const isCurrent = w === currentIsoWeek && y === currentIsoYear;
+
+    const startDay = format(start, 'dd');
+    const startMonth = format(start, 'MMM', { locale: it }).slice(0, 3);
+    const endDay = format(end, 'dd');
+    const endMonth = format(end, 'MMM', { locale: it }).slice(0, 3);
+
+    const capitalizedStartMonth = startMonth.charAt(0).toUpperCase() + startMonth.slice(1);
+    const capitalizedEndMonth = endMonth.charAt(0).toUpperCase() + endMonth.slice(1);
+
+    const rangeLabel = `${startDay} ${capitalizedStartMonth} - ${endDay} ${capitalizedEndMonth}`;
+    const yearSuffix = (hasMultipleYears || y !== currentIsoYear) ? ` / ${y}` : '';
+
+    options.push({
+      value: `${y}-W${w}`,
+      weekNumber: w,
+      year: y,
+      label: `Sett. ${w}${yearSuffix} ${isCurrent ? '(Corrente)' : ''} • ${rangeLabel}`,
+      shortLabel: `Sett. ${w}${yearSuffix} (${rangeLabel})`,
+      date: new Date(cursor),
+    });
+
+    cursor = addWeeks(cursor, 1);
+  }
+
+  return options;
+}
+
+/**
+ * FASE 48: Risoluzione Settimana e Anno Commessa (con Assegnazione Automatica / Fallback di Default)
+ * 1. Rispetta la disassegnazione esplicita manuale ('unassigned' / 'Non ass.')
+ * 2. Rispetta l'assegnazione manuale/forzata (assignedDate, targetWeek, isoWeek+weekYear)
+ * 3. Fallback di Default: auto-seleziona la settimana da dataConsegnaFinale o dataFinePreparazione
+ */
 export function getJobWeekAndYear(job: JobOrder): { week: number; year: number } | null {
-  const targetDateStr = job.assignedDate || job.dataConsegnaFinale;
-  if (!targetDateStr) return null;
-  const d = parseRobustDate(targetDateStr);
-  if (!d) return null;
+  // 1. Disassegnazione esplicita manuale
+  if (job.targetWeek === 'unassigned' || job.targetWeek === 'Non ass.' || job.targetWeek === 'none') {
+    return null;
+  }
+
+  // 2. Data assegnata esplicitamente a mano
+  if (job.assignedDate && job.assignedDate.trim()) {
+    const d = parseRobustDate(job.assignedDate);
+    if (d && !isNaN(d.getTime())) {
+      return {
+        week: getISOWeek(d),
+        year: getISOWeekYear(d),
+      };
+    }
+  }
+
+  // 3. Campi isoWeek e weekYear espliciti
+  if (
+    typeof job.isoWeek === 'number' &&
+    typeof job.weekYear === 'number' &&
+    job.isoWeek > 0 &&
+    job.weekYear > 0
+  ) {
+    return {
+      week: job.isoWeek,
+      year: job.weekYear,
+    };
+  }
+
+  // 4. TargetWeek esplicito (formato YYYY-Www)
+  if (job.targetWeek && typeof job.targetWeek === 'string') {
+    const fullMatch = job.targetWeek.match(/^(\d{4})-W(\d{1,2})$/i);
+    if (fullMatch) {
+      return {
+        year: parseInt(fullMatch[1], 10),
+        week: parseInt(fullMatch[2], 10),
+      };
+    }
+  }
+
+  // 5. Fallback di default: Data Consegna Finale o Data Fine Preparazione
+  const fallbackDateStr =
+    (job.dataConsegnaFinale && job.dataConsegnaFinale.trim()) ||
+    (job.dataFinePreparazione && job.dataFinePreparazione.trim());
+
+  if (!fallbackDateStr) return null;
+
+  const dFallback = parseRobustDate(fallbackDateStr);
+  if (!dFallback || isNaN(dFallback.getTime())) return null;
+
   return {
-    week: getISOWeek(d),
-    year: getISOWeekYear(d),
+    week: getISOWeek(dFallback),
+    year: getISOWeekYear(dFallback),
   };
 }
 
@@ -571,7 +740,7 @@ interface JobTableRowProps {
   job: JobOrder;
   isSelected: boolean;
   isDownloadingPdf: boolean;
-  weekOptions: { value: string; label: string; shortLabel: string; weekNumber?: number; year?: number; date?: Date }[];
+  weekOptions: WeekOption[];
   getJobMRPStatus: (job: JobOrder) => JobMRPSummary;
   onToggleSelect: (jobId: string, checked: boolean) => void;
   onSaveDeliveryDate: (job: JobOrder, isoFormatted: string, parsedDate?: Date) => Promise<void> | void;
@@ -606,7 +775,16 @@ const JobTableRow = React.memo(function JobTableRow({
 }: JobTableRowProps) {
   const hours = calculateJobHours(job);
   const weekInfo = getJobWeekAndYear(job);
-  const currentJobWeekVal = weekInfo ? `${weekInfo.year}-W${weekInfo.week}` : 'Non ass.';
+  const matchedOpt = useMemo(() => {
+    if (!weekInfo) return null;
+    return weekOptions.find((o) =>
+      (o.year === weekInfo.year && o.weekNumber === weekInfo.week) ||
+      o.value === `${weekInfo.year}-W${weekInfo.week}` ||
+      o.value === `${weekInfo.year}-W${String(weekInfo.week).padStart(2, '0')}` ||
+      (job.targetWeek && (o.value === job.targetWeek || `${o.year}-W${o.weekNumber}` === job.targetWeek))
+    );
+  }, [weekOptions, weekInfo, job.targetWeek]);
+  const currentJobWeekVal = matchedOpt ? matchedOpt.value : (weekInfo ? `${weekInfo.year}-W${weekInfo.week}` : 'Non ass.');
   const mrp = getJobMRPStatus(job);
   const deptGroup = getJobDepartmentGroup(job);
   const currentStatus = normalizeJobStatus(job);
@@ -773,6 +951,11 @@ const JobTableRow = React.memo(function JobTableRow({
                   {opt.shortLabel}
                 </SelectItem>
               ))}
+              {!matchedOpt && weekInfo && (
+                <SelectItem value={currentJobWeekVal} className="text-xs font-mono">
+                  Sett. {weekInfo.week} / {weekInfo.year}
+                </SelectItem>
+              )}
               <SelectItem value="Non ass." className="text-xs font-mono">Non assegnata</SelectItem>
             </SelectContent>
           </Select>
@@ -3156,53 +3339,10 @@ export default function ProgrammazioneClientPage({
     }
   }, [prepareJobForPrint, toast, isDownloadingPdf]);
 
-  // Settimane per il dropdown rapido (Standard ISO 8601)
+  // Settimane per il dropdown rapido (Standard ISO 8601 - Generate dinamicamente da tutte le commesse)
   const weekOptions = useMemo(() => {
-    const now = new Date();
-    const currentMonday = startOfISOWeek(now);
-    currentMonday.setHours(12, 0, 0, 0);
-
-    const currentIsoWeek = getISOWeek(now);
-    const currentIsoYear = getISOWeekYear(now);
-
-    const options: { 
-      value: string; 
-      weekNumber: number; 
-      year: number; 
-      label: string; 
-      shortLabel: string; 
-      date: Date 
-    }[] = [];
-
-    for (let i = -4; i <= 12; i++) {
-      const refDate = addWeeks(currentMonday, i);
-      const w = getISOWeek(refDate);
-      const y = getISOWeekYear(refDate);
-      const start = startOfISOWeek(refDate);
-      const end = endOfISOWeek(refDate);
-      const isCurrent = w === currentIsoWeek && y === currentIsoYear;
-
-      const startDay = format(start, 'dd');
-      const startMonth = format(start, 'MMM', { locale: it }).slice(0, 3);
-      const endDay = format(end, 'dd');
-      const endMonth = format(end, 'MMM', { locale: it }).slice(0, 3);
-
-      const capitalizedStartMonth = startMonth.charAt(0).toUpperCase() + startMonth.slice(1);
-      const capitalizedEndMonth = endMonth.charAt(0).toUpperCase() + endMonth.slice(1);
-
-      const rangeLabel = `${startDay} ${capitalizedStartMonth} - ${endDay} ${capitalizedEndMonth}`;
-
-      options.push({
-        value: `${y}-W${w}`,
-        weekNumber: w,
-        year: y,
-        label: `Sett. ${w} ${isCurrent ? '(Corrente)' : ''} • ${rangeLabel}`,
-        shortLabel: `Sett. ${w} (${rangeLabel})`,
-        date: refDate,
-      });
-    }
-    return options;
-  }, []);
+    return generateAvailableWeeksFromJobs(jobs);
+  }, [jobs]);
 
   // Riassegnazione manuale settimana per una commessa
   const handleAssignJobWeek = useCallback(async (job: JobOrder, newWeekVal: string) => {
@@ -3210,7 +3350,7 @@ export default function ProgrammazioneClientPage({
       setJobs((prev) =>
         prev.map((j) =>
           j.id === job.id
-            ? { ...j, targetWeek: null, assignedDate: undefined, isoWeek: null, weekYear: null }
+            ? { ...j, targetWeek: 'unassigned', assignedDate: undefined, isoWeek: null, weekYear: null }
             : j
         )
       );
@@ -3218,11 +3358,15 @@ export default function ProgrammazioneClientPage({
         title: "Settimana Rimossa",
         description: `Commessa ${job.ordinePF} non assegnata a nessun secchiello.`,
       });
-      await updateJobAssignedWeek(job.id, null, null, null, null);
+      await updateJobAssignedWeek(job.id, null, null, null, 'unassigned');
       return;
     }
 
-    const opt = weekOptions.find((o) => o.value === newWeekVal || `W${o.weekNumber}` === newWeekVal);
+    const opt = weekOptions.find((o) =>
+      o.value === newWeekVal ||
+      `W${o.weekNumber}` === newWeekVal ||
+      `${o.year}-W${String(o.weekNumber).padStart(2, '0')}` === newWeekVal
+    );
     if (!opt) return;
 
     // Lunedì della settimana alle 12:00
@@ -3245,7 +3389,7 @@ export default function ProgrammazioneClientPage({
 
     toast({
       title: "Spostamento Commessa",
-      description: `Commessa ${job.ordinePF} riassegnata a Sett. ${opt.weekNumber} (${opt.shortLabel}).`,
+      description: `Commessa ${job.ordinePF} riassegnata a ${opt.shortLabel}.`,
     });
 
     try {
@@ -3375,16 +3519,33 @@ export default function ProgrammazioneClientPage({
                                 <AccordionItem key={mat.matCode} value={mat.matCode} className="border rounded-md px-2">
                                   <AccordionTrigger className="hover:no-underline py-2">
                                     <div className="flex items-center justify-between w-full pr-3 text-left">
-                                      <div className="flex flex-col items-start">
+                                      <div className="flex flex-col items-start gap-0.5">
                                         <div className="flex items-center gap-2">
                                           <span className="font-mono font-bold text-xs">{mat.matCode}</span>
                                           <Badge className={`text-[9px] py-0 px-1.5 font-bold ${worstBadgeClass}`}>
                                             {worstLabel}
                                           </Badge>
                                         </div>
-                                        {mat.materialName && (
-                                          <span className="text-[10px] text-muted-foreground font-normal truncate max-w-[240px]">
-                                            {mat.materialName}
+                                        {/* FASE 46: Sostituzione Descrizione con Data Critica (First Needed Date) */}
+                                        {mat.criticalDateFormatted ? (
+                                          <div className="flex items-center gap-1.5 mt-0.5">
+                                            <span className={cn(
+                                              "text-[10.5px] font-mono flex items-center gap-1",
+                                              mat.isCriticalDateUrgent
+                                                ? "text-red-600 dark:text-red-400 font-bold"
+                                                : "text-muted-foreground font-medium"
+                                            )}>
+                                              <span>Richiesto per il: <strong className={cn(mat.isCriticalDateUrgent && "underline underline-offset-2")}>{mat.criticalDateFormatted}</strong></span>
+                                            </span>
+                                            {mat.isCriticalDateUrgent && (
+                                              <span className="text-[9px] uppercase tracking-wider bg-red-600 text-white dark:bg-red-500/20 dark:text-red-300 px-1 py-0.2 rounded-xs font-extrabold animate-pulse">
+                                                URGENTE
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <span className="text-[10px] text-muted-foreground font-normal mt-0.5">
+                                            Data non specificata
                                           </span>
                                         )}
                                       </div>
@@ -3561,7 +3722,13 @@ export default function ProgrammazioneClientPage({
                                       <div key={mat.matCode} className="p-2 rounded border border-indigo-100 dark:border-indigo-900/40 bg-card text-xs flex justify-between items-center">
                                         <div>
                                           <span className="font-bold text-indigo-900 dark:text-indigo-200 mr-2">{mat.matCode}</span>
-                                          <span className="text-muted-foreground text-[11px]">{mat.materialName}</span>
+                                          {mat.criticalDateFormatted ? (
+                                            <span className="text-muted-foreground text-[11px] font-mono">
+                                              In arrivo per il: <strong>{mat.criticalDateFormatted}</strong>
+                                            </span>
+                                          ) : (
+                                            <span className="text-muted-foreground text-[11px]">{mat.materialName}</span>
+                                          )}
                                         </div>
                                         <Badge className="bg-indigo-500 text-white text-[9px] py-0 px-1.5 font-bold">
                                           ORDINATO ({mat.entriesWithVisual.length})
@@ -4198,6 +4365,11 @@ export default function ProgrammazioneClientPage({
                         {opt.label}
                       </SelectItem>
                     ))}
+                    {!weekOptions.some((o) => o.value === `${selectedYear}-W${selectedWeekNumber}`) && (
+                      <SelectItem value={`${selectedYear}-W${selectedWeekNumber}`} className="text-xs">
+                        Sett. {selectedWeekNumber} / {selectedYear}
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
 

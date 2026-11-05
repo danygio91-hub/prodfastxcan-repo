@@ -822,10 +822,10 @@ export default function DataManagementClientPage({
                           <div className="h-px bg-border flex-1"></div>
                         </div>
 
-                        {materials.map(({ matCode, materialName, worstStatus, entriesWithVisual }) => (
+                        {materials.map(({ matCode, worstStatus, entriesWithVisual, criticalDateFormatted, isCriticalDateUrgent }) => (
                           <AccordionItem key={matCode} value={matCode}>
                             <AccordionTrigger className="hover:no-underline px-2 hover:bg-muted/50 rounded-md transition-colors">
-                              <div className="flex flex-col items-start text-left w-full">
+                              <div className="flex flex-col items-start text-left w-full gap-0.5">
                                 <div className="flex items-center justify-between w-full pr-4">
                                   <span className="font-bold text-sm">{matCode}</span>
                                   <Badge 
@@ -847,7 +847,24 @@ export default function DataManagementClientPage({
                                           : 'IN RITARDO'}
                                   </Badge>
                                 </div>
-                                <span className="text-xs text-muted-foreground font-normal">{materialName}</span>
+                                {/* FASE 46: Rimozione descrizione estesa, visualizzazione Data Critica */}
+                                {criticalDateFormatted ? (
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className={cn(
+                                      "text-xs font-mono",
+                                      isCriticalDateUrgent ? "text-red-600 dark:text-red-400 font-bold" : "text-muted-foreground font-medium"
+                                    )}>
+                                      Richiesto per il: <strong className={cn(isCriticalDateUrgent && "underline")}>{criticalDateFormatted}</strong>
+                                    </span>
+                                    {isCriticalDateUrgent && (
+                                      <Badge variant="destructive" className="text-[9px] py-0 px-1 font-bold animate-pulse">
+                                        URGENTE
+                                      </Badge>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground font-normal mt-0.5">Data non specificata</span>
+                                )}
                               </div>
                             </AccordionTrigger>
                             <AccordionContent className="px-2 pt-2 pb-4">
