@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 import {
   Truck,
   Scissors,
@@ -26,18 +28,66 @@ import {
   X
 } from 'lucide-react';
 import { JobOrder, Article, RawMaterial, JobBillOfMaterialsItem } from '@/types';
+import { updateExternalizedMaterials } from '@/app/admin/programmazione/actions';
 import { cn } from '@/lib/utils';
 
-interface ContoLavoroModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  job: JobOrder | null;
-  articles?: Article[];
-  rawMaterials?: RawMaterial[];
-  onToggleMaterial: (jobId: string, materialCode: string, isExternalized: boolean) => Promise<boolean>;
-}
+export type MaterialCategoryType = 'TRECCE' | 'TUBI' | 'GUAINA' | 'ALTRO';
 
-type MaterialCategoryType = 'TRECCE' | 'GUAINA' | 'ALTRO';
+export type TabType = 'ALL' | 'TRECCE' | 'TUBI' | 'GUAINA' | 'ALTRO' | 'EXTERNALIZED';
+
+/**
+ * FASE 53: Classificazione rigorosa dei materiali della distinta base (Strict Mapping)
+ * Rispettando le definizioni e separazioni già in uso per la generazione ODL e l'anagrafica fasi:
+ * - Preparazione Trecce/Corde (BOB, TRECCIA, CORDA, CAVO, BARRA, PF3V0)
+ * - Preparazione Tubi (TUBI, TUBO, prefissi TB/TU, diciture Tubi)
+ * - Preparazione Guaina (GUAINA, prefissi GU/GUA, diciture Guaina/Termorestringente)
+ * - Altro (qualsiasi componente non appartenente alle tre categorie principali - NESSUN fallback a Guaina!)
+ */
+export function classifyBOMMaterial(
+  componentCode: string,
+  rawMaterial?: RawMaterial
+): MaterialCategoryType {
+  const codeUpper = (componentCode || '').trim().toUpperCase();
+  const rawType = (rawMaterial?.type || '').trim().toUpperCase();
+  const rawDesc = (rawMaterial?.description || '').trim().toUpperCase();
+
+  // 1. Strict Mapping tramite tipo catalogo materie prime (RawMaterial.type)
+  if (rawType === 'TUBI' || rawType === 'TUBO') {
+    return 'TUBI';
+  }
+  if (rawType === 'GUAINA' || rawType === 'GUAINE') {
+    return 'GUAINA';
+  }
+  if (['BOB', 'TRECCIA', 'TRECCE', 'CORDA', 'CORDE', 'CAVO', 'CAVI', 'BARRA', 'PF3V0'].includes(rawType)) {
+    return 'TRECCE';
+  }
+
+  // 2. Strict Mapping per prefissi standard del codice componente
+  if (codeUpper.startsWith('TB-') || codeUpper.startsWith('TU-')) {
+    return 'TUBI';
+  }
+  if (codeUpper.startsWith('GU-') || codeUpper.startsWith('GUA-')) {
+    return 'GUAINA';
+  }
+  if (codeUpper.startsWith('TR-') || codeUpper.startsWith('CR-')) {
+    return 'TRECCE';
+  }
+
+  // 3. Strict Mapping per parole chiave nella descrizione o codice
+  // Es. "14X1L23SN TUBI STAGNATI"
+  if (/\bTUB[IO]?\b|TUBI|TUBO|STAGNAT[OI]/i.test(rawDesc) || /TUB/i.test(codeUpper)) {
+    return 'TUBI';
+  }
+  if (/GUAIN|TERMOREST/i.test(rawDesc) || /GUAIN|TERMOREST/i.test(codeUpper)) {
+    return 'GUAINA';
+  }
+  if (/TRECC|CORD|CAV|BOB|TREFOL/i.test(rawDesc) || /TRECC|CORD|CAV|BOB|TREFOL/i.test(codeUpper)) {
+    return 'TRECCE';
+  }
+
+  // 4. Fallback trasparente: ALTRO (nessun fallback pigro a Guaina!)
+  return 'ALTRO';
+}
 
 interface ClassifiedBOMItem {
   component: string;
@@ -50,17 +100,45 @@ interface ClassifiedBOMItem {
   isExternalized: boolean;
 }
 
+interface ContoLavoroModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  job: JobOrder | null;
+  articles?: Article[];
+  rawMaterials?: RawMaterial[];
+  onSave?: (jobId: string, externalizedMaterials: string[]) => Promise<boolean>;
+  onToggleMaterial?: (jobId: string, materialCode: string, isExternalized: boolean) => Promise<boolean>;
+}
+
 export function ContoLavoroModal({
   isOpen,
   onClose,
   job,
   articles = [],
   rawMaterials = [],
+  onSave,
   onToggleMaterial,
 }: ContoLavoroModalProps) {
+  const router = useRouter();
+  const { toast } = useToast();
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'ALL' | 'TRECCE' | 'GUAINA' | 'EXTERNALIZED'>('ALL');
-  const [loadingItems, setLoadingItems] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<TabType>('ALL');
+  // FASE 53: Stato locale per Batch Save (Salvataggio in blocco)
+  const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Inizializza lo stato locale delle selezioni ogni volta che il modale viene aperto o cambia job
+  useEffect(() => {
+    if (isOpen && job) {
+      const initial = (job.externalizedMaterials || [])
+        .map((c) => (c || '').trim().toUpperCase())
+        .filter(Boolean);
+      setSelectedMaterials(initial);
+      setSearchTerm('');
+      setActiveTab('ALL');
+    }
+  }, [isOpen, job]);
 
   // Mappa di lookup per le materie prime
   const materialsMap = useMemo(() => {
@@ -80,11 +158,8 @@ export function ContoLavoroModal({
     return articles.find((a) => a.code.trim().toUpperCase() === artCode) || null;
   }, [job, articles]);
 
-  // Lista di codici attualmente esternalizzati per questa commessa
-  const externalizedSet = useMemo(() => {
-    const list = job?.externalizedMaterials || [];
-    return new Set(list.map((c) => (c || '').trim().toUpperCase()));
-  }, [job?.externalizedMaterials]);
+  // Set reattivo dei materiali selezionati localmente
+  const selectedSet = useMemo(() => new Set(selectedMaterials), [selectedMaterials]);
 
   // Raccogli e classifica tutti i materiali in BOM
   const classifiedItems = useMemo<ClassifiedBOMItem[]>(() => {
@@ -107,31 +182,7 @@ export function ContoLavoroModal({
     return bom.map((item) => {
       const code = (item.component || '').trim().toUpperCase();
       const rawMat = materialsMap.get(code);
-      const rawType = (rawMat?.type || '').toUpperCase();
-      const rawDesc = (rawMat?.description || '').toUpperCase();
-      const compUpper = code.toUpperCase();
-
-      // Rilevamento categoria
-      let category: MaterialCategoryType = 'ALTRO';
-
-      const isTreccia =
-        ['BOB', 'TRECCIA', 'CORDA', 'CAVO', 'BARRA', 'PF3V0'].includes(rawType) ||
-        /TRECC|CORD|CAV|BOB|TREFOL/i.test(compUpper + ' ' + rawDesc) ||
-        compUpper.startsWith('TR-') ||
-        compUpper.startsWith('CR-');
-
-      const isGuaina =
-        ['GUAINA', 'TUBI'].includes(rawType) ||
-        /GUAIN|TUB|TERMOREST/i.test(compUpper + ' ' + rawDesc) ||
-        compUpper.startsWith('GU-') ||
-        compUpper.startsWith('TB-') ||
-        compUpper.startsWith('GUA-');
-
-      if (isTreccia) {
-        category = 'TRECCE';
-      } else if (isGuaina) {
-        category = 'GUAINA';
-      }
+      const category = classifyBOMMaterial(code, rawMat);
 
       return {
         component: code,
@@ -141,27 +192,114 @@ export function ContoLavoroModal({
         note: item.note,
         category,
         rawMaterial: rawMat,
-        isExternalized: externalizedSet.has(code),
+        isExternalized: selectedSet.has(code),
       };
     });
-  }, [job, relatedArticle, materialsMap, externalizedSet]);
+  }, [job, relatedArticle, materialsMap, selectedSet]);
 
   // Conteggi per le tab
   const counts = useMemo(() => {
     return {
       all: classifiedItems.length,
       trecce: classifiedItems.filter((i) => i.category === 'TRECCE').length,
+      tubi: classifiedItems.filter((i) => i.category === 'TUBI').length,
       guaina: classifiedItems.filter((i) => i.category === 'GUAINA').length,
+      altro: classifiedItems.filter((i) => i.category === 'ALTRO').length,
       externalized: classifiedItems.filter((i) => i.isExternalized).length,
     };
   }, [classifiedItems]);
+
+  // FASE 53: Generazione DINAMICA delle tab in base alle categorie REALMENTE presenti
+  const availableTabs = useMemo(() => {
+    const list: {
+      id: TabType;
+      label: string;
+      count: number;
+      icon: React.ReactNode;
+      activeClass: string;
+      badgeBorder: string;
+    }[] = [
+      {
+        id: 'ALL',
+        label: `Tutti (${counts.all})`,
+        count: counts.all,
+        icon: <Package className="h-3 w-3" />,
+        activeClass: 'bg-purple-600 hover:bg-purple-700 text-white',
+        badgeBorder: '',
+      },
+    ];
+
+    if (counts.trecce > 0) {
+      list.push({
+        id: 'TRECCE',
+        label: `Trecce/Corde (${counts.trecce})`,
+        count: counts.trecce,
+        icon: <Scissors className="h-3 w-3 text-amber-500" />,
+        activeClass: 'bg-amber-600 hover:bg-amber-700 text-white',
+        badgeBorder: 'border-amber-500/30',
+      });
+    }
+
+    if (counts.tubi > 0) {
+      list.push({
+        id: 'TUBI',
+        label: `Tubi (${counts.tubi})`,
+        count: counts.tubi,
+        icon: <Layers className="h-3 w-3 text-blue-500" />,
+        activeClass: 'bg-blue-600 hover:bg-blue-700 text-white',
+        badgeBorder: 'border-blue-500/30',
+      });
+    }
+
+    if (counts.guaina > 0) {
+      list.push({
+        id: 'GUAINA',
+        label: `Guaina (${counts.guaina})`,
+        count: counts.guaina,
+        icon: <Scissors className="h-3 w-3 rotate-90 text-sky-500" />,
+        activeClass: 'bg-sky-600 hover:bg-sky-700 text-white',
+        badgeBorder: 'border-sky-500/30',
+      });
+    }
+
+    if (counts.altro > 0) {
+      list.push({
+        id: 'ALTRO',
+        label: `Altri (${counts.altro})`,
+        count: counts.altro,
+        icon: <Package className="h-3 w-3 text-slate-500" />,
+        activeClass: 'bg-slate-600 hover:bg-slate-700 text-white',
+        badgeBorder: 'border-slate-500/30',
+      });
+    }
+
+    list.push({
+      id: 'EXTERNALIZED',
+      label: `In C.to Lavoro (${counts.externalized})`,
+      count: counts.externalized,
+      icon: <Truck className="h-3 w-3 text-purple-400" />,
+      activeClass: 'bg-purple-600 hover:bg-purple-700 text-white',
+      badgeBorder: 'border-purple-500/30',
+    });
+
+    return list;
+  }, [counts]);
+
+  // Se la tab attiva non è più tra quelle disponibili, ripristina 'ALL'
+  useEffect(() => {
+    if (!availableTabs.some((t) => t.id === activeTab)) {
+      setActiveTab('ALL');
+    }
+  }, [availableTabs, activeTab]);
 
   // Filtra elementi in base a ricerca e tab attiva
   const filteredItems = useMemo(() => {
     return classifiedItems.filter((item) => {
       // Filtro Tab
       if (activeTab === 'TRECCE' && item.category !== 'TRECCE') return false;
+      if (activeTab === 'TUBI' && item.category !== 'TUBI') return false;
       if (activeTab === 'GUAINA' && item.category !== 'GUAINA') return false;
+      if (activeTab === 'ALTRO' && item.category !== 'ALTRO') return false;
       if (activeTab === 'EXTERNALIZED' && !item.isExternalized) return false;
 
       // Filtro Ricerca
@@ -177,21 +315,62 @@ export function ContoLavoroModal({
     });
   }, [classifiedItems, activeTab, searchTerm]);
 
-  // Gestione toggle di un materiale
-  const handleToggle = async (materialCode: string, nextValue: boolean) => {
+  // FASE 53: Toggle in memoria locale (Zero chiamate di rete fino al Salva)
+  const handleToggle = (materialCode: string, checked: boolean) => {
+    const cleanCode = materialCode.trim().toUpperCase();
+    setSelectedMaterials((prev) => {
+      if (checked) {
+        return prev.includes(cleanCode) ? prev : [...prev, cleanCode];
+      } else {
+        return prev.filter((c) => c !== cleanCode);
+      }
+    });
+  };
+
+  // FASE 53: Salvataggio in blocco su Firestore
+  const handleSave = async () => {
     if (!job) return;
-    setLoadingItems((prev) => ({ ...prev, [materialCode]: true }));
+    setIsSaving(true);
     try {
-      await onToggleMaterial(job.id, materialCode, nextValue);
+      let isSuccess = false;
+      if (onSave) {
+        isSuccess = await onSave(job.id, selectedMaterials);
+      } else {
+        const res = await updateExternalizedMaterials(job.id, selectedMaterials);
+        if (res.success) {
+          toast({
+            title: "C.to Lavoro Aggiornato",
+            description: res.message,
+          });
+          isSuccess = true;
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Errore Salvataggio",
+            description: res.message,
+          });
+        }
+      }
+
+      if (isSuccess) {
+        router.refresh();
+        onClose();
+      }
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore",
+        description: err?.message || "Impossibile aggiornare i materiali in Conto Lavoro.",
+      });
     } finally {
-      setLoadingItems((prev) => ({ ...prev, [materialCode]: false }));
+      setIsSaving(false);
     }
   };
 
   if (!job) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && !isSaving && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden border border-purple-500/30 shadow-2xl bg-background">
         {/* HEADER */}
         <DialogHeader className="p-5 pb-4 border-b border-border bg-gradient-to-r from-purple-500/10 via-background to-background">
@@ -249,44 +428,24 @@ export function ContoLavoroModal({
 
         {/* BARRA FILTRI E RICERCA */}
         <div className="px-5 pt-3 pb-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-          {/* TABS */}
+          {/* TABS DINAMICHE */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-            <Button
-              variant={activeTab === 'ALL' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveTab('ALL')}
-              className={cn("h-7 text-xs px-2.5 gap-1.5", activeTab === 'ALL' && "bg-purple-600 hover:bg-purple-700 text-white")}
-            >
-              <Package className="h-3 w-3" />
-              <span>Tutti ({counts.all})</span>
-            </Button>
-            <Button
-              variant={activeTab === 'TRECCE' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveTab('TRECCE')}
-              className={cn("h-7 text-xs px-2.5 gap-1.5 border-amber-500/30", activeTab === 'TRECCE' && "bg-amber-600 hover:bg-amber-700 text-white")}
-            >
-              <Scissors className="h-3 w-3 text-amber-500" />
-              <span>Trecce/Corde ({counts.trecce})</span>
-            </Button>
-            <Button
-              variant={activeTab === 'GUAINA' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveTab('GUAINA')}
-              className={cn("h-7 text-xs px-2.5 gap-1.5 border-sky-500/30", activeTab === 'GUAINA' && "bg-sky-600 hover:bg-sky-700 text-white")}
-            >
-              <Scissors className="h-3 w-3 text-sky-500" />
-              <span>Guaina ({counts.guaina})</span>
-            </Button>
-            <Button
-              variant={activeTab === 'EXTERNALIZED' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveTab('EXTERNALIZED')}
-              className={cn("h-7 text-xs px-2.5 gap-1.5 border-purple-500/30", activeTab === 'EXTERNALIZED' && "bg-purple-600 hover:bg-purple-700 text-white")}
-            >
-              <Truck className="h-3 w-3 text-purple-400" />
-              <span>In C.to Lavoro ({counts.externalized})</span>
-            </Button>
+            {availableTabs.map((tab) => (
+              <Button
+                key={tab.id}
+                variant={activeTab === tab.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "h-7 text-xs px-2.5 gap-1.5 transition-colors",
+                  tab.badgeBorder,
+                  activeTab === tab.id && tab.activeClass
+                )}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+              </Button>
+            ))}
           </div>
 
           {/* INPUT RICERCA */}
@@ -323,7 +482,6 @@ export function ContoLavoroModal({
             </div>
           ) : (
             filteredItems.map((item) => {
-              const isItemLoading = Boolean(loadingItems[item.component]);
               const raw = item.rawMaterial;
 
               // Calcolo fabbisogno commessa
@@ -345,13 +503,16 @@ export function ContoLavoroModal({
                       className={cn(
                         "p-2 rounded-lg shrink-0 mt-0.5",
                         item.category === 'TRECCE' && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25",
+                        item.category === 'TUBI' && "bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/25",
                         item.category === 'GUAINA' && "bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/25",
                         item.category === 'ALTRO' && "bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/25"
                       )}
-                      title={`Categoria: ${item.category}`}
+                      title={`Fase: ${item.category}`}
                     >
                       {item.category === 'TRECCE' ? (
                         <Scissors className="h-4 w-4" />
+                      ) : item.category === 'TUBI' ? (
+                        <Layers className="h-4 w-4" />
                       ) : item.category === 'GUAINA' ? (
                         <Scissors className="h-4 w-4 rotate-90" />
                       ) : (
@@ -368,12 +529,22 @@ export function ContoLavoroModal({
                         {/* BADGE CATEGORIA EVIDENZIATO */}
                         {item.category === 'TRECCE' && (
                           <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-semibold">
-                            ✂️ Taglio Trecce / Corde
+                            ✂️ Preparazione Trecce/Corde
+                          </Badge>
+                        )}
+                        {item.category === 'TUBI' && (
+                          <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30 font-semibold">
+                            🔧 Preparazione Tubi
                           </Badge>
                         )}
                         {item.category === 'GUAINA' && (
                           <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30 font-semibold">
-                            ✂️ Taglio Guaina
+                            ✂️ Preparazione Guaina
+                          </Badge>
+                        )}
+                        {item.category === 'ALTRO' && (
+                          <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30 font-semibold">
+                            📦 Altri Componenti
                           </Badge>
                         )}
 
@@ -415,7 +586,7 @@ export function ContoLavoroModal({
                     </div>
                   </div>
 
-                  {/* CONTROLLO SWITCH C.TO LAVORO */}
+                  {/* CONTROLLO SWITCH C.TO LAVORO (IN MEMORIA LOCALE) */}
                   <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-border/50 shrink-0">
                     <div className="text-right">
                       <span className="text-xs font-semibold block text-foreground">
@@ -427,16 +598,13 @@ export function ContoLavoroModal({
                     </div>
 
                     <div className="flex items-center gap-1.5">
-                      {isItemLoading ? (
-                        <Loader2 className="h-5 w-5 animate-spin text-purple-600" />
-                      ) : (
-                        <Switch
-                          checked={item.isExternalized}
-                          onCheckedChange={(checked) => handleToggle(item.component, checked)}
-                          aria-label={`Attiva conto lavoro per ${item.component}`}
-                          className="data-[state=checked]:bg-purple-600"
-                        />
-                      )}
+                      <Switch
+                        checked={item.isExternalized}
+                        onCheckedChange={(checked) => handleToggle(item.component, checked)}
+                        disabled={isSaving}
+                        aria-label={`Attiva conto lavoro per ${item.component}`}
+                        className="data-[state=checked]:bg-purple-600"
+                      />
                     </div>
                   </div>
                 </div>
@@ -445,15 +613,44 @@ export function ContoLavoroModal({
           )}
         </div>
 
-        {/* FOOTER */}
-        <DialogFooter className="p-4 border-t border-border bg-muted/20 flex flex-row items-center justify-between">
+        {/* FOOTER BATCH SAVE */}
+        <DialogFooter className="p-4 border-t border-border bg-muted/20 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <CheckCircle2 className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-            <span>Le modifiche vengono salvate istantaneamente su Firestore.</span>
+            <span className="font-semibold text-purple-600 dark:text-purple-400">
+              {counts.externalized}
+            </span>
+            <span>su {counts.all} componenti selezionati per C.to Lavoro</span>
           </div>
-          <Button variant="default" onClick={onClose} className="bg-purple-600 hover:bg-purple-700 text-white font-semibold">
-            Chiudi
-          </Button>
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={isSaving}
+              className="font-medium"
+            >
+              Annulla
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-semibold gap-1.5 shadow-xs"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Salvataggio...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Salva Modifiche</span>
+                </>
+              )}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

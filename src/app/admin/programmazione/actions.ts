@@ -1922,6 +1922,47 @@ export async function toggleExternalizedMaterial(
     }
 }
 
+/**
+ * FASE 53: Salvataggio in blocco (Batch Save) dei materiali in C.to Lavoro
+ * Aggiorna l'intero array externalizedMaterials della commessa in una singola operazione atomica su Firestore.
+ */
+export async function updateExternalizedMaterials(
+    jobId: string,
+    externalizedMaterials: string[]
+): Promise<{ success: boolean; message: string }> {
+    try {
+        if (!jobId) {
+            return { success: false, message: "ID commessa mancante." };
+        }
+        const cleanMaterials = Array.from(
+            new Set((externalizedMaterials || []).map((m) => (m || '').trim().toUpperCase()).filter(Boolean))
+        );
+        const jobRef = adminDb.collection("jobOrders").doc(jobId);
+        const snap = await jobRef.get();
+        if (!snap.exists) {
+            return { success: false, message: "Commessa non trovata." };
+        }
+
+        await jobRef.update({
+            externalizedMaterials: cleanMaterials,
+            updatedAt: admin.firestore.Timestamp.now()
+        });
+
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/data-management');
+        return { 
+            success: true, 
+            message: cleanMaterials.length > 0 
+                ? `${cleanMaterials.length} materiali contrassegnati in Conto Lavoro.` 
+                : "Nessun materiale contrassegnato in Conto Lavoro per questa commessa." 
+        };
+    } catch (error: any) {
+        console.error("Errore in updateExternalizedMaterials:", error);
+        return { success: false, message: error?.message || "Errore durante l'aggiornamento del Conto Lavoro." };
+    }
+}
+
+
 
 
 

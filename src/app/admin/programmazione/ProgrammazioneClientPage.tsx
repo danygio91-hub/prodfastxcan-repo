@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -139,6 +140,7 @@ import {
   muteMaterialOnJob,
   unmuteMaterialOnJob,
   toggleExternalizedMaterial,
+  updateExternalizedMaterials,
   type DayCapacityConfigData
 } from './actions';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
@@ -1202,6 +1204,7 @@ export default function ProgrammazioneClientPage({
   initialCapacities = {},
 }: ProgrammazioneClientPageProps) {
   const { toast } = useToast();
+  const router = useRouter();
 
   // Dati Commesse
   const [jobs, setJobs] = useState<JobOrder[]>(initialJobs || []);
@@ -1258,59 +1261,34 @@ export default function ProgrammazioneClientPage({
     setIsContoLavoroModalOpen(true);
   }, []);
 
-  const handleToggleContoLavoroMaterial = useCallback(async (jobId: string, materialCode: string, isExternalized: boolean): Promise<boolean> => {
-    if (!jobId || !materialCode) return false;
-    const cleanCode = materialCode.trim().toUpperCase();
+  // FASE 53: Salvataggio in blocco (Batch Save) dei materiali C.to Lavoro
+  const handleSaveContoLavoro = useCallback(async (jobId: string, updatedMaterials: string[]): Promise<boolean> => {
+    if (!jobId) return false;
+    const cleanList = Array.from(new Set(updatedMaterials.map((c) => (c || '').trim().toUpperCase()).filter(Boolean)));
 
     // Optimistic Update su lista jobs
     setJobs((prev) =>
       prev.map((j) => {
         if (j.id !== jobId) return j;
-        const current = j.externalizedMaterials || [];
-        const updated = isExternalized
-          ? (current.includes(cleanCode) ? current : [...current, cleanCode])
-          : current.filter((c) => (c || '').trim().toUpperCase() !== cleanCode);
-        return { ...j, externalizedMaterials: updated };
+        return { ...j, externalizedMaterials: cleanList };
       })
     );
 
     // Optimistic Update sul job attivo nel modale
     setContoLavoroJob((prev) => {
       if (!prev || prev.id !== jobId) return prev;
-      const current = prev.externalizedMaterials || [];
-      const updated = isExternalized
-        ? (current.includes(cleanCode) ? current : [...current, cleanCode])
-        : current.filter((c) => (c || '').trim().toUpperCase() !== cleanCode);
-      return { ...prev, externalizedMaterials: updated };
+      return { ...prev, externalizedMaterials: cleanList };
     });
 
-    const res = await toggleExternalizedMaterial(jobId, cleanCode, isExternalized);
+    const res = await updateExternalizedMaterials(jobId, cleanList);
     if (res.success) {
       toast({
-        title: isExternalized ? "C.to Lavoro Attivato" : "C.to Lavoro Ripristinato",
+        title: "C.to Lavoro Aggiornato",
         description: res.message,
       });
+      router.refresh();
       return true;
     } else {
-      // Rollback optimistic update
-      setJobs((prev) =>
-        prev.map((j) => {
-          if (j.id !== jobId) return j;
-          const current = j.externalizedMaterials || [];
-          const rolledBack = !isExternalized
-            ? (current.includes(cleanCode) ? current : [...current, cleanCode])
-            : current.filter((c) => (c || '').trim().toUpperCase() !== cleanCode);
-          return { ...j, externalizedMaterials: rolledBack };
-        })
-      );
-      setContoLavoroJob((prev) => {
-        if (!prev || prev.id !== jobId) return prev;
-        const current = prev.externalizedMaterials || [];
-        const rolledBack = !isExternalized
-          ? (current.includes(cleanCode) ? current : [...current, cleanCode])
-          : current.filter((c) => (c || '').trim().toUpperCase() !== cleanCode);
-        return { ...prev, externalizedMaterials: rolledBack };
-      });
       toast({
         variant: "destructive",
         title: "Errore C.to Lavoro",
@@ -1318,7 +1296,8 @@ export default function ProgrammazioneClientPage({
       });
       return false;
     }
-  }, [toast]);
+  }, [router, toast]);
+
 
   // FASE 44: Gestione Silenziamento e Riattivazione Allarmi MRP per Singola Commessa
   const handleMuteMaterial = useCallback(async (jobId: string, materialCode: string) => {
@@ -5025,7 +5004,7 @@ export default function ProgrammazioneClientPage({
           job={contoLavoroJob}
           articles={articles}
           rawMaterials={Array.from(materialsCacheRef.current.values())}
-          onToggleMaterial={handleToggleContoLavoroMaterial}
+          onSave={handleSaveContoLavoro}
         />
       </div>
     </TooltipProvider>
