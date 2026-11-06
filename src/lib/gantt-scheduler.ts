@@ -28,6 +28,7 @@ export class OperatorCalendar {
    * Salta i weekend, le notti (usando le funzioni del calendar-utils) e salta gli SLOT già occupati.
    */
   allocateBackward(deadline: Date, requiredMinutes: number, jobId: string, phaseId: string): TimeSlot[] {
+    if (requiredMinutes <= 0) return [];
     let remainingMinutes = requiredMinutes;
     let currentEnd = snapToPreviousWorkingTime(deadline);
     const allocated: TimeSlot[] = [];
@@ -157,11 +158,16 @@ export class GanttScheduler {
     for (let phase of phases) {
       if (phase.status === 'completed' || phase.status === 'skipped') continue;
 
-      const theo = article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 10;
-      let totalRequiredMinutes = theo * job.qta;
+      // FASE 52: Rimosso fallback 10 min/pz. Se non ci sono tempi in anagrafica, usa 0
+      const theo = article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 0;
+      let totalRequiredMinutes = theo * (job.qta || 0);
       
       const buffer = this.settings.capacityBufferPercent || 100;
       totalRequiredMinutes = totalRequiredMinutes / (buffer / 100);
+
+      // FASE 52: Durata allocazione visuale. Se totalRequiredMinutes è 0, assegna una durata minima
+      // visiva di 1 minuto per consentire il posizionamento sul diagramma Gantt senza bloccare l'algoritmo
+      const visualMinutes = totalRequiredMinutes > 0 ? totalRequiredMinutes : 1;
 
       // 2. Trova gli operatori compatibili basandosi su Skills E Assegnazione al Reparto ODL
       const capableOperators = this.operators.filter(op => {
@@ -196,7 +202,8 @@ export class GanttScheduler {
         const skill = op.skills?.find(s => s.phaseId === phase.name);
         if (!skill) continue;
 
-        const effectiveMinutes = totalRequiredMinutes / (skill.efficiencyPercent / 100);
+        const efficiency = (skill.efficiencyPercent && skill.efficiencyPercent > 0) ? skill.efficiencyPercent : 100;
+        const effectiveMinutes = visualMinutes / (efficiency / 100);
         
         // Simula allocazione
         const cal = this.calendars.get(op.id);

@@ -241,7 +241,8 @@ function calculateJobHours(job: JobOrder): number {
   if (job.expectedMinutesDefault && job.expectedMinutesDefault > 0) {
     return Math.round(((job.expectedMinutesDefault * (job.qta || 0)) / 60) * 10) / 10;
   }
-  return Math.round((((job.qta || 0) * 10) / 60) * 10) / 10;
+  // FASE 52: Rimosso fallback 10 min/pz. Se non ci sono tempi definiti, restituisce 0
+  return 0;
 }
 
 export interface WeekOption {
@@ -879,8 +880,24 @@ const JobTableRow = React.memo(function JobTableRow({
       </td>
 
       {/* 6. ORE PREV. */}
-      <td className="py-1.5 px-2 text-right align-middle font-mono text-[11px] text-muted-foreground font-medium">
-        {hours.toFixed(1)} h
+      <td className="py-1.5 px-2 text-right align-middle font-mono text-[11px]">
+        {hours === 0 ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="inline-flex items-center justify-end gap-1 text-red-500 font-bold cursor-help">
+                <AlertTriangle className="h-3 w-3 text-red-500 shrink-0 animate-pulse" />
+                <span>0.0 h</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              Tempi mancanti in anagrafica
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className="text-muted-foreground font-medium">
+            {hours.toFixed(1)} h
+          </span>
+        )}
       </td>
 
       {/* 7. DATA CONS. (Isolamento Stato Locale & Salvataggio Differito) */}

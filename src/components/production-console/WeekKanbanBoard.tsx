@@ -486,9 +486,9 @@ const JobKanbanCard = React.memo(({ job, articles, activeTab, activeSubTab, mrpT
         return false;
     });
     const totalMinutes = relevantPhases.reduce((acc: number, phase: any) => {
-        const time = article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 10;
-        if (!article?.phaseTimes?.[phase.name]) hasUsedFallback = true;
-        return acc + (time * job.qta);
+        const time = article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 0;
+        if (!article?.phaseTimes?.[phase.name] || !article.phaseTimes[phase.name].expectedMinutesPerPiece) hasUsedFallback = true;
+        return acc + (time * (job.qta || 0));
     }, 0);
     return { hours: totalMinutes / 60, isIpothesis: hasUsedFallback };
   }, [job, articles, activeTab, activeSubTab]);
