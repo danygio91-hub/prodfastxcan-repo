@@ -440,9 +440,12 @@ export function getJobWeekAndYear(job: JobOrder): { week: number; year: number }
 }
 
 /**
- * FASE 16: Roll-over (Time-shifting) per commesse attive in ritardo
- * Se la commessa è attiva (non completata/spedita) ed ha data antecedente alla settimana in corso,
- * viene forzata e visualizzata nel secchiello della Settimana Corrente.
+ * FASE 16 & FASE 57: Roll-over (Time-shifting) per commesse attive in ritardo e ancoraggio commesse completate.
+ * - Se la commessa è attiva (non completata/spedita) ed ha data antecedente alla settimana in corso,
+ *   viene forzata e visualizzata nel secchiello della Settimana Corrente.
+ * - Se la commessa è completata/spedita ma è stata chiusa in una settimana successiva rispetto alla data prevista
+ *   (es. commessa rollata al presente e completata nella settimana corrente o successiva),
+ *   rimane ancorata alla settimana effettiva di completamento senza saltare indietro nel passato.
  */
 export function getJobEffectiveWeek(job: JobOrder, now: Date = new Date()): { week: number; year: number; isRolledOver: boolean } | null {
   const weekInfo = getJobWeekAndYear(job);
@@ -460,6 +463,27 @@ export function getJobEffectiveWeek(job: JobOrder, now: Date = new Date()): { we
       year: currentIsoYear,
       isRolledOver: true,
     };
+  }
+
+  // FASE 57: Se la commessa è conclusa/spedita, verifichiamo la data effettiva di completamento
+  // per mantenerla ancorata alla settimana di esecuzione se successiva a quella originariamente pianificata
+  if (!isActive && isPastWeek) {
+    const completionRaw = job.overallEndTime || (job as any).lastStatusChange || job.updatedAt;
+    if (completionRaw) {
+      const dCompletion = parseRobustDate(completionRaw);
+      if (dCompletion && !isNaN(dCompletion.getTime())) {
+        const compWeek = getISOWeek(dCompletion);
+        const compYear = getISOWeekYear(dCompletion);
+        const isCompLater = compYear > weekInfo.year || (compYear === weekInfo.year && compWeek > weekInfo.week);
+        if (isCompLater) {
+          return {
+            week: compWeek,
+            year: compYear,
+            isRolledOver: true,
+          };
+        }
+      }
+    }
   }
 
   return {
@@ -811,11 +835,13 @@ const JobTableRow = React.memo(function JobTableRow({
   const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
   const effectiveWeekInfo = getJobEffectiveWeek(job);
   const hasExternalized = Boolean(job.externalizedMaterials && job.externalizedMaterials.length > 0);
+  const isFinished = currentStatus === 'Completato Prod.' || currentStatus === 'Spedito';
 
   return (
     <tr
       className={cn(
         "divide-x divide-border hover:bg-muted/30 transition-colors group",
+        isFinished && "opacity-60 bg-muted/10 hover:opacity-85 text-muted-foreground",
         isSelected && "bg-blue-500/10 hover:bg-blue-500/15"
       )}
     >
@@ -1017,12 +1043,12 @@ const JobTableRow = React.memo(function JobTableRow({
           onValueChange={(val: JobStatusOption) => onStatusChange(job, val)}
         >
           <SelectTrigger className={cn(
-            "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border cursor-pointer",
+            "h-6 text-[11px] font-semibold py-0 px-1.5 w-full justify-between rounded border cursor-pointer opacity-100",
             isDeliveryDateMissing && currentStatus === 'Pianificata' && "border-dashed border-red-500/50 bg-red-50/10 text-red-600 dark:text-red-400",
             currentStatus === 'Pianificata' && !isDeliveryDateMissing && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
             currentStatus === 'In Produzione' && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 font-bold",
-            currentStatus === 'Completato Prod.' && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-bold",
-            currentStatus === 'Spedito' && "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
+            currentStatus === 'Completato Prod.' && "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/50 font-bold shadow-2xs",
+            currentStatus === 'Spedito' && "bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/50 font-bold shadow-2xs"
           )}
           title={isDeliveryDateMissing && currentStatus === 'Pianificata' ? "Inserire Data di Consegna per sbloccare l'avanzamento" : undefined}
           >
@@ -1946,19 +1972,22 @@ export default function ProgrammazioneClientPage({
         }
       }
 
-      // 3. FASE 34: Filtro Stato Commessa (Default: 'ALL' / Tutti gli stati)
+      // 3. FASE 34 & FASE 57: Filtro Stato Commessa (Default: 'ALL' / Tutti gli stati)
       if (statusFilter !== 'ALL') {
         const jobStatus: string = normalizeJobStatus(job);
         const matchesSpedita = statusFilter === 'Spedita' && (jobStatus === 'Spedito' || jobStatus === 'Spedita');
-        if (!matchesSpedita && jobStatus !== statusFilter) {
+        const matchesCompletato = statusFilter === 'Completato Prod.' && (jobStatus === 'Completato Prod.' || jobStatus === 'Completata' || jobStatus === 'completed');
+        if (!matchesSpedita && !matchesCompletato && jobStatus !== statusFilter) {
           return false;
         }
       }
 
       // 4. Bivio: Vista per Settimana vs Vista Globale
+      // In modalità 'settimana', tutte le commesse (incluse quelle completate/chiuse) appartenenti
+      // alla settimana selezionata rimangono visibili nella DataGrid e conteggiate nel Secchiello.
       if (viewMode === 'settimana') {
         if (!showAllWeeks) {
-          // FASE 16: Roll-over al presente per commesse attive in ritardo
+          // FASE 16 & FASE 57: Roll-over al presente per commesse attive in ritardo e ancoraggio commesse completate
           const effectiveWeek = getJobEffectiveWeek(job);
           if (!effectiveWeek) return false;
           if (effectiveWeek.week !== selectedWeekNumber || effectiveWeek.year !== selectedYear) {
@@ -2661,9 +2690,11 @@ export default function ProgrammazioneClientPage({
           } else if (newStatus === 'Completato Prod.') {
             updated.status = 'completed';
             updated.forcedCompletion = true;
+            updated.overallEndTime = new Date() as any;
           } else if (newStatus === 'Spedito') {
             updated.status = 'SPEDITA';
             updated.forcedCompletion = true;
+            updated.overallEndTime = new Date() as any;
           }
           return updated;
         }

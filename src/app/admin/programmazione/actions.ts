@@ -31,15 +31,17 @@ export async function getJobOrders(): Promise<JobOrder[]> {
 }
 
 /**
- * Lazy Loading: Carica inizialmente da Firestore SOLO le commesse PIANIFICATE e AVVIATE.
- * Risparmia migliaia di letture Firestore non scaricando lo storico concluso.
+ * Carica da Firestore le commesse PIANIFICATE, AVVIATE e COMPLETATE.
+ * Include le commesse concluse/spedite affinché la Vista Settimana e il Secchiello (Capacità)
+ * mantengano la corretta visibilità del carico settimanale anche a fronte di avanzamenti di stato.
  */
 export async function getActiveJobOrders(): Promise<JobOrder[]> {
-    const [planned, production] = await Promise.all([
+    const [planned, production, completed] = await Promise.all([
         getPlannedJobOrders(),
         getProductionJobOrders(),
+        getCompletedJobOrders(),
     ]);
-    return [...planned, ...production];
+    return [...planned, ...production, ...completed];
 }
 
 /**
