@@ -474,7 +474,7 @@ const JobKanbanCard = React.memo(({ job, articles, activeTab, activeSubTab, mrpT
 
   const { hours, isIpothesis } = useMemo(() => {
     if (!job.details) return { hours: 0, isIpothesis: false };
-    const article = articles.find((a: Article) => a.code.toUpperCase() === job.details.toUpperCase());
+    const article = articles.find((a: Article) => (a.code || a.id).toUpperCase().trim() === (job.details || '').toUpperCase().trim());
     let hasUsedFallback = false;
     const relevantPhases = (job.phases || []).filter((phase: any) => {
         if (activeTab === 'PREPARAZIONE') return phase.type === 'preparation';
@@ -485,11 +485,19 @@ const JobKanbanCard = React.memo(({ job, articles, activeTab, activeSubTab, mrpT
         }
         return false;
     });
-    const totalMinutes = relevantPhases.reduce((acc: number, phase: any) => {
-        const time = article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 0;
-        if (!article?.phaseTimes?.[phase.name] || !article.phaseTimes[phase.name].expectedMinutesPerPiece) hasUsedFallback = true;
+    let totalMinutes = relevantPhases.reduce((acc: number, phase: any) => {
+        const time = phase.expectedMinutesPerPiece || article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 0;
+        if (!time) hasUsedFallback = true;
         return acc + (time * (job.qta || 0));
     }, 0);
+
+    // FASE 56: Se le fasi non hanno tempi ma è presente expectedMinutesDefault sulla commessa o articolo
+    if (totalMinutes === 0 && (job.expectedMinutesDefault || article?.expectedMinutesDefault)) {
+        const totalDef = job.expectedMinutesDefault || article?.expectedMinutesDefault || 0;
+        totalMinutes = totalDef * (job.qta || 0);
+        hasUsedFallback = false;
+    }
+
     return { hours: totalMinutes / 60, isIpothesis: hasUsedFallback };
   }, [job, articles, activeTab, activeSubTab]);
 

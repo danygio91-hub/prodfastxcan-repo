@@ -153,13 +153,17 @@ export class GanttScheduler {
 
     // Ordina le fasi in sequenza decrescente (dall'ultima alla prima)
     const phases = [...(job.phases || [])].sort((a, b) => b.sequence - a.sequence);
-    const article = articles.find(a => a.code === job.details);
+    const article = articles.find(a => (a.code || a.id).toUpperCase().trim() === (job.details || '').toUpperCase().trim());
 
     for (let phase of phases) {
       if (phase.status === 'completed' || phase.status === 'skipped') continue;
 
-      // FASE 52: Rimosso fallback 10 min/pz. Se non ci sono tempi in anagrafica, usa 0
-      const theo = article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 0;
+      // FASE 56: Calcolo tempo fase con supporto prioritario al tempo totale (expectedMinutesDefault)
+      let theo = phase.expectedMinutesPerPiece || article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 0;
+      if (!theo && (job.expectedMinutesDefault || article?.expectedMinutesDefault)) {
+        const totalDef = job.expectedMinutesDefault || article?.expectedMinutesDefault || 0;
+        theo = phases.length > 0 ? (totalDef / phases.length) : totalDef;
+      }
       let totalRequiredMinutes = theo * (job.qta || 0);
       
       const buffer = this.settings.capacityBufferPercent || 100;

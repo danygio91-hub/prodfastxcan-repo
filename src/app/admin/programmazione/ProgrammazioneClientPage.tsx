@@ -231,7 +231,20 @@ export function isJobFinished(jobOrStatus: JobOrder | string | undefined): boole
   return norm === 'Completato Prod.' || norm === 'Spedito';
 }
 
-function calculateJobHours(job: JobOrder): number {
+function calculateJobHours(job: JobOrder, article?: Article): number {
+  // FASE 56: PRIORITÀ ASSOLUTA al Tempo Previsto Totale (expectedMinutesDefault)
+  // Se la commessa (o l'articolo master) ha un expectedMinutesDefault > 0, QUESTO VALORE VINCE SU TUTTO.
+  // Moltiplica questo valore per le quantità e restituisci il risultato. Ignora completamente l'array delle singole fasi.
+  const totalMinsPerPiece = (job.expectedMinutesDefault && job.expectedMinutesDefault > 0)
+    ? job.expectedMinutesDefault
+    : (article?.expectedMinutesDefault && article.expectedMinutesDefault > 0 ? article.expectedMinutesDefault : 0);
+
+  if (totalMinsPerPiece > 0) {
+    return Math.round(((totalMinsPerPiece * (job.qta || 0)) / 60) * 10) / 10;
+  }
+
+  // FALLBACK DISPERATO: La somma delle singole fasi (job.phases) interviene SOLO ED ESCLUSIVAMENTE
+  // se expectedMinutesDefault è vuoto o uguale a 0.
   if (job.phases && job.phases.length > 0) {
     const totalMinutes = job.phases.reduce((acc, p) => {
       const perPiece = p.expectedMinutesPerPiece || 0;
@@ -241,10 +254,8 @@ function calculateJobHours(job: JobOrder): number {
       return Math.round((totalMinutes / 60) * 10) / 10;
     }
   }
-  if (job.expectedMinutesDefault && job.expectedMinutesDefault > 0) {
-    return Math.round(((job.expectedMinutesDefault * (job.qta || 0)) / 60) * 10) / 10;
-  }
-  // FASE 52: Rimosso fallback 10 min/pz. Se non ci sono tempi definiti, restituisce 0
+
+  // Se nessun tempo è valorizzato, restituisce 0
   return 0;
 }
 
@@ -758,6 +769,7 @@ interface JobTableRowProps {
   onDeleteJob: (job: JobOrder) => void;
   onOpenContoLavoroModal: (job: JobOrder) => void;
   onOpenArticleQuickEdit: (articleCode: string) => void;
+  article?: Article;
 }
 
 const JobTableRow = React.memo(function JobTableRow({
@@ -778,8 +790,9 @@ const JobTableRow = React.memo(function JobTableRow({
   onDeleteJob,
   onOpenContoLavoroModal,
   onOpenArticleQuickEdit,
+  article,
 }: JobTableRowProps) {
-  const hours = calculateJobHours(job);
+  const hours = calculateJobHours(job, article);
   const weekInfo = getJobWeekAndYear(job);
   const matchedOpt = useMemo(() => {
     if (!weekInfo) return null;
@@ -1220,6 +1233,16 @@ export default function ProgrammazioneClientPage({
   const [workCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
   const [globalSettings] = useState<GlobalSettings | null>(initialGlobalSettings);
 
+  // FASE 56: Mappa O(1) Articoli per codice e ID per calcoli istantanei ore e lookup
+  const articleMap = useMemo(() => {
+    const map = new Map<string, Article>();
+    articles.forEach((a) => {
+      if (a.code) map.set(a.code.trim().toUpperCase(), a);
+      if (a.id) map.set(a.id.trim().toUpperCase(), a);
+    });
+    return map;
+  }, [articles]);
+
   const [odlConfig] = useState<ODLConfig>(initialOdlConfig || DEFAULT_ODL_CONFIG);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
   const [pdfData, setPdfData] = useState<{
@@ -1281,10 +1304,11 @@ export default function ProgrammazioneClientPage({
 
     // 2. Aggiorna ottimisticamente le commesse associate per ricalcolare immediatamente le Ore Previste
     const targetCode = (updatedArticle.code || '').trim().toUpperCase();
+    const targetId = (updatedArticle.id || '').trim().toUpperCase();
     setJobs((prevJobs) =>
       prevJobs.map((j) => {
         const jobArt = ((j as any).articolo || j.details || '').trim().toUpperCase();
-        if (jobArt === targetCode) {
+        if ((targetCode && jobArt === targetCode) || (targetId && jobArt === targetId)) {
           const expectedDef = updatedArticle.expectedMinutesDefault;
           const updatedPhases = (j.phases || []).map((p) => {
             const tplId = Object.keys(updatedArticle.phaseTimes || {}).find(
@@ -1987,7 +2011,10 @@ export default function ProgrammazioneClientPage({
   const bucketMetrics = useMemo(() => {
     const totalJobs = sortedAndFilteredJobs.length;
     const totalPieces = sortedAndFilteredJobs.reduce((acc, j) => acc + (j.qta || 0), 0);
-    const loadedHours = sortedAndFilteredJobs.reduce((acc, j) => acc + calculateJobHours(j), 0);
+    const loadedHours = sortedAndFilteredJobs.reduce((acc, j) => {
+      const artKey = ((j as any).articolo || j.details || '').trim().toUpperCase();
+      return acc + calculateJobHours(j, articleMap.get(artKey));
+    }, 0);
     const roundedLoadedHours = Math.round(loadedHours * 10) / 10;
     const saturationPercent = availableHours > 0 
       ? Math.round((roundedLoadedHours / availableHours) * 100) 
@@ -2001,7 +2028,7 @@ export default function ProgrammazioneClientPage({
       saturationPercent,
       balanceHours,
     };
-  }, [sortedAndFilteredJobs, availableHours]);
+  }, [sortedAndFilteredJobs, availableHours, articleMap]);
 
   // Conteggi per macro-reparti (Sensibili alla vista corrente)
   const deptCounts = useMemo(() => {
@@ -4760,11 +4787,14 @@ export default function ProgrammazioneClientPage({
                     </td>
                   </tr>
                 ) : (
-                  sortedAndFilteredJobs.map((job) => (
-                    <JobTableRow
-                      key={job.id}
-                      job={job}
-                      isSelected={selectedJobIds.includes(job.id)}
+                  sortedAndFilteredJobs.map((job) => {
+                    const artKey = ((job as any).articolo || job.details || '').trim().toUpperCase();
+                    return (
+                      <JobTableRow
+                        key={job.id}
+                        job={job}
+                        article={articleMap.get(artKey)}
+                        isSelected={selectedJobIds.includes(job.id)}
                       isDownloadingPdf={isDownloadingPdf === job.id}
                       weekOptions={weekOptions}
                       getJobMRPStatus={getJobMRPStatus}
@@ -4781,7 +4811,8 @@ export default function ProgrammazioneClientPage({
                       onOpenContoLavoroModal={handleOpenContoLavoroModal}
                       onOpenArticleQuickEdit={handleOpenArticleQuickEdit}
                     />
-                  ))
+                  );
+                })
                 )}
               </tbody>
             </table>

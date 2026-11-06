@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Timer, RefreshCcw, Save, Loader2, Copy } from 'lucide-react';
+import { Timer, RefreshCcw, Save, Loader2, Copy, CheckCircle2, Calculator } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { Article, WorkPhaseTemplate, ArticlePhaseTime, WorkCycle } from '@/types';
 import { saveArticleStandardTimes, refreshArticleHistoricalTimes } from './actions';
@@ -170,9 +170,23 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         return {
             totalExpected,
             totalDetected,
+            enabledCount,
+            expectedCompleteCount,
             isExpectedComplete: enabledCount > 0 && expectedCompleteCount === enabledCount,
         };
     }, [phaseTemplates, currentPhaseTimes]);
+
+    // FASE 56: Auto-popolamento visibile del totale quando il ciclo è completo (tutte le fasi attive > 0)
+    useEffect(() => {
+        if (stats.isExpectedComplete && stats.totalExpected > 0) {
+            const rounded = Math.round(stats.totalExpected * 1000) / 1000;
+            if (activeView === 'default') {
+                setExpectedTotalDefault(rounded);
+            } else {
+                setExpectedTotalSecondary(rounded);
+            }
+        }
+    }, [stats.isExpectedComplete, stats.totalExpected, activeView]);
 
     const handleUpdateTimes = async () => {
         if (!article) return;
@@ -312,11 +326,24 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
             return res;
         };
 
+        const parseTotal = (val: string | number) => {
+            if (val === "" || val === undefined || val === null) return 0;
+            const num = parseFloat(String(val).replace(',', '.'));
+            return isNaN(num) ? 0 : num;
+        };
+
+        const defVal = parseTotal(expectedTotalDefault);
+        const secVal = parseTotal(expectedTotalSecondary);
+
         const data: Partial<Article> = {
             workCycleId: primaryCycleId,
             secondaryWorkCycleId: secondaryCycleId,
-            expectedMinutesDefault: activeView === 'default' && stats.isExpectedComplete ? stats.totalExpected : (parseFloat(expectedTotalDefault as string) || 0),
-            expectedMinutesSecondary: activeView === 'secondary' && stats.isExpectedComplete ? stats.totalExpected : (parseFloat(expectedTotalSecondary as string) || 0),
+            expectedMinutesDefault: defVal > 0 
+                ? defVal 
+                : (activeView === 'default' && stats.isExpectedComplete ? stats.totalExpected : 0),
+            expectedMinutesSecondary: secVal > 0 
+                ? secVal 
+                : (activeView === 'secondary' && stats.isExpectedComplete ? stats.totalExpected : 0),
             phaseTimes: parseTimes(localPhaseTimesDefault),
             phaseTimesSecondary: parseTimes(localPhaseTimesSecondary),
         };
@@ -366,7 +393,25 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                     </Select>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-xs font-bold uppercase text-muted-foreground">Tempo Previsto Totale (min/pz)</Label>
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-xs font-bold uppercase text-muted-foreground">Tempo Previsto Totale (min/pz)</Label>
+                                        {stats.totalExpected > 0 && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-5 text-[10px] px-1.5 text-primary hover:bg-primary/10 gap-1 font-semibold"
+                                                onClick={() => {
+                                                    const rounded = Math.round(stats.totalExpected * 1000) / 1000;
+                                                    if (activeView === 'default') setExpectedTotalDefault(rounded);
+                                                    else setExpectedTotalSecondary(rounded);
+                                                }}
+                                            >
+                                                <Calculator className="h-3 w-3" />
+                                                Usa somma fasi ({stats.totalExpected.toFixed(3)})
+                                            </Button>
+                                        )}
+                                    </div>
                                     <div className="relative">
                                         <Input
                                             type="number" step="0.01" 
@@ -375,45 +420,10 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                             value={activeView === 'default' ? expectedTotalDefault : expectedTotalSecondary}
                                             onChange={(e) => {
                                                 const rawVal = e.target.value;
-                                                const val = rawVal === "" ? "" : parseFloat(rawVal) || 0;
-                                                const calcVal = val === "" ? 0 : val;
-                                                
-                                                const cycleId = activeView === 'default' ? primaryCycleId : secondaryCycleId;
-                                                const currentTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
-                                                
-                                                const newTimes = { ...currentTimes };
-                                                const cycle = workCycles.find(c => c.id === cycleId);
-                                                
-                                                if (cycle && cycle.phaseTemplateIds) {
-                                                    cycle.phaseTemplateIds.forEach((templateId, index) => {
-                                                        const weight = cycle.phaseWeights ? cycle.phaseWeights[index] : 0;
-                                                        const phaseData = newTimes[templateId];
-                                                        
-                                                        if (phaseData && phaseData.enabled !== false) {
-                                                            if (phaseData.detectedMinutesPerPiece && phaseData.detectedMinutesPerPiece > 0) {
-                                                                const roundedVal = Math.round(phaseData.detectedMinutesPerPiece * 1000) / 1000;
-                                                                newTimes[templateId] = {
-                                                                    ...phaseData,
-                                                                    expectedMinutesPerPiece: roundedVal.toString() as any
-                                                                };
-                                                            } else {
-                                                                const calculated = (calcVal * (weight || 0)) / 100;
-                                                                const roundedVal = Math.round(calculated * 1000) / 1000;
-                                                                newTimes[templateId] = {
-                                                                    ...phaseData,
-                                                                    expectedMinutesPerPiece: roundedVal > 0 ? roundedVal.toString() as any : ""
-                                                                };
-                                                            }
-                                                        }
-                                                    });
-                                                }
-
                                                 if (activeView === 'default') {
-                                                    setExpectedTotalDefault(val);
-                                                    setLocalPhaseTimesDefault(newTimes);
+                                                    setExpectedTotalDefault(rawVal);
                                                 } else {
-                                                    setExpectedTotalSecondary(val);
-                                                    setLocalPhaseTimesSecondary(newTimes);
+                                                    setExpectedTotalSecondary(rawVal);
                                                 }
                                             }}
                                             onKeyDown={(e) => {
@@ -425,7 +435,16 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                         />
                                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs">min/pz</span>
                                     </div>
-                                    {stats.isExpectedComplete && <p className="text-[10px] text-green-600 font-bold animate-pulse">Auto-update a {stats.totalExpected.toFixed(2)} min/pz</p>}
+                                    {stats.isExpectedComplete ? (
+                                        <div className="flex items-center gap-1.5 p-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded text-emerald-700 dark:text-emerald-400">
+                                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                            <span className="text-[11px] font-bold">Totale derivato da ciclo completo ({stats.totalExpected.toFixed(3)} min/pz)</span>
+                                        </div>
+                                    ) : (
+                                        <p className="text-[10px] text-muted-foreground">
+                                            Inserimento manuale attivo. {stats.expectedCompleteCount < stats.enabledCount ? `(Ciclo parziale: ${stats.expectedCompleteCount}/${stats.enabledCount} fasi con target)` : ''}
+                                        </p>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>

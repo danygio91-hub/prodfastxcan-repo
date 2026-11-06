@@ -444,18 +444,41 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
     try {
         await adminDb.collection('articles').doc(articleId).set(data, { merge: true });
         
-        // --- MASS SYNC ACTION: Update Open Job Orders ---
+        // --- MASS SYNC ACTION: Update Open Job Orders (Effetto Fotografia FASE 56) ---
         try {
+            const articleDoc = await adminDb.collection('articles').doc(articleId).get();
+            const articleDocData = articleDoc.data() || {};
+            const articleCode = (data.code || articleDocData.code || articleId || '').toString().trim();
+            
+            // Chiavi multiple per catturare ID, codice, maiuscolo e minuscolo
+            const searchKeys = Array.from(new Set([
+                articleId.trim(),
+                articleCode,
+                articleCode.toUpperCase(),
+                articleCode.toLowerCase()
+            ].filter(Boolean)));
+
             const phaseTemplates = await getWorkPhaseTemplates();
             const phaseMap = new Map(phaseTemplates.map(p => [p.name.toUpperCase().trim(), p.id]));
             
-            const jobsSnap = await adminDb.collection('jobOrders')
-                .where('details', '==', articleId)
-                .get();
+            // Interroga sia per details sia per articleCode per garantire copertura totale
+            const [snapByDetails, snapByArticleCode] = await Promise.all([
+                adminDb.collection('jobOrders').where('details', 'in', searchKeys).get(),
+                adminDb.collection('jobOrders').where('articleCode', 'in', searchKeys).get()
+            ]);
 
-            if (!jobsSnap.empty) {
-                const chunks: admin.firestore.QueryDocumentSnapshot[] = [];
-                jobsSnap.docs.forEach(d => chunks.push(d));
+            const docsMap = new Map<string, admin.firestore.QueryDocumentSnapshot>();
+            snapByDetails.docs.forEach(d => docsMap.set(d.id, d));
+            snapByArticleCode.docs.forEach(d => docsMap.set(d.id, d));
+            const allJobDocs = Array.from(docsMap.values());
+
+            if (allJobDocs.length > 0) {
+                const chunks: admin.firestore.QueryDocumentSnapshot[] = [...allJobDocs];
+                const CLOSED_STATUSES = new Set([
+                    'CHIUSO', 'CHIUSA', 'COMPLETATA', 'COMPLETATO', 'COMPLETED',
+                    'SHIPPED', 'SPEDITA', 'SPEDITO', 'COMPLETATO PROD.', 'COMPLETATO PROD',
+                    'ANNULLATA', 'ANNULLATO', 'CANCELLED'
+                ]);
 
                 while (chunks.length > 0) {
                     const batch = adminDb.batch();
@@ -464,10 +487,10 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
 
                     currentChunk.forEach(doc => {
                         const job = doc.data() as JobOrder;
-                        const status = (job.status || '').toUpperCase();
+                        const status = (job.status || '').toUpperCase().trim();
                         
-                        // Sync only if not strictly closed
-                        const isClosed = status === 'CHIUSO' || status === 'COMPLETATA' || status === 'SHIPPED';
+                        // Sincronizza tutte le commesse attive (Pianificata, In Produzione, In Verifica, ecc.)
+                        const isClosed = CLOSED_STATUSES.has(status);
                         
                         if (!isClosed) {
                             let jobModified = false;
@@ -494,10 +517,16 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
                                 ? data.expectedMinutesSecondary
                                 : data.expectedMinutesDefault;
 
-                            if (jobModified || (expectedDef !== undefined && expectedDef !== job.expectedMinutesDefault)) {
-                                const updatePayload: any = { phases: updatedPhases };
-                                if (expectedDef !== undefined) {
-                                    updatePayload.expectedMinutesDefault = expectedDef;
+                            const finalExpected = expectedDef !== undefined ? expectedDef : 0;
+                            const needsExpectedUpdate = finalExpected !== job.expectedMinutesDefault;
+
+                            if (jobModified || needsExpectedUpdate) {
+                                const updatePayload: Record<string, any> = {
+                                    expectedMinutesDefault: finalExpected,
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                };
+                                if (updatedPhases.length > 0) {
+                                    updatePayload.phases = updatedPhases;
                                 }
                                 batch.update(doc.ref, updatePayload);
                                 hasUpdates = true;
@@ -518,6 +547,7 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
         revalidatePath('/admin/article-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/programmazione');
+        revalidatePath('/admin/production-console');
         return { success: true, message: 'Standard Tempi e Cicli aggiornati. Commesse sincronizzate con successo.' };
     } catch (e) {
         console.error("Error saving article standard times:", e);
