@@ -163,6 +163,7 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         revalidatePath('/admin/raw-material-management');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/programmazione');
         revalidatePath('/admin/production-console');
         
         return { success: true, message: 'Articolo salvato e impegni commesse sincronizzati.' };
@@ -516,6 +517,7 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
         
         revalidatePath('/admin/article-management');
         revalidatePath('/admin/resource-planning');
+        revalidatePath('/admin/programmazione');
         return { success: true, message: 'Standard Tempi e Cicli aggiornati. Commesse sincronizzate con successo.' };
     } catch (e) {
         console.error("Error saving article standard times:", e);

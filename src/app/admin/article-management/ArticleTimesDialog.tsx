@@ -30,6 +30,7 @@ interface ArticleTimesDialogProps {
     onClose: (refresh?: boolean, updatedArticle?: Article) => void;
     article: Article | null;
     phaseTemplates: WorkPhaseTemplate[];
+    embedded?: boolean;
 }
 
 function applyCyclePhases(
@@ -57,7 +58,7 @@ function applyCyclePhases(
     return newPhaseTimes;
 }
 
-export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates }: ArticleTimesDialogProps) {
+export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates, embedded = false }: ArticleTimesDialogProps) {
     const { toast } = useToast();
     const [isPending, setIsPending] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
@@ -335,160 +336,170 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
     const sortedTemplates = [...phaseTemplates].sort((a, b) => a.name.localeCompare(b.name));
 
 
-    return (
-        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-w-5xl h-[95vh] flex flex-col p-0">
+    const innerContent = (
+        <div className="flex-1 overflow-hidden flex flex-col h-full">
+            {!embedded && (
                 <DialogHeader className="p-6 pb-2">
                     <DialogTitle className="flex items-center gap-2"><Timer className="h-6 w-6 text-primary" />Standard Tempi: {article?.code}</DialogTitle>
                     <DialogDescription>Configura cicli e target. Il totale si aggiorna se tutte le fasi hanno un valore.</DialogDescription>
                 </DialogHeader>
+            )}
 
-                <div className="flex-1 overflow-hidden px-6 flex flex-col gap-4">
-                    <Tabs value={activeView} onValueChange={(v) => setActiveView(v as any)} className="w-full">
-                        <TabsList className="grid w-full grid-cols-2 max-w-md">
-                            <TabsTrigger value="default">Ciclo Predefinito</TabsTrigger>
-                            <TabsTrigger value="secondary">Ciclo Secondario</TabsTrigger>
-                        </TabsList>
+            <div className={cn("flex-1 overflow-hidden flex flex-col gap-4", embedded ? "p-4" : "px-6")}>
+                <Tabs value={activeView} onValueChange={(v) => setActiveView(v as any)} className="w-full">
+                    <TabsList className="grid w-full grid-cols-2 max-w-md">
+                        <TabsTrigger value="default">Ciclo Predefinito</TabsTrigger>
+                        <TabsTrigger value="secondary">Ciclo Secondario</TabsTrigger>
+                    </TabsList>
 
-                        <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                            <Card className="lg:col-span-4 bg-muted/20 border-primary/20">
-                                <CardContent className="p-4 space-y-4">
-                                    <div className="space-y-2">
-                                        <Label className="text-xs font-bold uppercase text-muted-foreground">Ciclo Applicato</Label>
-                                        <Select onValueChange={(v) => handleCycleChange(v, activeView)} value={activeView === 'default' ? primaryCycleId : secondaryCycleId}>
-                                            <SelectTrigger className="w-full h-9 text-xs"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="manual">Manuale</SelectItem>
-                                                {workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-xs font-bold uppercase text-muted-foreground">Tempo Previsto Totale (min/pz)</Label>
-                                        <div className="relative">
-                                            <Input
-                                                type="number" step="0.01" 
-                                                className="text-lg font-black font-mono h-12 appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                                                placeholder="Es. 1.5"
-                                                value={activeView === 'default' ? expectedTotalDefault : expectedTotalSecondary}
-                                                onChange={(e) => {
-                                                    const rawVal = e.target.value;
-                                                    const val = rawVal === "" ? "" : parseFloat(rawVal) || 0;
-                                                    const calcVal = val === "" ? 0 : val;
-                                                    
-                                                    const cycleId = activeView === 'default' ? primaryCycleId : secondaryCycleId;
-                                                    const currentTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
-                                                    
-                                                    const newTimes = { ...currentTimes };
-                                                    const cycle = workCycles.find(c => c.id === cycleId);
-                                                    
-                                                    if (cycle && cycle.phaseTemplateIds) {
-                                                        cycle.phaseTemplateIds.forEach((templateId, index) => {
-                                                            const weight = cycle.phaseWeights ? cycle.phaseWeights[index] : 0;
-                                                            const phaseData = newTimes[templateId];
-                                                            
-                                                            if (phaseData && phaseData.enabled !== false) {
-                                                                if (phaseData.detectedMinutesPerPiece && phaseData.detectedMinutesPerPiece > 0) {
-                                                                    // Condizione A: Vince lo Storico Reale
-                                                                    const roundedVal = Math.round(phaseData.detectedMinutesPerPiece * 1000) / 1000;
-                                                                    newTimes[templateId] = {
-                                                                        ...phaseData,
-                                                                        expectedMinutesPerPiece: roundedVal.toString() as any
-                                                                    };
-                                                                } else {
-                                                                    // Condizione B: Fallback Teorico
-                                                                    const calculated = (calcVal * (weight || 0)) / 100;
-                                                                    const roundedVal = Math.round(calculated * 1000) / 1000;
-                                                                    newTimes[templateId] = {
-                                                                        ...phaseData,
-                                                                        expectedMinutesPerPiece: roundedVal > 0 ? roundedVal.toString() as any : ""
-                                                                    };
-                                                                }
+                    <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                        <Card className="lg:col-span-4 bg-muted/20 border-primary/20">
+                            <CardContent className="p-4 space-y-4">
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold uppercase text-muted-foreground">Ciclo Applicato</Label>
+                                    <Select onValueChange={(v) => handleCycleChange(v, activeView)} value={activeView === 'default' ? primaryCycleId : secondaryCycleId}>
+                                        <SelectTrigger className="w-full h-9 text-xs"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="manual">Manuale</SelectItem>
+                                            {workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold uppercase text-muted-foreground">Tempo Previsto Totale (min/pz)</Label>
+                                    <div className="relative">
+                                        <Input
+                                            type="number" step="0.01" 
+                                            className="text-lg font-black font-mono h-12 appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                            placeholder="Es. 1.5"
+                                            value={activeView === 'default' ? expectedTotalDefault : expectedTotalSecondary}
+                                            onChange={(e) => {
+                                                const rawVal = e.target.value;
+                                                const val = rawVal === "" ? "" : parseFloat(rawVal) || 0;
+                                                const calcVal = val === "" ? 0 : val;
+                                                
+                                                const cycleId = activeView === 'default' ? primaryCycleId : secondaryCycleId;
+                                                const currentTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
+                                                
+                                                const newTimes = { ...currentTimes };
+                                                const cycle = workCycles.find(c => c.id === cycleId);
+                                                
+                                                if (cycle && cycle.phaseTemplateIds) {
+                                                    cycle.phaseTemplateIds.forEach((templateId, index) => {
+                                                        const weight = cycle.phaseWeights ? cycle.phaseWeights[index] : 0;
+                                                        const phaseData = newTimes[templateId];
+                                                        
+                                                        if (phaseData && phaseData.enabled !== false) {
+                                                            if (phaseData.detectedMinutesPerPiece && phaseData.detectedMinutesPerPiece > 0) {
+                                                                const roundedVal = Math.round(phaseData.detectedMinutesPerPiece * 1000) / 1000;
+                                                                newTimes[templateId] = {
+                                                                    ...phaseData,
+                                                                    expectedMinutesPerPiece: roundedVal.toString() as any
+                                                                };
+                                                            } else {
+                                                                const calculated = (calcVal * (weight || 0)) / 100;
+                                                                const roundedVal = Math.round(calculated * 1000) / 1000;
+                                                                newTimes[templateId] = {
+                                                                    ...phaseData,
+                                                                    expectedMinutesPerPiece: roundedVal > 0 ? roundedVal.toString() as any : ""
+                                                                };
                                                             }
-                                                        });
-                                                    }
+                                                        }
+                                                    });
+                                                }
 
-                                                    if (activeView === 'default') {
-                                                        setExpectedTotalDefault(val);
-                                                        setLocalPhaseTimesDefault(newTimes);
-                                                    } else {
-                                                        setExpectedTotalSecondary(val);
-                                                        setLocalPhaseTimesSecondary(newTimes);
-                                                    }
-                                                }}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        handleSave();
-                                                    }
-                                                }}
-                                            />
-                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs">min/pz</span>
-                                        </div>
-                                        {stats.isExpectedComplete && <p className="text-[10px] text-green-600 font-bold animate-pulse">Auto-update a {stats.totalExpected.toFixed(2)} min/pz</p>}
+                                                if (activeView === 'default') {
+                                                    setExpectedTotalDefault(val);
+                                                    setLocalPhaseTimesDefault(newTimes);
+                                                } else {
+                                                    setExpectedTotalSecondary(val);
+                                                    setLocalPhaseTimesSecondary(newTimes);
+                                                }
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    handleSave();
+                                                }
+                                            }}
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs">min/pz</span>
                                     </div>
-                                </CardContent>
-                            </Card>
-                            <div className="lg:col-span-8 grid grid-cols-2 gap-4">
-                                <div className="p-4 border rounded-lg flex flex-col items-center justify-center bg-muted/10">
-                                    <span className="text-[10px] uppercase font-black text-muted-foreground">Somma Fasi</span>
-                                    <span className="text-2xl font-black font-mono">{stats.totalExpected.toFixed(4)} min/pz</span>
+                                    {stats.isExpectedComplete && <p className="text-[10px] text-green-600 font-bold animate-pulse">Auto-update a {stats.totalExpected.toFixed(2)} min/pz</p>}
                                 </div>
-                                <div className="p-4 border rounded-lg flex flex-col items-center justify-center bg-muted/10">
-                                    <span className="text-[10px] uppercase font-black text-muted-foreground">Tempo Medio Storico</span>
-                                    <span className="text-2xl font-black font-mono text-muted-foreground">{stats.totalDetected.toFixed(4)} min/pz</span>
-                                </div>
+                            </CardContent>
+                        </Card>
+                        <div className="lg:col-span-8 grid grid-cols-2 gap-4">
+                            <div className="p-4 border rounded-lg flex flex-col items-center justify-center bg-muted/10">
+                                <span className="text-[10px] uppercase font-black text-muted-foreground">Somma Fasi</span>
+                                <span className="text-2xl font-black font-mono">{stats.totalExpected.toFixed(4)} min/pz</span>
+                            </div>
+                            <div className="p-4 border rounded-lg flex flex-col items-center justify-center bg-muted/10">
+                                <span className="text-[10px] uppercase font-black text-muted-foreground">Tempo Medio Storico</span>
+                                <span className="text-2xl font-black font-mono text-muted-foreground">{stats.totalDetected.toFixed(4)} min/pz</span>
                             </div>
                         </div>
-                    </Tabs>
-
-                    <div className="flex justify-end gap-2">
-                        <Button variant="secondary" size="sm" onClick={handleCopyToTarget}><Copy className="mr-2 h-4 w-4" />Copia in Target</Button>
-                        <Button variant="outline" size="sm" onClick={handleUpdateTimes} disabled={isUpdating}><RefreshCcw className={cn("mr-2 h-4 w-4", isUpdating && "animate-spin")} />Carica Analisi</Button>
                     </div>
+                </Tabs>
 
-                    <ScrollArea className="flex-1 border rounded-md bg-card">
-                        <Table>
-                            <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
-                                <TableRow>
-                                    <TableHead className="w-[50px]">Attiva</TableHead>
-                                    <TableHead>Fase</TableHead>
-                                    <TableHead className="text-right">Storico (min/pz)</TableHead>
-                                    <TableHead className="text-right w-[180px]">Target (min/pz)</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {sortedTemplates.map((phase) => {
-                                    const data = currentPhaseTimes[phase.id];
-                                    const isEnabled = data ? data.enabled !== false : false;
-                                    return (
-                                        <TableRow key={phase.id} className={cn(!isEnabled && "opacity-40")}>
-                                            <TableCell><Checkbox checked={isEnabled} onCheckedChange={(c) => handleToggleEnabled(phase.id, !!c)} /></TableCell>
-                                            <TableCell><div className="flex flex-col"><span className="font-bold text-sm uppercase">{phase.name}</span><span className="text-[10px] text-muted-foreground uppercase">{phase.type}</span></div></TableCell>
-                                            <TableCell className="text-right font-mono text-muted-foreground">{data?.detectedMinutesPerPiece ? data.detectedMinutesPerPiece.toFixed(4) : '---'}</TableCell>
-                                            <TableCell className="text-right">
-                                                <Input 
-                                                    type="number" 
-                                                    step="0.001" 
-                                                    disabled={!isEnabled} 
-                                                    className="w-32 text-right h-9 font-mono" 
-                                                    value={data?.expectedMinutesPerPiece ?? ''} 
-                                                    onChange={(e) => handleExpectedTimeChange(phase.id, e.target.value)} 
-                                                    onBlur={() => handleExpectedTimeBlur(phase.id)}
-                                                />
-                                            </TableCell>
-                                        </TableRow>
-                                    )
-                                })}
-                            </TableBody>
-                        </Table>
-                    </ScrollArea>
+                <div className="flex justify-end gap-2">
+                    <Button variant="secondary" size="sm" onClick={handleCopyToTarget}><Copy className="mr-2 h-4 w-4" />Copia in Target</Button>
+                    <Button variant="outline" size="sm" onClick={handleUpdateTimes} disabled={isUpdating}><RefreshCcw className={cn("mr-2 h-4 w-4", isUpdating && "animate-spin")} />Carica Analisi</Button>
                 </div>
 
-                <DialogFooter className="p-6 pt-4 border-t bg-muted/20">
-                    <Button variant="outline" onClick={() => onClose()}>Annulla</Button>
-                    <Button onClick={handleSave} disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Salva</Button>
-                </DialogFooter>
+                <ScrollArea className="flex-1 border rounded-md bg-card">
+                    <Table>
+                        <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
+                            <TableRow>
+                                <TableHead className="w-[50px]">Attiva</TableHead>
+                                <TableHead>Fase</TableHead>
+                                <TableHead className="text-right">Storico (min/pz)</TableHead>
+                                <TableHead className="text-right w-[180px]">Target (min/pz)</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {sortedTemplates.map((phase) => {
+                                const data = currentPhaseTimes[phase.id];
+                                const isEnabled = data ? data.enabled !== false : false;
+                                return (
+                                    <TableRow key={phase.id} className={cn(!isEnabled && "opacity-40")}>
+                                        <TableCell><Checkbox checked={isEnabled} onCheckedChange={(c) => handleToggleEnabled(phase.id, !!c)} /></TableCell>
+                                        <TableCell><div className="flex flex-col"><span className="font-bold text-sm uppercase">{phase.name}</span><span className="text-[10px] text-muted-foreground uppercase">{phase.type}</span></div></TableCell>
+                                        <TableCell className="text-right font-mono text-muted-foreground">{data?.detectedMinutesPerPiece ? data.detectedMinutesPerPiece.toFixed(4) : '---'}</TableCell>
+                                        <TableCell className="text-right">
+                                            <Input 
+                                                type="number" 
+                                                step="0.001" 
+                                                disabled={!isEnabled} 
+                                                className="w-32 text-right h-9 font-mono" 
+                                                value={data?.expectedMinutesPerPiece ?? ''} 
+                                                onChange={(e) => handleExpectedTimeChange(phase.id, e.target.value)} 
+                                                onBlur={() => handleExpectedTimeBlur(phase.id)}
+                                            />
+                                        </TableCell>
+                                    </TableRow>
+                                )
+                            })}
+                        </TableBody>
+                    </Table>
+                </ScrollArea>
+            </div>
+
+            <div className="p-4 border-t bg-muted/20 flex items-center justify-end gap-2">
+                <Button variant="outline" onClick={() => onClose()}>Annulla</Button>
+                <Button onClick={handleSave} disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Salva</Button>
+            </div>
+        </div>
+    );
+
+    if (embedded) {
+        return innerContent;
+    }
+
+    return (
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="max-w-5xl h-[95vh] flex flex-col p-0">
+                {innerContent}
             </DialogContent>
         </Dialog>
     );

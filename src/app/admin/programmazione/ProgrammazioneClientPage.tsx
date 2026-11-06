@@ -111,6 +111,7 @@ import { ExcelImportModal } from '@/components/mrp/ExcelImportModal';
 import { ManualMultiAddModal } from '@/components/mrp/ManualMultiAddModal';
 import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 import { ContoLavoroModal } from '@/components/mrp/ContoLavoroModal';
+import { QuickArticleEditDrawer } from '@/components/mrp/QuickArticleEditDrawer';
 import { 
   getJobOrders, 
   getActiveJobOrders,
@@ -756,6 +757,7 @@ interface JobTableRowProps {
   onOpenEditModal: (job: JobOrder) => void;
   onDeleteJob: (job: JobOrder) => void;
   onOpenContoLavoroModal: (job: JobOrder) => void;
+  onOpenArticleQuickEdit: (articleCode: string) => void;
 }
 
 const JobTableRow = React.memo(function JobTableRow({
@@ -775,6 +777,7 @@ const JobTableRow = React.memo(function JobTableRow({
   onOpenEditModal,
   onDeleteJob,
   onOpenContoLavoroModal,
+  onOpenArticleQuickEdit,
 }: JobTableRowProps) {
   const hours = calculateJobHours(job);
   const weekInfo = getJobWeekAndYear(job);
@@ -858,17 +861,21 @@ const JobTableRow = React.memo(function JobTableRow({
         </span>
       </td>
 
-      {/* 4. ARTICOLO */}
+      {/* 4. ARTICOLO (Quick-Edit Drawer - no redirect) */}
       <td className="py-1.5 px-3 align-middle">
         {((job as any).articolo || job.details) ? (
-          <Link
-            href={`/admin/anagrafica-articoli?search=${encodeURIComponent(((job as any).articolo || job.details || '').trim())}`}
-            className="font-semibold text-blue-400 hover:text-blue-300 hover:underline cursor-pointer transition-colors truncate block max-w-[250px]"
-            title={`Apri anagrafica per ${((job as any).articolo || job.details)}`}
-            prefetch={false}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpenArticleQuickEdit(((job as any).articolo || job.details || '').trim());
+            }}
+            className="font-semibold text-blue-400 hover:text-blue-300 hover:underline cursor-pointer transition-colors truncate block max-w-[250px] text-left"
+            title={`Modifica rapida tempi e distinta per ${((job as any).articolo || job.details)}`}
           >
             {((job as any).articolo || job.details)}
-          </Link>
+          </button>
         ) : (
           <span className="font-semibold text-muted-foreground truncate block max-w-[250px]">
             Articolo non indicato
@@ -1251,6 +1258,57 @@ export default function ProgrammazioneClientPage({
       prev.map((j) => (j.id === oldId || j.id === updatedJob.id ? { ...j, ...updatedJob } : j))
     );
   }, [jobToEdit]);
+
+  // FASE 54: Quick-Edit Anagrafica Articolo in sovrimpressione (No Redirect)
+  const [quickEditArticleCode, setQuickEditArticleCode] = useState<string | null>(null);
+  const [isQuickEditDrawerOpen, setIsQuickEditDrawerOpen] = useState(false);
+
+  const handleOpenArticleQuickEdit = useCallback((articleCode: string) => {
+    if (!articleCode) return;
+    setQuickEditArticleCode(articleCode.trim());
+    setIsQuickEditDrawerOpen(true);
+  }, []);
+
+  const handleArticleUpdated = useCallback((updatedArticle: Article) => {
+    // 1. Aggiorna cache locale degli articoli
+    setArticles((prev) => {
+      const exists = prev.some((a) => a.id === updatedArticle.id || a.code === updatedArticle.code);
+      if (exists) {
+        return prev.map((a) => (a.id === updatedArticle.id || a.code === updatedArticle.code ? { ...a, ...updatedArticle } : a));
+      }
+      return [updatedArticle, ...prev];
+    });
+
+    // 2. Aggiorna ottimisticamente le commesse associate per ricalcolare immediatamente le Ore Previste
+    const targetCode = (updatedArticle.code || '').trim().toUpperCase();
+    setJobs((prevJobs) =>
+      prevJobs.map((j) => {
+        const jobArt = ((j as any).articolo || j.details || '').trim().toUpperCase();
+        if (jobArt === targetCode) {
+          const expectedDef = updatedArticle.expectedMinutesDefault;
+          const updatedPhases = (j.phases || []).map((p) => {
+            const tplId = Object.keys(updatedArticle.phaseTimes || {}).find(
+              (k) => (p.name || '').toUpperCase().trim() === k.toUpperCase().trim()
+            );
+            const phaseData = tplId ? updatedArticle.phaseTimes?.[tplId] : undefined;
+            if (phaseData && phaseData.expectedMinutesPerPiece !== undefined) {
+              return { ...p, expectedMinutesPerPiece: phaseData.expectedMinutesPerPiece };
+            }
+            return p;
+          });
+
+          return {
+            ...j,
+            phases: updatedPhases,
+            expectedMinutesDefault: expectedDef !== undefined ? expectedDef : j.expectedMinutesDefault,
+          };
+        }
+        return j;
+      })
+    );
+
+    router.refresh();
+  }, [router]);
 
   // FASE 45: Modale di Gestione Conto Lavoro (C.to Lavoro)
   const [isContoLavoroModalOpen, setIsContoLavoroModalOpen] = useState(false);
@@ -4721,6 +4779,7 @@ export default function ProgrammazioneClientPage({
                       onOpenEditModal={handleOpenEditModal}
                       onDeleteJob={handleDeleteJob}
                       onOpenContoLavoroModal={handleOpenContoLavoroModal}
+                      onOpenArticleQuickEdit={handleOpenArticleQuickEdit}
                     />
                   ))
                 )}
@@ -5005,6 +5064,20 @@ export default function ProgrammazioneClientPage({
           articles={articles}
           rawMaterials={Array.from(materialsCacheRef.current.values())}
           onSave={handleSaveContoLavoro}
+        />
+
+        {/* =========================================================================
+            7. QUICK-EDIT ANAGRAFICA ARTICOLO DA DATAGRID (FASE 54)
+        ========================================================================== */}
+        <QuickArticleEditDrawer
+          isOpen={isQuickEditDrawerOpen}
+          onClose={() => {
+            setIsQuickEditDrawerOpen(false);
+            setQuickEditArticleCode(null);
+          }}
+          articleCode={quickEditArticleCode}
+          articles={articles}
+          onArticleUpdated={handleArticleUpdated}
         />
       </div>
     </TooltipProvider>

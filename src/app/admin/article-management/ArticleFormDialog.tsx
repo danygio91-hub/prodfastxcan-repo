@@ -61,9 +61,10 @@ interface ArticleFormDialogProps {
   isOpen: boolean;
   onClose: (refresh?: boolean, updatedArticle?: Article) => void;
   article: Article | null;
+  embedded?: boolean;
 }
 
-export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleFormDialogProps) {
+export default function ArticleFormDialog({ isOpen, onClose, article, embedded = false }: ArticleFormDialogProps) {
   const { toast } = useToast();
   const [isPending, setIsPending] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
@@ -279,17 +280,18 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [focusedIndex]);
 
-  return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-5xl h-[90vh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <DialogHeader>
+  const innerContent = (
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      {!embedded && (
+        <DialogHeader className="p-6 pb-2">
           <DialogTitle>{article ? `Modifica Distinta Base: ${article.code}` : 'Crea Nuovo Articolo'}</DialogTitle>
           <DialogDescription>
             Definisci i componenti. Puoi digitare, incollare o selezionare dai suggerimenti.
           </DialogDescription>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 flex flex-col overflow-hidden">
+      )}
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 flex flex-col overflow-hidden">
             <div className="p-4 border-b space-y-4">
               <FormField
                 control={form.control}
@@ -632,6 +634,17 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
             </DialogFooter>
           </form>
         </Form>
+    </div>
+  );
+
+  if (embedded) {
+    return innerContent;
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-5xl h-[90vh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+        {innerContent}
       </DialogContent>
     </Dialog>
   );
