@@ -1,4 +1,5 @@
 
+import { redirect } from 'next/navigation';
 import DataManagementClientPage from './DataManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -13,6 +14,10 @@ import { type QueryDocumentSnapshot } from 'firebase-admin/firestore';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminDataManagementCommessePage() {
+  // FASE 62: Soft-Kill vecchia rotta - Redirect istantaneo alla nuova Programmazione Commesse
+  // Interrompe l'esecuzione prima di lanciare query Firestore pesanti o montare listener real-time
+  redirect('/admin/programmazione');
+
   const planned = await getPlannedJobOrders();
   const production = await getProductionJobOrders();
   const completed = await getCompletedJobOrders();

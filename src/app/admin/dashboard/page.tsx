@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 const navItems = [
   { href: '/admin/programmazione', label: 'Programmazione Commesse', description: 'Master Panel: cabina di regia con secchielli per reparto/settimana e DataGrid Excel.', icon: FileSpreadsheet },
   { href: '/admin/mrp-simulation', label: 'Simulatore MRP e Bozze', description: 'Simula i fabbisogni e salva le bozze per la produzione.', icon: Calculator },
-  { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
+  // { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks }, // FASE 62: Deprecato - Sostituito da Programmazione Commesse
   { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Gestisci l\'anagrafica e gli impegni delle materie prime.', icon: Boxes },
   { href: '/admin/reorder-alerts', label: 'Alert Riordino Scorte', description: 'Visualizza i suggerimenti di ordine basati sulla produzione.', icon: Bell },
   { href: '/admin/purchase-orders', label: 'Ordini Fornitore', description: 'Monitora gli ordini di materiale in arrivo dai fornitori.', icon: Truck },

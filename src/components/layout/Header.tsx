@@ -32,7 +32,7 @@ const adminNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/programmazione', label: 'Programmazione Commesse', icon: FileSpreadsheet },
   { href: '/admin/mrp-simulation', label: 'Simulatore MRP', icon: Calculator },
-  { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
+  // { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks }, // FASE 62: Deprecato - Sostituito da Programmazione Commesse
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
   { href: '/admin/reorder-alerts', label: 'Alert Riordino', icon: Bell },
   { href: '/admin/purchase-orders', label: 'Ordini Fornitore', icon: Truck },
@@ -58,7 +58,8 @@ const supervisorNavItems = [
   // Feature Hiding: Moduli avanzati di pianificazione temporaneamente nascosti dalla UI
   // { href: '/admin/resource-planning', label: 'Pianificazione Risorse', icon: Activity },
   // { href: '/admin/attendance-calendar', label: 'Calendario Presenze', icon: CalendarDays },
-  { href: '/admin/data-management', label: 'Gestione ODL', icon: ListChecks },
+  { href: '/admin/programmazione', label: 'Programmazione Commesse', icon: FileSpreadsheet },
+  // { href: '/admin/data-management', label: 'Gestione ODL', icon: ListChecks }, // FASE 62: Deprecato
 ];
 
 export default function Header() {

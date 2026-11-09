@@ -8,6 +8,7 @@ import {
   Activity, 
   CalendarDays, 
   ListChecks,
+  FileSpreadsheet,
 } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 
@@ -15,7 +16,8 @@ const supervisorNavItems = [
   // Feature Hiding: Moduli avanzati di pianificazione temporaneamente nascosti dalla UI
   // { href: '/admin/resource-planning', label: 'Power-Planning Hub', description: 'Bilancia la capacità dei reparti e gestisci i prestiti operatori.', icon: Activity, color: 'text-blue-600' },
   // { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e presenze giornaliere.', icon: CalendarDays, color: 'text-emerald-600' },
-  { href: '/admin/data-management', label: 'Gestione ODL', description: 'Visualizza e ricerca gli ordini di lavoro attivi.', icon: ListChecks, color: 'text-indigo-600' },
+  { href: '/admin/programmazione', label: 'Programmazione Commesse', description: 'Master Panel: cabina di regia e gestione ordini di lavoro attivi.', icon: FileSpreadsheet, color: 'text-indigo-600' },
+  // { href: '/admin/data-management', label: 'Gestione ODL', description: 'Visualizza e ricerca gli ordini di lavoro attivi.', icon: ListChecks, color: 'text-indigo-600' }, // FASE 62: Deprecato
 ];
 
 export default function SupervisorDashboardPage() {
