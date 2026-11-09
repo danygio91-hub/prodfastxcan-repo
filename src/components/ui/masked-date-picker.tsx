@@ -19,6 +19,7 @@ interface MaskedDatePickerProps {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  id?: string;
 }
 
 export function MaskedDatePicker({
@@ -26,7 +27,8 @@ export function MaskedDatePicker({
   onChange,
   placeholder = "GG/MM/AAAA",
   className,
-  disabled
+  disabled,
+  id
 }: MaskedDatePickerProps) {
   // Use internal state for the input value to handle masking correctly
   const [inputValue, setInputValue] = React.useState<string>("");
@@ -70,12 +72,44 @@ export function MaskedDatePicker({
     }
   };
 
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    const target = e.currentTarget;
+    target.select();
+    requestAnimationFrame(() => {
+      target.select();
+    });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+    if (/^[0-9]$/.test(e.key)) {
+      const target = e.currentTarget;
+      // Se non c'è selezione e la lunghezza è al limite (10),
+      // maxLength bloccherebbe il tasto. Sovrascriviamo partendo dalla nuova battuta numerica.
+      if (target.selectionStart === target.selectionEnd && target.value.length >= 10) {
+        if (target.selectionStart === 0 || target.selectionStart === 10) {
+          e.preventDefault();
+          const formatted = formatToDateInputMask(e.key);
+          setInputValue(formatted);
+          onChange(null);
+          requestAnimationFrame(() => {
+            target.setSelectionRange(formatted.length, formatted.length);
+          });
+        }
+      }
+    }
+  };
+
   return (
     <div className="relative flex items-center w-full">
       <input
+        id={id}
         type="text"
         value={inputValue}
         onChange={handleInputChange}
+        onFocus={handleFocus}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}
         maxLength={10}

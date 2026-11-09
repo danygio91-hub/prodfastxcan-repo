@@ -68,7 +68,14 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 const itemSchema = z.object({
   id: z.string().optional(),
   materialCode: z.string().min(1, "Il codice materiale è obbligatorio."),
-  quantity: z.coerce.number().positive("La quantità deve essere positiva."),
+  quantity: z.union([
+    z.number().positive("La quantità deve essere positiva."),
+    z.string().refine((val) => {
+      if (!val || val.trim() === '') return false;
+      const num = parseFloat(val.replace(',', '.'));
+      return !isNaN(num) && num > 0;
+    }, "La quantità deve essere positiva.")
+  ]),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   expectedDeliveryDate: z.date({ required_error: "La data di consegna è obbligatoria." }),
 });
@@ -138,7 +145,7 @@ export default function PurchaseOrderManagementClientPage({
     defaultValues: {
       orderNumber: '',
       supplierName: '',
-      items: [{ materialCode: '', quantity: 0, unitOfMeasure: 'n', expectedDeliveryDate: new Date() }]
+      items: [{ materialCode: '', quantity: '', unitOfMeasure: 'n', expectedDeliveryDate: new Date() }]
     }
   });
 
@@ -224,7 +231,7 @@ export default function PurchaseOrderManagementClientPage({
         form.reset({
             orderNumber: '',
             supplierName: '',
-            items: [{ materialCode: '', quantity: 0, unitOfMeasure: 'n', expectedDeliveryDate: new Date() }]
+            items: [{ materialCode: '', quantity: '', unitOfMeasure: 'n', expectedDeliveryDate: new Date() }]
         });
     }
     setIsDialogOpen(true);
@@ -254,10 +261,17 @@ export default function PurchaseOrderManagementClientPage({
     const payload = { 
         orderNumber: values.orderNumber, 
         supplierName: values.supplierName || '', 
-        items: values.items.map(item => ({ 
+        items: values.items.map(item => {
+          const numQuantity = typeof item.quantity === 'number'
+            ? item.quantity
+            : (parseFloat(item.quantity?.toString().replace(',', '.')) || 0);
+
+          return { 
             ...item, 
+            quantity: numQuantity,
             expectedDeliveryDate: item.expectedDeliveryDate.toISOString() 
-        })) 
+          };
+        }) 
     };
     
     const result = await savePurchaseOrder(payload, user.uid);
@@ -574,7 +588,16 @@ export default function PurchaseOrderManagementClientPage({
                               id={`item-qty-${index}`}
                               type="number" 
                               step="any" 
-                              {...field} 
+                              placeholder="0"
+                              value={field.value ?? ''}
+                              onChange={(e) => field.onChange(e.target.value)}
+                              onFocus={(e) => {
+                                if (e.target.value === '0') {
+                                  field.onChange('');
+                                } else {
+                                  e.target.select();
+                                }
+                              }}
                             />
                           </FormControl>
                         </FormItem> 
@@ -612,6 +635,7 @@ export default function PurchaseOrderManagementClientPage({
                             <FormLabel>Consegna</FormLabel>
                             <FormControl>
                               <MaskedDatePicker 
+                                id={`item-delivery-${index}`}
                                 value={field.value} 
                                 onChange={field.onChange} 
                               />
@@ -641,7 +665,7 @@ export default function PurchaseOrderManagementClientPage({
                   type="button" 
                   variant="outline" 
                   className="w-full border-dashed py-3 font-medium hover:border-primary/50 hover:bg-primary/5 transition-all" 
-                  onClick={() => append({ materialCode: '', quantity: 0, unitOfMeasure: 'n', expectedDeliveryDate: new Date() })}
+                  onClick={() => append({ materialCode: '', quantity: '', unitOfMeasure: 'n', expectedDeliveryDate: new Date() })}
                 >
                   <Plus className="mr-2 h-4 w-4"/> Aggiungi riga materiale
                 </Button>
