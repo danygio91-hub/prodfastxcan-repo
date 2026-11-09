@@ -50,6 +50,7 @@ import {
   DialogTitle,
   DialogFooter
 } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -483,13 +484,16 @@ export default function PurchaseOrderManagementClientPage({
       </Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{editingOrderNumber ? `Modifica Ordine: ${editingOrderNumber}` : 'Crea Nuovo Ordine Fornitore'}</DialogTitle>
+        <DialogContent className="max-w-4xl h-[90vh] max-h-[90vh] flex flex-col p-6 overflow-hidden">
+          <DialogHeader className="shrink-0 pb-2">
+            <DialogTitle className="text-xl font-bold">
+              {editingOrderNumber ? `Modifica Ordine: ${editingOrderNumber}` : 'Crea Nuovo Ordine Fornitore'}
+            </DialogTitle>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onManualSubmit)} className="flex-1 overflow-hidden flex flex-col">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4 border-b">
+            <form onSubmit={form.handleSubmit(onManualSubmit)} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {/* Intestazione Statica Fissa */}
+              <div className="shrink-0 grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4 border-b">
                 <FormField control={form.control} name="orderNumber" render={({ field }) => ( 
                     <FormItem>
                         <FormLabel>N° Ordine</FormLabel>
@@ -505,55 +509,155 @@ export default function PurchaseOrderManagementClientPage({
                     </FormItem> 
                 )} />
               </div>
-              <ScrollArea className="flex-1 py-4">
-                <div className="space-y-4">
-                  <h4 className="font-semibold flex items-center gap-2"><Boxes className="h-4 w-4"/> Righe Materiale</h4>
-                  {fields.map((item, index) => (
-                    <div key={item.id} className="p-4 border rounded-lg grid grid-cols-12 gap-3 items-end bg-muted/20 relative">
-                      <div className="col-span-12 sm:col-span-4">
-                        <FormField control={form.control} name={`items.${index}.materialCode`} render={({ field }) => (
-                          <FormItem className="flex flex-col"><FormLabel>Materiale</FormLabel>
-                            <Popover open={openComboboxIndex === index} onOpenChange={(open) => setOpenComboboxIndex(open ? index : null)}>
-                              <PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between">{field.value || "Seleziona..."}<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" /></Button></FormControl></PopoverTrigger>
-                              <PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca minimo 2 char..." onValueChange={handleSearchMaterial} /><CommandList><CommandEmpty>{isSearchingMaterials ? <Loader2 className="h-4 w-4 animate-spin mx-auto my-2" /> : "Nessun materiale."}</CommandEmpty><CommandGroup>
-                                {materialSuggestions.map((m) => (<CommandItem key={m.id} value={m.code} onSelect={() => { form.setValue(`items.${index}.materialCode`, m.code); form.setValue(`items.${index}.unitOfMeasure`, m.unitOfMeasure); setOpenComboboxIndex(null); }}>{m.code}</CommandItem>))}
-                              </CommandGroup></CommandList></Command></PopoverContent>
-                            </Popover>
-                          </FormItem>
-                        )} />
-                      </div>
-                      <div className="col-span-6 sm:col-span-2"><FormField control={form.control} name={`items.${index}.quantity`} render={({ field }) => ( <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" step="any" {...field} /></FormControl></FormItem> )} /></div>
-                      <div className="col-span-6 sm:col-span-2"><FormField control={form.control} name={`items.${index}.unitOfMeasure`} render={({ field }) => ( <FormItem><FormLabel>UM</FormLabel><FormControl><Input readOnly {...field} className="bg-muted"/></FormControl></FormItem> )} /></div>
-                      <div className="col-span-10 sm:col-span-3">
-                        <FormField 
-                          control={form.control} 
-                          name={`items.${index}.expectedDeliveryDate`} 
-                          render={({ field }) => ( 
-                            <FormItem>
-                              <FormLabel>Consegna</FormLabel>
+
+              {/* Area Mappa Righe Materiale Scrollabile Interna */}
+              <div className="flex-1 min-h-0 overflow-y-auto p-1 space-y-4 pr-2">
+                <h4 className="font-semibold flex items-center gap-2"><Boxes className="h-4 w-4"/> Righe Materiale</h4>
+                {fields.map((item, index) => (
+                  <div key={item.id} className="p-4 border rounded-lg grid grid-cols-12 gap-3 items-end bg-muted/20 relative">
+                    {/* 1. Materiale */}
+                    <div className="col-span-12 sm:col-span-4">
+                      <FormField control={form.control} name={`items.${index}.materialCode`} render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                          <FormLabel>Materiale</FormLabel>
+                          <Popover open={openComboboxIndex === index} onOpenChange={(open) => setOpenComboboxIndex(open ? index : null)}>
+                            <PopoverTrigger asChild>
                               <FormControl>
-                                <MaskedDatePicker 
-                                  value={field.value} 
-                                  onChange={field.onChange} 
-                                />
+                                <Button 
+                                  id={`item-material-${index}`}
+                                  variant="outline" 
+                                  className="w-full justify-between"
+                                >
+                                  {field.value || "Seleziona..."}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
                               </FormControl>
-                              <FormMessage />
-                            </FormItem> 
-                          )} 
-                        />
-                      </div>
-                      <div className="col-span-2 sm:col-span-1">
-                        <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} className="text-destructive">
-                            <X className="h-4 w-4" />
-                        </Button>
-                      </div>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                              <Command>
+                                <CommandInput placeholder="Cerca minimo 2 char..." onValueChange={handleSearchMaterial} />
+                                <CommandList>
+                                  <CommandEmpty>{isSearchingMaterials ? <Loader2 className="h-4 w-4 animate-spin mx-auto my-2" /> : "Nessun materiale."}</CommandEmpty>
+                                  <CommandGroup>
+                                    {materialSuggestions.map((m) => (
+                                      <CommandItem 
+                                        key={m.id} 
+                                        value={m.code} 
+                                        onSelect={() => { 
+                                          form.setValue(`items.${index}.materialCode`, m.code); 
+                                          form.setValue(`items.${index}.unitOfMeasure`, m.unitOfMeasure); 
+                                          setOpenComboboxIndex(null); 
+                                          setTimeout(() => {
+                                            document.getElementById(`item-qty-${index}`)?.focus();
+                                          }, 50);
+                                        }}
+                                      >
+                                        {m.code}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </FormItem>
+                      )} />
                     </div>
-                  ))}
-                  <Button type="button" variant="outline" className="w-full border-dashed" onClick={() => append({ materialCode: '', quantity: 0, unitOfMeasure: 'n', expectedDeliveryDate: new Date() })}><Plus className="mr-2 h-4 w-4"/> Aggiungi riga materiale</Button>
-                </div>
-              </ScrollArea>
-              <DialogFooter className="pt-4 border-t">
-                <Button type="submit" disabled={isSaving}>
+
+                    {/* 2. Quantità */}
+                    <div className="col-span-6 sm:col-span-2">
+                      <FormField control={form.control} name={`items.${index}.quantity`} render={({ field }) => ( 
+                        <FormItem>
+                          <FormLabel>Quantità</FormLabel>
+                          <FormControl>
+                            <Input 
+                              id={`item-qty-${index}`}
+                              type="number" 
+                              step="any" 
+                              {...field} 
+                            />
+                          </FormControl>
+                        </FormItem> 
+                      )} />
+                    </div>
+
+                    {/* 3. UM (Select componente custom partecipante al focus) */}
+                    <div className="col-span-6 sm:col-span-2">
+                      <FormField control={form.control} name={`items.${index}.unitOfMeasure`} render={({ field }) => ( 
+                        <FormItem>
+                          <FormLabel>UM</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger id={`item-um-${index}`} className="w-full">
+                                <SelectValue placeholder="UM" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="n">n</SelectItem>
+                              <SelectItem value="mt">mt</SelectItem>
+                              <SelectItem value="kg">kg</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </FormItem> 
+                      )} />
+                    </div>
+
+                    {/* 4. Consegna */}
+                    <div className="col-span-10 sm:col-span-3">
+                      <FormField 
+                        control={form.control} 
+                        name={`items.${index}.expectedDeliveryDate`} 
+                        render={({ field }) => ( 
+                          <FormItem>
+                            <FormLabel>Consegna</FormLabel>
+                            <FormControl>
+                              <MaskedDatePicker 
+                                value={field.value} 
+                                onChange={field.onChange} 
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem> 
+                        )} 
+                      />
+                    </div>
+
+                    {/* 5. Rimuovi Riga */}
+                    <div className="col-span-2 sm:col-span-1">
+                      <Button 
+                        type="button" 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => remove(index)} 
+                        className="text-destructive hover:bg-destructive/10"
+                        title="Rimuovi riga"
+                      >
+                          <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="w-full border-dashed py-3 font-medium hover:border-primary/50 hover:bg-primary/5 transition-all" 
+                  onClick={() => append({ materialCode: '', quantity: 0, unitOfMeasure: 'n', expectedDeliveryDate: new Date() })}
+                >
+                  <Plus className="mr-2 h-4 w-4"/> Aggiungi riga materiale
+                </Button>
+              </div>
+
+              {/* Footer Statico e Fisso */}
+              <DialogFooter className="shrink-0 pt-4 border-t flex flex-row items-center justify-end gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setIsDialogOpen(false)} 
+                  disabled={isSaving}
+                >
+                  Annulla
+                </Button>
+                <Button type="submit" disabled={isSaving} className="font-semibold shadow-md">
                     {isSaving ? <Loader2 className="animate-spin mr-2" /> : <Save className="mr-2" />} 
                     {editingOrderNumber ? "Salva Modifiche" : "Registra Ordine"}
                 </Button>
