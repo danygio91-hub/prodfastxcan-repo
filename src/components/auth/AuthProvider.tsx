@@ -110,6 +110,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             fullLogout();
         }
       }
+    }, (error) => {
+      console.warn("Avviso listener real-time logoutTrigger (disconnessione temporanea):", error);
     });
 
     return () => unsubscribe();
@@ -180,8 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 fullLogout();
             }
           }, (error) => {
-             console.error("Error listening to operator document:", error);
-             fullLogout();
+             console.warn("Avviso listener real-time operatore (errore di rete gestito):", error);
           });
 
           localStorage.setItem(LAST_LOGIN_TIMESTAMP_KEY, Date.now().toString());

@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration for the "prodfastxcanwork" project.
@@ -23,7 +23,18 @@ if (!getApps().length) {
   app = getApp();
 }
 
-const db = getFirestore(app);
+// FASE 58: Robustezza Connessione Firestore (Fallback Long Polling)
+// experimentalForceLongPolling previene i crash da ERR_QUIC_PROTOCOL_ERROR e stream WebChannel interrotti
+let db: Firestore;
+try {
+  db = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+    experimentalAutoDetectLongPolling: true,
+  });
+} catch {
+  db = getFirestore(app);
+}
+
 const auth = getAuth(app);
 
 // We export the db and auth instances to be used in other parts of the application

@@ -37,6 +37,9 @@ export default function OperatorCommandCenter({ children }: { children: React.Re
       const ops = snap.docs.map(d => ({ id: d.id, ...d.data() } as Operator));
       setOperators(ops);
       setLoading(false);
+    }, (error) => {
+      console.warn("Avviso listener real-time operatori CommandCenter (errore di rete gestito):", error);
+      setLoading(false);
     });
     return () => unsubscribe();
   }, [open]);

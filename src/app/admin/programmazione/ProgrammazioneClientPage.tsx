@@ -1567,7 +1567,7 @@ export default function ProgrammazioneClientPage({
         });
       },
       (error) => {
-        console.error("Errore listener real-time anagrafica articoli:", error);
+        console.warn("Avviso listener real-time anagrafica articoli (errore di rete gestito):", error);
       }
     );
 
