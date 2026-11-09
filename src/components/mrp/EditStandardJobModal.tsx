@@ -19,7 +19,7 @@ import { JobOrder, WorkCycle, Department } from '@/types';
 import { format } from 'date-fns';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { updateJobOrder } from '@/app/admin/data-management/actions';
-import { parseRobustDate, normalizeDateStr } from '@/lib/utils';
+import { parseRobustDate, normalizeDateStr, parseSafeDecimal } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 
 interface EditStandardJobModalProps {
@@ -54,7 +54,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       setCliente(job.cliente || '');
       setOrdinePF(job.ordinePF || '');
       setDetails(job.details || '');
-      setQta(job.qta?.toString() || '1');
+      setQta(job.qta !== undefined && job.qta !== null ? String(job.qta) : '1');
       setDataConsegna(normalizeDateStr(job.dataConsegnaFinale) || job.dataConsegnaFinale || '');
       setDataPrep(normalizeDateStr(job.dataFinePreparazione) || job.dataFinePreparazione || '');
       setSelectedCycleId(job.workCycleId || '');
@@ -62,7 +62,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       const deptCode = departments.find(d => d.name === job.department || d.code === job.department)?.code || job.department || '';
       setSelectedDept(deptCode);
       
-      setExpectedMinutes(job.expectedMinutesDefault?.toString() || '0');
+      setExpectedMinutes(job.expectedMinutesDefault !== undefined && job.expectedMinutesDefault !== null ? String(job.expectedMinutesDefault) : '0');
     }
   }, [job, isOpen, departments]);
 
@@ -73,9 +73,11 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       return;
     }
 
-    // FASE 43: Normalizzazione robusta delle date PRIMA dell'invio del payload
+    // FASE 43 & FASE 59: Normalizzazione robusta delle date e parsing sicuro numeri (virgola o punto)
     const normalizedPrep = normalizeDateStr(dataPrep) || '';
     const normalizedConsegna = normalizeDateStr(dataConsegna) || '';
+    const parsedQta = parseSafeDecimal(qta, 1);
+    const parsedExpectedMinutes = parseSafeDecimal(expectedMinutes, 0);
 
     // Snapshot commessa precedente per rollback in caso di errore
     const previousJob: JobOrder = { ...job };
@@ -85,13 +87,13 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       ...job,
       cliente: cliente.trim(),
       ordinePF: ordinePF.trim(),
-      qta: Number(qta) || 1,
+      qta: parsedQta,
       department: selectedDept,
       workCycleId: selectedCycleId,
       dataFinePreparazione: normalizedPrep,
       dataConsegnaFinale: normalizedConsegna,
       details: details.trim().toUpperCase() || job.details,
-      expectedMinutesDefault: Number(expectedMinutes) || 0
+      expectedMinutesDefault: parsedExpectedMinutes
     };
 
     // Applicazione Optimistic UI Update immediata
@@ -104,12 +106,12 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       const res = await updateJobOrder(job.id, {
         cliente: cliente.trim(),
         ordinePF: ordinePF.trim(),
-        qta: Number(qta) || 1,
+        qta: parsedQta,
         department: selectedDept,
         workCycleId: selectedCycleId,
         dataFinePreparazione: normalizedPrep,
         dataConsegnaFinale: normalizedConsegna,
-        expectedMinutes: Number(expectedMinutes) || 0,
+        expectedMinutes: parsedExpectedMinutes,
         details: details.trim().toUpperCase()
       });
 
@@ -253,11 +255,13 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
               </Select>
             </div>
             <div className="space-y-2">
-              <Label className="text-xs text-slate-400">Tempo Previsto Totale (min)</Label>
+              <Label className="text-xs text-slate-400">Tempo Previsto Totale (min/pz)</Label>
               <Input 
-                type="number" 
+                type="text"
+                inputMode="decimal" 
                 value={expectedMinutes} 
                 onChange={(e) => setExpectedMinutes(e.target.value)} 
+                placeholder="Es. 10,5"
                 className="bg-slate-800 border-blue-500/30 focus:border-blue-500 h-10 font-bold text-blue-400"
               />
             </div>

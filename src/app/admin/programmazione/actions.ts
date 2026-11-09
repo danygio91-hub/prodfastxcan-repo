@@ -17,7 +17,7 @@ import {
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { getJobDisplayStatus, type JobDisplayStatus } from '@/lib/job-status';
-import { convertTimestampsToDates, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId } from '@/lib/utils';
+import { convertTimestampsToDates, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId, serializeForClient } from '@/lib/utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
@@ -27,7 +27,7 @@ import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCyc
 import type { GlobalSettings } from '@/lib/settings-types';
 
 export async function getJobOrders(): Promise<JobOrder[]> {
-    return await fetchAllJobOrders();
+    return serializeForClient(await fetchAllJobOrders());
 }
 
 /**
@@ -41,14 +41,14 @@ export async function getActiveJobOrders(): Promise<JobOrder[]> {
         getProductionJobOrders(),
         getCompletedJobOrders(),
     ]);
-    return [...planned, ...production, ...completed];
+    return serializeForClient([...planned, ...production, ...completed]);
 }
 
 /**
  * Lazy Loading On-Demand: Carica le commesse CONCLUSE solo al click fisico dell'utente sul relativo tab.
  */
 export async function fetchCompletedJobOrdersAction(): Promise<JobOrder[]> {
-    return await getCompletedJobOrders();
+    return serializeForClient(await getCompletedJobOrders());
 }
 
 export async function getDepartments(): Promise<Department[]> {

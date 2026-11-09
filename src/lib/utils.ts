@@ -15,6 +15,51 @@ export function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
+/**
+ * FASE 59: Esegue il parsing sicuro di numeri decimali gestendo sia la virgola ("10,5")
+ * sia il punto ("10.5"). Restituisce un fallback sicuro (default 0) in caso di NaN.
+ */
+export function parseSafeDecimal(val: any, fallback: number = 0): number {
+    if (val === null || val === undefined) return fallback;
+    if (typeof val === 'number') return isNaN(val) ? fallback : val;
+    const str = String(val).replace(',', '.').trim();
+    if (!str) return fallback;
+    const parsed = parseFloat(str);
+    return isNaN(parsed) ? fallback : parsed;
+}
+
+/**
+ * FASE 59: Converte ricorsivamente tutti i Timestamp Firestore o oggetti Date in stringhe ISO serializzabili
+ * e garantisce che i numeri non siano NaN. Ideale per passare dati dai Server Components ai Client Components
+ * prevenendo l'errore "An error occurred in the Server Components render".
+ */
+export function serializeForClient<T>(obj: T): T {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'number') {
+        return (isNaN(obj) ? 0 : obj) as any;
+    }
+    if (obj instanceof Date) {
+        return (isNaN(obj.getTime()) ? null : obj.toISOString()) as any;
+    }
+    if (typeof (obj as any).toDate === 'function') {
+        const d = (obj as any).toDate();
+        return (isNaN(d.getTime()) ? null : d.toISOString()) as any;
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(item => serializeForClient(item)) as any;
+    }
+    if (typeof obj === 'object') {
+        const newObj: Record<string, any> = {};
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                newObj[key] = serializeForClient((obj as any)[key]);
+            }
+        }
+        return newObj as T;
+    }
+    return obj;
+}
+
 
 export function formatDisplayStock(value: number | null | undefined, unit: string): string {
   if (value === null || value === undefined) return '0.00';

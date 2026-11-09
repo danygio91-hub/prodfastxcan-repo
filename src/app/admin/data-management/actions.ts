@@ -4,8 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment, Client, BillOfMaterialsItem } from '@/types';
-import * as z from 'zod';
-import { convertTimestampsToDates, normalizeDateStr, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId } from '@/lib/utils';
+import { convertTimestampsToDates, normalizeDateStr, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId, parseSafeDecimal, serializeForClient } from '@/lib/utils';
 import { getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
@@ -94,7 +93,7 @@ export async function getPlannedJobOrders(): Promise<JobOrder[]> {
       "CONFIRMED"
     ])
     .get();
-  return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
+  return snap.docs.map(doc => serializeForClient({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
@@ -107,7 +106,7 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
             "ATTIVO", "ACTIVE", "IN_PROGRESS", "IN_LAVORAZIONE"
         ])
         .get();
-    return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
+    return snap.docs.map(doc => serializeForClient({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
 }
 
 export async function getCompletedJobOrders(): Promise<JobOrder[]> {
@@ -126,7 +125,7 @@ export async function getCompletedJobOrders(): Promise<JobOrder[]> {
             "Completato Prod."
         ])
         .get(); 
-    return snap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
+    return snap.docs.map(doc => serializeForClient({ ...convertTimestampsToDates(doc.data() as any), id: doc.id } as JobOrder));
 }
 
 
@@ -946,15 +945,17 @@ export async function updateJobOrder(jobId: string, data: {
         const oldArticle = (job.details || '').trim().toUpperCase();
         const isArticleChanged = Boolean(finalArticle && finalArticle !== oldArticle);
 
-        // Normalizzazione date nel formato standard YYYY-MM-DD
+        // Normalizzazione date nel formato standard YYYY-MM-DD e parsing sicuro numeri
         const normalizedPrep = normalizeDateStr(data.dataFinePreparazione) || '';
         const normalizedDelivery = normalizeDateStr(data.dataConsegnaFinale) || '';
+        const parsedQta = parseSafeDecimal(data.qta, 1);
+        const parsedExpectedMinutes = data.expectedMinutes !== undefined ? parseSafeDecimal(data.expectedMinutes, 0) : undefined;
 
         // Logic: Only update phases if the work cycle has changed
         const updatePayload: any = {
             cliente: (data.cliente || '').trim(),
             ordinePF: (data.ordinePF || '').trim(),
-            qta: Number(data.qta) || 1,
+            qta: parsedQta,
             department: data.department || '',
             dataFinePreparazione: normalizedPrep,
             dataConsegnaFinale: normalizedDelivery,
@@ -981,8 +982,10 @@ export async function updateJobOrder(jobId: string, data: {
         }
 
         // SMART REMAINDER TRIGGER: If total time changed or phases were regenerated
-        const newExpectedMinutes = data.expectedMinutes ?? job.expectedMinutesDefault;
-        if (newExpectedMinutes !== undefined && (data.expectedMinutes !== undefined || (data.workCycleId && data.workCycleId !== job.workCycleId))) {
+        const newExpectedMinutes = parsedExpectedMinutes !== undefined 
+            ? parsedExpectedMinutes 
+            : (job.expectedMinutesDefault !== undefined ? parseSafeDecimal(job.expectedMinutesDefault, 0) : undefined);
+        if (newExpectedMinutes !== undefined && (parsedExpectedMinutes !== undefined || (data.workCycleId && data.workCycleId !== job.workCycleId))) {
             const targetArtCode = (finalArticle || oldArticle).toUpperCase().trim();
             let article: Article | null = null;
             if (targetArtCode) {
@@ -996,7 +999,7 @@ export async function updateJobOrder(jobId: string, data: {
             if (currentPhases.length > 0) {
                 updatePayload.phases = distributeTheoreticalTimes(newExpectedMinutes, currentPhases, historicalAverages, updatePayload.qta);
             }
-            updatePayload.expectedMinutesDefault = newExpectedMinutes;
+            updatePayload.expectedMinutesDefault = parseSafeDecimal(newExpectedMinutes, 0);
         }
 
         // Recalculate/Synchronize BOM when updating the job (to reflect new quantity or material settings)
@@ -1150,16 +1153,21 @@ export async function updateJobOrder(jobId: string, data: {
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/programmazione');
         revalidatePath('/admin/production-console');
+
+        // FASE 59: Serializzazione rigorosa al 100% per evitare errori di render client-side
+        const safeUpdatedFields = serializeForClient({
+            ...sanitizedPayload,
+            id: newJobId,
+            ordinePF: (data.ordinePF || '').trim(),
+            details: finalArticle || job.details,
+            updatedAt: new Date().toISOString()
+        });
+
         return { 
             success: true, 
             message: "Commessa aggiornata con successo.",
             newJobId: newJobId,
-            updatedFields: {
-                ...sanitizedPayload,
-                id: newJobId,
-                ordinePF: data.ordinePF,
-                details: finalArticle || job.details,
-            }
+            updatedFields: safeUpdatedFields
         };
     } catch (error) {
         console.error("Error updating job order:", error);

@@ -203,7 +203,8 @@ export function distributeTheoreticalTimes(
 ): JobPhase[] {
     // Note: qta is kept for compatibility but not used for division 
     // because totalMinutes is already "per piece".
-    if (totalMinutes <= 0) return phases;
+    const safeTotal = typeof totalMinutes === 'number' && !isNaN(totalMinutes) && totalMinutes > 0 ? totalMinutes : 0;
+    if (safeTotal <= 0) return phases;
 
     // 1. Map historical averages by normalized name
     const historyMap = new Map(

@@ -232,26 +232,33 @@ export function isJobFinished(jobOrStatus: JobOrder | string | undefined): boole
 }
 
 function calculateJobHours(job: JobOrder, article?: Article): number {
-  // FASE 56: PRIORITÀ ASSOLUTA al Tempo Previsto Totale (expectedMinutesDefault)
-  // Se la commessa (o l'articolo master) ha un expectedMinutesDefault > 0, QUESTO VALORE VINCE SU TUTTO.
-  // Moltiplica questo valore per le quantità e restituisci il risultato. Ignora completamente l'array delle singole fasi.
-  const totalMinsPerPiece = (job.expectedMinutesDefault && job.expectedMinutesDefault > 0)
+  // FASE 56 & FASE 59: PRIORITÀ ASSOLUTA al Tempo Previsto Totale (expectedMinutesDefault)
+  // Parsing sicuro con fallback a 0 per prevenire crash da NaN o formati decimali non standard
+  const safeJobMinutes = typeof job.expectedMinutesDefault === 'number' && !isNaN(job.expectedMinutesDefault) && job.expectedMinutesDefault > 0
     ? job.expectedMinutesDefault
-    : (article?.expectedMinutesDefault && article.expectedMinutesDefault > 0 ? article.expectedMinutesDefault : 0);
+    : 0;
+  const safeArtMinutes = typeof article?.expectedMinutesDefault === 'number' && !isNaN(article.expectedMinutesDefault) && article.expectedMinutesDefault > 0
+    ? article.expectedMinutesDefault
+    : 0;
 
-  if (totalMinsPerPiece > 0) {
-    return Math.round(((totalMinsPerPiece * (job.qta || 0)) / 60) * 10) / 10;
+  const totalMinsPerPiece = safeJobMinutes > 0 ? safeJobMinutes : safeArtMinutes;
+  const qta = typeof job.qta === 'number' && !isNaN(job.qta) && job.qta > 0 ? job.qta : 0;
+
+  if (totalMinsPerPiece > 0 && qta > 0) {
+    const hours = Math.round(((totalMinsPerPiece * qta) / 60) * 10) / 10;
+    return isNaN(hours) ? 0 : hours;
   }
 
   // FALLBACK DISPERATO: La somma delle singole fasi (job.phases) interviene SOLO ED ESCLUSIVAMENTE
   // se expectedMinutesDefault è vuoto o uguale a 0.
-  if (job.phases && job.phases.length > 0) {
+  if (job.phases && job.phases.length > 0 && qta > 0) {
     const totalMinutes = job.phases.reduce((acc, p) => {
-      const perPiece = p.expectedMinutesPerPiece || 0;
-      return acc + (perPiece * (job.qta || 0));
+      const perPiece = typeof p.expectedMinutesPerPiece === 'number' && !isNaN(p.expectedMinutesPerPiece) ? p.expectedMinutesPerPiece : 0;
+      return acc + (perPiece * qta);
     }, 0);
     if (totalMinutes > 0) {
-      return Math.round((totalMinutes / 60) * 10) / 10;
+      const hours = Math.round((totalMinutes / 60) * 10) / 10;
+      return isNaN(hours) ? 0 : hours;
     }
   }
 

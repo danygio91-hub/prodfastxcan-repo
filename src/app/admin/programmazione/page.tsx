@@ -5,7 +5,7 @@ import AppShell from '@/components/layout/AppShell';
 import ProgrammazioneClientPage from './ProgrammazioneClientPage';
 import { getActiveJobOrders, getDepartments, getWorkCycles, getCapacityBuckets } from './actions';
 import { adminDb } from '@/lib/firebase-admin';
-import { convertTimestampsToDates } from '@/lib/utils';
+import { convertTimestampsToDates, serializeForClient } from '@/lib/utils';
 import { getISOWeek, getISOWeekYear } from 'date-fns';
 import type { Article, WorkCycle } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
@@ -53,13 +53,13 @@ export default async function ProgrammazionePage() {
           }
         >
           <ProgrammazioneClientPage
-            initialJobs={JSON.parse(JSON.stringify(jobs))}
-            initialDepartments={JSON.parse(JSON.stringify(departments))}
-            initialArticles={JSON.parse(JSON.stringify(articles))}
-            initialWorkCycles={JSON.parse(JSON.stringify(cycles))}
-            initialGlobalSettings={JSON.parse(JSON.stringify(globalSettings))}
-            initialOdlConfig={JSON.parse(JSON.stringify(odlConfig))}
-            initialCapacities={JSON.parse(JSON.stringify(initialCapacities))}
+            initialJobs={serializeForClient(jobs)}
+            initialDepartments={serializeForClient(departments)}
+            initialArticles={serializeForClient(articles)}
+            initialWorkCycles={serializeForClient(cycles)}
+            initialGlobalSettings={serializeForClient(globalSettings)}
+            initialOdlConfig={serializeForClient(odlConfig)}
+            initialCapacities={serializeForClient(initialCapacities)}
           />
         </Suspense>
       </AppShell>
