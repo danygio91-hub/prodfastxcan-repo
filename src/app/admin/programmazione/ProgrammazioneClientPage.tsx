@@ -144,9 +144,9 @@ import {
   updateExternalizedMaterials,
   type DayCapacityConfigData
 } from './actions';
-import { collection, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { getJobDisplayStatus, type JobDisplayStatus } from '@/lib/job-status';
+import { getJobDisplayStatus, getDerivedJobStatus, type JobDisplayStatus } from '@/lib/job-status';
 import {
   Popover,
   PopoverContent,
@@ -169,6 +169,7 @@ interface ProgrammazioneClientPageProps {
   initialGlobalSettings?: GlobalSettings | null;
   initialOdlConfig?: ODLConfig;
   initialCapacities?: Record<string, DayCapacityConfigData>;
+  initialMaterialSessions?: any[];
 }
 
 // 4 Macro-Gruppi Reparti Essenziali
@@ -527,7 +528,7 @@ export function formatDateForDisplay(isoOrStr?: string): string {
 }
 
 export type JobMRPSummary = {
-  state: 'RED' | 'SUPPLIER_LATE' | 'EXPEDITE_NEEDED' | 'LATE' | 'ORDERED' | 'GREEN' | 'NO_BOM' | 'LOADING' | 'COMPLETED';
+  state: 'RED' | 'SUPPLIER_LATE' | 'EXPEDITE_NEEDED' | 'LATE' | 'ORDERED' | 'GREEN' | 'NO_BOM' | 'LOADING' | 'COMPLETED' | 'SESSION_OPEN' | 'READY';
   label: string;
   badgeClass: string;
   dotClass: string;
@@ -1255,6 +1256,7 @@ export default function ProgrammazioneClientPage({
   initialGlobalSettings = null,
   initialOdlConfig,
   initialCapacities = {},
+  initialMaterialSessions = [],
 }: ProgrammazioneClientPageProps) {
   const { toast } = useToast();
   const router = useRouter();
@@ -1265,6 +1267,7 @@ export default function ProgrammazioneClientPage({
   const [articles, setArticles] = useState<Article[]>(initialArticles || []);
   const [workCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
   const [globalSettings] = useState<GlobalSettings | null>(initialGlobalSettings);
+  const [activeSessions, setActiveSessions] = useState<any[]>(initialMaterialSessions || []);
 
   // FASE 56: Mappa O(1) Articoli per codice e ID per calcoli istantanei ore e lookup
   const articleMap = useMemo(() => {
@@ -1575,6 +1578,31 @@ export default function ProgrammazioneClientPage({
       },
       (error) => {
         console.warn("Avviso listener real-time anagrafica articoli (errore di rete gestito):", error);
+      }
+    );
+
+    return () => unsub();
+  }, []);
+
+  // =========================================================================
+  // FASE 67: LIVE DATA FEED SESSIONI ATTIVE MATERIALI (Real-Time Listener)
+  // =========================================================================
+  useEffect(() => {
+    const q = query(
+      collection(db, "materialSessions"),
+      where("status", "==", "open")
+    );
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const liveSessions = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+        setActiveSessions(liveSessions);
+      },
+      (error) => {
+        console.warn("Avviso listener real-time materialSessions (errore di rete gestito):", error);
       }
     );
 
@@ -2255,9 +2283,9 @@ export default function ProgrammazioneClientPage({
       [],
       cachedArticles,
       globalSettingsRef.current,
-      []
+      activeSessions
     );
-  }, [activeGlobalJobs, mrpCacheVersion]);
+  }, [activeGlobalJobs, mrpCacheVersion, activeSessions]);
 
   // SSoT: Classificazione centralizzata universale allarmi MRP per Programmazione Commesse
   const classifiedMRPAlarms = useMemo(() => {
@@ -2361,6 +2389,52 @@ export default function ProgrammazioneClientPage({
         hasMissingData = true;
       }
     });
+
+    // FASE 67: SHORT-CIRCUIT AVANZAMENTO PREPARAZIONE E SESSIONI ATTIVE
+    // Se la preparazione è terminata (o la produzione è già avanzata), bypassa il blocco "In Verifica".
+    const derivedStatus = getDerivedJobStatus(job);
+    const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
+    const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) || 
+      ['PRONTO', 'PRONTO PROD', 'IN PROD', 'FINE PROD'].includes((job.status || '').toUpperCase().trim());
+
+    if (isPrepFinished) {
+      const hasJobActiveSession = activeSessions.some((s) => {
+        if (s.status !== 'open') return false;
+        const ids = s.linkedJobOrderIds || [];
+        const pfs = s.linkedJobOrderPFs || [];
+        return (
+          ids.includes(job.id) ||
+          (job.ordinePF && (ids.includes(job.ordinePF) || pfs.includes(job.ordinePF))) ||
+          (job.numeroODLInterno && ids.includes(job.numeroODLInterno))
+        );
+      });
+
+      if (hasJobActiveSession) {
+        return {
+          state: 'SESSION_OPEN',
+          label: 'Sessione in Macchina',
+          badgeClass: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30 font-semibold animate-pulse',
+          dotClass: 'bg-blue-500 animate-ping',
+          details: [
+            '⏳ Materiale in lavorazione, in attesa di pesata finale.',
+            ...withdrawnItems.map((i) => `✅ ${i.component} - Prelevato`),
+            ...pendingItems.map((i) => `🧵 ${i.component} - In lavorazione in sessione attiva`),
+          ],
+        };
+      }
+
+      return {
+        state: 'READY',
+        label: 'Prelevato',
+        badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-semibold',
+        dotClass: 'bg-emerald-500',
+        details: [
+          '✅ Preparazione completata / Materiale già prelevato.',
+          ...withdrawnItems.map((i) => `✅ ${i.component} - Prelevato`),
+          ...pendingItems.map((i) => `⚡ ${i.component} - Assolto in preparazione`),
+        ],
+      };
+    }
 
     // STATO "IN VERIFICA": Gestione visiva con loader pulsante se dati non ancora caricati
     if (entries.length === 0 && (hasMissingData || isMrpLoading)) {
@@ -2481,7 +2555,7 @@ export default function ProgrammazioneClientPage({
       dotClass: 'bg-emerald-500',
       details,
     };
-  }, [mrpTimelines, isMrpLoading]);
+  }, [mrpTimelines, isMrpLoading, activeSessions]);
 
   // =========================================================================
   // =========================================================================

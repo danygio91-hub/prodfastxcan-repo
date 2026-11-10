@@ -19,7 +19,7 @@ export default async function ProgrammazionePage() {
   const currentWeek = getISOWeek(now);
   const currentYear = getISOWeekYear(now);
 
-  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities] = await Promise.all([
+  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities, activeSessionsSnap] = await Promise.all([
     getActiveJobOrders(),
     getDepartments(),
     getWorkCycles(),
@@ -27,6 +27,7 @@ export default async function ProgrammazionePage() {
     adminDb.collection("settings").doc("global").get(),
     getODLConfig(),
     getCapacityBuckets(currentYear, currentWeek),
+    adminDb.collection("materialSessions").where("status", "==", "open").get(),
   ]);
 
   const articles = articlesSnap.docs.map(doc => {
@@ -38,6 +39,10 @@ export default async function ProgrammazionePage() {
     } as Article;
   });
   const globalSettings = settingsSnap.exists ? convertTimestampsToDates(settingsSnap.data()) as GlobalSettings : null;
+  const initialMaterialSessions = activeSessionsSnap.docs.map(doc => ({
+    id: doc.id,
+    ...convertTimestampsToDates(doc.data()),
+  }));
 
   return (
     <AdminAuthGuard>
@@ -60,6 +65,7 @@ export default async function ProgrammazionePage() {
             initialGlobalSettings={serializeForClient(globalSettings)}
             initialOdlConfig={serializeForClient(odlConfig)}
             initialCapacities={serializeForClient(initialCapacities)}
+            initialMaterialSessions={serializeForClient(initialMaterialSessions)}
           />
         </Suspense>
       </AppShell>
