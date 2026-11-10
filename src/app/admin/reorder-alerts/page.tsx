@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, Bell, Calendar, ArrowRight, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Loader2, Bell, Calendar, ArrowRight, AlertTriangle, CheckCircle2, RefreshCw, Info } from 'lucide-react';
 import { format, parseISO, isBefore, addDays } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, formatDisplayStock } from '@/lib/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -61,7 +62,7 @@ export default function ReorderAlertsPage() {
                         <CardHeader>
                             <CardTitle>Suggerimenti di Riordino</CardTitle>
                             <CardDescription>
-                                Analisi basata sulla giacenza attuale, ODL pianificati e tempi di approvvigionamento.
+                                Analisi in tempo reale allineata con Magazzino Live: Proiezione (Saldo Futuro) = Stock Fisico - Impegnato (ODL attivi) + Ordinato (Ordini Fornitore aperti). L&apos;alert viene generato solo se la Proiezione scende sotto la Soglia Sottoscorta.
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -76,8 +77,10 @@ export default function ReorderAlertsPage() {
                                         <TableHeader>
                                             <TableRow>
                                                 <TableHead>Materiale</TableHead>
-                                                <TableHead className="text-right">Giacenza Attuale</TableHead>
-                                                <TableHead className="text-right">Proiezione Sottoscorta</TableHead>
+                                                <TableHead className="text-right">Stock</TableHead>
+                                                <TableHead className="text-right">Impegnato</TableHead>
+                                                <TableHead className="text-right">Ordinato</TableHead>
+                                                <TableHead className="text-right">Proiezione (Saldo Futuro)</TableHead>
                                                 <TableHead>Data Necessità</TableHead>
                                                 <TableHead>Data Limite Ordine</TableHead>
                                                 <TableHead className="text-right">Quantità Suggerita</TableHead>
@@ -87,41 +90,98 @@ export default function ReorderAlertsPage() {
                                         <TableBody>
                                             {alerts.map((alert) => {
                                                 const status = getDeadlineStatus(alert.deadlineDate);
+                                                const uom = alert.unitOfMeasure ? alert.unitOfMeasure.toUpperCase() : '';
                                                 return (
                                                     <TableRow key={alert.materialId} className={cn(status === 'overdue' && "bg-destructive/5")}>
                                                         <TableCell>
                                                             <div className="flex flex-col">
-                                                                <span className="font-bold">{alert.code}</span>
-                                                                <span className="text-xs text-muted-foreground truncate max-w-[200px]">{alert.description}</span>
+                                                                <span className="font-bold flex items-center gap-1.5">
+                                                                    {alert.code}
+                                                                    {uom && <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1 rounded">{uom}</span>}
+                                                                </span>
+                                                                <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={alert.description}>
+                                                                    {alert.description}
+                                                                </span>
                                                             </div>
                                                         </TableCell>
-                                                        <TableCell className="text-right font-medium">
-                                                            {alert.currentStock.toFixed(2)}
+                                                        <TableCell className="text-right font-medium font-mono">
+                                                            {formatDisplayStock(alert.currentStock, alert.unitOfMeasure)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono text-amber-600 font-semibold">
+                                                            {formatDisplayStock(alert.impegnato, alert.unitOfMeasure)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono text-blue-600 font-semibold">
+                                                            {formatDisplayStock(alert.ordinato, alert.unitOfMeasure)}
                                                         </TableCell>
                                                         <TableCell className="text-right">
-                                                            <div className="flex flex-col items-end">
-                                                                <span className="text-destructive font-bold">{alert.projectedStock.toFixed(2)}</span>
-                                                                <span className="text-[10px] text-muted-foreground">Soglia: {alert.minStockLevel}</span>
-                                                            </div>
+                                                            <TooltipProvider delayDuration={150}>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <div className="flex flex-col items-end cursor-help">
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span className={cn(
+                                                                                    "font-bold font-mono",
+                                                                                    alert.projectedStock < 0 ? "text-destructive text-sm" : "text-amber-700 dark:text-amber-400"
+                                                                                )}>
+                                                                                    {formatDisplayStock(alert.projectedStock, alert.unitOfMeasure)}
+                                                                                </span>
+                                                                                <Info className="h-3 w-3 text-muted-foreground/70" />
+                                                                            </div>
+                                                                            <span className="text-[10px] text-muted-foreground">Soglia: {alert.minStockLevel}</span>
+                                                                        </div>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent side="top" className="text-xs space-y-1">
+                                                                        <p className="font-semibold border-b pb-1">Calcolo Proiezione (Saldo Futuro):</p>
+                                                                        <p className="font-mono">
+                                                                            Stock ({formatDisplayStock(alert.currentStock, alert.unitOfMeasure)}) 
+                                                                            - Impegnato ({formatDisplayStock(alert.impegnato, alert.unitOfMeasure)}) 
+                                                                            + Ordinato ({formatDisplayStock(alert.ordinato, alert.unitOfMeasure)})
+                                                                        </p>
+                                                                        <p className="font-bold text-primary">
+                                                                            = {formatDisplayStock(alert.projectedStock, alert.unitOfMeasure)} {uom}
+                                                                        </p>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
                                                         </TableCell>
                                                         <TableCell>
-                                                            <div className="flex items-center gap-2">
-                                                                <Calendar className="h-3 w-3 text-muted-foreground" />
+                                                            <div className="flex items-center gap-2 text-xs">
+                                                                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                                                                 {format(parseISO(alert.dateOfNeed), 'dd/MM/yyyy')}
                                                             </div>
                                                         </TableCell>
                                                         <TableCell>
                                                             <div className="flex flex-col">
                                                                 <div className="flex items-center gap-2">
-                                                                    <Badge variant={status === 'overdue' ? 'destructive' : status === 'imminent' ? 'warning' : 'outline'}>
+                                                                    <Badge variant={status === 'overdue' ? 'destructive' : status === 'imminent' ? 'secondary' : 'outline'} className={status === 'imminent' ? 'border-amber-500 text-amber-600' : ''}>
                                                                         {format(parseISO(alert.deadlineDate), 'dd/MM/yyyy')}
                                                                     </Badge>
                                                                 </div>
                                                                 {status === 'overdue' && <span className="text-[10px] text-destructive font-bold mt-1">SCADUTO</span>}
                                                             </div>
                                                         </TableCell>
-                                                        <TableCell className="text-right font-bold text-primary">
-                                                            {alert.suggestedQuantity.toFixed(2)}
+                                                        <TableCell className="text-right">
+                                                            <TooltipProvider delayDuration={150}>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <div className="flex flex-col items-end cursor-help">
+                                                                            <span className="font-bold text-base font-mono text-primary">
+                                                                                {formatDisplayStock(alert.suggestedQuantity, alert.unitOfMeasure)}
+                                                                            </span>
+                                                                            <span className="text-[10px] text-muted-foreground">
+                                                                                Soglia ({alert.minStockLevel}) - Proiez. ({formatDisplayStock(alert.projectedStock, alert.unitOfMeasure)})
+                                                                            </span>
+                                                                        </div>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent side="top" className="text-xs">
+                                                                        <p className="font-semibold">Quantità Suggerita di Riordino:</p>
+                                                                        <p className="font-mono">
+                                                                            Soglia Sottoscorta ({alert.minStockLevel}) - Proiezione ({formatDisplayStock(alert.projectedStock, alert.unitOfMeasure)})
+                                                                        </p>
+                                                                        <p className="font-bold text-primary">= {formatDisplayStock(alert.suggestedQuantity, alert.unitOfMeasure)} {uom}</p>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
                                                         </TableCell>
                                                         <TableCell className="text-right">
                                                             <Button asChild size="sm" variant="ghost">
