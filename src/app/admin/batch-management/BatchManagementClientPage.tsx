@@ -51,7 +51,7 @@ import { formatDisplayStock } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 type Movement = {
-  type: 'Carico' | 'Scarico';
+  type: 'Carico' | 'Scarico' | 'Rientro';
   date: string; 
   description: string;
   quantity: number; 
@@ -84,44 +84,58 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     }
     
     try {
+      const norm = (s?: string | null) => (s || 'SENZA_LOTTO').trim().toUpperCase();
       const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId, lotto);
       const currentMaterialStateResponse = await getAllGroupedBatches(material.materialCode);
       const currentMaterialState = currentMaterialStateResponse.find(g => g.materialId === material.materialId) || material;
-      const lotInfo = currentMaterialState.lots.find(l => l.lotto === lotto);
+      const targetLotto = norm(lotto);
+      const lotInfo = currentMaterialState.lots.find(l => norm(l.lotto) === targetLotto);
       const lotBatches = lotInfo ? lotInfo.batches : [];
       
       const combinedMovements: Movement[] = [
         ...lotBatches.map((b): Movement => {
-          const calculatedOriginalNet = (material.unitOfMeasure === 'kg' && b.grossWeight && b.tareWeight) 
-            ? Number((b.grossWeight - b.tareWeight).toFixed(3)) 
-            : b.netQuantity;
-          const displayOriginal = Math.max(b.netQuantity, calculatedOriginalNet);
+          const isReturn = b.isReturn || b.type === 'CARICO_RIENTRO';
+          const description = b.inventoryRecordId 
+            ? `Inventario - Lotto: ${b.lotto || 'INV'}` 
+            : isReturn 
+              ? `Rientro Terzista / Ricarico - DDT: ${b.ddt || 'N/D'}` 
+              : `Carico Iniziale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt || 'N/D'}`;
 
           return { 
-            type: 'Carico', 
+            type: isReturn ? 'Rientro' : 'Carico', 
             date: b.date, 
-            description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, 
-            quantity: displayOriginal, 
+            description: description, 
+            quantity: b.netQuantity, 
             unit: material.unitOfMeasure.toUpperCase(), 
             id: b.id 
           };
         }),
-        ...withdrawals.map((w): Movement => {
-              const quantity = w.consumedUnits || w.consumedWeight;
-              const unit = w.consumedUnits ? material.unitOfMeasure.toUpperCase() : 'KG';
-              return { 
-                type: 'Scarico', 
-                date: w.withdrawalDate.toISOString(), 
-                description: `Commesse: ${w.jobOrderPFs.join(', ')}`, 
-                quantity: -(quantity || 0), 
-                unit: unit, 
-                id: w.id 
-              };
+        ...withdrawals
+          .filter(w => w.status !== 'cancelled')
+          .map((w): Movement => {
+            const quantity = w.consumedUnits || w.consumedWeight || 0;
+            const unit = w.consumedUnits ? material.unitOfMeasure.toUpperCase() : 'KG';
+            const isoDate = w.withdrawalDate instanceof Date 
+              ? w.withdrawalDate.toISOString() 
+              : (typeof w.withdrawalDate === 'string' ? w.withdrawalDate : new Date(w.withdrawalDate).toISOString());
+            const desc = w.jobOrderPFs && w.jobOrderPFs.length > 0 
+              ? `Commesse: ${w.jobOrderPFs.join(', ')}` 
+              : (w.notes || 'Prelievo / Scarico');
+
+            return { 
+              type: 'Scarico', 
+              date: isoDate, 
+              description: desc, 
+              quantity: -(quantity || 0), 
+              unit: unit, 
+              id: w.id 
+            };
           }),
       ];
       combinedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setMaterialMovements(combinedMovements);
     } catch (error) {
+      console.error("Errore caricamento storico:", error);
       toast({ variant: 'destructive', title: 'Errore caricamento storico' });
     }
   }, [toast]);
@@ -261,30 +275,29 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                   </TableHeader>
                                   <TableBody>
                                     {lotInfo.batches.map(batch => {
-                                      // HEAL LOGIC: Se è KG e il netto calcolato dai pesi è > del netQuantity salvato, 
-                                      // significa che netQuantity era stato corrotto con il residuo.
-                                      const calculatedOriginalNet = (group.unitOfMeasure === 'kg' && batch.grossWeight && batch.tareWeight) 
-                                        ? Number((batch.grossWeight - batch.tareWeight).toFixed(3)) 
-                                        : batch.netQuantity;
-                                      
-                                      const displayOriginal = Math.max(batch.netQuantity, calculatedOriginalNet);
-                                      const isHealed = displayOriginal > batch.netQuantity + 0.001;
+                                      const isReturn = batch.isReturn || batch.type === 'CARICO_RIENTRO';
 
                                       return (
                                         <TableRow key={batch.id} className={cn(batch.isExhausted && "opacity-60 bg-muted/30")}>
                                           <TableCell className="text-xs">{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                                          <TableCell className="text-[10px] truncate max-w-[100px]" title={batch.ddt}>{batch.ddt}</TableCell>
+                                          <TableCell className="text-[10px] truncate max-w-[120px]" title={batch.ddt}>
+                                            <span>{batch.ddt}</span>
+                                            {isReturn && (
+                                              <Badge variant="secondary" className="ml-1 text-[8px] h-3.5 px-1 bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300">
+                                                RIENTRO
+                                              </Badge>
+                                            )}
+                                          </TableCell>
                                           <TableCell className="font-mono font-bold">
-                                            {formatDisplayStock(displayOriginal, group.unitOfMeasure)}
-                                            {isHealed && <Badge variant="outline" className="ml-1 h-3 px-1 text-[7px] border-orange-500 text-orange-600">HEALED</Badge>}
+                                            {formatDisplayStock(batch.netQuantity, group.unitOfMeasure)}
                                           </TableCell>
                                           <TableCell>
                                             <Badge variant={batch.isExhausted ? "secondary" : "outline"} className={cn("font-mono", !batch.isExhausted && "text-primary border-primary/30 bg-primary/5")}>
                                               {formatDisplayStock(batch.currentQuantity ?? 0, group.unitOfMeasure)}
                                             </Badge>
                                           </TableCell>
-                                          <TableCell className="text-xs">{batch.grossWeight ? `${batch.grossWeight.toFixed(3)}` : '-'}</TableCell>
-                                          <TableCell className="text-[10px] text-muted-foreground">{batch.tareWeight ? `${batch.tareWeight.toFixed(3)}` : '-'}</TableCell>
+                                          <TableCell className="text-xs">{batch.grossWeight !== undefined && batch.grossWeight !== null ? `${batch.grossWeight.toFixed(3)}` : '-'}</TableCell>
+                                          <TableCell className="text-[10px] text-muted-foreground">{batch.tareWeight !== undefined && batch.tareWeight !== null ? `${batch.tareWeight.toFixed(3)}` : '-'}</TableCell>
                                           <TableCell className="text-right space-x-1">
                                             <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setEditingBatchInfo({material: group, batch: batch})}>
                                               <Edit className="h-3 w-3" />
@@ -358,9 +371,16 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                   materialMovements.map(mov => (
                     <TableRow key={mov.id}>
                       <TableCell>{format(parseISO(mov.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                      <TableCell><Badge variant={mov.type === 'Carico' ? 'default' : 'destructive'}>{mov.type}</Badge></TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant={mov.type === 'Scarico' ? 'destructive' : (mov.type === 'Rientro' ? 'secondary' : 'default')}
+                          className={mov.type === 'Rientro' ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300' : ''}
+                        >
+                          {mov.type}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-xs truncate max-w-xs">{mov.description}</TableCell>
-                      <TableCell className={cn("text-right font-mono font-bold", mov.type === 'Carico' ? 'text-green-600' : 'text-destructive')}>
+                      <TableCell className={cn("text-right font-mono font-bold", mov.type === 'Scarico' ? 'text-destructive' : 'text-green-600')}>
                         {formatDisplayStock(mov.quantity, mov.unit.toLowerCase() as any)} {mov.unit}
                       </TableCell>
                       <TableCell className="text-right">
@@ -369,7 +389,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                           size="icon" 
                           className="text-destructive" 
                           onClick={() => {
-                            if(mov.type === 'Carico') {
+                            if(mov.type === 'Carico' || mov.type === 'Rientro') {
                               setBatchToDelete({ materialId: historyDialogData!.material.materialId, batchId: mov.id });
                             } else {
                               setWithdrawalToDelete(mov.id);

@@ -8,17 +8,19 @@ import { RawMaterial, RawMaterialBatch, MaterialWithdrawal } from '@/types';
 export function hydrateMaterialWithWithdrawals(material: RawMaterial, withdrawals: MaterialWithdrawal[]): RawMaterial {
     const hydratedMaterial = JSON.parse(JSON.stringify(material)) as RawMaterial;
     
-    // 1. Group withdrawals by lot (mirrors admin logic)
+    const normLot = (l?: string | null) => (l || 'SENZA_LOTTO').trim().toUpperCase();
+
+    // 1. Group withdrawals by lot (mirrors admin logic, normalized case & trim)
     const withdrawalsByLotto = withdrawals.reduce((acc, w) => {
-        const l = w.lotto || 'SENZA_LOTTO';
-        // Admin uses consumedUnits as the primary measure for Stock reconciliation
+        if (w.status === 'cancelled') return acc;
+        const l = normLot(w.lotto);
         acc[l] = (acc[l] || 0) + (w.consumedUnits || 0);
         return acc;
     }, {} as Record<string, number>);
 
-    // 2. Group batches by lot (mirrors admin logic)
+    // 2. Group batches by lot (mirrors admin logic, normalized case & trim)
     const batchesByLotto = (hydratedMaterial.batches || []).reduce((acc, batch) => {
-        const lottoKey = batch.lotto || 'SENZA_LOTTO';
+        const lottoKey = normLot(batch.lotto);
         if (!acc[lottoKey]) acc[lottoKey] = [];
         acc[lottoKey].push(batch);
         return acc;
@@ -37,8 +39,8 @@ export function hydrateMaterialWithWithdrawals(material: RawMaterial, withdrawal
             
             // Popolamento campo dinamico "currentQuantity" (residuo vivo)
             // netQuantity RESTA l'originale immutabile per lo storico
-            batch.currentQuantity = Number((initialLoad - deduction).toFixed(3));
-            remainingWithdrawal = Number((remainingWithdrawal - deduction).toFixed(3));
+            batch.currentQuantity = Number(Math.max(0, initialLoad - deduction).toFixed(3));
+            remainingWithdrawal = Number(Math.max(0, remainingWithdrawal - deduction).toFixed(3));
             
             // Calcolo proporzionale del peso residuo per il batch
             if (hydratedMaterial.unitOfMeasure === 'kg') {

@@ -128,46 +128,39 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
         // Hydrate the material with live residual quantities (SSoT Logic)
         const material = hydrateMaterialWithWithdrawals(rawMaterial, materialWithdrawals);
 
+        const normLot = (l?: string | null) => (l || 'SENZA_LOTTO').trim().toUpperCase();
+
         const withdrawalsByLotto = materialWithdrawals.reduce((acc, w) => {
-            const l = w.lotto || 'SENZA_LOTTO';
+            if (w.status === 'cancelled') return acc;
+            const l = normLot(w.lotto);
             acc[l] = (acc[l] || 0) + (w.consumedUnits || 0);
             return acc;
         }, {} as Record<string, number>);
 
         const batchesByLotto = (material.batches || []).reduce((acc, batch) => {
-            const lottoKey = batch.lotto || 'SENZA_LOTTO';
+            const lottoKey = normLot(batch.lotto);
             if (!acc[lottoKey]) acc[lottoKey] = [];
             acc[lottoKey].push({ ...batch, materialId: material.id });
             return acc;
         }, {} as Record<string, EnrichedBatch[]>);
 
-        const lots: LotInfo[] = Object.entries(batchesByLotto).map(([lotto, batchesInLot]) => {
-            const totalLoadedForLot = batchesInLot.reduce((sum, b) => {
-                // IMPORTANT: Since we hydrated the material, netQuantity might be 0 already.
-                // But Admin logic "totalLoaded" should probably represent the initial load of currently active batches?
-                // Actually, to keep it simple and match Admin's previous logic, we can still use the hydrated netQuantity.
-                return sum + (b.netQuantity || 0);
-            }, 0);
+        const lots: LotInfo[] = Object.entries(batchesByLotto).map(([lottoNormKey, batchesInLot]) => {
+            // Nome lotto originale visualizzabile (prendi dal primo batch che ha lotto definito)
+            const displayLotto = batchesInLot.find(b => b.lotto)?.lotto || (lottoNormKey === 'SENZA_LOTTO' ? 'SENZA_LOTTO' : lottoNormKey);
+
+            // Somma pura di TUTTI i carichi/rientri appartenenti a questo lotto (Ledger SSoT)
+            const initialLoadForLot = batchesInLot.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
             
-            // Wait, if I use the hydrated material, totalLoaded - totalWithdrawn would double-subtract.
-            // I should either:
-            // a) Use the hydrated netQuantity as the "Available".
-            // b) Use the original quantities for loaded/withdrawn display but hydrated for batches.
-            
-            // Admin's goal here is to show "Available", "Total Loaded", "Total Withdrawn".
-            const initialLoadForLot = (rawMaterial.batches || [])
-                .filter(b => (b.lotto || 'SENZA_LOTTO') === lotto)
-                .reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-            
-            const totalWithdrawn = withdrawalsByLotto[lotto] || 0;
-            const available = initialLoadForLot - totalWithdrawn;
+            const totalWithdrawn = withdrawalsByLotto[lottoNormKey] || 0;
+            // Saldo reale: somma carichi - somma prelievi
+            const available = Number((initialLoadForLot - totalWithdrawn).toFixed(3));
             
             const firstLoadDate = batchesInLot.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.date;
 
             return {
-                lotto,
-                totalLoaded: initialLoadForLot,
-                totalWithdrawn,
+                lotto: displayLotto,
+                totalLoaded: Number(initialLoadForLot.toFixed(3)),
+                totalWithdrawn: Number(totalWithdrawn.toFixed(3)),
                 available,
                 batches: batchesInLot,
                 firstLoadDate
@@ -215,10 +208,12 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string, lott
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   
   if (lotto) {
-    if (lotto === 'SENZA_LOTTO') {
-      return withdrawals.filter(w => !w.lotto);
+    const norm = (s?: string | null) => (s || '').trim().toUpperCase();
+    const target = norm(lotto);
+    if (target === 'SENZA_LOTTO' || target === '') {
+      return withdrawals.filter(w => !w.lotto || norm(w.lotto) === 'SENZA_LOTTO');
     }
-    return withdrawals.filter(w => w.lotto === lotto);
+    return withdrawals.filter(w => norm(w.lotto) === target);
   }
 
   return withdrawals;

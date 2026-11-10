@@ -146,6 +146,11 @@ export default function BatchFormDialog({ isOpen, onClose, material, batch }: Ba
           <DialogDescription>
             Stai gestendo un lotto per il materiale: <span className="font-bold text-primary">{material.materialCode}</span>
           </DialogDescription>
+          {batch && (
+            <p className="text-[11px] text-muted-foreground bg-blue-50/60 dark:bg-blue-950/20 p-2.5 rounded-md border border-blue-200 dark:border-blue-900 mt-2">
+              ℹ️ <strong>Safe Mode Ledger:</strong> Se su questo lotto sono già stati registrati prelievi (es. invio a terzista), il salvataggio registrerà la nuova pesata come rientro/ricarico, preservando il carico originario nello storico.
+            </p>
+          )}
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">

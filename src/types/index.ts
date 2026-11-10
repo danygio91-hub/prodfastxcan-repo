@@ -225,6 +225,8 @@ export interface RawMaterialBatch {
   activeSessionId?: string | null;
   currentQuantity?: number; // Live Residual (Hydrated in memory)
   currentWeightKg?: number; // Live Residual Weight (Hydrated in memory)
+  isReturn?: boolean; // Flag per carichi di rientro (Conto Lavoro / Rettifica)
+  type?: 'CARICO' | 'CARICO_RIENTRO' | 'RETTIFICA' | string;
 }
 
 export interface RawMaterial {

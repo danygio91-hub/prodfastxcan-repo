@@ -248,17 +248,45 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             
             const weightFromGross = (newGross > 0) ? (newGross - newTare) : finalNetWeightKg;
 
-            batches[idx] = { 
-                ...old, 
-                date: new Date(rawData.date as string).toISOString(), 
-                ddt: (rawData.ddt as string) || old.ddt, 
-                lotto: (rawData.lotto as string) || old.lotto, 
-                netQuantity: finalUnits, 
-                grossWeight: newGross > 0 ? newGross : (weightFromGross + newTare),
-                tareWeight: newTare,
-                tareName: tareName,
-                packagingId: (rawData.packagingId as string) || old.packagingId
-            };
+            const norm = (s?: string | null) => (s || '').trim().toUpperCase();
+            const currentLotNorm = norm(old.lotto);
+            const withdrawalsOnLot = withdrawals.filter((w: any) => w.status !== 'cancelled' && norm(w.lotto) === currentLotNorm);
+            const totalWithdrawnOnLot = withdrawalsOnLot.reduce((sum: number, w: any) => sum + (w.consumedUnits || 0), 0);
+
+            // FASE 64: Transizione a Ledger Transazionale per Conto Lavoro.
+            // Se ci sono già stati prelievi su questo lotto, NON sovrascrivere netQuantity/grossWeight del carico originario!
+            // Invece, accoda (append) un nuovo record batch (es. isReturn: true / type: 'CARICO_RIENTRO')
+            // in modo che i carichi storici rimangano intatti e la giacenza sia la somma reale dei carichi meno i prelievi.
+            if (totalWithdrawnOnLot > 0.001) {
+                const returnBatch: RawMaterialBatch = {
+                    id: `batch-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                    date: new Date(rawData.date as string).toISOString(),
+                    ddt: (rawData.ddt as string) || `RIENTRO-${old.ddt || 'LAV'}`,
+                    lotto: (rawData.lotto as string) || old.lotto,
+                    netQuantity: finalUnits,
+                    grossWeight: newGross > 0 ? newGross : (weightFromGross + newTare),
+                    tareWeight: newTare,
+                    tareName: tareName,
+                    packagingId: (rawData.packagingId as string) || old.packagingId,
+                    isReturn: true,
+                    type: 'CARICO_RIENTRO',
+                    isExhausted: false,
+                };
+                batches.push(returnBatch);
+            } else {
+                // Se nessun prelievo è mai avvenuto, è una normale correzione anagrafica del carico
+                batches[idx] = { 
+                    ...old, 
+                    date: new Date(rawData.date as string).toISOString(), 
+                    ddt: (rawData.ddt as string) || old.ddt, 
+                    lotto: (rawData.lotto as string) || old.lotto, 
+                    netQuantity: finalUnits, 
+                    grossWeight: newGross > 0 ? newGross : (weightFromGross + newTare),
+                    tareWeight: newTare,
+                    tareName: tareName,
+                    packagingId: (rawData.packagingId as string) || old.packagingId
+                };
+            }
 
             transaction.update(materialRef, { batches });
             
@@ -269,7 +297,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             });
         });
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: 'Lotto aggiornato.' };
+        return { success: true, message: 'Lotto aggiornato con successo.' };
     } catch (e) { 
         console.error("Errore in updateBatchInRawMaterial:", e);
         return { success: false, message: "Errore durante l'aggiornamento." }; 
@@ -315,37 +343,26 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             const weightFromGross = (grossWeight > 0) ? (grossWeight - tareWeight) : finalNetWeightKg;
             const lottoStr = ((rawData.lotto as string) || '').trim();
             const existingBatches = material.batches || [];
-            const existingBatchIndex = lottoStr ? existingBatches.findIndex(b => (b.lotto || '').trim() === lottoStr) : -1;
+            const isExistingLot = lottoStr ? existingBatches.some(b => (b.lotto || '').trim().toUpperCase() === lottoStr.toUpperCase()) : false;
             let updatedBatches = [...existingBatches];
 
-            // FASE 50: Se il lotto esiste già, aggiorna netQuantity senza creare il clone "Batch 2"
-            if (existingBatchIndex !== -1) {
-                const existingBatch = updatedBatches[existingBatchIndex];
-                const newNetQuantity = Number(((existingBatch.netQuantity || 0) + finalUnits).toFixed(3));
-                const newGrossWeight = grossWeight > 0
-                    ? Number(grossWeight.toFixed(3))
-                    : Number(((existingBatch.grossWeight || 0) + finalNetWeightKg).toFixed(3));
-
-                updatedBatches[existingBatchIndex] = {
-                    ...existingBatch,
-                    netQuantity: newNetQuantity,
-                    grossWeight: newGrossWeight,
-                    isExhausted: false,
-                };
-            } else {
-                const newBatch: RawMaterialBatch = { 
-                    id: `batch-${Date.now()}`, 
-                    date: new Date(rawData.date as string).toISOString(), 
-                    ddt: (rawData.ddt as string) || 'CARICO', 
-                    netQuantity: Number(finalUnits.toFixed(3)), 
-                    tareWeight: Number(tareWeight.toFixed(3)), 
-                    grossWeight: grossWeight > 0 ? Number(grossWeight.toFixed(3)) : Number((weightFromGross + tareWeight).toFixed(3)),
-                    tareName: tareName,
-                    lotto: lottoStr || null,
-                    packagingId: (rawData.packagingId as string) || undefined
-                };
-                updatedBatches.push(newBatch);
-            }
+            // FASE 64: Ledger Transazionale (Append-only).
+            // Anche se il lotto esiste già (rientro terzista), crea sempre un nuovo record batch con data e DDT indipendenti.
+            const newBatch: RawMaterialBatch = { 
+                id: `batch-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, 
+                date: new Date(rawData.date as string).toISOString(), 
+                ddt: (rawData.ddt as string) || (isExistingLot ? 'CARICO_RIENTRO' : 'CARICO'), 
+                netQuantity: Number(finalUnits.toFixed(3)), 
+                tareWeight: Number(tareWeight.toFixed(3)), 
+                grossWeight: grossWeight > 0 ? Number(grossWeight.toFixed(3)) : Number((weightFromGross + tareWeight).toFixed(3)),
+                tareName: tareName,
+                lotto: lottoStr || null,
+                packagingId: (rawData.packagingId as string) || undefined,
+                isReturn: isExistingLot,
+                type: isExistingLot ? 'CARICO_RIENTRO' : 'CARICO',
+                isExhausted: false
+            };
+            updatedBatches.push(newBatch);
             
             transaction.update(materialRef, { batches: updatedBatches });
 
@@ -356,10 +373,10 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             });
         });
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: 'Lotto aggiunto.' };
-    } catch (error) { 
-        console.error("Errore in addBatchToRawMaterial:", error);
-        return { success: false, message: "Errore durante il carico." }; 
+        return { success: true, message: 'Lotto caricato a magazzino.' };
+    } catch (e) {
+        console.error("Errore in addBatchToRawMaterial:", e);
+        return { success: false, message: "Errore durante il caricamento." };
     }
 }
 
