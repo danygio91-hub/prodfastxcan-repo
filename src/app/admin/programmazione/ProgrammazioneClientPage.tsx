@@ -41,7 +41,13 @@ import {
   Undo2,
   Lock,
   Trash2,
-  Calculator
+  Calculator,
+  Circle,
+  PauseCircle,
+  EyeOff,
+  Hourglass,
+  Activity,
+  Target
 } from 'lucide-react';
 import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -98,7 +104,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 import { parseRobustDate, cn } from '@/lib/utils';
-import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle } from '@/types';
+import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobPhase } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, type MRPTimelineEntry, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
 import { jsPDF } from 'jspdf';
@@ -780,6 +786,349 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
 });
 
 // =========================================================================
+// FASE 68: TORRE DI CONTROLLO AVANZAMENTO FASI (POPOVER & PROGRESS BAR)
+// =========================================================================
+
+function formatPhaseSeconds(seconds: number): string {
+  if (!seconds || seconds <= 0) return '0s';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s > 0 ? `${s}s` : ''}`.trim();
+  return `${s}s`;
+}
+
+function calculatePhaseActualTime(phase: JobPhase): { seconds: number; isActive: boolean; formatted: string } {
+  if (!phase.workPeriods || !Array.isArray(phase.workPeriods)) {
+    return { seconds: 0, isActive: false, formatted: '0s' };
+  }
+  let totalMs = 0;
+  let isActive = false;
+  phase.workPeriods.forEach((wp) => {
+    if (!wp) return;
+    if (wp.start) {
+      const startMs = new Date(wp.start).getTime();
+      if (!isNaN(startMs)) {
+        if (wp.end) {
+          const endMs = new Date(wp.end).getTime();
+          if (!isNaN(endMs) && endMs > startMs) {
+            totalMs += endMs - startMs;
+          }
+        } else {
+          isActive = true;
+          const currentMs = Date.now();
+          if (currentMs > startMs) {
+            totalMs += currentMs - startMs;
+          }
+        }
+      }
+    }
+  });
+  const seconds = Math.floor(totalMs / 1000);
+  return { seconds, isActive, formatted: formatPhaseSeconds(seconds) };
+}
+
+function calculatePhaseTargetMinutes(phase: JobPhase, jobQta?: number, article?: Article): number | null {
+  if (phase.expectedMinutesPerPiece && jobQta && jobQta > 0) {
+    return Math.round(phase.expectedMinutesPerPiece * jobQta);
+  }
+  if (article && (article as any).phaseTimes && typeof (article as any).phaseTimes === 'object') {
+    const rawVal = (article as any).phaseTimes[phase.name] ?? (article as any).phaseTimes[phase.id];
+    if (typeof rawVal === 'number' && jobQta && jobQta > 0) {
+      return Math.round(rawVal * jobQta);
+    }
+  }
+  return null;
+}
+
+function getPhaseStatusConfig(status?: JobPhase['status']) {
+  const normStatus = (status || 'pending').toLowerCase().replace('_', '-');
+  switch (normStatus) {
+    case 'completed':
+      return {
+        label: 'Completato',
+        badgeClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 font-semibold',
+        dotClass: 'bg-emerald-500',
+        textClass: 'text-emerald-600 dark:text-emerald-400',
+        icon: CheckCircle2,
+      };
+    case 'in-progress':
+      return {
+        label: 'In Corso',
+        badgeClass: 'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 font-semibold animate-pulse',
+        dotClass: 'bg-blue-500 animate-ping',
+        textClass: 'text-blue-600 dark:text-blue-400 font-medium',
+        icon: Hourglass,
+      };
+    case 'paused':
+      return {
+        label: 'In Pausa',
+        badgeClass: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 font-semibold',
+        dotClass: 'bg-amber-500',
+        textClass: 'text-amber-600 dark:text-amber-400 font-medium',
+        icon: PauseCircle,
+      };
+    case 'skipped':
+      return {
+        label: 'Saltato',
+        badgeClass: 'bg-muted/80 text-muted-foreground border-border/60',
+        dotClass: 'bg-muted-foreground',
+        textClass: 'line-through text-muted-foreground',
+        icon: EyeOff,
+      };
+    case 'pending':
+    default:
+      return {
+        label: 'Da Iniziare',
+        badgeClass: 'bg-muted/60 text-muted-foreground border-border/40',
+        dotClass: 'bg-muted-foreground/60',
+        textClass: 'text-foreground/80',
+        icon: Circle,
+      };
+  }
+}
+
+interface JobPhasesProgressCellProps {
+  job: JobOrder;
+  article?: Article;
+}
+
+const JobPhasesProgressCell = React.memo(function JobPhasesProgressCell({
+  job,
+  article,
+}: JobPhasesProgressCellProps) {
+  const phases = job.phases || [];
+
+  if (phases.length === 0) {
+    return (
+      <div className="flex items-center justify-center text-muted-foreground/40 text-[11px] font-mono select-none">
+        <span title="Nessuna fase operativa configurata">-</span>
+      </div>
+    );
+  }
+
+  const sortedPhases = useMemo(() => {
+    return [...phases].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+  }, [phases]);
+
+  const total = sortedPhases.length;
+  const completed = sortedPhases.filter((p) => p.status === 'completed').length;
+  const skipped = sortedPhases.filter((p) => p.status === 'skipped').length;
+  const inProgress = sortedPhases.filter(
+    (p) => p.status === 'in-progress' || (p.status as any) === 'in_progress'
+  ).length;
+  const paused = sortedPhases.filter((p) => p.status === 'paused').length;
+  const pct = Math.round(((completed + skipped) / total) * 100);
+  const isAllDone = completed + skipped === total && total > 0;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex flex-col items-center justify-center w-full px-1.5 py-1 rounded hover:bg-muted/40 transition-colors cursor-pointer group text-left outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          title="Clicca per aprire la Torre di Controllo Avanzamento Fasi"
+        >
+          {/* Header Indicatore Cella */}
+          <div className="flex items-center justify-between w-full text-[10px] font-mono leading-none mb-1 gap-1">
+            <span className="flex items-center gap-1 font-semibold text-foreground/90">
+              {inProgress > 0 && (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                </span>
+              )}
+              {paused > 0 && inProgress === 0 && (
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block" />
+              )}
+              {isAllDone && (
+                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500 shrink-0" />
+              )}
+              <span>{completed}/{total}</span>
+            </span>
+            <span
+              className={cn(
+                "font-bold text-[10px]",
+                isAllDone
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : inProgress > 0
+                  ? "text-blue-600 dark:text-blue-400"
+                  : paused > 0
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-muted-foreground"
+              )}
+            >
+              {pct}%
+            </span>
+          </div>
+
+          {/* Micro Progress Bar */}
+          <div className="w-full bg-muted/80 rounded-full h-1.5 overflow-hidden border border-border/40">
+            <div
+              className={cn(
+                "h-full transition-all duration-300 rounded-full",
+                isAllDone
+                  ? "bg-emerald-500"
+                  : inProgress > 0
+                  ? "bg-blue-500 animate-pulse"
+                  : paused > 0
+                  ? "bg-amber-500"
+                  : pct > 0
+                  ? "bg-primary/80"
+                  : "bg-muted-foreground/30"
+              )}
+              style={{ width: `${Math.max(pct, pct > 0 ? 5 : 0)}%` }}
+            />
+          </div>
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        align="center"
+        side="top"
+        sideOffset={6}
+        className="w-84 p-3 bg-popover/95 backdrop-blur-md border border-border shadow-xl rounded-lg z-50 text-xs"
+      >
+        {/* Header Popover */}
+        <div className="border-b pb-2 mb-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 font-bold text-sm text-foreground">
+              <Activity className="h-4 w-4 text-primary" />
+              <span>Avanzamento Fasi</span>
+            </div>
+            <span
+              className={cn(
+                "px-2 py-0.5 rounded-full text-[10px] font-bold border font-mono",
+                isAllDone
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                  : inProgress > 0
+                  ? "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 animate-pulse"
+                  : paused > 0
+                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                  : "bg-muted/70 text-muted-foreground border-border"
+              )}
+            >
+              {completed}/{total} completate ({pct}%)
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span className="font-mono font-medium text-foreground/90 truncate max-w-[180px]">
+              ODL: {job.ordinePF || job.numeroODLInterno || job.id}
+            </span>
+            {job.qta ? <span>Q.tà: {job.qta} pz</span> : null}
+          </div>
+
+          {/* Progress Bar Espansa */}
+          <div className="w-full bg-muted/80 rounded-full h-2 overflow-hidden border border-border/50">
+            <div
+              className={cn(
+                "h-full transition-all duration-300 rounded-full",
+                isAllDone
+                  ? "bg-emerald-500"
+                  : inProgress > 0
+                  ? "bg-blue-500 animate-pulse"
+                  : paused > 0
+                  ? "bg-amber-500"
+                  : "bg-primary/80"
+              )}
+              style={{ width: `${Math.max(pct, pct > 0 ? 5 : 0)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Timeline / Elenco Fasi */}
+        <div className="max-h-64 overflow-y-auto pr-1 space-y-1.5 divide-y divide-border/40">
+          {sortedPhases.map((phase, idx) => {
+            const cfg = getPhaseStatusConfig(phase.status);
+            const StatusIcon = cfg.icon;
+            const actual = calculatePhaseActualTime(phase);
+            const targetMin = calculatePhaseTargetMinutes(phase, job.qta, article);
+
+            return (
+              <div
+                key={phase.id || idx}
+                className={cn(
+                  "pt-1.5 first:pt-0 p-1.5 rounded transition-colors",
+                  phase.status === 'in-progress' && "bg-blue-500/10 border border-blue-500/30",
+                  phase.status === 'paused' && "bg-amber-500/10 border border-amber-500/25"
+                )}
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <StatusIcon
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0",
+                        phase.status === 'in-progress' && "text-blue-500 animate-spin",
+                        phase.status === 'completed' && "text-emerald-500",
+                        phase.status === 'paused' && "text-amber-500",
+                        phase.status === 'skipped' && "text-muted-foreground",
+                        phase.status === 'pending' && "text-muted-foreground/60"
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        "text-xs font-semibold truncate",
+                        cfg.textClass
+                      )}
+                      title={phase.name}
+                    >
+                      {phase.name}
+                    </span>
+                    {phase.type && (
+                      <span className="text-[9px] font-mono uppercase px-1 py-0 rounded bg-muted/60 text-muted-foreground shrink-0">
+                        {phase.type === 'preparation' ? 'Prep' : 'Prod'}
+                      </span>
+                    )}
+                  </div>
+
+                  <span
+                    className={cn(
+                      "text-[9px] font-medium px-1.5 py-0.5 rounded-full border shrink-0 font-mono",
+                      cfg.badgeClass
+                    )}
+                  >
+                    {cfg.label}
+                  </span>
+                </div>
+
+                {/* Dettaglio Tempi (Effettivo vs Target) */}
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono pl-5">
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-2.5 w-2.5 text-muted-foreground/70" />
+                    <span>
+                      Eff: <strong className={actual.seconds > 0 ? "text-foreground" : "text-muted-foreground"}>{actual.formatted}</strong>
+                      {actual.isActive && <span className="text-blue-500 font-bold ml-0.5">●</span>}
+                    </span>
+                  </span>
+
+                  {targetMin !== null ? (
+                    <span className="flex items-center gap-1">
+                      <Target className="h-2.5 w-2.5 text-muted-foreground/70" />
+                      <span>Tgt: <strong>{targetMin}m</strong></span>
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground/50">-</span>
+                  )}
+                </div>
+
+                {/* Motivo Pausa se presente */}
+                {phase.status === 'paused' && phase.pauseReason && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 pl-5 pt-0.5 italic">
+                    Pausa: {phase.pauseReason}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+});
+
+// =========================================================================
 // MEMOIZATION RIGA TABELLA (React.memo)
 // =========================================================================
 
@@ -1077,6 +1426,11 @@ const JobTableRow = React.memo(function JobTableRow({
             </SelectItem>
           </SelectContent>
         </Select>
+      </td>
+
+      {/* 11-bis. AVANZAMENTO FASI */}
+      <td className="py-1 px-1.5 text-center align-middle w-[115px]">
+        <JobPhasesProgressCell job={job} article={article} />
       </td>
 
       {/* 12. AZIONI */}
@@ -4843,6 +5197,9 @@ export default function ProgrammazioneClientPage({
                   {/* 11. STATO COMMESSA */}
                   <th className="py-2 px-2 text-center w-[145px] bg-muted/80">Stato Commessa</th>
 
+                  {/* 11-bis. AVANZAMENTO FASI */}
+                  <th className="py-2 px-2 text-center w-[115px] bg-muted/80">Avanzamento</th>
+
                   {/* 12. AZIONI */}
                   <th className="py-2 px-2 text-center w-[135px] bg-muted/80">Azioni</th>
                 </tr>
@@ -4853,7 +5210,7 @@ export default function ProgrammazioneClientPage({
                 ========================================================================== */}
                 {sortedAndFilteredJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="py-12 text-center text-muted-foreground">
+                    <td colSpan={14} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Layers className="h-7 w-7 text-muted-foreground/40" />
                         <p className="text-sm font-medium">
