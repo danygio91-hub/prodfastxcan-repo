@@ -146,3 +146,4 @@ describe('FASE 69: getTimeReliabilityStatus & calculateJobHours', () => {
     });
   });
 });
+

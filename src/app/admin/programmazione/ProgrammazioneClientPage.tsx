@@ -3,13 +3,13 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  RefreshCw, 
-  Search, 
-  Printer, 
-  Play, 
+import {
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  Search,
+  Printer,
+  Play,
   CheckCircle2,
   AlertTriangle,
   XCircle,
@@ -118,18 +118,18 @@ import { ManualMultiAddModal } from '@/components/mrp/ManualMultiAddModal';
 import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 import { ContoLavoroModal } from '@/components/mrp/ContoLavoroModal';
 import { QuickArticleEditDrawer } from '@/components/mrp/QuickArticleEditDrawer';
-import { 
-  getJobOrders, 
+import {
+  getJobOrders,
   getActiveJobOrders,
   fetchCompletedJobOrdersAction,
-  getTargetedMRPData, 
+  getTargetedMRPData,
   forceRecalculateMRPAction,
-  toggleJobPrinted, 
+  toggleJobPrinted,
   markJobAsPrinted,
   markJobAsPrintedAndInProduction,
   startJobProduction,
   updateJobExecutionStatus,
-  updateJobOdlNumber, 
+  updateJobOdlNumber,
   checkUniqueODL,
   updateJobStatus,
   updateJobDeliveryDate,
@@ -238,20 +238,20 @@ export function isJobFinished(jobOrStatus: JobOrder | string | undefined): boole
   return norm === 'Completato Prod.' || norm === 'Spedito';
 }
 
-import { 
-  calculateJobHours, 
-  getTimeReliabilityStatus, 
-  getTimeReliabilityMeta, 
-  type TimeReliabilityStatus, 
-  type TimeReliabilityMeta 
+import {
+  calculateJobHours,
+  getTimeReliabilityStatus,
+  getTimeReliabilityMeta,
+  type TimeReliabilityStatus,
+  type TimeReliabilityMeta
 } from '@/lib/time-reliability';
 
-export { 
-  calculateJobHours, 
-  getTimeReliabilityStatus, 
-  getTimeReliabilityMeta, 
-  type TimeReliabilityStatus, 
-  type TimeReliabilityMeta 
+export {
+  calculateJobHours,
+  getTimeReliabilityStatus,
+  getTimeReliabilityMeta,
+  type TimeReliabilityStatus,
+  type TimeReliabilityMeta
 };
 
 export interface WeekOption {
@@ -547,7 +547,7 @@ const InlineDeliveryDateCell = React.memo(function InlineDeliveryDateCell({
 
   // FASE 16: Guardrail & Allarmi Data Consegna
   const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
-  
+
   let isDeliveryDateExpired = false;
   if (!isDeliveryDateMissing) {
     const d = parseRobustDate(job.dataConsegnaFinale);
@@ -616,16 +616,16 @@ const InlineDeliveryDateCell = React.memo(function InlineDeliveryDateCell({
   return (
     <div className="relative flex items-center">
       {isDeliveryDateMissing && (
-        <span 
-          className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500" 
+        <span
+          className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500"
           title="Data mancante: obbligatoria per avviare la commessa!"
         >
           <AlertCircle className="h-3.5 w-3.5 animate-pulse text-red-500" />
         </span>
       )}
       {isDeliveryDateExpired && !isDeliveryDateMissing && (
-        <span 
-          className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500" 
+        <span
+          className="absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-red-500"
           title="Attenzione: Commessa scaduta/in ritardo!"
         >
           <AlertTriangle className="h-3 w-3 text-red-500" />
@@ -656,15 +656,15 @@ const InlineDeliveryDateCell = React.memo(function InlineDeliveryDateCell({
           isDeliveryDateMissing && "border-red-500 bg-red-500/10 text-red-600 dark:text-red-400 placeholder:text-red-500 font-bold pl-5",
           isDeliveryDateExpired && "border-red-500 bg-red-50/20 dark:bg-red-950/20 text-red-600 dark:text-red-400 font-bold pl-5",
           !isDeliveryDateMissing && !isDeliveryDateExpired && (
-            !job.dataConsegnaFinale 
-              ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground" 
+            !job.dataConsegnaFinale
+              ? "border-dashed border-muted-foreground/40 bg-muted/20 text-muted-foreground"
               : "border-border bg-background text-foreground"
           )
         )}
         title={
-          isDeliveryDateMissing 
-            ? "Data Mancante! È severamente vietato avviare senza Data Consegna." 
-            : isDeliveryDateExpired 
+          isDeliveryDateMissing
+            ? "Data Mancante! È severamente vietato avviare senza Data Consegna."
+            : isDeliveryDateExpired
               ? "Data Scaduta nel passato! Commessa in ritardo."
               : "Clicca per modificare la data (GG/MM/AAAA) e premi Invio"
         }
@@ -934,10 +934,10 @@ const JobPhasesProgressCell = React.memo(function JobPhasesProgressCell({
                 isAllDone
                   ? "text-emerald-600 dark:text-emerald-400"
                   : inProgress > 0
-                  ? "text-blue-600 dark:text-blue-400"
-                  : paused > 0
-                  ? "text-amber-600 dark:text-amber-400"
-                  : "text-muted-foreground"
+                    ? "text-blue-600 dark:text-blue-400"
+                    : paused > 0
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-muted-foreground"
               )}
             >
               {pct}%
@@ -952,12 +952,12 @@ const JobPhasesProgressCell = React.memo(function JobPhasesProgressCell({
                 isAllDone
                   ? "bg-emerald-500"
                   : inProgress > 0
-                  ? "bg-blue-500 animate-pulse"
-                  : paused > 0
-                  ? "bg-amber-500"
-                  : pct > 0
-                  ? "bg-primary/80"
-                  : "bg-muted-foreground/30"
+                    ? "bg-blue-500 animate-pulse"
+                    : paused > 0
+                      ? "bg-amber-500"
+                      : pct > 0
+                        ? "bg-primary/80"
+                        : "bg-muted-foreground/30"
               )}
               style={{ width: `${Math.max(pct, pct > 0 ? 5 : 0)}%` }}
             />
@@ -984,10 +984,10 @@ const JobPhasesProgressCell = React.memo(function JobPhasesProgressCell({
                 isAllDone
                   ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
                   : inProgress > 0
-                  ? "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 animate-pulse"
-                  : paused > 0
-                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
-                  : "bg-muted/70 text-muted-foreground border-border"
+                    ? "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 animate-pulse"
+                    : paused > 0
+                      ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                      : "bg-muted/70 text-muted-foreground border-border"
               )}
             >
               {completed}/{total} completate ({pct}%)
@@ -1009,10 +1009,10 @@ const JobPhasesProgressCell = React.memo(function JobPhasesProgressCell({
                 isAllDone
                   ? "bg-emerald-500"
                   : inProgress > 0
-                  ? "bg-blue-500 animate-pulse"
-                  : paused > 0
-                  ? "bg-amber-500"
-                  : "bg-primary/80"
+                    ? "bg-blue-500 animate-pulse"
+                    : paused > 0
+                      ? "bg-amber-500"
+                      : "bg-primary/80"
               )}
               style={{ width: `${Math.max(pct, pct > 0 ? 5 : 0)}%` }}
             />
@@ -1272,7 +1272,7 @@ const JobTableRow = React.memo(function JobTableRow({
         {timeReliability === 'MISSING' ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <div 
+              <div
                 className={cn("inline-flex items-center justify-end gap-1 font-bold cursor-help", reliabilityMeta.colorClass)}
                 title={reliabilityMeta.title}
               >
@@ -1287,7 +1287,7 @@ const JobTableRow = React.memo(function JobTableRow({
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span 
+              <span
                 className={cn("font-semibold cursor-help transition-colors", reliabilityMeta.colorClass)}
                 title={reliabilityMeta.title}
               >
@@ -1338,8 +1338,8 @@ const JobTableRow = React.memo(function JobTableRow({
 
           {/* FASE 45: Badge C.to Lavoro se presenti materiali esternalizzati */}
           {hasExternalized && (
-            <Badge 
-              variant="outline" 
+            <Badge
+              variant="outline"
               onClick={() => onOpenContoLavoroModal(job)}
               className="bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30 text-[9px] font-bold py-0 px-1.5 gap-1 inline-flex items-center cursor-pointer hover:bg-purple-500/25 transition-colors"
               title={`C.to Lavoro: ${job.externalizedMaterials!.join(', ')} esternalizzati. Clicca per gestire.`}
@@ -1378,8 +1378,8 @@ const JobTableRow = React.memo(function JobTableRow({
             </SelectContent>
           </Select>
           {effectiveWeekInfo?.isRolledOver && (
-            <Badge 
-              variant="outline" 
+            <Badge
+              variant="outline"
               className="text-[9px] px-1 py-0 font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 whitespace-nowrap"
               title={`Roll-over: commessa in ritardo (scaduta in W${weekInfo?.week}) spostata alla Settimana Corrente W${effectiveWeekInfo.week}`}
             >
@@ -1403,7 +1403,7 @@ const JobTableRow = React.memo(function JobTableRow({
             currentStatus === 'Completato Prod.' && "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/50 font-bold shadow-2xs",
             currentStatus === 'Spedito' && "bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/50 font-bold shadow-2xs"
           )}
-          title={isDeliveryDateMissing && currentStatus === 'Pianificata' ? "Inserire Data di Consegna per sbloccare l'avanzamento" : undefined}
+            title={isDeliveryDateMissing && currentStatus === 'Pianificata' ? "Inserire Data di Consegna per sbloccare l'avanzamento" : undefined}
           >
             <SelectValue />
           </SelectTrigger>
@@ -1444,8 +1444,8 @@ const JobTableRow = React.memo(function JobTableRow({
                   className={cn(
                     "h-7 w-7 transition-colors",
                     isDeliveryDateMissing && "opacity-30 cursor-not-allowed",
-                    !isDeliveryDateMissing && isPrinted 
-                      ? "text-green-500 hover:text-green-600 bg-green-500/10 hover:bg-green-500/20" 
+                    !isDeliveryDateMissing && isPrinted
+                      ? "text-green-500 hover:text-green-600 bg-green-500/10 hover:bg-green-500/20"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                   )}
                 >
@@ -1462,8 +1462,8 @@ const JobTableRow = React.memo(function JobTableRow({
                 ? "Inserire Data di Consegna per avviare"
                 : isDownloadingPdf
                   ? "Generazione PDF ODL in corso..."
-                  : isPrinted 
-                    ? "ODL stampato (clicca per ristampare il PDF)" 
+                  : isPrinted
+                    ? "ODL stampato (clicca per ristampare il PDF)"
                     : "Stampa ODL (richiede N° ODL)"}
             </TooltipContent>
           </Tooltip>
@@ -2430,8 +2430,8 @@ export default function ProgrammazioneClientPage({
       return acc + calculateJobHours(j, articleMap.get(artKey));
     }, 0);
     const roundedLoadedHours = Math.round(loadedHours * 10) / 10;
-    const saturationPercent = availableHours > 0 
-      ? Math.round((roundedLoadedHours / availableHours) * 100) 
+    const saturationPercent = availableHours > 0
+      ? Math.round((roundedLoadedHours / availableHours) * 100)
       : 0;
     const balanceHours = Math.round((availableHours - roundedLoadedHours) * 10) / 10;
 
@@ -2670,7 +2670,7 @@ export default function ProgrammazioneClientPage({
         badgeClass: 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700/60 font-medium',
         dotClass: 'bg-slate-400 dark:bg-slate-500',
         details: [
-          isShipped 
+          isShipped
             ? '⚪ Commessa Spedita: Nessun fabbisogno o impegno magazzino attivo.'
             : '⚪ Produzione Completata: Nessun fabbisogno o impegno magazzino attivo.'
         ],
@@ -2744,7 +2744,7 @@ export default function ProgrammazioneClientPage({
     // Se la preparazione è terminata (o la produzione è già avanzata), bypassa il blocco "In Verifica".
     const derivedStatus = getDerivedJobStatus(job);
     const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
-    const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) || 
+    const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) ||
       ['PRONTO', 'PRONTO PROD', 'IN PROD', 'FINE PROD'].includes((job.status || '').toUpperCase().trim());
 
     if (isPrepFinished) {
@@ -2945,13 +2945,13 @@ export default function ProgrammazioneClientPage({
       prev.map((j) =>
         j.id === job.id
           ? {
-              ...j,
-              dataConsegnaFinale: isoFormatted,
-              assignedDate: undefined,
-              isoWeek: newWeek,
-              weekYear: newYear,
-              targetWeek: newTargetWeek,
-            }
+            ...j,
+            dataConsegnaFinale: isoFormatted,
+            assignedDate: undefined,
+            isoWeek: newWeek,
+            weekYear: newYear,
+            targetWeek: newTargetWeek,
+          }
           : j
       )
     );
@@ -3306,8 +3306,8 @@ export default function ProgrammazioneClientPage({
   // FASE 33: Helper comune per recupero distinta, fasi e materiali per la stampa ODL
   const prepareJobForPrint = useCallback(async (job: JobOrder) => {
     const articleCode = (job.details || '').trim().toUpperCase();
-    let article = articles.find((a) => a.code.toUpperCase() === articleCode) 
-      || articlesCacheRef.current.get(articleCode) 
+    let article = articles.find((a) => a.code.toUpperCase() === articleCode)
+      || articlesCacheRef.current.get(articleCode)
       || null;
 
     if (!article && articleCode) {
@@ -3402,11 +3402,11 @@ export default function ProgrammazioneClientPage({
         description: `Elaborazione di ${selectedJobs.length} commesse selezionate...`,
       });
 
-      const pdf = new jsPDF({ 
-        orientation: 'landscape', 
-        unit: 'mm', 
-        format: 'a4', 
-        compress: true 
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
       });
 
       let totalPagesAdded = 0;
@@ -3437,11 +3437,11 @@ export default function ProgrammazioneClientPage({
 
         for (let pIdx = 0; pIdx < pageElements.length; pIdx++) {
           const page = pageElements[pIdx] as HTMLElement;
-          const canvas = await html2canvas(page, { 
-            scale: 2.5, 
-            useCORS: true, 
-            logging: false, 
-            backgroundColor: '#ffffff' 
+          const canvas = await html2canvas(page, {
+            scale: 2.5,
+            useCORS: true,
+            logging: false,
+            backgroundColor: '#ffffff'
           });
           const imgData = canvas.toDataURL('image/png', 1.0);
           if (totalPagesAdded > 0) {
@@ -3821,20 +3821,20 @@ export default function ProgrammazioneClientPage({
         throw new Error("Nessuna pagina ODL generata.");
       }
 
-      const pdf = new jsPDF({ 
-        orientation: 'landscape', 
-        unit: 'mm', 
-        format: 'a4', 
-        compress: true 
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
       });
 
       for (let i = 0; i < pageElements.length; i++) {
         const page = pageElements[i] as HTMLElement;
-        const canvas = await html2canvas(page, { 
-          scale: 3, 
-          useCORS: true, 
-          logging: false, 
-          backgroundColor: '#ffffff' 
+        const canvas = await html2canvas(page, {
+          scale: 3,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff'
         });
         const imgData = canvas.toDataURL('image/png', 1.0);
         if (i > 0) pdf.addPage();
@@ -3852,12 +3852,12 @@ export default function ProgrammazioneClientPage({
         prevJobs.map((j) =>
           j.id === job.id
             ? {
-                ...j,
-                numeroODL: currentOdl,
-                numeroODLInterno: currentOdl,
-                isPrinted: true,
-                odlPrinted: true,
-              }
+              ...j,
+              numeroODL: currentOdl,
+              numeroODLInterno: currentOdl,
+              isPrinted: true,
+              odlPrinted: true,
+            }
             : j
         )
       );
@@ -3920,12 +3920,12 @@ export default function ProgrammazioneClientPage({
       prev.map((j) =>
         j.id === job.id
           ? {
-              ...j,
-              assignedDate: mondayIso,
-              isoWeek: opt.weekNumber,
-              weekYear: opt.year,
-              targetWeek: targetWeekStr,
-            }
+            ...j,
+            assignedDate: mondayIso,
+            isoWeek: opt.weekNumber,
+            weekYear: opt.year,
+            targetWeek: targetWeekStr,
+          }
           : j
       )
     );
@@ -3937,10 +3937,10 @@ export default function ProgrammazioneClientPage({
 
     try {
       await updateJobAssignedWeek(
-        job.id, 
-        mondayIso, 
-        opt.weekNumber, 
-        opt.year, 
+        job.id,
+        mondayIso,
+        opt.weekNumber,
+        opt.year,
         targetWeekStr
       );
     } catch (e) {
@@ -3980,9 +3980,9 @@ export default function ProgrammazioneClientPage({
             {/* 3. Allertatore Intelligente MRP (Sheet Drawer) */}
             <Sheet>
               <SheetTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="relative h-8 text-xs gap-1.5 border-red-500/30 hover:bg-red-500/10 text-red-600 dark:text-red-400"
                 >
                   <BellRing className="h-3.5 w-3.5" />
@@ -4023,8 +4023,8 @@ export default function ProgrammazioneClientPage({
                             <div className="h-px bg-border flex-1"></div>
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs font-bold text-muted-foreground tracking-wider uppercase">{category}</span>
-                              <Badge 
-                                variant="outline" 
+                              <Badge
+                                variant="outline"
                                 className={cn(
                                   "text-[9px] py-0 px-1 font-bold",
                                   worstCategoryStatus === 'RED'
@@ -4034,10 +4034,10 @@ export default function ProgrammazioneClientPage({
                                       : "border-amber-400 text-amber-600 bg-amber-50/50 dark:bg-amber-950/20"
                                 )}
                               >
-                                {worstCategoryStatus === 'RED' 
-                                  ? '🔴 MANCANTI' 
-                                  : worstCategoryStatus === 'SUPPLIER_LATE' 
-                                    ? '🔴 RITARDO FORNITORE' 
+                                {worstCategoryStatus === 'RED'
+                                  ? '🔴 MANCANTI'
+                                  : worstCategoryStatus === 'SUPPLIER_LATE'
+                                    ? '🔴 RITARDO FORNITORE'
                                     : '🟠 DA ANTICIPARE'}
                               </Badge>
                             </div>
@@ -4047,15 +4047,15 @@ export default function ProgrammazioneClientPage({
                           {/* Accordion Materiali della Categoria */}
                           <Accordion type="single" collapsible className="w-full space-y-2">
                             {materials.map((mat) => {
-                              const worstLabel = 
+                              const worstLabel =
                                 mat.worstStatus === 'RED' ? 'MANCANTE' :
-                                mat.worstStatus === 'SUPPLIER_LATE' ? 'RITARDO FORN.' :
-                                mat.worstStatus === 'EXPEDITE_NEEDED' ? 'DA ANTICIPARE' :
-                                mat.worstStatus === 'LATE' ? 'IN RITARDO' : 'ORDINATO';
+                                  mat.worstStatus === 'SUPPLIER_LATE' ? 'RITARDO FORN.' :
+                                    mat.worstStatus === 'EXPEDITE_NEEDED' ? 'DA ANTICIPARE' :
+                                      mat.worstStatus === 'LATE' ? 'IN RITARDO' : 'ORDINATO';
 
-                              const worstBadgeClass = 
+                              const worstBadgeClass =
                                 mat.worstStatus === 'RED' || mat.worstStatus === 'SUPPLIER_LATE'
-                                  ? 'bg-red-600 text-white font-bold' 
+                                  ? 'bg-red-600 text-white font-bold'
                                   : 'bg-amber-500 text-white font-bold';
 
                               return (
@@ -4111,8 +4111,8 @@ export default function ProgrammazioneClientPage({
                                   </AccordionTrigger>
                                   <AccordionContent className="pt-1 pb-2 space-y-2 text-xs">
                                     {mat.entriesWithVisual.map(({ entry, job, visualStatus }, idx) => (
-                                      <div 
-                                        key={idx} 
+                                      <div
+                                        key={idx}
                                         className={cn(
                                           "p-2.5 rounded-md border text-[11px] space-y-1.5 transition-colors",
                                           visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE'
@@ -4129,9 +4129,9 @@ export default function ProgrammazioneClientPage({
                                             <span className={cn(
                                               "font-bold",
                                               visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE' ? "text-red-700 dark:text-red-300" :
-                                              visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE' ? "text-amber-700 dark:text-amber-300" :
-                                              visualStatus === 'ORDERED' ? "text-indigo-700 dark:text-indigo-300" :
-                                              "text-foreground"
+                                                visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE' ? "text-amber-700 dark:text-amber-300" :
+                                                  visualStatus === 'ORDERED' ? "text-indigo-700 dark:text-indigo-300" :
+                                                    "text-foreground"
                                             )}>
                                               {job?.ordinePF || entry.jobId}
                                             </span>
@@ -4159,16 +4159,16 @@ export default function ProgrammazioneClientPage({
                                                     ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400"
                                                     : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
                                             )}>
-                                              {visualStatus === 'RED' 
-                                                ? '🔴 Mancante' 
+                                              {visualStatus === 'RED'
+                                                ? '🔴 Mancante'
                                                 : visualStatus === 'SUPPLIER_LATE'
                                                   ? '🔴 Ritardo Forn.'
                                                   : visualStatus === 'EXPEDITE_NEEDED'
                                                     ? '🟠 Da Anticipare'
-                                                    : visualStatus === 'LATE' 
-                                                      ? '🟠 In Ritardo' 
-                                                      : visualStatus === 'ORDERED' 
-                                                        ? '💜 Ordinato' 
+                                                    : visualStatus === 'LATE'
+                                                      ? '🟠 In Ritardo'
+                                                      : visualStatus === 'ORDERED'
+                                                        ? '💜 Ordinato'
                                                         : '🟢 Coperto'
                                               }
                                             </span>
@@ -4315,7 +4315,7 @@ export default function ProgrammazioneClientPage({
                             </p>
                             <div className="space-y-2">
                               {classifiedMRPAlarms.mutedAlarms.map((item, idx) => (
-                                <div 
+                                <div
                                   key={`${item.jobId}-${item.matCode}-${idx}`}
                                   className="p-2.5 rounded-md border border-slate-200 dark:border-slate-700/60 bg-card text-xs flex justify-between items-center gap-3"
                                 >
@@ -4580,16 +4580,14 @@ export default function ProgrammazioneClientPage({
               <button
                 key={dept.code}
                 onClick={() => setSelectedDept(dept.code)}
-                className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-semibold tracking-wider transition-all whitespace-nowrap ${
-                  isActive
+                className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-semibold tracking-wider transition-all whitespace-nowrap ${isActive
                     ? 'bg-primary text-primary-foreground shadow-xs font-bold'
                     : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
+                  }`}
               >
                 <span>{dept.label}</span>
-                <span className={`text-[10px] px-1.5 py-0 rounded-full font-mono font-bold ${
-                  isActive ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted-foreground/20 text-muted-foreground'
-                }`}>
+                <span className={`text-[10px] px-1.5 py-0 rounded-full font-mono font-bold ${isActive ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted-foreground/20 text-muted-foreground'
+                  }`}>
                   {count}
                 </span>
               </button>
@@ -4799,8 +4797,8 @@ export default function ProgrammazioneClientPage({
                   <Badge variant="outline" className={cn(
                     "text-xs px-2 py-0.5 font-bold",
                     globalTab === 'PIANIFICATE' ? "border-blue-500/40 text-blue-600 bg-blue-500/10" :
-                    globalTab === 'AVVIATE' ? "border-amber-500/40 text-amber-600 bg-amber-500/10" :
-                    "border-slate-500/40 text-slate-700 dark:text-slate-300 bg-slate-500/10"
+                      globalTab === 'AVVIATE' ? "border-amber-500/40 text-amber-600 bg-amber-500/10" :
+                        "border-slate-500/40 text-slate-700 dark:text-slate-300 bg-slate-500/10"
                   )}>
                     {globalTab === 'PIANIFICATE' && 'Commesse Pianificate'}
                     {globalTab === 'AVVIATE' && 'Commesse Avviate in Produzione'}
@@ -4969,8 +4967,8 @@ export default function ProgrammazioneClientPage({
 
                 {/* Giorni L, M, M, G, V */}
                 {(['L', 'M', 'Me', 'G', 'V'] as const).map((day) => (
-                  <div 
-                    key={day} 
+                  <div
+                    key={day}
                     className={cn(
                       "flex items-center gap-1.5 px-2 py-0.5 rounded border",
                       selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
@@ -4987,15 +4985,15 @@ export default function ProgrammazioneClientPage({
                       onChange={(e) => handleCapacityChange(day, parseInt(e.target.value))}
                       className={cn(
                         "w-14 min-w-[3.5rem] h-6 text-center font-mono font-bold border rounded text-xs px-1 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                        selectedDept === 'ALL' 
-                          ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent" 
+                        selectedDept === 'ALL'
+                          ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent"
                           : "bg-background focus:ring-1 focus:ring-primary"
                       )}
                     />
                   </div>
                 ))}
 
-                <div 
+                <div
                   className={cn(
                     "flex items-center gap-1.5 px-2 py-0.5 rounded border ml-1",
                     selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
@@ -5012,8 +5010,8 @@ export default function ProgrammazioneClientPage({
                     onChange={(e) => handleCapacityChange('overtime', parseFloat(e.target.value))}
                     className={cn(
                       "w-14 min-w-[3.5rem] h-6 text-center font-mono font-bold border rounded text-xs px-1 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                      selectedDept === 'ALL' 
-                        ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent" 
+                      selectedDept === 'ALL'
+                        ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent"
                         : "bg-background focus:ring-1 focus:ring-primary"
                     )}
                   />
@@ -5021,14 +5019,14 @@ export default function ProgrammazioneClientPage({
                 </div>
               </div>
 
-              <div 
+              <div
                 className={cn(
                   "rounded-md px-3.5 py-1.5 shadow-md flex items-center divide-x transition-all duration-300",
                   "bg-slate-900 text-white divide-slate-700/80 border-2",
-                  bucketMetrics.saturationPercent > 100 
-                    ? "border-red-500 shadow-red-500/20" 
-                    : bucketMetrics.saturationPercent > 85 
-                      ? "border-amber-500 shadow-amber-500/20" 
+                  bucketMetrics.saturationPercent > 100
+                    ? "border-red-500 shadow-red-500/20"
+                    : bucketMetrics.saturationPercent > 85
+                      ? "border-amber-500 shadow-amber-500/20"
                       : "border-emerald-500 shadow-emerald-500/20"
                 )}
               >
@@ -5086,8 +5084,8 @@ export default function ProgrammazioneClientPage({
           <div className="bg-muted/40 px-3 py-1.5 border-b flex items-center justify-between text-xs text-muted-foreground font-medium">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-foreground">
-                {viewMode === 'settimana' 
-                  ? (showAllWeeks ? 'Tutte le Settimane' : `Commesse Nel Secchiello (Sett. ${selectedWeekNumber})`) 
+                {viewMode === 'settimana'
+                  ? (showAllWeeks ? 'Tutte le Settimane' : `Commesse Nel Secchiello (Sett. ${selectedWeekNumber})`)
                   : `Vista Globale • ${globalTab}`}
               </span>
               <span>•</span>
@@ -5128,7 +5126,7 @@ export default function ProgrammazioneClientPage({
                   <th className="py-2 px-2 text-center w-[55px]">Rep.</th>
 
                   {/* 2. ORDINE */}
-                  <th 
+                  <th
                     onClick={() => handleSort('ordinePF')}
                     className="py-2 px-2.5 text-left w-[105px] cursor-pointer select-none hover:bg-muted/90 transition-colors"
                   >
@@ -5143,7 +5141,7 @@ export default function ProgrammazioneClientPage({
                   </th>
 
                   {/* 3. CLIENTE */}
-                  <th 
+                  <th
                     onClick={() => handleSort('cliente')}
                     className="py-2 px-2.5 text-left w-[135px] cursor-pointer select-none hover:bg-muted/90 transition-colors"
                   >
@@ -5164,7 +5162,7 @@ export default function ProgrammazioneClientPage({
                   <th className="py-2 px-2 text-right w-[75px]">Q.tà</th>
 
                   {/* 6. ORE PREV. (Separata - FASE 69: Color-Coding Affidabilità Tempi) */}
-                  <th 
+                  <th
                     className="py-2 px-2 text-right w-[75px] select-none"
                     title="Ore Previste (Verde: Calcolo esatto da ciclo fasi | Azzurro: Stima manuale o parziale | Rosso: Mancante)"
                   >
@@ -5172,7 +5170,7 @@ export default function ProgrammazioneClientPage({
                   </th>
 
                   {/* 7. DATA CONS. (Ordinabile e Inline Editable) */}
-                  <th 
+                  <th
                     onClick={() => handleSort('dataConsegna')}
                     className="py-2 px-2 text-center w-[110px] cursor-pointer select-none hover:bg-muted/90 transition-colors"
                   >
@@ -5265,24 +5263,24 @@ export default function ProgrammazioneClientPage({
                         job={job}
                         article={articleMap.get(artKey)}
                         isSelected={selectedJobIds.includes(job.id)}
-                      isDownloadingPdf={isDownloadingPdf === job.id}
-                      weekOptions={weekOptions}
-                      getJobMRPStatus={getJobMRPStatus}
-                      onToggleSelect={handleToggleSelect}
-                      onSaveDeliveryDate={handleSaveDeliveryDate}
-                      onSaveOdl={handleSaveOdl}
-                      onAssignJobWeek={handleAssignJobWeek}
-                      onStatusChange={handleStatusChange}
-                      onTogglePrintODL={handleTogglePrintODL}
-                      onStartProduction={handleStartProduction}
-                      onRollbackJob={handleRollbackJob}
-                      onOpenEditModal={handleOpenEditModal}
-                      onDeleteJob={handleDeleteJob}
-                      onOpenContoLavoroModal={handleOpenContoLavoroModal}
-                      onOpenArticleQuickEdit={handleOpenArticleQuickEdit}
-                    />
-                  );
-                })
+                        isDownloadingPdf={isDownloadingPdf === job.id}
+                        weekOptions={weekOptions}
+                        getJobMRPStatus={getJobMRPStatus}
+                        onToggleSelect={handleToggleSelect}
+                        onSaveDeliveryDate={handleSaveDeliveryDate}
+                        onSaveOdl={handleSaveOdl}
+                        onAssignJobWeek={handleAssignJobWeek}
+                        onStatusChange={handleStatusChange}
+                        onTogglePrintODL={handleTogglePrintODL}
+                        onStartProduction={handleStartProduction}
+                        onRollbackJob={handleRollbackJob}
+                        onOpenEditModal={handleOpenEditModal}
+                        onDeleteJob={handleDeleteJob}
+                        onOpenContoLavoroModal={handleOpenContoLavoroModal}
+                        onOpenArticleQuickEdit={handleOpenArticleQuickEdit}
+                      />
+                    );
+                  })
                 )}
               </tbody>
             </table>
