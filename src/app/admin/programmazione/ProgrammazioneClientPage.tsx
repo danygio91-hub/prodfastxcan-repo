@@ -238,40 +238,21 @@ export function isJobFinished(jobOrStatus: JobOrder | string | undefined): boole
   return norm === 'Completato Prod.' || norm === 'Spedito';
 }
 
-function calculateJobHours(job: JobOrder, article?: Article): number {
-  // FASE 56 & FASE 59: PRIORITÀ ASSOLUTA al Tempo Previsto Totale (expectedMinutesDefault)
-  // Parsing sicuro con fallback a 0 per prevenire crash da NaN o formati decimali non standard
-  const safeJobMinutes = typeof job.expectedMinutesDefault === 'number' && !isNaN(job.expectedMinutesDefault) && job.expectedMinutesDefault > 0
-    ? job.expectedMinutesDefault
-    : 0;
-  const safeArtMinutes = typeof article?.expectedMinutesDefault === 'number' && !isNaN(article.expectedMinutesDefault) && article.expectedMinutesDefault > 0
-    ? article.expectedMinutesDefault
-    : 0;
+import { 
+  calculateJobHours, 
+  getTimeReliabilityStatus, 
+  getTimeReliabilityMeta, 
+  type TimeReliabilityStatus, 
+  type TimeReliabilityMeta 
+} from '@/lib/time-reliability';
 
-  const totalMinsPerPiece = safeJobMinutes > 0 ? safeJobMinutes : safeArtMinutes;
-  const qta = typeof job.qta === 'number' && !isNaN(job.qta) && job.qta > 0 ? job.qta : 0;
-
-  if (totalMinsPerPiece > 0 && qta > 0) {
-    const hours = Math.round(((totalMinsPerPiece * qta) / 60) * 10) / 10;
-    return isNaN(hours) ? 0 : hours;
-  }
-
-  // FALLBACK DISPERATO: La somma delle singole fasi (job.phases) interviene SOLO ED ESCLUSIVAMENTE
-  // se expectedMinutesDefault è vuoto o uguale a 0.
-  if (job.phases && job.phases.length > 0 && qta > 0) {
-    const totalMinutes = job.phases.reduce((acc, p) => {
-      const perPiece = typeof p.expectedMinutesPerPiece === 'number' && !isNaN(p.expectedMinutesPerPiece) ? p.expectedMinutesPerPiece : 0;
-      return acc + (perPiece * qta);
-    }, 0);
-    if (totalMinutes > 0) {
-      const hours = Math.round((totalMinutes / 60) * 10) / 10;
-      return isNaN(hours) ? 0 : hours;
-    }
-  }
-
-  // Se nessun tempo è valorizzato, restituisce 0
-  return 0;
-}
+export { 
+  calculateJobHours, 
+  getTimeReliabilityStatus, 
+  getTimeReliabilityMeta, 
+  type TimeReliabilityStatus, 
+  type TimeReliabilityMeta 
+};
 
 export interface WeekOption {
   value: string;
@@ -1174,6 +1155,8 @@ const JobTableRow = React.memo(function JobTableRow({
   article,
 }: JobTableRowProps) {
   const hours = calculateJobHours(job, article);
+  const timeReliability = getTimeReliabilityStatus(job, article);
+  const reliabilityMeta = getTimeReliabilityMeta(timeReliability);
   const weekInfo = getJobWeekAndYear(job);
   const matchedOpt = useMemo(() => {
     if (!weekInfo) return null;
@@ -1284,24 +1267,37 @@ const JobTableRow = React.memo(function JobTableRow({
         {(job.qta || 0).toLocaleString('it-IT')}
       </td>
 
-      {/* 6. ORE PREV. */}
+      {/* 6. ORE PREV. (FASE 69: Color-Coding Affidabilità Tempi) */}
       <td className="py-1.5 px-2 text-right align-middle font-mono text-[11px]">
-        {hours === 0 ? (
+        {timeReliability === 'MISSING' ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="inline-flex items-center justify-end gap-1 text-red-500 font-bold cursor-help">
+              <div 
+                className={cn("inline-flex items-center justify-end gap-1 font-bold cursor-help", reliabilityMeta.colorClass)}
+                title={reliabilityMeta.title}
+              >
                 <AlertTriangle className="h-3 w-3 text-red-500 shrink-0 animate-pulse" />
                 <span>0.0 h</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="text-xs">
-              Tempi mancanti in anagrafica
+              {reliabilityMeta.tooltipText}
             </TooltipContent>
           </Tooltip>
         ) : (
-          <span className="text-muted-foreground font-medium">
-            {hours.toFixed(1)} h
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span 
+                className={cn("font-semibold cursor-help transition-colors", reliabilityMeta.colorClass)}
+                title={reliabilityMeta.title}
+              >
+                {hours.toFixed(1)} h
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              {reliabilityMeta.tooltipText}
+            </TooltipContent>
+          </Tooltip>
         )}
       </td>
 
@@ -5167,8 +5163,13 @@ export default function ProgrammazioneClientPage({
                   {/* 5. Q.TÀ (Separata) */}
                   <th className="py-2 px-2 text-right w-[75px]">Q.tà</th>
 
-                  {/* 6. ORE PREV. (Separata) */}
-                  <th className="py-2 px-2 text-right w-[75px]">Ore Prev.</th>
+                  {/* 6. ORE PREV. (Separata - FASE 69: Color-Coding Affidabilità Tempi) */}
+                  <th 
+                    className="py-2 px-2 text-right w-[75px] select-none"
+                    title="Ore Previste (Verde: Calcolo esatto da ciclo fasi | Azzurro: Stima manuale o parziale | Rosso: Mancante)"
+                  >
+                    Ore Prev.
+                  </th>
 
                   {/* 7. DATA CONS. (Ordinabile e Inline Editable) */}
                   <th 
