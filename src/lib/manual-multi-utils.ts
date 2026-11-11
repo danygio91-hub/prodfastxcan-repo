@@ -30,3 +30,4 @@ export const isManualMultiRowEmpty = (r: ManualMultiRow): boolean => {
   const delivery = (r.dataConsegnaFinale || '').trim();
   return !pf && !cliente && !article && !delivery;
 };
+

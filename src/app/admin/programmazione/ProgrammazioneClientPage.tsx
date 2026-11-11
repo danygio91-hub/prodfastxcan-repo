@@ -246,12 +246,21 @@ import {
   type TimeReliabilityMeta
 } from '@/lib/time-reliability';
 
+import {
+  STATUS_WEIGHTS,
+  getJobStatusPriority,
+  defaultJobStatusComparator,
+} from '@/lib/job-sorting';
+
 export {
   calculateJobHours,
   getTimeReliabilityStatus,
   getTimeReliabilityMeta,
   type TimeReliabilityStatus,
-  type TimeReliabilityMeta
+  type TimeReliabilityMeta,
+  STATUS_WEIGHTS,
+  getJobStatusPriority,
+  defaultJobStatusComparator,
 };
 
 export interface WeekOption {
@@ -505,7 +514,7 @@ const DEFAULT_CAPACITY: DayCapacityConfig = {
   overtime: 0,
 };
 
-type SortField = 'ordinePF' | 'cliente' | 'dataConsegna';
+type SortField = 'ordinePF' | 'cliente' | 'dataConsegna' | 'statoCommessa';
 
 export function formatDateForDisplay(isoOrStr?: string): string {
   if (!isoOrStr) return '';
@@ -2009,8 +2018,8 @@ export default function ProgrammazioneClientPage({
   // FASE 34: Filtro Stato Commessa (Default: 'ALL' / Tutti gli stati)
   const [statusFilter, setStatusFilter] = useState<StatusFilterOption>('ALL');
 
-  // Ordinamento Colonne
-  const [sortField, setSortField] = useState<SortField | null>('ordinePF');
+  // Ordinamento Colonne (Default: null -> FASE 71 Ordinamento Gerarchico Automatico Stato Commessa)
+  const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Capacità Giornaliera per Secchiello (con Persistenza Firestore)
@@ -2329,7 +2338,13 @@ export default function ProgrammazioneClientPage({
   // Ordinamento Colonne
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else {
+        // Terzo click: ripristina ordinamento gerarchico predefinito (FASE 71)
+        setSortField(null);
+        setSortDirection('asc');
+      }
     } else {
       setSortField(field);
       setSortDirection('asc');
@@ -2395,10 +2410,13 @@ export default function ProgrammazioneClientPage({
     });
   }, [jobs, selectedDept, viewMode, globalTab, showAllWeeks, selectedWeekNumber, selectedYear, searchQuery, statusFilter]);
 
-  // Ordinamento Risultati
+  // Ordinamento Risultati (FASE 71: Ordinamento Gerarchico Automatico Stato Commessa)
   const sortedAndFilteredJobs = useMemo(() => {
     const list = [...filteredJobs];
-    if (!sortField) return list;
+    if (!sortField) {
+      list.sort(defaultJobStatusComparator);
+      return list;
+    }
 
     list.sort((a, b) => {
       let res = 0;
@@ -2414,7 +2432,17 @@ export default function ProgrammazioneClientPage({
         const dateA = a.dataConsegnaFinale ? parseRobustDate(a.dataConsegnaFinale)?.getTime() || 0 : 0;
         const dateB = b.dataConsegnaFinale ? parseRobustDate(b.dataConsegnaFinale)?.getTime() || 0 : 0;
         res = dateA - dateB;
+      } else if (sortField === 'statoCommessa') {
+        const pA = getJobStatusPriority(a);
+        const pB = getJobStatusPriority(b);
+        res = pA - pB;
       }
+
+      if (res === 0) {
+        // A parità di ordinamento primario manuale, fallback su ordinamento secondario naturale
+        return defaultJobStatusComparator(a, b);
+      }
+
       return sortDirection === 'asc' ? res : -res;
     });
 
@@ -5193,8 +5221,20 @@ export default function ProgrammazioneClientPage({
                   {/* 10. SETTIMANA */}
                   <th className="py-2 px-2 text-center w-[125px] bg-muted/80">Settimana</th>
 
-                  {/* 11. STATO COMMESSA */}
-                  <th className="py-2 px-2 text-center w-[145px] bg-muted/80">Stato Commessa</th>
+                  {/* 11. STATO COMMESSA (FASE 71: Ordinamento Gerarchico) */}
+                  <th
+                    onClick={() => handleSort('statoCommessa')}
+                    className="py-2 px-2 text-center w-[145px] bg-muted/80 cursor-pointer select-none hover:bg-muted/90 transition-colors"
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      <span>Stato Commessa</span>
+                      {sortField === 'statoCommessa' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/60" />
+                      )}
+                    </div>
+                  </th>
 
                   {/* 11-bis. AVANZAMENTO FASI */}
                   <th className="py-2 px-2 text-center w-[115px] bg-muted/80">Avanzamento</th>
