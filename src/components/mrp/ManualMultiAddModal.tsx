@@ -54,16 +54,17 @@ import {
 import { cn, parseRobustDate, formatToDateInputMask } from '@/lib/utils';
 import { saveManualMultiJobOrders, searchArticlesAction } from '@/app/admin/programmazione/actions';
 import type { JobOrder, Department, Article } from '@/types';
+import { 
+  type ManualMultiRow, 
+  createInitialRow, 
+  isManualMultiRowEmpty 
+} from '@/lib/manual-multi-utils';
 
-export interface ManualMultiRow {
-  id: string;
-  department: string;
-  ordinePF: string;
-  cliente: string;
-  articleCode: string;
-  qta: number | string;
-  dataConsegnaFinale: string;
-}
+export { 
+  type ManualMultiRow, 
+  createInitialRow, 
+  isManualMultiRowEmpty 
+};
 
 interface ManualMultiAddModalProps {
   isOpen: boolean;
@@ -73,16 +74,6 @@ interface ManualMultiAddModalProps {
   onJobsCreated?: (newJobs: JobOrder[]) => void;
   defaultDepartment?: string;
 }
-
-const createInitialRow = (dept: string = 'CP'): ManualMultiRow => ({
-  id: Math.random().toString(36).substring(2, 9),
-  department: dept,
-  ordinePF: '',
-  cliente: '',
-  articleCode: '',
-  qta: 100,
-  dataConsegnaFinale: '',
-});
 
 /**
  * FASE 29: Componente Cella Ricerca Articolo con Debounce (400ms) e Ricerca Server-Side su Firestore
@@ -298,13 +289,20 @@ export function ManualMultiAddModal({
   const router = useRouter();
 
   const initialDept = defaultDepartment !== 'ALL' ? defaultDepartment : (departments[0]?.code || 'CP');
+  // FASE 70: Inizializzazione a singola riga predefinita all'apertura del modale
   const [rows, setRows] = useState<ManualMultiRow[]>([
-    createInitialRow(initialDept),
-    createInitialRow(initialDept),
     createInitialRow(initialDept),
   ]);
   const [isSaving, setIsSaving] = useState(false);
   const [activeArticlePopoverRowId, setActiveArticlePopoverRowId] = useState<string | null>(null);
+
+  // FASE 70: All'apertura del modale resetta sempre a una singola riga vuota
+  useEffect(() => {
+    if (isOpen) {
+      setRows([createInitialRow(initialDept)]);
+      setActiveArticlePopoverRowId(null);
+    }
+  }, [isOpen, initialDept]);
 
   // FASE 29: Cache articoli scoperti tramite ricerca server-side su Firestore
   const [discoveredArticles, setDiscoveredArticles] = useState<Map<string, Article>>(new Map());
@@ -368,12 +366,20 @@ export function ManualMultiAddModal({
     });
 
     return rows.map((r, index) => {
-      const isCompletelyEmpty =
-        !r.ordinePF.trim() &&
-        !r.cliente.trim() &&
-        !r.articleCode.trim() &&
-        !r.dataConsegnaFinale.trim() &&
-        (!r.qta || Number(r.qta) === 0);
+      // FASE 70: Verifica se la riga è completamente vuota/intonsa
+      const isCompletelyEmpty = isManualMultiRowEmpty(r);
+
+      // FASE 70: Le righe intonse non generano errori e non bloccano il form
+      if (isCompletelyEmpty) {
+        return {
+          rowIndex: index,
+          rowId: r.id,
+          isCompletelyEmpty: true,
+          isValid: false,
+          errors: [],
+          warnings: [],
+        };
+      }
 
       const errors: string[] = [];
       const warnings: string[] = [];
@@ -491,19 +497,21 @@ export function ManualMultiAddModal({
   };
 
   const handleClearAll = () => {
-    setRows([
-      createInitialRow(initialDept),
-      createInitialRow(initialDept),
-      createInitialRow(initialDept),
-    ]);
+    // FASE 70: Resetta sempre a una singola riga vuota
+    setRows([createInitialRow(initialDept)]);
+    setActiveArticlePopoverRowId(null);
   };
 
   const handleSave = async () => {
     if (!allValidToSubmit || isSaving) return;
 
+    // FASE 70: Filter preventivo per scartare silenziosamente tutte le righe completamente vuote
+    const nonEmptyRows = rows.filter((r) => !isManualMultiRowEmpty(r));
+    if (nonEmptyRows.length === 0) return;
+
     // Filtra solo le righe valide
     const validRowIds = new Set(validRows.map((v) => v.rowId));
-    const itemsToSave = rows
+    const itemsToSave = nonEmptyRows
       .filter((r) => validRowIds.has(r.id))
       .map((r) => ({
         department: r.department,
