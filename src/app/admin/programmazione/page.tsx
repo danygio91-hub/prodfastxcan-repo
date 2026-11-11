@@ -7,7 +7,7 @@ import { getActiveJobOrders, getDepartments, getWorkCycles, getCapacityBuckets }
 import { adminDb } from '@/lib/firebase-admin';
 import { convertTimestampsToDates, serializeForClient } from '@/lib/utils';
 import { getISOWeek, getISOWeekYear } from 'date-fns';
-import type { Article, WorkCycle } from '@/types';
+import type { Article, WorkCycle, WorkPhaseTemplate } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
 import { getODLConfig } from '@/app/admin/settings/odl-actions';
@@ -19,16 +19,33 @@ export default async function ProgrammazionePage() {
   const currentWeek = getISOWeek(now);
   const currentYear = getISOWeekYear(now);
 
-  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities, activeSessionsSnap] = await Promise.all([
+  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities, activeSessionsSnap, phaseTemplatesSnap] = await Promise.all([
     getActiveJobOrders(),
     getDepartments(),
     getWorkCycles(),
-    adminDb.collection("articles").select("code", "workCycleId", "description", "department", "billOfMaterials", "expectedMinutesDefault", "phaseTimes").get(),
+    adminDb.collection("articles").select(
+      "code",
+      "workCycleId",
+      "secondaryWorkCycleId",
+      "description",
+      "department",
+      "billOfMaterials",
+      "expectedMinutesDefault",
+      "expectedMinutesSecondary",
+      "phaseTimes",
+      "phaseTimesSecondary"
+    ).get(),
     adminDb.collection("settings").doc("global").get(),
     getODLConfig(),
     getCapacityBuckets(currentYear, currentWeek),
     adminDb.collection("materialSessions").where("status", "==", "open").get(),
+    adminDb.collection("workPhaseTemplates").get(),
   ]);
+
+  const phaseTemplates = phaseTemplatesSnap.docs.map(doc => ({
+    ...convertTimestampsToDates(doc.data()),
+    id: doc.id,
+  })) as WorkPhaseTemplate[];
 
   const articles = articlesSnap.docs.map(doc => {
     const data = doc.data();
@@ -62,6 +79,7 @@ export default async function ProgrammazionePage() {
             initialDepartments={serializeForClient(departments)}
             initialArticles={serializeForClient(articles)}
             initialWorkCycles={serializeForClient(cycles)}
+            initialPhaseTemplates={serializeForClient(phaseTemplates)}
             initialGlobalSettings={serializeForClient(globalSettings)}
             initialOdlConfig={serializeForClient(odlConfig)}
             initialCapacities={serializeForClient(initialCapacities)}

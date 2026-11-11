@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import * as z from 'zod';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -65,6 +66,7 @@ interface ArticleFormDialogProps {
 }
 
 export default function ArticleFormDialog({ isOpen, onClose, article, embedded = false }: ArticleFormDialogProps) {
+  const router = useRouter();
   const { toast } = useToast();
   const [isPending, setIsPending] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
@@ -265,6 +267,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article, embedded =
         unitWeightKg: data.unitWeightKg,
         packagingTareWeightKg: data.packagingTareWeightKg,
       };
+      router.refresh();
       onClose(true, updatedArticle);
     }
     setIsPending(false);

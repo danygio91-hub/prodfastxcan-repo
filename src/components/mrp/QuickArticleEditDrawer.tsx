@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Sheet,
@@ -52,6 +52,8 @@ export function QuickArticleEditDrawer({
   const [isLoading, setIsLoading] = useState(false);
   const [phaseTemplates, setPhaseTemplates] = useState<WorkPhaseTemplate[]>(initialPhaseTemplates || []);
   const [hasSavedAny, setHasSavedAny] = useState(false);
+  const articlesRef = useRef(articles);
+  articlesRef.current = articles;
 
   const cleanCode = (articleCode || '').trim();
 
@@ -70,9 +72,9 @@ export function QuickArticleEditDrawer({
       setHasSavedAny(false);
 
       try {
-        // 1. Cerca nella lista locale passata come prop
+        // 1. Cerca nella lista locale passata come prop (via ref per evitare reset dopo un salvataggio)
         const upper = cleanCode.toUpperCase();
-        let matched = articles.find(
+        let matched = articlesRef.current.find(
           (a) => (a.code || '').trim().toUpperCase() === upper || (a.id || '').trim().toUpperCase() === upper
         );
 
@@ -131,7 +133,7 @@ export function QuickArticleEditDrawer({
     return () => {
       isCancelled = true;
     };
-  }, [isOpen, cleanCode, articles]);
+  }, [isOpen, cleanCode]);
 
   // Gestione salvataggio Standard Tempi
   const handleTimesSaved = useCallback(
@@ -140,9 +142,13 @@ export function QuickArticleEditDrawer({
         setCurrentArticle(updatedArticle);
         setHasSavedAny(true);
         onArticleUpdated?.(updatedArticle);
+        router.refresh();
+      } else if (refresh) {
+        setHasSavedAny(true);
+        router.refresh();
       }
     },
-    [onArticleUpdated]
+    [onArticleUpdated, router]
   );
 
   // Gestione salvataggio Distinta Base (BOM)
@@ -152,9 +158,13 @@ export function QuickArticleEditDrawer({
         setCurrentArticle(updatedArticle);
         setHasSavedAny(true);
         onArticleUpdated?.(updatedArticle);
+        router.refresh();
+      } else if (refresh) {
+        setHasSavedAny(true);
+        router.refresh();
       }
     },
-    [onArticleUpdated]
+    [onArticleUpdated, router]
   );
 
   // Chiusura del Drawer con revalidazione se ci sono stati salvataggi

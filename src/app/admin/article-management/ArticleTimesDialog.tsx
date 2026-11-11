@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import {
     Dialog,
@@ -59,6 +60,7 @@ function applyCyclePhases(
 }
 
 export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates, embedded = false }: ArticleTimesDialogProps) {
+    const router = useRouter();
     const { toast } = useToast();
     const [isPending, setIsPending] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
@@ -354,7 +356,9 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
             const updatedArticle: Article = {
                 ...article,
                 ...data,
+                code: article.code || article.id,
             };
+            router.refresh();
             onClose(true, updatedArticle);
         }
         setIsPending(false);

@@ -10,6 +10,31 @@ import { syncJobBOMItems } from '@/lib/inventory-utils';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
+import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
+
+async function fetchJobDocsByArticleKeys(articleId: string, articleCode: string): Promise<admin.firestore.QueryDocumentSnapshot[]> {
+    const cleanCode = (articleCode || articleId || '').toString().trim();
+    const searchKeys = Array.from(new Set([
+        articleId.trim(),
+        cleanCode,
+        cleanCode.toUpperCase(),
+        cleanCode.toLowerCase(),
+    ].filter(Boolean)));
+
+    if (searchKeys.length === 0) return [];
+
+    const [snapByDetails, snapByArticleCode, snapByArticolo] = await Promise.all([
+        adminDb.collection('jobOrders').where('details', 'in', searchKeys).get(),
+        adminDb.collection('jobOrders').where('articleCode', 'in', searchKeys).get(),
+        adminDb.collection('jobOrders').where('articolo', 'in', searchKeys).get(),
+    ]);
+
+    const docsMap = new Map<string, admin.firestore.QueryDocumentSnapshot>();
+    snapByDetails.docs.forEach(d => docsMap.set(d.id, d));
+    snapByArticleCode.docs.forEach(d => docsMap.set(d.id, d));
+    snapByArticolo.docs.forEach(d => docsMap.set(d.id, d));
+    return Array.from(docsMap.values());
+}
 
 const bomItemSchema = z.object({
     component: z.string().min(1, "Componente obbligatorio."),
@@ -113,44 +138,83 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
 
         await adminDb.collection('articles').doc(docId).set(articleData, { merge: true });
         
-        // --- AUTO-SYNC JOBS LISTENER ---
+        // --- AUTO-SYNC JOBS LISTENER (Solo commesse PIANIFICATA - Ciclo Congelato) ---
         try {
-            const [jobsSnap, rawMaterialsSnap, globalSettings] = await Promise.all([
-                adminDb.collection("jobOrders")
-                    .where("details", "==", docId)
-                    .where("status", "in", ["planned", "IN_ATTESA", "DA_INIZIARE"] as any[])
-                    .get(),
+            const shouldSyncCycles =
+                workCycleId !== undefined ||
+                secondaryWorkCycleId !== undefined ||
+                expectedMinutesDefault !== undefined ||
+                expectedMinutesSecondary !== undefined;
+
+            const [linkedJobDocs, rawMaterialsSnap, globalSettings, articleSnap, workCycles, phaseTemplates] = await Promise.all([
+                fetchJobDocsByArticleKeys(docId, docId),
                 adminDb.collection("rawMaterials").get(),
-                getGlobalSettings()
+                getGlobalSettings(),
+                shouldSyncCycles ? adminDb.collection('articles').doc(docId).get() : Promise.resolve(null),
+                shouldSyncCycles ? getWorkCycles() : Promise.resolve([] as WorkCycle[]),
+                shouldSyncCycles ? getWorkPhaseTemplates() : Promise.resolve([]),
             ]);
 
-            if (!jobsSnap.empty) {
+            const plannedJobDocs = linkedJobDocs.filter(doc =>
+                isJobEligibleForArticleSync(doc.data() as JobOrder)
+            );
+
+            if (plannedJobDocs.length > 0) {
                 const rawMaterials = rawMaterialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
-                const batch = adminDb.batch();
-                
-                jobsSnap.docs.forEach(doc => {
-                    const job = doc.data() as JobOrder;
-                    const syncedBOMRaw = syncJobBOMItems(
-                        job.qta,
-                        job.billOfMaterials || [],
-                        billOfMaterials,
-                        rawMaterials,
-                        globalSettings
-                    );
+                const mergedArticle: Partial<Article> = {
+                    ...(articleSnap?.data() || {}),
+                    ...articleData,
+                    id: docId,
+                    code: docId,
+                };
 
-                    // Sanitizzazione Payload per Firestore (No undefined)
-                    const syncedBOM = syncedBOMRaw.map(item => ({
-                        ...item,
-                        lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
-                        fabbisognoTotale: item.fabbisognoTotale ?? 0,
-                        pesoStimato: item.pesoStimato ?? 0,
-                        note: item.note ?? ""
-                    }));
+                for (let i = 0; i < plannedJobDocs.length; i += 450) {
+                    const chunk = plannedJobDocs.slice(i, i + 450);
+                    const batch = adminDb.batch();
 
-                    batch.update(doc.ref, { billOfMaterials: syncedBOM });
-                });
+                    chunk.forEach(doc => {
+                        const job = doc.data() as JobOrder;
+                        const syncedBOMRaw = syncJobBOMItems(
+                            job.qta,
+                            job.billOfMaterials || [],
+                            billOfMaterials,
+                            rawMaterials,
+                            globalSettings
+                        );
 
-                await batch.commit();
+                        // Sanitizzazione Payload per Firestore (No undefined)
+                        const syncedBOM = syncedBOMRaw.map(item => ({
+                            ...item,
+                            lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
+                            fabbisognoTotale: item.fabbisognoTotale ?? 0,
+                            pesoStimato: item.pesoStimato ?? 0,
+                            note: item.note ?? ""
+                        }));
+
+                        const updatePayload: Record<string, any> = {
+                            billOfMaterials: syncedBOM,
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        };
+
+                        if (shouldSyncCycles) {
+                            const cycleSync = computeArticleCycleSyncForJob({
+                                job,
+                                article: mergedArticle,
+                                workCycles,
+                                phaseTemplates,
+                            });
+                            if (cycleSync.changed) {
+                                updatePayload.phases = cycleSync.phases;
+                                updatePayload.workCycleId = cycleSync.workCycleId;
+                                updatePayload.expectedMinutesDefault = cycleSync.expectedMinutesDefault;
+                            }
+                        }
+
+                        batch.update(doc.ref, updatePayload);
+                    });
+
+                    await batch.commit();
+                }
             }
         } catch (syncError) {
             console.error("Auto-sync jobs error:", syncError);
@@ -258,20 +322,20 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
         
         batch.set(adminDb.collection('articles').doc(id), { ...art, id, code: id, billOfMaterials: normalizedBOM }, { merge: true });
 
-        // --- CASCADING SYNC FOR BULK ---
-        const jobsSnap = await adminDb.collection("jobOrders")
-            .where("details", "==", id)
-            .where("status", "in", ["planned", "IN_ATTESA", "DA_INIZIARE"] as any[])
-            .get();
+        // --- CASCADING SYNC FOR BULK (Solo commesse PIANIFICATA - Ciclo Congelato) ---
+        const allLinkedJobs = await fetchJobDocsByArticleKeys(id, id);
+        const plannedJobs = allLinkedJobs.filter(doc =>
+            isJobEligibleForArticleSync(doc.data() as JobOrder)
+        );
 
-        if (!jobsSnap.empty) {
+        if (plannedJobs.length > 0) {
             const [rawMaterialsSnap, globalSettings] = await Promise.all([
                 adminDb.collection("rawMaterials").get(),
                 getGlobalSettings()
             ]);
             const rawMaterials = rawMaterialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
 
-            jobsSnap.docs.forEach(doc => {
+            plannedJobs.forEach(doc => {
                 const job = doc.data() as JobOrder;
                 const syncedBOMRaw = syncJobBOMItems(
                     job.qta,
@@ -299,6 +363,7 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/resource-planning');
     revalidatePath('/admin/production-console');
+    revalidatePath('/admin/programmazione');
     revalidatePath('/admin/data-management');
     return { success: true, message: `${articles.length} articoli elaborati e commesse dinamiche sincronizzate.` };
 }
@@ -444,41 +509,30 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
     try {
         await adminDb.collection('articles').doc(articleId).set(data, { merge: true });
         
-        // --- MASS SYNC ACTION: Update Open Job Orders (Effetto Fotografia FASE 56) ---
+        let syncedCount = 0;
+        let skippedFrozenCount = 0;
+
+        // --- CONDITIONAL SYNC ACTION: Regola "Ciclo Congelato" (FASE 72) ---
+        // Aggiorna array phases, workCycleId e tempi previsti SOLO alle commesse in stato PIANIFICATA.
         try {
-            const articleDoc = await adminDb.collection('articles').doc(articleId).get();
+            const [articleDoc, phaseTemplates, workCycles] = await Promise.all([
+                adminDb.collection('articles').doc(articleId).get(),
+                getWorkPhaseTemplates(),
+                getWorkCycles(),
+            ]);
             const articleDocData = articleDoc.data() || {};
             const articleCode = (data.code || articleDocData.code || articleId || '').toString().trim();
-            
-            // Chiavi multiple per catturare ID, codice, maiuscolo e minuscolo
-            const searchKeys = Array.from(new Set([
-                articleId.trim(),
-                articleCode,
-                articleCode.toUpperCase(),
-                articleCode.toLowerCase()
-            ].filter(Boolean)));
+            const mergedArticle: Partial<Article> = {
+                ...articleDocData,
+                ...data,
+                id: articleId,
+                code: articleCode,
+            };
 
-            const phaseTemplates = await getWorkPhaseTemplates();
-            const phaseMap = new Map(phaseTemplates.map(p => [p.name.toUpperCase().trim(), p.id]));
-            
-            // Interroga sia per details sia per articleCode per garantire copertura totale
-            const [snapByDetails, snapByArticleCode] = await Promise.all([
-                adminDb.collection('jobOrders').where('details', 'in', searchKeys).get(),
-                adminDb.collection('jobOrders').where('articleCode', 'in', searchKeys).get()
-            ]);
-
-            const docsMap = new Map<string, admin.firestore.QueryDocumentSnapshot>();
-            snapByDetails.docs.forEach(d => docsMap.set(d.id, d));
-            snapByArticleCode.docs.forEach(d => docsMap.set(d.id, d));
-            const allJobDocs = Array.from(docsMap.values());
+            const allJobDocs = await fetchJobDocsByArticleKeys(articleId, articleCode);
 
             if (allJobDocs.length > 0) {
                 const chunks: admin.firestore.QueryDocumentSnapshot[] = [...allJobDocs];
-                const CLOSED_STATUSES = new Set([
-                    'CHIUSO', 'CHIUSA', 'COMPLETATA', 'COMPLETATO', 'COMPLETED',
-                    'SHIPPED', 'SPEDITA', 'SPEDITO', 'COMPLETATO PROD.', 'COMPLETATO PROD',
-                    'ANNULLATA', 'ANNULLATO', 'CANCELLED'
-                ]);
 
                 while (chunks.length > 0) {
                     const batch = adminDb.batch();
@@ -487,50 +541,33 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
 
                     currentChunk.forEach(doc => {
                         const job = doc.data() as JobOrder;
-                        const status = (job.status || '').toUpperCase().trim();
-                        
-                        // Sincronizza tutte le commesse attive (Pianificata, In Produzione, In Verifica, ecc.)
-                        const isClosed = CLOSED_STATUSES.has(status);
-                        
-                        if (!isClosed) {
-                            let jobModified = false;
-                            
-                            const srcTimes = (job.workCycleId && job.workCycleId === data.secondaryWorkCycleId) 
-                                ? data.phaseTimesSecondary 
-                                : data.phaseTimes;
 
-                            const updatedPhases = (job.phases || []).map(p => {
-                                const tplId = phaseMap.get((p.name || '').toUpperCase().trim());
-                                let newExpected = p.expectedMinutesPerPiece;
-                                
-                                if (tplId && srcTimes && srcTimes[tplId]) {
-                                    const targetMin = srcTimes[tplId].expectedMinutesPerPiece;
-                                    if (targetMin !== undefined && targetMin !== p.expectedMinutesPerPiece) {
-                                        newExpected = targetMin;
-                                        jobModified = true;
-                                    }
-                                }
-                                return { ...p, expectedMinutesPerPiece: newExpected };
-                            });
+                        // Regola Ciclo Congelato: salta DA_INIZIARE, IN_PREP, IN_PRODUZIONE e successivi
+                        if (!isJobEligibleForArticleSync(job)) {
+                            skippedFrozenCount++;
+                            return;
+                        }
 
-                            const expectedDef = (job.workCycleId && job.workCycleId === data.secondaryWorkCycleId)
-                                ? data.expectedMinutesSecondary
-                                : data.expectedMinutesDefault;
+                        const syncResult = computeArticleCycleSyncForJob({
+                            job,
+                            article: mergedArticle,
+                            workCycles,
+                            phaseTemplates,
+                        });
 
-                            const finalExpected = expectedDef !== undefined ? expectedDef : 0;
-                            const needsExpectedUpdate = finalExpected !== job.expectedMinutesDefault;
+                        const hadEmptyPhasesNowFilled =
+                            syncResult.phases.length > 0 && (!job.phases || job.phases.length === 0);
 
-                            if (jobModified || needsExpectedUpdate) {
-                                const updatePayload: Record<string, any> = {
-                                    expectedMinutesDefault: finalExpected,
-                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                                };
-                                if (updatedPhases.length > 0) {
-                                    updatePayload.phases = updatedPhases;
-                                }
-                                batch.update(doc.ref, updatePayload);
-                                hasUpdates = true;
-                            }
+                        if (syncResult.changed || hadEmptyPhasesNowFilled) {
+                            const updatePayload: Record<string, any> = {
+                                phases: syncResult.phases,
+                                workCycleId: syncResult.workCycleId,
+                                expectedMinutesDefault: syncResult.expectedMinutesDefault,
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            };
+                            batch.update(doc.ref, updatePayload);
+                            hasUpdates = true;
+                            syncedCount++;
                         }
                     });
 
@@ -548,7 +585,17 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/programmazione');
         revalidatePath('/admin/production-console');
-        return { success: true, message: 'Standard Tempi e Cicli aggiornati. Commesse sincronizzate con successo.' };
+        revalidatePath('/admin/data-management');
+
+        const freezeSuffix = skippedFrozenCount > 0
+            ? ` (${skippedFrozenCount} commesse già avviate mantenute congelate)`
+            : '';
+        return {
+            success: true,
+            message: `Standard Tempi e Cicli aggiornati. ${syncedCount > 0 ? `${syncedCount} commesse pianificate sincronizzate` : 'Commesse pianificate sincronizzate'} con successo.${freezeSuffix}`,
+            syncedCount,
+            skippedFrozenCount,
+        };
     } catch (e) {
         console.error("Error saving article standard times:", e);
         return { success: false, message: 'Errore durante il salvataggio.' };

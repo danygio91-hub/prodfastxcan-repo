@@ -104,9 +104,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 import { parseRobustDate, cn } from '@/lib/utils';
-import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobPhase } from '@/types';
+import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobPhase, WorkPhaseTemplate } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, type MRPTimelineEntry, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
+import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
@@ -172,6 +173,7 @@ interface ProgrammazioneClientPageProps {
   initialDepartments: Department[];
   initialArticles?: Article[];
   initialWorkCycles?: WorkCycle[];
+  initialPhaseTemplates?: WorkPhaseTemplate[];
   initialGlobalSettings?: GlobalSettings | null;
   initialOdlConfig?: ODLConfig;
   initialCapacities?: Record<string, DayCapacityConfigData>;
@@ -1182,6 +1184,8 @@ const JobTableRow = React.memo(function JobTableRow({
   const currentStatus = normalizeJobStatus(job);
   const isPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
   const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
+  const hasWorkCycle = Array.isArray(job.phases) && job.phases.length > 0;
+  const isStartBlocked = isDeliveryDateMissing || !hasWorkCycle;
   const effectiveWeekInfo = getJobEffectiveWeek(job);
   const hasExternalized = Boolean(job.externalizedMaterials && job.externalizedMaterials.length > 0);
   const isFinished = currentStatus === 'Completato Prod.' || currentStatus === 'Spedito';
@@ -1477,7 +1481,7 @@ const JobTableRow = React.memo(function JobTableRow({
             </TooltipContent>
           </Tooltip>
 
-          {/* FASE 19: Pulsante di Azione Dinamico (Avvia Play / Ripristina Undo) */}
+          {/* FASE 19 / FASE 72: Pulsante di Azione Dinamico (Avvia Play / Ripristina Undo) */}
           {currentStatus === 'Pianificata' && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1486,10 +1490,10 @@ const JobTableRow = React.memo(function JobTableRow({
                     variant="ghost"
                     size="icon"
                     onClick={() => onStartProduction(job)}
-                    disabled={isDeliveryDateMissing}
+                    disabled={isStartBlocked}
                     className={cn(
                       "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10 cursor-pointer",
-                      isDeliveryDateMissing && "opacity-30 cursor-not-allowed"
+                      isStartBlocked && "opacity-30 cursor-not-allowed"
                     )}
                   >
                     <Play className="h-3.5 w-3.5" />
@@ -1497,9 +1501,13 @@ const JobTableRow = React.memo(function JobTableRow({
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                {isDeliveryDateMissing
-                  ? "Inserire Data di Consegna per avviare"
-                  : "Avvia ODL in Produzione"}
+                {isDeliveryDateMissing && !hasWorkCycle
+                  ? "Inserire Data di Consegna e ciclo di lavorazione per avviare"
+                  : isDeliveryDateMissing
+                    ? "Inserire Data di Consegna per avviare"
+                    : !hasWorkCycle
+                      ? "Nessun ciclo di lavorazione presente"
+                      : "Avvia ODL in Produzione"}
               </TooltipContent>
             </Tooltip>
           )}
@@ -1612,6 +1620,7 @@ export default function ProgrammazioneClientPage({
   initialDepartments,
   initialArticles = [],
   initialWorkCycles = [],
+  initialPhaseTemplates = [],
   initialGlobalSettings = null,
   initialOdlConfig,
   initialCapacities = {},
@@ -1625,6 +1634,7 @@ export default function ProgrammazioneClientPage({
   const [departments] = useState<Department[]>(initialDepartments || []);
   const [articles, setArticles] = useState<Article[]>(initialArticles || []);
   const [workCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
+  const [phaseTemplates] = useState<WorkPhaseTemplate[]>(initialPhaseTemplates || []);
   const [globalSettings] = useState<GlobalSettings | null>(initialGlobalSettings);
   const [activeSessions, setActiveSessions] = useState<any[]>(initialMaterialSessions || []);
 
@@ -1687,6 +1697,17 @@ export default function ProgrammazioneClientPage({
     setIsQuickEditDrawerOpen(true);
   }, []);
 
+  const refreshJobsFromServer = useCallback(async () => {
+    try {
+      const freshJobs = await getActiveJobOrders();
+      if (Array.isArray(freshJobs)) {
+        setJobs(freshJobs);
+      }
+    } catch (err) {
+      console.warn("Errore sincronizzazione commesse post-aggiornamento:", err);
+    }
+  }, []);
+
   const handleArticleUpdated = useCallback((updatedArticle: Article) => {
     // 1. Aggiorna cache locale degli articoli
     setArticles((prev) => {
@@ -1696,38 +1717,52 @@ export default function ProgrammazioneClientPage({
       }
       return [updatedArticle, ...prev];
     });
+    const normArtCode = (updatedArticle.code || updatedArticle.id || '').trim().toUpperCase();
+    if (normArtCode) {
+      articlesCacheRef.current.set(normArtCode, updatedArticle);
+      setMrpCacheVersion((v) => v + 1);
+    }
 
-    // 2. Aggiorna ottimisticamente le commesse associate per ricalcolare immediatamente le Ore Previste
+    // 2. Aggiorna ottimisticamente SOLO le commesse PIANIFICATA (FASE 72: Regola Ciclo Congelato)
     const targetCode = (updatedArticle.code || '').trim().toUpperCase();
     const targetId = (updatedArticle.id || '').trim().toUpperCase();
     setJobs((prevJobs) =>
       prevJobs.map((j) => {
-        const jobArt = ((j as any).articolo || j.details || '').trim().toUpperCase();
-        if ((targetCode && jobArt === targetCode) || (targetId && jobArt === targetId)) {
-          const expectedDef = updatedArticle.expectedMinutesDefault;
-          const updatedPhases = (j.phases || []).map((p) => {
-            const tplId = Object.keys(updatedArticle.phaseTimes || {}).find(
-              (k) => (p.name || '').toUpperCase().trim() === k.toUpperCase().trim()
-            );
-            const phaseData = tplId ? updatedArticle.phaseTimes?.[tplId] : undefined;
-            if (phaseData && phaseData.expectedMinutesPerPiece !== undefined) {
-              return { ...p, expectedMinutesPerPiece: phaseData.expectedMinutesPerPiece };
-            }
-            return p;
-          });
+        const jobArt = ((j as any).articolo || j.details || (j as any).articleCode || '').trim().toUpperCase();
+        const isMatchingArticle = (targetCode && jobArt === targetCode) || (targetId && jobArt === targetId);
+        if (!isMatchingArticle) return j;
 
-          return {
-            ...j,
-            phases: updatedPhases,
-            expectedMinutesDefault: expectedDef !== undefined ? expectedDef : j.expectedMinutesDefault,
-          };
+        // Ciclo Congelato: non toccare commesse già avviate (DA_INIZIARE, IN_PREP, IN_PRODUZIONE, ecc.)
+        if (!isJobEligibleForArticleSync(j)) {
+          return j;
         }
-        return j;
+
+        const syncResult = computeArticleCycleSyncForJob({
+          job: j,
+          article: updatedArticle,
+          workCycles,
+          phaseTemplates,
+        });
+
+        const hadEmptyPhasesNowFilled =
+          syncResult.phases.length > 0 && (!j.phases || j.phases.length === 0);
+
+        if (!syncResult.changed && !hadEmptyPhasesNowFilled) {
+          return j;
+        }
+
+        return {
+          ...j,
+          phases: syncResult.phases,
+          workCycleId: syncResult.workCycleId,
+          expectedMinutesDefault: syncResult.expectedMinutesDefault,
+        };
       })
     );
 
     router.refresh();
-  }, [router]);
+    void refreshJobsFromServer();
+  }, [router, workCycles, phaseTemplates, refreshJobsFromServer]);
 
   // FASE 45: Modale di Gestione Conto Lavoro (C.to Lavoro)
   const [isContoLavoroModalOpen, setIsContoLavoroModalOpen] = useState(false);
@@ -3258,6 +3293,16 @@ export default function ProgrammazioneClientPage({
         variant: "destructive",
         title: "Data di Consegna Mancante",
         description: "Inserire Data di Consegna per avviare.",
+      });
+      return;
+    }
+
+    // FASE 72: Guardrail dinamico Ciclo di Lavorazione dallo stato fresco della riga
+    if (!Array.isArray(job.phases) || job.phases.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Ciclo di Lavorazione Mancante",
+        description: "Nessun ciclo di lavorazione presente.",
       });
       return;
     }
@@ -5610,12 +5655,17 @@ export default function ProgrammazioneClientPage({
         ========================================================================== */}
         <QuickArticleEditDrawer
           isOpen={isQuickEditDrawerOpen}
-          onClose={() => {
+          onClose={(refreshed) => {
             setIsQuickEditDrawerOpen(false);
             setQuickEditArticleCode(null);
+            if (refreshed) {
+              router.refresh();
+              void refreshJobsFromServer();
+            }
           }}
           articleCode={quickEditArticleCode}
           articles={articles}
+          phaseTemplates={phaseTemplates}
           onArticleUpdated={handleArticleUpdated}
         />
       </div>
