@@ -60,14 +60,37 @@ export function getDerivedJobStatus(item: JobOrder | WorkGroup): OverallStatus {
         // La preparazione è finita (o non c'era).
         // Guardiamo la produzione.
         const allProductionDone = productionPhases.length === 0 || productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+        const statusLowerTrimmed = statusLower.trim();
+        const isExplicitlyActiveInProduction = [
+            'in_produzione',
+            'in produzione',
+            'in_lavorazione',
+            'in lavorazione',
+            'in_progress',
+            'in-progress',
+            'da_iniziare',
+            'da iniziare',
+            'attivo',
+            'active'
+        ].includes(statusLowerTrimmed);
+        const hasAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
         
         if (allProductionDone) {
+            // Se la commessa è stata riaperta esplicitamente in produzione (o ha una fase in-progress)
+            // e non tutte le fasi richieste sono concluse (es. ultima fase Imballo/Collaudo riportata a pending),
+            // manteniamo lo stato IN_PRODUZIONE anziché ri-forzare FINE_PRODUZIONE.
+            if (isExplicitlyActiveInProduction || hasAnyPhaseInProgress) {
+                return 'IN_PRODUZIONE';
+            }
             // Produzione finita (o non c'era). Manca Quality/Pack per chiudere.
             return 'FINE_PRODUZIONE'; 
         }
 
-        // La produzione NON è finita. C'è qualche fase in progress?
-        if (productionPhases.some(p => p.status === 'in-progress')) {
+        // La produzione NON è finita. C'è qualche fase di produzione avviata/completata o stato esplicito IN_PRODUZIONE?
+        if (
+            productionPhases.some(p => p.status === 'in-progress' || p.status === 'completed' || p.status === 'paused') ||
+            isExplicitlyActiveInProduction
+        ) {
             return 'IN_PRODUZIONE';
         }
         
@@ -186,4 +209,83 @@ export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
     // 4. In Produzione: ODL avviato ('DA_INIZIARE') o commessa rilasciata/in lavorazione nei reparti
     return 'In Produzione';
 }
+
+/**
+ * FASE 78: Rollback dell'ultima fase completata quando una commessa chiusa/completata
+ * viene riaperta verso "In Produzione".
+ * Individua l'ULTIMA fase del ciclo (per sequence / ordine nell'array) che ha status === 'completed'
+ * e la riporta a 'pending', rimuovendo flag forced ed eventuali timestamp di chiusura (endDate, completedAt, endTime).
+ */
+export function rollbackLastCompletedPhase(phases: JobPhase[] = []): {
+    updatedPhases: JobPhase[];
+    rolledBackPhaseId: string | null;
+    rolledBackPhaseName: string | null;
+    hasAnyCompletedRemaining: boolean;
+} {
+    if (!Array.isArray(phases) || phases.length === 0) {
+        return {
+            updatedPhases: [],
+            rolledBackPhaseId: null,
+            rolledBackPhaseName: null,
+            hasAnyCompletedRemaining: false,
+        };
+    }
+
+    // Trova l'indice dell'ultima fase completata (massimizzando sequence, e a parità di sequence l'indice nell'array)
+    let targetIdx = -1;
+    let maxSequence = -Infinity;
+
+    for (let i = 0; i < phases.length; i++) {
+        const p = phases[i];
+        if (p && p.status === 'completed') {
+            const seq = typeof p.sequence === 'number' ? p.sequence : i + 1;
+            if (seq >= maxSequence) {
+                maxSequence = seq;
+                targetIdx = i;
+            }
+        }
+    }
+
+    if (targetIdx === -1) {
+        return {
+            updatedPhases: phases.map(p => ({ ...p })),
+            rolledBackPhaseId: null,
+            rolledBackPhaseName: null,
+            hasAnyCompletedRemaining: false,
+        };
+    }
+
+    const updatedPhases = phases.map((p, idx) => {
+        if (idx !== targetIdx) {
+            return { ...p };
+        }
+        const {
+            endDate: _endDate,
+            completedAt: _completedAt,
+            endTime: _endTime,
+            ...rest
+        } = p as JobPhase & {
+            endDate?: unknown;
+            completedAt?: unknown;
+            endTime?: unknown;
+        };
+
+        return {
+            ...rest,
+            status: 'pending' as const,
+            forced: false,
+            qualityResult: null,
+        };
+    });
+
+    const hasAnyCompletedRemaining = updatedPhases.some(p => p.status === 'completed');
+
+    return {
+        updatedPhases,
+        rolledBackPhaseId: phases[targetIdx]?.id || null,
+        rolledBackPhaseName: phases[targetIdx]?.name || null,
+        hasAnyCompletedRemaining,
+    };
+}
+
 

@@ -3,7 +3,13 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
+import {
+    hydrateMaterialWithWithdrawals,
+    extractHydratedLots,
+    getLotResidualSummary,
+    normStockLot,
+    type HydratedLotInfo,
+} from '@/lib/stock-logic';
 
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord, JobBillOfMaterialsItem } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
@@ -13,6 +19,7 @@ import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { ensureAdmin } from '@/lib/server-auth';
 import { getOverallStatus } from '@/lib/types';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
+import { areJobIdsEquivalent, expandOperatorDepartments } from '@/lib/utils';
 
 export { dissolveWorkGroup };
 
@@ -146,9 +153,10 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
         if (!opSnap.exists) throw new Error("Operatore non trovato.");
         const opData = opSnap.data();
         
-        // Permission check: Magazzino or Quality
-        const allowedDepts = ['MAG', 'MAGAZZINO', 'COLLAUDO', 'QUALITA', 'QUALITÀ', 'QLTY', 'IMBALLO', 'PACK'];
-        const hasAccess = (opData?.reparto || []).some((r: string) => allowedDepts.includes(r.toUpperCase()));
+        // Permission check: Magazzino, Quality, Packaging or Support (MAG + QLTY + PACK)
+        const allowedDepts = ['SUPPORT', 'MAG', 'MAGAZZINO', 'COLLAUDO', 'QUALITA', 'QUALITÀ', 'QLTY', 'IMBALLO', 'PACK', 'QLTY_PACK'];
+        const expandedReparti = expandOperatorDepartments(opData?.reparto);
+        const hasAccess = expandedReparti.some((r: string) => allowedDepts.includes(r.toUpperCase()));
         
         if (!hasAccess && opData?.role !== 'admin') {
             throw new Error("Permesso negato: Solo il magazzino o il collaudo possono saltare la produzione per il Phased Rollout.");
@@ -516,17 +524,164 @@ export async function resolveJobBOMCommitmentByMaterialCode(
     }
 }
 
-export async function isOperatorActiveOnAnyJob(opId: string, currentJobId: string): Promise<{ available: boolean; activeJobId?: string | null; activePhaseName?: string | null }> {
-    const docSnap = await adminDb.collection("operators").doc(opId).get();
-    if (docSnap.exists) {
-        const data = docSnap.data();
-        // L'operatore è considerato "Occupato" (e bloccato) SOLO se ha una fase attiva
-        // Se activePhaseName è null, significa che è in pausa o sta solo esplorando, quindi è libero.
-        if (data && data.activeJobId && data.activePhaseName && data.activeJobId !== currentJobId) {
-             return { available: false, activeJobId: data.activeJobId, activePhaseName: data.activePhaseName };
+export async function isOperatorActiveOnAnyJob(
+    opId: string,
+    currentJobId: string
+): Promise<{ available: boolean; activeJobId?: string | null; activePhaseName?: string | null }> {
+    try {
+        const docSnap = await adminDb.collection("operators").doc(opId).get();
+        if (docSnap.exists) {
+            const data = docSnap.data();
+            if (!data || !data.activeJobId || !data.activePhaseName) {
+                return { available: true };
+            }
+            // Se l'operatore è 'in pausa' o 'inattivo' (es. dopo reopenOperatorPhase o abbandono), NON bloccare!
+            if (data.stato === 'in pausa' || data.stato === 'inattivo') {
+                return { available: true };
+            }
+            // Confronto normalizzato case-insensitive ignorando differenza tra '/' e '-'
+            if (areJobIdsEquivalent(data.activeJobId, currentJobId)) {
+                return { available: true };
+            }
+            return {
+                available: false,
+                activeJobId: data.activeJobId,
+                activePhaseName: data.activePhaseName,
+            };
         }
+        return { available: true };
+    } catch (error) {
+        console.error("Error in isOperatorActiveOnAnyJob:", error);
+        return { available: true };
     }
-    return { available: true };
+}
+
+/**
+ * FASE 76: Server Action di Auto-Healing per "Abbandona Commessa":
+ * Chiude eventuali workPeriods aperti (end === null) dell'operatore prima di azzerare
+ * activeJobId e activePhaseName sul documento operatore.
+ */
+export async function abandonOperatorActiveJob(
+    opId: string,
+    currentJobId?: string | null
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        if (!opId) return { success: false, error: "ID operatore mancante." };
+        const now = new Date();
+        const statusesToCheck = [
+            'DA_INIZIARE',
+            'IN_PREPARAZIONE',
+            'IN_PRODUZIONE',
+            'PRONTO_PROD',
+            'FINE_PRODUZIONE',
+            'in-progress',
+            'production',
+            'paused',
+            'suspended',
+        ];
+
+        const healDocPhases = async (docRef: admin.firestore.DocumentReference, docData: any, isGroupDoc: boolean) => {
+            const phases = Array.isArray(docData.phases) ? [...docData.phases] : [];
+            let modified = false;
+
+            for (const p of phases) {
+                if (!Array.isArray(p.workPeriods)) continue;
+                let closedInPhase = false;
+                for (const wp of p.workPeriods) {
+                    if (wp && wp.operatorId === opId && wp.end === null) {
+                        wp.end = now;
+                        wp.reason = wp.reason || 'Abbandono Commessa';
+                        closedInPhase = true;
+                        modified = true;
+                    }
+                }
+                if (closedInPhase && !p.workPeriods.some((wp: any) => wp && wp.end === null)) {
+                    if (p.status === 'in-progress') {
+                        p.status = 'paused';
+                        p.pauseReason = p.pauseReason || 'Abbandono Commessa';
+                    }
+                }
+            }
+
+            if (modified) {
+                const updatedPhases = updatePhasesMaterialReadiness(phases);
+                const newStatus = getOverallStatus({ ...docData, phases: updatedPhases });
+                const payload: any = {
+                    phases: updatedPhases,
+                    status: newStatus,
+                };
+                await docRef.update(payload);
+
+                if (isGroupDoc && Array.isArray(docData.jobOrderIds)) {
+                    for (const childId of docData.jobOrderIds) {
+                        const lookup = await getJobOrderRefAndSnap(childId);
+                        if (lookup.jobSnap.exists) {
+                            await lookup.jobRef.update(payload);
+                        }
+                    }
+                }
+            }
+        };
+
+        // 1. Se conosciamo currentJobId, curiamo subito il documento specifico
+        if (currentJobId) {
+            if (currentJobId.startsWith('group-')) {
+                const gRef = adminDb.collection('workGroups').doc(currentJobId);
+                const gSnap = await gRef.get();
+                if (gSnap.exists) {
+                    await healDocPhases(gRef, gSnap.data(), true);
+                }
+            } else {
+                const lookup = await getJobOrderRefAndSnap(currentJobId);
+                if (lookup.jobSnap.exists) {
+                    await healDocPhases(lookup.jobRef, lookup.jobSnap.data(), false);
+                }
+            }
+        }
+
+        // 2. Scansione globale di sicurezza per chiudere eventuali altri workPeriods orfani dell'operatore
+        const [activeJobsSnap, activeGroupsSnap] = await Promise.all([
+            adminDb.collection('jobOrders').where('status', 'in', statusesToCheck).get(),
+            adminDb.collection('workGroups').where('status', 'in', statusesToCheck).get(),
+        ]);
+
+        for (const doc of activeJobsSnap.docs) {
+            const jData = doc.data();
+            const hasOpenWp = (jData.phases || []).some((p: any) =>
+                (p.workPeriods || []).some((wp: any) => wp && wp.operatorId === opId && wp.end === null)
+            );
+            if (hasOpenWp) {
+                await healDocPhases(doc.ref, jData, false);
+            }
+        }
+
+        for (const doc of activeGroupsSnap.docs) {
+            const gData = doc.data();
+            const hasOpenWp = (gData.phases || []).some((p: any) =>
+                (p.workPeriods || []).some((wp: any) => wp && wp.operatorId === opId && wp.end === null)
+            );
+            if (hasOpenWp) {
+                await healDocPhases(doc.ref, gData, true);
+            }
+        }
+
+        // 3. Azzera stato operatore
+        await adminDb.collection('operators').doc(opId).update({
+            activeJobId: null,
+            activePhaseName: null,
+            stato: 'inattivo',
+        });
+
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
+        return { success: true };
+    } catch (error) {
+        console.error("Error in abandonOperatorActiveJob:", error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : "Errore durante l'abbandono della commessa.",
+        };
+    }
 }
 
 export async function handlePhaseScanResult(
@@ -536,75 +691,174 @@ export async function handlePhaseScanResult(
     isCompletion: boolean = false,
     anomalyData?: { hasAnomaly: boolean, anomalyType: string, anomalyNote?: string },
     packagingUpdates?: { jobId: string, actualQty: number }[]
-) {
-    if (!isCompletion) {
-        // GLOBAL PRE-TRANSACTION CHECK (Operator Ubiquity Check)
-        // Find if this operator has any open work periods across ALL active jobs/groups
-        const statusesToCheck = ['IN_PREPARAZIONE', 'IN_PRODUZIONE', 'PRONTO_PROD', 'FINE_PRODUZIONE', 'in-progress', 'production', 'paused', 'suspended'];
-        
-        const activeJobsQuery = await adminDb.collection('jobOrders')
-            .where('status', 'in', statusesToCheck)
-            .get();
+): Promise<{ success: boolean; error?: string; message?: string }> {
+    try {
+        if (!isCompletion) {
+            // GLOBAL PRE-TRANSACTION CHECK & AUTO-HEALING OF ORPHAN WORKPERIODS
+            const preOpSnap = await adminDb.collection('operators').doc(opId).get();
+            const preOpData = preOpSnap.exists ? (preOpSnap.data() as any) : null;
+
+            const statusesToCheck = [
+                'DA_INIZIARE',
+                'IN_PREPARAZIONE',
+                'IN_PRODUZIONE',
+                'PRONTO_PROD',
+                'FINE_PRODUZIONE',
+                'in-progress',
+                'production',
+                'paused',
+                'suspended',
+            ];
+
+            const [activeJobsQuery, activeGroupsQuery] = await Promise.all([
+                adminDb.collection('jobOrders').where('status', 'in', statusesToCheck).get(),
+                adminDb.collection('workGroups').where('status', 'in', statusesToCheck).get(),
+            ]);
+
+            const now = new Date();
+
+            for (const doc of activeJobsQuery.docs) {
+                const jobDoc = doc.data() as JobOrder;
+                const isSameJobDoc =
+                    areJobIdsEquivalent(doc.id, jobId) ||
+                    areJobIdsEquivalent(jobDoc.ordinePF, jobId);
+
+                let docModified = false;
+                const healedPhases = [...(jobDoc.phases || [])];
+
+                for (const p of healedPhases) {
+                    for (const wp of (p.workPeriods || [])) {
+                        if (wp && wp.operatorId === opId && wp.end === null) {
+                            // Ignore if it's the exact same job and exact same phase
+                            if (isSameJobDoc && p.id === phaseId) continue;
+
+                            // Verifica se il workPeriod è orfano (es. operatore in pausa/inattivo, activePhaseName null,
+                            // oppure workPeriod su commessa/fase diversa da quella attiva sul profilo operatore, o sulla stessa commessa)
+                            const isOperatorPausedOrIdle =
+                                !preOpData ||
+                                !preOpData.activePhaseName ||
+                                !preOpData.activeJobId ||
+                                preOpData.stato === 'in pausa' ||
+                                preOpData.stato === 'inattivo';
+
+                            const matchesOperatorActiveProfile =
+                                !isOperatorPausedOrIdle &&
+                                (areJobIdsEquivalent(preOpData.activeJobId, doc.id) ||
+                                    areJobIdsEquivalent(preOpData.activeJobId, jobDoc.ordinePF)) &&
+                                preOpData.activePhaseName === p.name;
+
+                            if (isOperatorPausedOrIdle || isSameJobDoc || !matchesOperatorActiveProfile) {
+                                // AUTO-HEALING: chiude automaticamente il workPeriod orfano invece di far crashare l'operatore
+                                wp.end = now;
+                                wp.reason = wp.reason || 'Auto-Healing: chiusura periodo orfano';
+                                docModified = true;
+                            } else {
+                                const msg = `Impossibile iniziare: hai già un'attività in corso sulla commessa ${jobDoc.ordinePF || doc.id} (Fase: ${p.name}). Devi prima metterla in pausa o concluderla.`;
+                                return { success: false, error: msg, message: msg };
+                            }
+                        }
+                    }
+
+                    if (
+                        docModified &&
+                        p.status === 'in-progress' &&
+                        !(p.workPeriods || []).some((wp: any) => wp && wp.end === null)
+                    ) {
+                        p.status = 'paused';
+                        p.pauseReason = p.pauseReason || 'Auto-Healing';
+                    }
+                }
+
+                if (docModified) {
+                    const updatedPhases = updatePhasesMaterialReadiness(healedPhases);
+                    await doc.ref.update({
+                        phases: updatedPhases,
+                        status: getOverallStatus({ ...jobDoc, phases: updatedPhases }),
+                    });
+                }
+            }
+
+            for (const doc of activeGroupsQuery.docs) {
+                const groupDoc = doc.data() as WorkGroup;
+                const isSameGroupDoc = areJobIdsEquivalent(doc.id, jobId);
+
+                let groupModified = false;
+                const healedPhases = [...(groupDoc.phases || [])];
+
+                for (const p of healedPhases) {
+                    for (const wp of (p.workPeriods || [])) {
+                        if (wp && wp.operatorId === opId && wp.end === null) {
+                            if (isSameGroupDoc && p.id === phaseId) continue;
+
+                            const isOperatorPausedOrIdle =
+                                !preOpData ||
+                                !preOpData.activePhaseName ||
+                                !preOpData.activeJobId ||
+                                preOpData.stato === 'in pausa' ||
+                                preOpData.stato === 'inattivo';
+
+                            const matchesOperatorActiveProfile =
+                                !isOperatorPausedOrIdle &&
+                                areJobIdsEquivalent(preOpData.activeJobId, doc.id) &&
+                                preOpData.activePhaseName === p.name;
+
+                            if (isOperatorPausedOrIdle || isSameGroupDoc || !matchesOperatorActiveProfile) {
+                                // AUTO-HEALING: chiude il workPeriod di gruppo orfano
+                                wp.end = now;
+                                wp.reason = wp.reason || 'Auto-Healing: chiusura periodo orfano';
+                                groupModified = true;
+                            } else {
+                                const msg = `Impossibile iniziare: hai già un'attività in corso sul gruppo ${doc.id} (Fase: ${p.name}). Devi prima metterla in pausa o concluderla.`;
+                                return { success: false, error: msg, message: msg };
+                            }
+                        }
+                    }
+
+                    if (
+                        groupModified &&
+                        p.status === 'in-progress' &&
+                        !(p.workPeriods || []).some((wp: any) => wp && wp.end === null)
+                    ) {
+                        p.status = 'paused';
+                        p.pauseReason = p.pauseReason || 'Auto-Healing';
+                    }
+                }
+
+                if (groupModified) {
+                    const updatedPhases = updatePhasesMaterialReadiness(healedPhases);
+                    await doc.ref.update({
+                        phases: updatedPhases,
+                        status: getOverallStatus({ ...(groupDoc as any), phases: updatedPhases }),
+                    });
+                }
+            }
+        }
+
+        const isGroup = jobId.startsWith('group-');
+        await adminDb.runTransaction(async (transaction) => {
+            let itemRef;
+            let snap;
+            if (isGroup) {
+                itemRef = adminDb.collection('workGroups').doc(jobId);
+                snap = await transaction.get(itemRef);
+            } else {
+                const lookup = await getJobOrderRefAndSnap(jobId, transaction);
+                itemRef = lookup.jobRef;
+                snap = lookup.jobSnap;
+            }
+            if (!snap.exists) throw new Error("Commessa non trovata.");
+            const opRef = adminDb.collection('operators').doc(opId);
+            const opSnap = await transaction.get(opRef);
+            const opData = opSnap.exists ? (opSnap.data() as any) : null;
+
+            const data = snap.data() as any;
+            const phs = [...(data.phases || [])];
+            const idx = phs.findIndex(p => p.id === phaseId);
             
-        for (const doc of activeJobsQuery.docs) {
-            const jobDoc = doc.data() as JobOrder;
-            for (const p of (jobDoc.phases || [])) {
-                for (const wp of (p.workPeriods || [])) {
-                    if (wp.operatorId === opId && wp.end === null) {
-                        // Ignore if it's the exact same phase (e.g. rapid double click retry)
-                        if (doc.id === jobId.replace(/\//g, '-') && p.id === phaseId) continue;
-                        
-                        throw new Error(`Impossibile iniziare: hai già un'attività in corso sulla commessa ${jobDoc.ordinePF || doc.id} (Fase: ${p.name}). Devi prima metterla in pausa o concluderla.`);
-                    }
-                }
-            }
-        }
+            if (idx === -1) throw new Error("Fase non trovata.");
 
-        const activeGroupsQuery = await adminDb.collection('workGroups')
-            .where('status', 'in', statusesToCheck)
-            .get();
-
-        for (const doc of activeGroupsQuery.docs) {
-            const groupDoc = doc.data() as WorkGroup;
-            for (const p of (groupDoc.phases || [])) {
-                for (const wp of (p.workPeriods || [])) {
-                    if (wp.operatorId === opId && wp.end === null) {
-                        if (doc.id === jobId && p.id === phaseId) continue;
-                        
-                        throw new Error(`Impossibile iniziare: hai già un'attività in corso sul gruppo ${doc.id} (Fase: ${p.name}). Devi prima metterla in pausa o concluderla.`);
-                    }
-                }
-            }
-        }
-    }
-
-    const isGroup = jobId.startsWith('group-');
-    await adminDb.runTransaction(async (transaction) => {
-        let itemRef;
-        let snap;
-        if (isGroup) {
-            itemRef = adminDb.collection('workGroups').doc(jobId);
-            snap = await transaction.get(itemRef);
-        } else {
-            const lookup = await getJobOrderRefAndSnap(jobId, transaction);
-            itemRef = lookup.jobRef;
-            snap = lookup.jobSnap;
-        }
-        if (!snap.exists) throw new Error("Commessa non trovata.");
-        const opRef = adminDb.collection('operators').doc(opId);
-        const opSnap = await transaction.get(opRef);
-        const opData = opSnap.exists ? (opSnap.data() as any) : null;
-
-        const data = snap.data() as any;
-        const phs = [...(data.phases || [])];
-        const idx = phs.findIndex(p => p.id === phaseId);
-        
-        if (idx === -1) throw new Error("Fase non trovata.");
-
-        if (isCompletion) {
-            // Handle Completion
-                
-                // NEW: Strict Completion Order Policy
+            if (isCompletion) {
+                // Handle Completion
                 let prev: JobPhase | null = null;
                 for (let j = idx - 1; j >= 0; j--) { 
                     if (!phs[j].isIndependent) { 
@@ -617,12 +871,16 @@ export async function handlePhaseScanResult(
                     throw new Error(`Impossibile completare "${phs[idx].name}": la fase precedente "${prev.name}" è ancora attiva.`);
                 }
 
+                if (!Array.isArray(phs[idx].workPeriods)) {
+                    phs[idx].workPeriods = [];
+                }
+
                 const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
-                if (myWorkPeriodIndex === -1) {
+                if (myWorkPeriodIndex !== -1) {
+                    phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
+                } else if (phs[idx].status !== 'paused') {
                     throw new Error("L'operatore non ha un periodo di lavoro aperto in questa fase.");
                 }
-                
-                phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
                 
                 // If no one else is active, mark phase as completed
                 if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
@@ -630,7 +888,6 @@ export async function handlePhaseScanResult(
 
                     // ADDED: DUAL-DYNAMIC B (PHASE EXTINGUISHMENT)
                     if (phs[idx].type === 'preparation' && phs[idx].allowedMaterialTypes && phs[idx].allowedMaterialTypes.length > 0) {
-                        // Filter out session-based types (BOB, PF3V0) which are handled when the session closes
                         const typesToExtinguish = phs[idx].allowedMaterialTypes.filter((t: string) => !['BOB', 'PF3V0'].includes(t.toUpperCase()));
                         if (typesToExtinguish.length > 0) {
                             const jobIds = isGroup ? (data.jobOrderIds || []) : [jobId];
@@ -649,8 +906,7 @@ export async function handlePhaseScanResult(
                     ...(newStatus === 'CHIUSO' ? { overallEndTime: new Date() } : {})
                 };
 
-                // === FASE 24: AUTOMAZIONE PASSAGGIO "SPEDITO" ALLA CHIUSURA PACKAGING ===
-                // Condizione A (Fase Packaging o Ultima della sequenza)
+                // === FASE 24 & FASE 76: AUTOMAZIONE PASSAGGIO "SPEDITO" ALLA CHIUSURA PACKAGING ===
                 const currentPhase = phs[idx];
                 const isPackagingType = currentPhase?.type === 'packaging' || 
                                         currentPhase?.id === 'packaging' || 
@@ -660,40 +916,36 @@ export async function handlePhaseScanResult(
                                        (phs.length > 0 && phs[phs.length - 1].id === currentPhase?.id);
                 const isConditionA = Boolean(isPackagingType || isLastSequence);
 
-                // Condizione B (Stato Chiuso / Nessuna fase in sospeso)
                 const isConditionB = newStatus === 'CHIUSO' || 
                                      String(newStatus).toLowerCase() === 'chiuso' || 
                                      String(newStatus).toLowerCase() === 'completed' || 
                                      String(newStatus).toLowerCase() === 'closed';
 
-                // Condizione C (Permessi Magazzino/Packing)
+                // Condizione C (Permessi Magazzino/Packing con espansione SUPPORT)
                 const isSuper = opData?.role === 'admin' || opData?.role === 'supervisor';
-                const allowedPackingDepts = ['MAG', 'MAGAZZINO', 'IMBALLO', 'PACK', 'MAGAZZINIERE', 'COLLAUDO', 'QLTY_PACK'];
-                const repList: string[] = Array.isArray(opData?.reparto) 
-                    ? opData.reparto 
-                    : (typeof opData?.reparto === 'string' ? [opData.reparto] : []);
+                const allowedPackingDepts = ['SUPPORT', 'MAG', 'MAGAZZINO', 'IMBALLO', 'PACK', 'MAGAZZINIERE', 'COLLAUDO', 'QLTY', 'QUALITA', 'QUALITÀ', 'QLTY_PACK'];
+                const repList = expandOperatorDepartments(opData?.reparto);
                 const hasPackingDept = repList.some((r: string) => 
                     allowedPackingDepts.includes(String(r).toUpperCase().trim())
                 );
                 const hasPackingFlag = Boolean(opData?.canManagePackingList);
                 const isConditionC = Boolean(isSuper || hasPackingDept || hasPackingFlag);
 
-                // Override dello Stato Finale a 'SPEDITA' se tutte le 3 condizioni cumulative sono soddisfatte
                 if (isConditionA && isConditionB && isConditionC) {
                     updates.status = 'SPEDITA';
                     updates.lastStatusChange = admin.firestore.FieldValue.serverTimestamp();
                 }
-                // =======================================================================
 
                 // HANDLE ANOMALIES (Quality)
                 if (anomalyData?.hasAnomaly) {
                     updates.hasAnomaly = true;
                     updates.anomalyType = anomalyData.anomalyType;
-                    updates.anomalyNote = anomalyData.anomalyNote;
+                    if (anomalyData.anomalyNote !== undefined) {
+                        updates.anomalyNote = anomalyData.anomalyNote;
+                    }
                 }
 
                 // HANDLE PACKAGING UPDATES (WorkGroup / Single Job)
-                // Pre-risoluzione dei riferimenti e snap prima di qualsiasi scrittura nella transazione
                 const resolvedPackagingOps: { ref: admin.firestore.DocumentReference; updates: any }[] = [];
                 if (packagingUpdates && packagingUpdates.length > 0) {
                     for (const update of packagingUpdates) {
@@ -705,7 +957,6 @@ export async function handlePhaseScanResult(
                             const childData = childSnap.data() as JobOrder;
                             const childUpdates: any = { qta: update.actualQty };
                             
-                            // Check for quantity mismatch anomaly
                             if (update.actualQty < childData.qta) {
                                 childUpdates.hasAnomaly = true;
                                 childUpdates.anomalyType = 'QTY_MISMATCH';
@@ -716,7 +967,6 @@ export async function handlePhaseScanResult(
                     }
                 }
 
-                // Pre-risoluzione lookup figli per WorkGroup prima di qualsiasi scrittura
                 const resolvedGroupChildRefs: admin.firestore.DocumentReference[] = [];
                 if (isGroup && data.jobOrderIds) {
                     for (const childId of data.jobOrderIds) {
@@ -727,39 +977,60 @@ export async function handlePhaseScanResult(
                     }
                 }
 
-                // ESECUZIONE SCRITTURE (Tutte le scritture dopo tutte le letture)
                 for (const pkgOp of resolvedPackagingOps) {
                     transaction.update(pkgOp.ref, pkgOp.updates);
                 }
 
                 transaction.update(itemRef, updates);
 
-                // --- CASCADE UPDATE TO CHILDREN ---
                 for (const childRef of resolvedGroupChildRefs) {
                     transaction.update(childRef, updates);
                 }
-                // ----------------------------------
 
-                transaction.update(opRef, { 
-                    activeJobId: data.ordinePF || jobId, 
-                    activePhaseName: null, 
-                    stato: 'attivo' // Keeps them in the job, but without active phase
-                });
+                if (opSnap.exists) {
+                    transaction.update(opRef, { 
+                        activeJobId: data.ordinePF || jobId, 
+                        activePhaseName: null, 
+                        stato: 'attivo'
+                    });
+                }
 
             } else {
-                // Handle Start/Join
-                
+                // Handle Start/Join/Resume
                 if (opData) {
-                    // Blocca se l'operatore ha una fase attualmente attiva ovunque
-                    if (opData.activeJobId && opData.activePhaseName) {
-                        if (opData.activeJobId !== (data.ordinePF || jobId) || opData.activePhaseName !== phs[idx].name) {
+                    // FASE 76: Se opData.stato === 'in pausa' o 'inattivo' (es. dopo reopenOperatorPhase), NON bloccare!
+                    const isPausedOrIdle = opData.stato === 'in pausa' || opData.stato === 'inattivo';
+                    if (!isPausedOrIdle && opData.activeJobId && opData.activePhaseName) {
+                        const isSameJob =
+                            areJobIdsEquivalent(opData.activeJobId, data.ordinePF) ||
+                            areJobIdsEquivalent(opData.activeJobId, jobId) ||
+                            areJobIdsEquivalent(opData.activeJobId, snap.id);
+
+                        if (!isSameJob) {
                             throw new Error(`Impossibile iniziare: hai già un'attività in corso sulla commessa ${opData.activeJobId} (Fase: ${opData.activePhaseName}). Devi prima metterla in pausa o concluderla.`);
                         }
                     }
                 }
+
+                // Auto-healing intra-commessa: chiudi eventuali workPeriods rimasti aperti per opId su altre fasi della stessa commessa
+                phs.forEach((otherPhase, otherIdx) => {
+                    if (otherIdx === idx || !Array.isArray(otherPhase.workPeriods)) return;
+                    let closedOther = false;
+                    otherPhase.workPeriods.forEach((wp: any) => {
+                        if (wp && wp.operatorId === opId && wp.end === null) {
+                            wp.end = new Date();
+                            wp.reason = wp.reason || 'Cambio fase';
+                            closedOther = true;
+                        }
+                    });
+                    if (closedOther && otherPhase.status === 'in-progress' && !otherPhase.workPeriods.some((wp: any) => wp && wp.end === null)) {
+                        otherPhase.status = 'paused';
+                        otherPhase.pauseReason = otherPhase.pauseReason || 'Cambio fase';
+                    }
+                });
                 
                 phs[idx].status = 'in-progress';
-                phs[idx].isEstimated = false; // Freeze estimate as production starts
+                phs[idx].isEstimated = false;
                 if (!phs[idx].workPeriods) phs[idx].workPeriods = [];
                 
                 if (!phs[idx].workPeriods.some((wp: any) => wp.operatorId === opId && wp.end === null)) {
@@ -775,15 +1046,13 @@ export async function handlePhaseScanResult(
                     status: newStatus, 
                     overallStartTime: data.overallStartTime || new Date(),
                     isSuspended: false,
-                    isProblemReported: false // Clear problem/suspension on resume
+                    isProblemReported: false
                 };
                 
-                // Clear specific material shortage problem if starting the stuck phase
                 if (data.hasMaterialShortage) {
                    startUpdates.hasMaterialShortage = false; 
                 }
 
-                // Pre-risoluzione figli prima della scrittura
                 const resolvedStartChildRefs: admin.firestore.DocumentReference[] = [];
                 if (isGroup && data.jobOrderIds) {
                     for (const childId of data.jobOrderIds) {
@@ -796,125 +1065,158 @@ export async function handlePhaseScanResult(
 
                 transaction.update(itemRef, startUpdates);
                 
-                // --- CASCADE UPDATE TO CHILDREN ---
                 for (const childRef of resolvedStartChildRefs) {
                     transaction.update(childRef, startUpdates);
                 }
-                // ----------------------------------
                 
+                if (opSnap.exists) {
+                    transaction.update(opRef, { 
+                        activeJobId: data.ordinePF || jobId, 
+                        activePhaseName: phs[idx].name, 
+                        stato: 'attivo' 
+                    });
+                }
+            }
+        });
+
+        if (isCompletion) {
+            try {
+                let snap;
+                if (jobId.startsWith('group-')) {
+                    snap = await adminDb.collection('workGroups').doc(jobId).get();
+                } else {
+                    const lookup = await getJobOrderRefAndSnap(jobId);
+                    snap = lookup.jobSnap;
+                }
+                const details = snap.data()?.details;
+                if (details) {
+                    await updateArticleHistoricalTimes(details);
+                }
+            } catch (histErr) {
+                console.warn("Non-blocking error updating historical times:", histErr);
+            }
+        }
+
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
+        revalidatePath('/admin/programmazione');
+        revalidatePath('/operator/packing');
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error in handlePhaseScanResult:", error);
+        const msg = error instanceof Error ? error.message : "Errore durante l'aggiornamento della fase.";
+        return { success: false, error: msg, message: msg };
+    }
+}
+
+export async function handlePhasePause(
+    jobId: string,
+    phaseId: string,
+    opId: string,
+    reason?: string,
+    notes?: string
+): Promise<{ success: boolean; error?: string; message?: string }> {
+    try {
+        const isGroup = jobId.startsWith('group-');
+        await adminDb.runTransaction(async (transaction) => {
+            let itemRef;
+            let snap;
+            if (isGroup) {
+                itemRef = adminDb.collection('workGroups').doc(jobId);
+                snap = await transaction.get(itemRef);
+            } else {
+                const lookup = await getJobOrderRefAndSnap(jobId, transaction);
+                itemRef = lookup.jobRef;
+                snap = lookup.jobSnap;
+            }
+            if (!snap.exists) throw new Error("Commessa non trovata.");
+            const data = snap.data() as any;
+            const phs = [...(data.phases || [])];
+            const idx = phs.findIndex(p => p.id === phaseId);
+            
+            if (idx === -1) throw new Error("Fase non trovata.");
+
+            // Tutte le letture prima delle scritture
+            const opRef = adminDb.collection('operators').doc(opId);
+            const opSnap = await transaction.get(opRef);
+
+            const resolvedPauseChildRefs: admin.firestore.DocumentReference[] = [];
+            if (isGroup && data.jobOrderIds) {
+                for (const childId of data.jobOrderIds) {
+                    const lookup = await getJobOrderRefAndSnap(childId, transaction);
+                    if (lookup.jobSnap.exists) {
+                        resolvedPauseChildRefs.push(lookup.jobRef);
+                    }
+                }
+            }
+            
+            if (!Array.isArray(phs[idx].workPeriods)) {
+                phs[idx].workPeriods = [];
+            }
+
+            const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
+            if (myWorkPeriodIndex !== -1) {
+                phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
+                if (reason !== undefined) {
+                    phs[idx].workPeriods[myWorkPeriodIndex].reason = reason;
+                }
+            }
+                    
+            if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
+                phs[idx].status = 'paused';
+                if (reason !== undefined) {
+                    phs[idx].pauseReason = reason;
+                }
+            }
+            
+            const dummyJob = { ...data, phases: phs };
+            const updateData: any = { phases: phs, status: getOverallStatus(dummyJob) };
+
+            if (reason === 'Manca Materiale') {
+                phs[idx].materialStatus = 'missing';
+                phs[idx].materialReady = false;
+                
+                updateData.hasMaterialShortage = true;
+                updateData.isSuspended = true;
+                updateData.isProblemReported = true;
+                updateData.problemType = 'MANCA_MATERIALE';
+                updateData.problemReportedBy = (opSnap.data() as any)?.nome || 'Operatore';
+                updateData.problemNotes = notes || 'Segnalato automaticamente dalla pausa.';
+            } else if (reason === 'Altro' && notes) {
+                updateData.isSuspended = true;
+                updateData.isProblemReported = true;
+                updateData.problemType = 'ALTRO';
+                updateData.problemNotes = notes;
+            } else {
+                const isAnyPhaseInProgress = phs.some((p: any) => p.status === 'in-progress');
+                if (!isAnyPhaseInProgress) {
+                     updateData.isSuspended = true;
+                }
+            }
+            
+            transaction.update(itemRef, updateData);
+
+            for (const childRef of resolvedPauseChildRefs) {
+                transaction.update(childRef, updateData);
+            }
+
+            if (opSnap.exists) {
                 transaction.update(opRef, { 
                     activeJobId: data.ordinePF || jobId, 
-                    activePhaseName: phs[idx].name, 
+                    activePhaseName: null, 
                     stato: 'attivo' 
                 });
             }
-    });
+        });
 
-    if (isCompletion) {
-        let snap;
-        if (jobId.startsWith('group-')) {
-            snap = await adminDb.collection('workGroups').doc(jobId).get();
-        } else {
-            const lookup = await getJobOrderRefAndSnap(jobId);
-            snap = lookup.jobSnap;
-        }
-        const details = snap.data()?.details;
-        if (details) {
-            await updateArticleHistoricalTimes(details);
-        }
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error in handlePhasePause:", error);
+        const msg = error instanceof Error ? error.message : "Errore durante la pausa della fase.";
+        return { success: false, error: msg, message: msg };
     }
-
-    revalidatePath('/scan-job');
-    revalidatePath('/admin/production-console');
-    revalidatePath('/admin/programmazione');
-    revalidatePath('/operator/packing');
-}
-
-export async function handlePhasePause(jobId: string, phaseId: string, opId: string, reason?: string, notes?: string) {
-    const isGroup = jobId.startsWith('group-');
-    await adminDb.runTransaction(async (transaction) => {
-        let itemRef;
-        let snap;
-        if (isGroup) {
-            itemRef = adminDb.collection('workGroups').doc(jobId);
-            snap = await transaction.get(itemRef);
-        } else {
-            const lookup = await getJobOrderRefAndSnap(jobId, transaction);
-            itemRef = lookup.jobRef;
-            snap = lookup.jobSnap;
-        }
-        if (!snap.exists) throw new Error("Commessa non trovata.");
-        const data = snap.data() as any;
-        const phs = [...(data.phases || [])];
-        const idx = phs.findIndex(p => p.id === phaseId);
-        
-        if (idx === -1) throw new Error("Fase non trovata.");
-        
-        const myWorkPeriodIndex = phs[idx].workPeriods.findIndex((wp: any) => wp.operatorId === opId && wp.end === null);
-        if (myWorkPeriodIndex === -1) {
-            throw new Error("L'operatore non ha un periodo di lavoro aperto in questa fase.");
-        }
-        
-        phs[idx].workPeriods[myWorkPeriodIndex].end = new Date();
-        phs[idx].workPeriods[myWorkPeriodIndex].reason = reason; // Save reason in period
-                
-                // If no one else is active, mark phase as paused
-                if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
-                    phs[idx].status = 'paused';
-                    phs[idx].pauseReason = reason; // Save current pause reason in phase
-                }
-                
-                const dummyJob = { ...data, phases: phs };
-                const updateData: any = { phases: phs, status: getOverallStatus(dummyJob) };
-
-                // Handle 'Manca Materiale' automation
-                if (reason === 'Manca Materiale') {
-                    const opSnap = await transaction.get(adminDb.collection('operators').doc(opId));
-                    phs[idx].materialStatus = 'missing';
-                    phs[idx].materialReady = false;
-                    
-                    updateData.hasMaterialShortage = true;
-                    updateData.isSuspended = true; // Mother is suspended
-                    updateData.isProblemReported = true;
-                    updateData.problemType = 'MANCA_MATERIALE';
-                    updateData.problemReportedBy = (opSnap.data() as any)?.nome || 'Operatore';
-                    updateData.problemNotes = notes || 'Segnalato automaticamente dalla pausa.';
-                } else if (reason === 'Altro' && notes) {
-                    updateData.isSuspended = true;
-                    updateData.isProblemReported = true;
-                    updateData.problemType = 'ALTRO';
-                    updateData.problemNotes = notes;
-                } else {
-                    // Normal pause (end of shift, breaks)
-                    // If all phases are pending or paused (no in-progress left), mark job as suspended
-                    const isAnyPhaseInProgress = phs.some((p: any) => p.status === 'in-progress');
-                    if (!isAnyPhaseInProgress) {
-                         updateData.isSuspended = true;
-                    }
-                }
-                
-                transaction.update(itemRef, updateData);
-
-                // --- CASCADE UPDATE TO CHILDREN ---
-                if (isGroup && data.jobOrderIds) {
-                    for (const childId of data.jobOrderIds) {
-                        const lookup = await getJobOrderRefAndSnap(childId, transaction);
-                        if (lookup.jobSnap.exists) {
-                            transaction.update(lookup.jobRef, updateData);
-                        }
-                    }
-                }
-                // ----------------------------------
-
-            transaction.update(adminDb.collection('operators').doc(opId), { 
-                activeJobId: data.ordinePF || jobId, 
-                activePhaseName: null, 
-                stato: 'attivo' 
-            });
-    });
-
-    revalidatePath('/scan-job');
-    revalidatePath('/admin/production-console');
 }
 
 
@@ -1124,11 +1426,29 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
     }
 }
 
-export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: boolean = false) {
+export async function getLotInfoForMaterial(materialId: string): Promise<HydratedLotInfo[]> {
+    if (!materialId) return [];
+    const mSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
+    if (!mSnap.exists) return [];
+
+    const matData = { id: mSnap.id, ...convertTimestampsToDates(mSnap.data()) } as RawMaterial;
+    const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
+    const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
+    const hydrated = hydrateMaterialWithWithdrawals(matData, withdrawals);
+
+    return JSON.parse(JSON.stringify(extractHydratedLots(hydrated)));
+}
+
+export async function logTubiGuainaWithdrawal(
+    formData: FormData,
+    isFinished: boolean = false
+): Promise<{ success: boolean; message: string; hydratedMaterial?: RawMaterial }> {
     const rawData = Object.fromEntries(formData.entries());
-    const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity, unit, lotto } = rawData;
+    const { materialId, operatorId, jobId, jobOrderPF, quantity, unit, lotto } = rawData;
     
     try {
+        let hydratedAfter: RawMaterial | undefined;
+
         await adminDb.runTransaction(async (t) => {
             const mRef = adminDb.collection("rawMaterials").doc(materialId as string);
             const [mSnap, wSnap] = await Promise.all([
@@ -1137,8 +1457,8 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
             ]);
             
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
-            const material = mSnap.data() as RawMaterial;
-            const withdrawals = wSnap.docs.map((d: any) => d.data());
+            const material = { id: mSnap.id, ...convertTimestampsToDates(mSnap.data()) } as RawMaterial;
+            const withdrawals = wSnap.docs.map((d: any) => ({ id: d.id, ...convertTimestampsToDates(d.data()) }));
             
             const globalSettings = await getGlobalSettings();
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
@@ -1148,40 +1468,44 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 hasConversion: false
             } as any;
 
+            const hydratedPre = hydrateMaterialWithWithdrawals(material, withdrawals);
+            const targetLottoStr = lotto ? String(lotto) : '';
+            const residual = targetLottoStr ? getLotResidualSummary(hydratedPre, targetLottoStr) : null;
+            const canonicalLotto = residual?.matchingBatches[0]?.lotto || (targetLottoStr || undefined);
+
             let qtyToUse = Number(quantity);
+            let unitToUse = unit as any;
             
             if (!isFinished && qtyToUse <= 0) {
                 throw new Error("La quantità prelevata deve essere maggiore di zero.");
             }
             
-            if (isFinished && lotto) {
-                // MODIFIED: In Lot-Centric model, the balance is already on the batch
-                const batch = (material.batches || []).find(b => b.lotto === lotto);
-                if (batch) {
-                    qtyToUse = Math.max(0, batch.netQuantity || 0);
-                }
+            if (isFinished && targetLottoStr) {
+                // FASE 80: Usa il residuo vivo idratato (currentQuantity) del lotto, MAI netQuantity iniziale!
+                qtyToUse = Math.max(0, residual?.availableUnits ?? 0);
+                unitToUse = material.unitOfMeasure;
             }
 
             const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
                 material,
                 config,
                 qtyToUse,
-                unit as any,
+                unitToUse,
                 false,
-                lotto as string,
+                canonicalLotto,
                 withdrawals
             );
 
-            const updates: any = { batches: updatedBatches };
+            let finalBatches = updatedBatches;
             if (isFinished && usedLotto) {
-                const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
-                if (bIdx !== -1) {
-                    updatedBatches[bIdx].isExhausted = true;
-                }
+                const targetNorm = normStockLot(usedLotto);
+                finalBatches = updatedBatches.map((b) =>
+                    normStockLot(b.lotto) === targetNorm ? { ...b, isExhausted: true } : b
+                );
             }
 
-            if (Object.keys(updates).length > 0) {
-                t.update(mRef, updates);
+            if (isFinished && finalBatches.length > 0) {
+                t.update(mRef, { batches: finalBatches });
             }
 
             // ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
@@ -1191,24 +1515,24 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
                 currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
             });
 
-            const wRef = adminDb.collection("materialWithdrawals").doc();
-            t.set(wRef, {
+            const nowTs = admin.firestore.Timestamp.now();
+            const newWithdrawalDoc = {
                 jobIds: [jobId],
                 jobOrderPFs: [jobOrderPF],
-                materialId,
+                materialId: String(materialId),
                 materialCode: material.code,
                 consumedWeight: weightToChange,
                 consumedUnits: unitsToChange,
-                operatorId,
-                withdrawalDate: admin.firestore.Timestamp.now(),
+                operatorId: String(operatorId || ''),
+                withdrawalDate: nowTs,
                 lotto: usedLotto,
                 isFinal: isFinished,
                 source: 'production'
-            });
+            };
+            const wRef = adminDb.collection("materialWithdrawals").doc();
+            t.set(wRef, newWithdrawalDoc);
 
             // --- EVASIONE IMPEGNATO (Floor Truth) ---
-            // Regola: La realtà di fabbrica vince. Qualsiasi scarico associato a una commessa 
-            // estingue il fabbisogno per quella tipologia di materiale, gestendo anche gli equivalenti.
             const sid = (jobId as string);
             const isGroup = sid.startsWith('group-');
             let finalJobIds = [sid];
@@ -1222,11 +1546,31 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
             
             await resolveJobBOMCommitmentByMaterialCode(finalJobIds, material.code, t);
             await resolveJobBOMCommitmentsByType(finalJobIds, [material.type], t);
+
+            // Re-idratazione SSoT post-scarico per risposta immediata alla UI
+            const postMaterialRaw: RawMaterial = {
+                ...material,
+                batches: finalBatches,
+                stock: Math.max(0, (material.stock || 0) - unitsToChange),
+                currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange),
+                currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
+            };
+            const postWithdrawals = [
+                ...withdrawals,
+                { id: wRef.id, ...newWithdrawalDoc, withdrawalDate: new Date() },
+            ];
+            hydratedAfter = hydrateMaterialWithWithdrawals(postMaterialRaw, postWithdrawals as any);
         });
         
         revalidatePath('/scan-job');
+        revalidatePath('/manual-withdrawal');
+        revalidatePath('/material-check');
         revalidatePath('/admin/production-console');
-        return { success: true, message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato." };
+        return {
+            success: true,
+            message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato.",
+            hydratedMaterial: hydratedAfter ? JSON.parse(JSON.stringify(hydratedAfter)) : undefined,
+        };
     } catch (e) { 
         console.error("Log tubi/guaina error:", e);
         return { success: false, message: e instanceof Error ? e.message : "Errore scarico." }; 
@@ -1234,10 +1578,58 @@ export async function logTubiGuainaWithdrawal(formData: FormData, isFinished: bo
 }
 
 export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<any> {
-    const snap = await adminDb.collection("inventoryRecords").where("lotto", "==", lotto).where("status", "==", "approved").get();
+    const cleanLotto = (lotto || '').trim();
+    if (!cleanLotto) return null;
+    const targetNorm = normStockLot(cleanLotto);
+
+    // Helper per costruire il payload SSoT idratato sul residuo reale (mai storico pre-prelievi)
+    const buildHydratedLottoPayload = async (
+        rawMaterial: RawMaterial,
+        preferredPackaging?: { packagingId?: string; tareWeight?: number; tareName?: string }
+    ) => {
+        const wSnap = await adminDb
+            .collection("materialWithdrawals")
+            .where("materialId", "==", rawMaterial.id)
+            .get();
+        const withdrawals = wSnap.docs.map((doc) => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
+        const hydratedMaterial = hydrateMaterialWithWithdrawals(rawMaterial, withdrawals);
+        const residual = getLotResidualSummary(hydratedMaterial, cleanLotto);
+        const refBatch = residual.matchingBatches[0];
+
+        return {
+            material: JSON.parse(JSON.stringify(hydratedMaterial)),
+            netWeight: Number(residual.availableWeightKg.toFixed(3)),
+            availableUnits: residual.availableUnits,
+            packagingId: refBatch?.packagingId || preferredPackaging?.packagingId || 'none',
+            tareWeight: refBatch?.tareWeight ?? preferredPackaging?.tareWeight ?? 0,
+            tareName: refBatch?.tareName || preferredPackaging?.tareName || '',
+        };
+    };
+
+    // 1. Se materialId è già noto, risolvi direttamente senza scansionare tutto
+    if (materialId) {
+        const mSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
+        if (mSnap.exists) {
+            const matData = { id: mSnap.id, ...convertTimestampsToDates(mSnap.data()) } as RawMaterial;
+            const hasBatch = (matData.batches || []).some((b) => normStockLot(b.lotto) === targetNorm);
+            if (hasBatch) {
+                return await buildHydratedLottoPayload(matData);
+            }
+        }
+    }
+
+    // 2. Lookup da inventoryRecords approvati per ottenere il materialId associato al lotto + metadati tara,
+    //    ma restituendo sempre il residuo idratato SSoT (currentWeightKg / currentQuantity) post-prelievi!
+    const snap = await adminDb
+        .collection("inventoryRecords")
+        .where("lotto", "==", cleanLotto)
+        .where("status", "==", "approved")
+        .get();
     
     if (!snap.empty) {
-        const records = snap.docs.map(d => ({ ...d.data(), id: d.id } as InventoryRecord));
+        const records = snap.docs
+            .map(d => ({ ...d.data(), id: d.id } as InventoryRecord))
+            .filter(r => !materialId || r.materialId === materialId);
         records.sort((a, b) => {
             const timeA = a.recordedAt?.toMillis?.() || new Date(a.recordedAt).getTime();
             const timeB = b.recordedAt?.toMillis?.() || new Date(b.recordedAt).getTime();
@@ -1245,47 +1637,39 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         });
         
         const rec = records[0];
-        const mSnap = await adminDb.collection("rawMaterials").doc(rec.materialId).get();
-        if (mSnap.exists) {
-            const materialData = { ...mSnap.data(), id: mSnap.id } as RawMaterial;
-            
-            // Fetch withdrawals for hydration (SSoT)
-            const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialData.id).get();
-            const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
-            const hydratedMaterial = hydrateMaterialWithWithdrawals(materialData, withdrawals);
-
-            return { 
-                material: JSON.parse(JSON.stringify(hydratedMaterial)), 
-                netWeight: rec.netWeight, 
-                packagingId: rec.packagingId || 'none',
-                tareWeight: rec.tareWeight || 0,
-                tareName: rec.tareName || ''
-            };
+        if (rec) {
+            const mSnap = await adminDb.collection("rawMaterials").doc(rec.materialId).get();
+            if (mSnap.exists) {
+                const materialData = { id: mSnap.id, ...convertTimestampsToDates(mSnap.data()) } as RawMaterial;
+                return await buildHydratedLottoPayload(materialData, {
+                    packagingId: rec.packagingId,
+                    tareWeight: rec.tareWeight,
+                    tareName: rec.tareName,
+                });
+            }
         }
     }
 
+    // 3. Fallback scansione su rawMaterials (normalizzato, idratato prima della selezione)
     const materialsSnap = await adminDb.collection("rawMaterials").get();
-    for (const mDoc of materialsSnap.docs) {
-        const mData = { ...mDoc.data(), id: mDoc.id } as RawMaterial;
-        const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto && !b.isExhausted);
-        if (matchingBatch) {
-            const netWeight = matchingBatch.netQuantity || (matchingBatch.grossWeight - (matchingBatch.tareWeight || 0));
-            // Fetch withdrawals for hydration (SSoT)
-            const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", mDoc.id).get();
-            const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
-            const hydratedMaterial = hydrateMaterialWithWithdrawals(mData, withdrawals);
+    let fallbackExhaustedPayload: any = null;
 
-            return {
-                material: JSON.parse(JSON.stringify(hydratedMaterial)),
-                netWeight: netWeight,
-                packagingId: matchingBatch.packagingId || 'none',
-                tareWeight: matchingBatch.tareWeight || 0,
-                tareName: matchingBatch.tareName || ''
-            };
+    for (const mDoc of materialsSnap.docs) {
+        if (materialId && mDoc.id !== materialId) continue;
+        const mData = { id: mDoc.id, ...convertTimestampsToDates(mDoc.data()) } as RawMaterial;
+        const hasMatchingBatch = (mData.batches || []).some((b) => normStockLot(b.lotto) === targetNorm);
+        if (hasMatchingBatch) {
+            const payload = await buildHydratedLottoPayload(mData);
+            if ((payload.availableUnits || 0) > 0.001) {
+                return payload;
+            }
+            if (!fallbackExhaustedPayload) {
+                fallbackExhaustedPayload = payload;
+            }
         }
     }
 
-    return null;
+    return fallbackExhaustedPayload;
 }
 
 export async function createWorkGroup(jobIds: string[], creatorId: string) {

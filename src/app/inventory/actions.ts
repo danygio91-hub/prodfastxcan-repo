@@ -2,7 +2,13 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { RawMaterial, Packaging, InventoryRecord, MaterialWithdrawal } from '@/types';
+import type {
+  RawMaterial,
+  Packaging,
+  InventoryRecord,
+  MaterialWithdrawal,
+  InventoryCountingSession,
+} from '@/types';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
@@ -14,6 +20,34 @@ import {
 
 function serializeFirestoreData<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
+}
+
+export async function getActiveInventoryCountingSession(): Promise<InventoryCountingSession | null> {
+  try {
+    const snap = await adminDb
+      .collection('inventoryCountingSessions')
+      .where('status', '==', 'open')
+      .get();
+    if (snap.empty) return null;
+
+    const docs = snap.docs.map((d) => {
+      const data = d.data() || {};
+      return {
+        id: d.id,
+        name: String(data.name || 'Sessione Attiva'),
+        year: Number(data.year) || new Date().getFullYear(),
+        status: 'open' as const,
+        openedAt: String(data.openedAt || new Date().toISOString()),
+        closedAt: null,
+        notes: data.notes ? String(data.notes) : '',
+      } satisfies InventoryCountingSession;
+    });
+
+    docs.sort((a, b) => (b.openedAt || '').localeCompare(a.openedAt || ''));
+    return docs[0] || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getPackagingItems(): Promise<Packaging[]> {
@@ -96,13 +130,14 @@ export async function registerInventoryBatch(
   const inventoryRef = adminDb.collection('inventoryRecords');
 
   try {
-    const [materialSnap, withdrawalsSnap] = await Promise.all([
+    const [materialSnap, withdrawalsSnap, activeSession] = await Promise.all([
       materialRef.get(),
       adminDb.collection('materialWithdrawals').where('materialId', '==', materialId).get(),
+      getActiveInventoryCountingSession(),
     ]);
 
     if (!materialSnap.exists) {
-      throw new Error('Materia prima non trovata.');
+      return { success: false, message: 'Materia prima non trovata.' };
     }
 
     const rawMaterial = { ...(materialSnap.data() as RawMaterial), id: materialSnap.id };
@@ -141,6 +176,14 @@ export async function registerInventoryBatch(
       theoreticalUnitsAtScan,
     });
 
+    if (metrics.hasNegativeNetWarning) {
+      return {
+        success: false,
+        message:
+          'Il peso lordo inserito è inferiore alla tara selezionata. Controllare peso e imballo (oppure inserire 0 per dichiarare il lotto esaurito).',
+      };
+    }
+
     const newInventoryRecord: Omit<InventoryRecord, 'id'> = {
       materialId,
       materialCode: hydratedMaterial.code,
@@ -161,6 +204,12 @@ export async function registerInventoryBatch(
       countedUnits: metrics.countedUnits,
       theoreticalUnitsAtScan: metrics.theoreticalUnitsAtScan,
       deltaUnits: metrics.deltaUnits,
+      ...(activeSession
+        ? {
+            sessionId: activeSession.id,
+            sessionName: activeSession.name,
+          }
+        : {}),
       ...(hydratedMaterial.conversionFactor
         ? { conversionFactor: hydratedMaterial.conversionFactor }
         : {}),

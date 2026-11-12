@@ -1,12 +1,27 @@
 import { describe, it, expect } from 'vitest';
 import {
+  VIRTUAL_SESSION_2025_ID,
   computeInventoryMetrics,
+  evaluateLotsForInventorySession,
   getAggregatedLotsForMaterial,
+  inferYearFromLotOrDdt,
   normInventoryLot,
   resolveRecordCountedUnits,
+  resolveRecordMetrics,
+  resolveRecordSessionId,
 } from './inventory-ledger-logic';
 import { hydrateMaterialWithWithdrawals } from './stock-logic';
-import type { RawMaterial, MaterialWithdrawal, RawMaterialBatch } from '@/types';
+import {
+  areJobIdsEquivalent,
+  expandOperatorDepartments,
+  normalizeJobIdForComparison,
+} from './utils';
+import type {
+  RawMaterial,
+  MaterialWithdrawal,
+  RawMaterialBatch,
+  InventoryCountingSession,
+} from '@/types';
 
 describe('FASE 74: SSoT Inventory Ledger & Universal Metrics', () => {
   it('fixes the N/MT without conversionFactor bug so netWeight is never 0 when inputQuantity > 0', () => {
@@ -50,6 +65,46 @@ describe('FASE 74: SSoT Inventory Ledger & Universal Metrics', () => {
     expect(metrics.netWeight).toBe(0);
     expect(metrics.grossWeight).toBe(0);
     expect(metrics.deltaUnits).toBe(-84.5);
+    expect(metrics.hasNegativeNetWarning).toBe(false);
+    expect(metrics.isAnomaly).toBe(false);
+  });
+
+  it('FASE 74-BIS: never throws when tareWeight > grossWeight on historical records, returning isAnomaly: true and netWeight: 0', () => {
+    const materialKg = {
+      unitOfMeasure: 'kg' as const,
+      conversionFactor: 1,
+      rapportoKgMt: null,
+    };
+
+    const metrics = computeInventoryMetrics({
+      material: materialKg,
+      inputQuantity: 4.2,
+      inputUnit: 'kg',
+      tareWeight: 15.0,
+      theoreticalUnitsAtScan: 50,
+    });
+
+    expect(metrics.netWeight).toBe(0);
+    expect(metrics.countedUnits).toBe(0);
+    expect(metrics.hasNegativeNetWarning).toBe(true);
+    expect(metrics.isAnomaly).toBe(true);
+    expect(metrics.anomalyReason).toBe('Tara superiore al peso lordo');
+
+    // Also verify resolveRecordMetrics on malformed/dirty historical records
+    const dirtyMetrics = resolveRecordMetrics(
+      {
+        inputQuantity: undefined as any,
+        grossWeight: 3,
+        tareWeight: 10,
+        netWeight: -7,
+        inputUnit: 'kg',
+      },
+      materialKg
+    );
+    expect(dirtyMetrics.netWeight).toBe(0);
+    expect(dirtyMetrics.isAnomaly).toBe(true);
+    expect(dirtyMetrics.anomalyReason).toBe('Tara superiore al peso lordo');
+    expect(resolveRecordCountedUnits({ inputQuantity: NaN as any, tareWeight: 20 }, materialKg)).toBe(0);
   });
 
   it('reconciles positive delta (+Delta), negative delta (-Delta), write-off (0), and revert accurately via hydrateMaterialWithWithdrawals', () => {
@@ -177,6 +232,150 @@ describe('FASE 74: SSoT Inventory Ledger & Universal Metrics', () => {
     expect(afterWriteOff.currentStockUnits).toBe(0);
     expect(afterWriteOff.batches[0].currentQuantity).toBe(0);
     expect(afterWriteOff.batches[0].isExhausted).toBe(true);
+  });
+
+  it('FASE 76: expands SUPPORT into MAG + QLTY + PACK and normalizes job IDs (/ vs -)', () => {
+    // 1. SUPPORT expansion for Claudio (['MAG', 'SUPPORT'])
+    const expanded = expandOperatorDepartments(['MAG', 'SUPPORT']);
+    expect(expanded).toContain('SUPPORT');
+    expect(expanded).toContain('MAG');
+    expect(expanded).toContain('MAGAZZINO');
+    expect(expanded).toContain('QLTY');
+    expect(expanded).toContain('QUALITA');
+    expect(expanded).toContain('QUALITÀ');
+    expect(expanded).toContain('COLLAUDO');
+    expect(expanded).toContain('PACK');
+    expect(expanded).toContain('IMBALLO');
+
+    // 2. Job ID normalization (/ vs -, case-insensitive, year suffix, legacy stripped dots)
+    expect(areJobIdsEquivalent('241/PF.1-1', '241-PF.1-1')).toBe(true);
+    expect(areJobIdsEquivalent('241/pf.1-1', '241-PF1-1')).toBe(true);
+    expect(areJobIdsEquivalent('840/PF', '840-PF_2026')).toBe(true);
+    expect(areJobIdsEquivalent('241/PF.1-1', '999/PF.2-1')).toBe(false);
+    expect(normalizeJobIdForComparison('241/pf.1-1')).toBe('241-PF.1-1');
+  });
+
+  it('FASE 77: isolates 2025 historical scans from 2026 campaigns and excludes 2026 new lots from 2025 Fantasmi', () => {
+    expect(inferYearFromLotOrDdt('145-25')).toBe(2025);
+    expect(inferYearFromLotOrDdt('882/26')).toBe(2026);
+    expect(inferYearFromLotOrDdt('DDT-10-2026')).toBe(2026);
+
+    const material: RawMaterial = {
+      id: 'mat-ssot',
+      type: 'CAVO',
+      code: 'MP-2026',
+      description: 'Cavo Test Sessioni',
+      details: {},
+      unitOfMeasure: 'kg',
+      currentStockUnits: 300,
+      currentWeightKg: 300,
+      batches: [
+        {
+          id: 'b-2025-scanned',
+          date: '2025-10-15T10:00:00.000Z',
+          ddt: 'DDT-01/25',
+          lotto: '101-25',
+          netQuantity: 100,
+          grossWeight: 100,
+          tareWeight: 0,
+        },
+        {
+          id: 'b-2025-ghost',
+          date: '2025-11-20T10:00:00.000Z',
+          ddt: 'DDT-02/25',
+          lotto: '102-25',
+          netQuantity: 100,
+          grossWeight: 100,
+          tareWeight: 0,
+        },
+        {
+          id: 'b-2026-new',
+          date: '2026-02-14T10:00:00.000Z',
+          ddt: 'DDT-09/26',
+          lotto: '201-26',
+          netQuantity: 100,
+          grossWeight: 100,
+          tareWeight: 0,
+        },
+      ],
+    };
+
+    const baseLots = getAggregatedLotsForMaterial(material, []);
+    expect(baseLots).toHaveLength(3);
+
+    const historical2025Records = [
+      {
+        id: 'rec-dec-2025',
+        materialId: 'mat-ssot',
+        materialCode: 'MP-2026',
+        lotto: '101-25',
+        recordedAt: '2025-12-19T14:30:00.000Z',
+        status: 'approved' as const,
+      },
+    ];
+
+    // Legacy 2025 record without sessionId maps automatically to VIRTUAL_2025
+    expect(resolveRecordSessionId(historical2025Records[0])).toBe(VIRTUAL_SESSION_2025_ID);
+
+    const session2025: InventoryCountingSession = {
+      id: VIRTUAL_SESSION_2025_ID,
+      name: 'Storico Inventario 2025',
+      year: 2025,
+      status: 'closed',
+      openedAt: '2025-01-01T00:00:00.000Z',
+      closedAt: '2025-12-31T23:59:59.999Z',
+      isVirtual: true,
+    };
+
+    const eval2025 = evaluateLotsForInventorySession({
+      baseLots,
+      records: historical2025Records,
+      session: session2025,
+    });
+
+    const lot101_in2025 = eval2025.allActiveLots.find((l) => l.lotto === '101-25')!;
+    const lot102_in2025 = eval2025.allActiveLots.find((l) => l.lotto === '102-25')!;
+    const lot201_in2025 = eval2025.allActiveLots.find((l) => l.lotto === '201-26')!;
+
+    expect(lot101_in2025.scanStatus).toBe('SCANNED_APPROVED');
+    expect(lot102_in2025.scanStatus).toBe('UNSCANNED');
+    // Crucial: 2026 lot viewed in 2025 session is POST_INVENTORY, NOT a 2025 Ghost!
+    expect(lot201_in2025.scanStatus).toBe('POST_INVENTORY');
+    expect(lot201_in2025.lotTemporalStatus).toBe('POST_SESSION_CLOSED');
+
+    expect(eval2025.unscannedLots).toHaveLength(1);
+    expect(eval2025.unscannedLots[0].lotto).toBe('102-25');
+
+    // Now open a new 2026 session: all 3 lots must start as UNSCANNED (0 scanned in 2026 session)
+    const session2026: InventoryCountingSession = {
+      id: 'sess-2026-1',
+      name: 'Inventario 2026 - Sessione 1',
+      year: 2026,
+      status: 'open',
+      openedAt: '2026-02-01T08:00:00.000Z',
+      closedAt: null,
+      isVirtual: false,
+    };
+
+    const eval2026 = evaluateLotsForInventorySession({
+      baseLots,
+      records: historical2025Records,
+      session: session2026,
+    });
+
+    expect(eval2026.sessionRecords).toHaveLength(0);
+    expect(eval2026.unscannedLots).toHaveLength(3);
+
+    const lot101_in2026 = eval2026.allActiveLots.find((l) => l.lotto === '101-25')!;
+    const lot201_in2026 = eval2026.allActiveLots.find((l) => l.lotto === '201-26')!;
+
+    // 101-25 (scanned in Dec 2025) is now UNSCANNED in the new 2026 campaign!
+    expect(lot101_in2026.scanStatus).toBe('UNSCANNED');
+    expect(lot101_in2026.lotTemporalStatus).toBe('PRE_EXISTING');
+
+    // 201-26 (loaded Feb 14, 2026, after session opened Feb 1, 2026) is distinguished as POST_SESSION_OPENED
+    expect(lot201_in2026.scanStatus).toBe('UNSCANNED');
+    expect(lot201_in2026.lotTemporalStatus).toBe('POST_SESSION_OPENED');
   });
 });
 

@@ -13,7 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { updateJob, updateWorkGroup, updateOperatorStatus } from '@/app/scan-job/actions';
 import { Play, Pause, Check, Activity, Truck } from 'lucide-react';
 import type { JobOrder, JobPhase, WorkGroup } from '@/types';
-import { cn } from '@/lib/utils';
+import { cn, areJobIdsEquivalent } from '@/lib/utils';
 import { getDerivedJobStatus } from '@/lib/job-status';
 
 export default function ActiveJobStatusBar() {
@@ -50,15 +50,28 @@ export default function ActiveJobStatusBar() {
     try {
         if (isMyWorkActive) { // Pause
             const { handlePhasePause } = await import('@/app/scan-job/actions');
-            await handlePhasePause(activeJob.id, phaseId, operator.id, 'Pausa da Barra di Stato');
+            const res = await handlePhasePause(activeJob.id, phaseId, operator.id, 'Pausa da Barra di Stato');
+            if (res && res.success === false) {
+                toast({ variant: "destructive", title: "Attenzione", description: res.error || res.message || "Impossibile mettere in pausa la fase." });
+                return;
+            }
             toast({ title: "Fase in Pausa", description: `La tua attività è in pausa.` });
         } else { // Resume
-            const { handlePhaseScanResult } = await import('@/app/scan-job/actions');
-            await handlePhaseScanResult(activeJob.id, phaseId, operator.id, false);
+            const { handlePhaseScanResult, isOperatorActiveOnAnyJob } = await import('@/app/scan-job/actions');
+            const avail = await isOperatorActiveOnAnyJob(operator.id, activeJob.id);
+            if (!avail.available) {
+                toast({ variant: 'destructive', title: 'Operatore Occupato', description: `Sei già attivo sulla commessa ${avail.activeJobId} nella fase ${avail.activePhaseName}.` });
+                return;
+            }
+            const res = await handlePhaseScanResult(activeJob.id, phaseId, operator.id, false);
+            if (res && res.success === false) {
+                toast({ variant: "destructive", title: "Attenzione", description: res.error || res.message || "Impossibile riprendere la fase." });
+                return;
+            }
             toast({ title: "Fase Ripresa", description: `Hai ripreso a lavorare.` });
         }
-    } catch (e) {
-        toast({ variant: "destructive", title: "Errore", description: "Impossibile aggiornare la fase." });
+    } catch (e: any) {
+        toast({ variant: "destructive", title: "Errore", description: e?.message || "Impossibile aggiornare la fase." });
     }
   };
 
@@ -110,7 +123,7 @@ export default function ActiveJobStatusBar() {
 
   if (!myRelevantPhase) {
     // If there is no active or paused phase for me, but I am still "on a job", show a generic bar.
-    if (operator.activeJobId === activeJob.id) {
+    if (areJobIdsEquivalent(operator.activeJobId, activeJob.id) || areJobIdsEquivalent(operator.activeJobId, activeJob.ordinePF)) {
         return (
              <div className="fixed bottom-0 left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none">
                  <Card className={cn(

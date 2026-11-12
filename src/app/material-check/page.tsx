@@ -19,10 +19,10 @@ import { Badge as UiBadge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { useMasterData } from '@/contexts/MasterDataProvider';
 
-import { getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
-import { getMaterialWithdrawalsForMaterial, getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
+import { getRawMaterialByCode, findLastWeightForLotto, getLotInfoForMaterial } from '@/app/scan-job/actions';
+import { getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
+import { extractHydratedLots, normStockLot, type HydratedLotInfo as LotInfo } from '@/lib/stock-logic';
 import type { RawMaterial } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -46,8 +46,6 @@ export default function MaterialCheckPage() {
     const { operator, loading: authLoading } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
-
-    const { rawMaterialsMap, isLoading: isMasterLoading } = useMasterData();
 
     const [step, setStep] = useState<Step>('initial');
     const [foundMaterial, setFoundMaterial] = useState<RawMaterial | null>(null);
@@ -90,11 +88,15 @@ export default function MaterialCheckPage() {
 
     const fetchMaterialDetails = async (material: RawMaterial, specificLotto?: string) => {
         try {
-            const lots = await getLotInfoForMaterial(material.id);
+            const hydratedLots = extractHydratedLots(material);
+            const lots = hydratedLots.length > 0 ? hydratedLots : await getLotInfoForMaterial(material.id);
             setAllLots(lots);
             if (specificLotto) {
-                const matched = lots.find(l => l.lotto === specificLotto);
+                const targetNorm = normStockLot(specificLotto);
+                const matched = lots.find(l => normStockLot(l.lotto) === targetNorm);
                 setFoundLotInfo(matched || null);
+            } else {
+                setFoundLotInfo(null);
             }
         } catch (e) {
             console.error("Error fetching lots:", e);
@@ -121,23 +123,15 @@ export default function MaterialCheckPage() {
                 setStep('initial');
             }
         } else {
-            // Check cache first
-            const cachedMat = rawMaterialsMap.get(trimmedCode.toUpperCase());
-            if (cachedMat) {
-                setFoundMaterial(cachedMat);
-                await fetchMaterialDetails(cachedMat);
-                setStep('result');
+            // Sempre query server idratata SSoT per evitare dati statici non idratati in cache
+            const result = await getRawMaterialByCode(trimmedCode);
+            if ('error' in result) {
+                toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+                setStep('initial');
             } else {
-                // Fallback to server if not in cache (could be a very new material)
-                const result = await getRawMaterialByCode(trimmedCode);
-                if ('error' in result) {
-                    toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-                    setStep('initial');
-                } else {
-                    setFoundMaterial(result);
-                    await fetchMaterialDetails(result);
-                    setStep('result');
-                }
+                setFoundMaterial(result);
+                await fetchMaterialDetails(result);
+                setStep('result');
             }
         }
         setIsSearching(false);
@@ -229,7 +223,7 @@ export default function MaterialCheckPage() {
         setMaterialMovements(combinedMovements);
     };
 
-    if (authLoading || isMasterLoading || !operator) {
+    if (authLoading || !operator) {
         return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
     }
     

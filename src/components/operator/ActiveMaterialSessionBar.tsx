@@ -34,6 +34,7 @@ import { useCameraStream } from '@/hooks/use-camera-stream';
 import { cn } from '@/lib/utils';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { hydrateMaterialWithWithdrawals, getLotResidualSummary, normStockLot } from '@/lib/stock-logic';
 import type { RawMaterial, RawMaterialBatch } from '@/types';
 
 const closingWeightSchema = z.object({
@@ -60,31 +61,27 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
     const fetchLiveBatch = useCallback(async () => {
         setIsLoadingLive(true);
         try {
-            // 1. Fetch fresh material data from Firestore
-            const matSnap = await getDoc(doc(db, "rawMaterials", session.materialId));
+            // 1. Fetch fresh material data + all withdrawals from Firestore for SSoT hydration
+            const [matSnap, withdrawals] = await Promise.all([
+                getDoc(doc(db, "rawMaterials", session.materialId)),
+                getMaterialWithdrawalsForMaterial(session.materialId),
+            ]);
             if (matSnap.exists()) {
-                const material = matSnap.data() as RawMaterial;
-                const batch = (material.batches || []).find(b => b.lotto === session.lotto);
-                
-                if (batch) {
-                    setLiveBatch(batch);
-                    
-                    // 2. Fetch all withdrawals for this specific lot (The SSoT Aggregation)
-                    const withdrawals = await getMaterialWithdrawalsForMaterial(session.materialId, session.lotto);
-                    
-                    // 3. Calculate total consumed based on UOM
-                    const totalConsumed = withdrawals.reduce((sum, w) => {
-                        return sum + (material.unitOfMeasure === 'kg' ? (w.consumedWeight || 0) : (w.consumedUnits || 0));
-                    }, 0);
+                const rawMaterial = { ...(matSnap.data() as RawMaterial), id: session.materialId };
+                const hydratedMaterial = hydrateMaterialWithWithdrawals(rawMaterial, withdrawals);
+                const summary = getLotResidualSummary(hydratedMaterial, session.lotto);
+                const normalizedTarget = normStockLot(session.lotto);
+                const batch = summary.matchingBatches[0] || (hydratedMaterial.batches || []).find(b => normStockLot(b.lotto) === normalizedTarget);
 
-                    // 4. Determine real residue: Initial Load - Sum of Withdrawals
-                    const residue = Math.max(0, (batch.netQuantity || 0) - totalConsumed);
-                    const grossExpected = Number((residue + (batch.tareWeight || 0)).toFixed(3));
-                    
-                    setCalculatedResidue(residue);
+                if (batch || summary.matchingBatches.length > 0) {
+                    setLiveBatch(batch || null);
+                    // Residuo SSoT derivato esclusivamente da currentQuantity/currentWeightKg idratati
+                    const residueKg = summary.availableWeightKg;
+                    const tare = batch?.tareWeight ?? (session.tareWeight || 0);
+                    const grossExpected = Number((residueKg + tare).toFixed(3));
+
+                    setCalculatedResidue(residueKg);
                     setCalculatedGrosExpected(grossExpected);
-                    
-                    // Reset form with the dynamic expected gross weight
                     form.reset({ closingWeight: grossExpected });
                 }
             }
@@ -93,7 +90,7 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
         } finally {
             setIsLoadingLive(false);
         }
-    }, [session.materialId, session.lotto, form]);
+    }, [session.materialId, session.lotto, session.tareWeight, form]);
 
     React.useEffect(() => {
         if (isOpen) {
@@ -104,8 +101,9 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
     const handleCloseSessionSubmit = async (values: ClosingWeightFormValues) => {
         if (!operator) return;
 
-        // Safety check using the live calculated gross
-        const maxLordo = (calculatedGrosExpected || liveBatch?.grossWeight || session.grossOpeningWeight) + 0.01;
+        // Safety check using the live calculated SSoT gross
+        const fallbackGross = ((liveBatch?.currentWeightKg ?? session.netOpeningWeight) + (liveBatch?.tareWeight ?? session.tareWeight ?? 0));
+        const maxLordo = (calculatedGrosExpected ?? fallbackGross) + 0.01;
 
         if (values.closingWeight > maxLordo) {
             form.setError("closingWeight", { type: "manual", message: "Il peso di chiusura non può essere maggiore di quello attuale." });
@@ -175,9 +173,9 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
     const currentTara = liveBatch?.tareWeight ?? (session.tareWeight || 0);
     const netCalculated = Math.max(0, currentGrossOnScale - currentTara);
 
-    const displayNetto = calculatedResidue ?? liveBatch?.netQuantity ?? session.netOpeningWeight;
+    const displayNetto = calculatedResidue ?? liveBatch?.currentWeightKg ?? session.netOpeningWeight;
     const displayTara = liveBatch?.tareWeight ?? session.tareWeight;
-    const displayLordo = calculatedGrosExpected ?? liveBatch?.grossWeight ?? session.grossOpeningWeight;
+    const displayLordo = calculatedGrosExpected ?? ((liveBatch?.currentWeightKg ?? session.netOpeningWeight) + (displayTara || 0));
     const displayTaraName = liveBatch?.tareName || (session.packagingId === 'none' ? 'Inesistente' : 'Bobina');
 
     return (

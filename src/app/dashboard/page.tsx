@@ -9,6 +9,7 @@ import DashboardItem from '@/components/dashboard/DashboardItem';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { expandOperatorDepartments } from '@/lib/utils';
 
 
 export default function DashboardPage() {
@@ -18,7 +19,7 @@ export default function DashboardPage() {
     if (!operator) return false;
     if (operator.role === 'supervisor' || operator.role === 'admin') return true;
     
-    const reparti = Array.isArray(operator.reparto) ? operator.reparto : [operator.reparto];
+    const reparti = expandOperatorDepartments(operator.reparto);
     return reparti.some(r => {
       const upperR = String(r || '').toUpperCase();
       return keywords.some(k => upperR.includes(k.toUpperCase()));

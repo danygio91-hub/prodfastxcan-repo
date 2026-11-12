@@ -36,7 +36,7 @@ import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { useMasterData } from '@/contexts/MasterDataProvider';
-import { cn } from '@/lib/utils';
+import { cn, expandOperatorDepartments } from '@/lib/utils';
 import MaterialAssociationDialog from './MaterialAssociationDialog';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -77,11 +77,14 @@ const PhaseCard = ({ phase, job, handlers, isGlobalProcessing }: { phase: JobPha
     const { globalSettings } = useMasterData();
     if (!operator) return null;
     const isSuper = operator.role === 'supervisor' || operator.role === 'admin';
-    const operatorReparti = operator.reparto || [];
+    const operatorReparti = expandOperatorDepartments(operator.reparto);
     
     const isExternal = globalSettings?.phaseTypes?.find(pt => pt.id === phase.type)?.isExternalRouting;
     
-    const hasPerm = isSuper || isExternal || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
+    const hasPerm = isSuper || isExternal || (phase.departmentCodes || []).some(dc => {
+      const upperDc = String(dc || '').toUpperCase().trim();
+      return operatorReparti.includes(dc) || operatorReparti.includes(upperDc);
+    });
     const isOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
     
     // START POLICY: Can start if ready (N started) OR if it's a prep phase
@@ -440,7 +443,11 @@ export default function ScanJobPage() {
     if (!activeJob || !operator || !phaseIdToPause) return;
     setIsPausing(true);
     try {
-        await handlePhasePause(activeJob.id, phaseIdToPause, operator.id, reason, notes);
+        const res = await handlePhasePause(activeJob.id, phaseIdToPause, operator.id, reason, notes);
+        if (res && res.success === false) {
+            toast({ variant: 'destructive', title: 'Attenzione', description: res.error || res.message || 'Errore durante la pausa della fase.' });
+            return;
+        }
         setIsPauseReasonDialogOpen(false);
         setPhaseIdToPause(null);
         triggerJobRefresh();
@@ -463,7 +470,11 @@ export default function ScanJobPage() {
             return;
         }
 
-        await handlePhaseScanResult(activeJob.id, id, operator.id, false);
+        const res = await handlePhaseScanResult(activeJob.id, id, operator.id, false);
+        if (res && res.success === false) {
+            toast({ variant: 'destructive', title: 'Attenzione', description: res.error || res.message || 'Impossibile avviare la fase.' });
+            return;
+        }
         triggerJobRefresh();
       } catch (error: any) {
         toast({ variant: 'destructive', title: 'Errore', description: error.message || 'Errore durante l\'avvio della fase.' });
@@ -477,7 +488,11 @@ export default function ScanJobPage() {
     if (!activeJob || !operator) return;
     setIsProcessingAction(true);
     try {
-        await handlePhaseScanResult(activeJob.id, id, operator.id, true);
+        const res = await handlePhaseScanResult(activeJob.id, id, operator.id, true);
+        if (res && res.success === false) {
+            toast({ variant: 'destructive', title: 'Attenzione', description: res.error || res.message || 'Impossibile completare la fase.' });
+            return;
+        }
         triggerJobRefresh();
         toast({ title: 'Fase Completata', description: 'La fase è stata chiusa correttamente.' });
     } catch (error: any) {
@@ -537,7 +552,11 @@ export default function ScanJobPage() {
           anomalyNote: note
         } : undefined;
 
-        await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, anomalyData);
+        const res = await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, anomalyData);
+        if (res && res.success === false) {
+            toast({ variant: 'destructive', title: 'Attenzione', description: res.error || res.message || 'Errore durante la dichiarazione qualità.' });
+            return;
+        }
         
         setIsQualityDialogOpen(false);
         setPhaseForDeclaration(null);
@@ -555,7 +574,11 @@ export default function ScanJobPage() {
     setIsDeclaring(true);
     
     try {
-        await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, undefined, items);
+        const res = await handlePhaseScanResult(activeJob.id, phaseForDeclaration.id, operator.id, true, undefined, items);
+        if (res && res.success === false) {
+            toast({ variant: 'destructive', title: 'Attenzione', description: res.error || res.message || 'Errore durante il salvataggio dell\'imballo.' });
+            return;
+        }
         
         setIsPackagingDialogOpen(false);
         setPhaseForDeclaration(null);
@@ -704,8 +727,9 @@ export default function ScanJobPage() {
                       {(() => {
                         if (!activeJob || !operator) return null;
                         
-                        const isMagOrQuality = (operator.reparto || []).some(r => 
-                          ['MAG', 'MAGAZZINO', 'COLLAUDO', 'QUALITA', 'QUALITÀ', 'QLTY', 'IMBALLO', 'PACK'].includes(r.toUpperCase())
+                        const expandedReparti = expandOperatorDepartments(operator.reparto);
+                        const isMagOrQuality = expandedReparti.some(r => 
+                          ['SUPPORT', 'MAG', 'MAGAZZINO', 'COLLAUDO', 'QUALITA', 'QUALITÀ', 'QLTY', 'IMBALLO', 'PACK', 'QLTY_PACK'].includes(r.toUpperCase())
                         );
                         
                         if (!isMagOrQuality && operator.role !== 'admin') return null;

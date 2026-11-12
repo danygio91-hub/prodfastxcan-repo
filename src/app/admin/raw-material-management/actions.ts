@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
+import { hydrateMaterialWithWithdrawals, extractHydratedLots, type HydratedLotInfo } from '@/lib/stock-logic';
 import type {
     RawMaterial,
     RawMaterialBatch,
@@ -1055,35 +1055,21 @@ export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[
     return fetchInChunks<RawMaterial>(adminDb.collection("rawMaterials"), "code", validCodes);
 }
 
-export type LotInfo = { lotto: string; available: number; batches: RawMaterialBatch[]; unit?: string };
+export type LotInfo = HydratedLotInfo;
 
 export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo[]> {
     const mSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
     if (!mSnap.exists) return [];
     
-    const matData = mSnap.data() as RawMaterial;
+    const matData = { id: mSnap.id, ...convertTimestampsToDates(mSnap.data()) } as RawMaterial;
     
     // Fetch withdrawals for hydration (SSoT)
     const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
-    const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
     const mat = hydrateMaterialWithWithdrawals(matData, withdrawals);
     
-    // Process hydrated batches
-    const activeBatches = (mat.batches || []).filter(b => !b.isExhausted && (b.netQuantity || 0) > 0.001);
-
-    const bByLotto = activeBatches.reduce((acc, b) => { 
-        const l = b.lotto || 'SENZA_LOTTO'; 
-        if (!acc[l]) acc[l] = []; 
-        acc[l].push(b); 
-        return acc; 
-    }, {} as Record<string, RawMaterialBatch[]>);
-
-    return Object.entries(bByLotto)
-        .map(([lotto, batches]) => { 
-            const totalAvailable = batches.reduce((s, b) => s + (b.netQuantity || 0), 0); 
-            return { lotto, available: totalAvailable, batches, unit: mat.unitOfMeasure }; 
-        })
-        .filter(l => l.available > 0.001);
+    // FASE 80: Popola available e availableWeightKg ESCLUSIVAMENTE dai residui vivi idratati (currentQuantity / currentWeightKg)
+    return JSON.parse(JSON.stringify(extractHydratedLots(mat)));
 }
 
 export async function adjustRawMaterialStock(materialId: string, newStockUnits: number) {

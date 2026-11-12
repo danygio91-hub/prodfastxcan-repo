@@ -525,6 +525,23 @@ export interface InventoryRecord {
   deltaApplied?: number;
   ledgerRefId?: string | null;
   ledgerActionType?: 'NONE' | 'ADD_BATCH' | 'WITHDRAWAL' | 'WRITE_OFF';
+  // FASE 77: Inventory Counting Session Fields
+  sessionId?: string | null;
+  sessionName?: string | null;
+}
+
+export interface InventoryCountingSession {
+  id: string;
+  name: string;
+  year: number;
+  status: 'open' | 'closed';
+  openedAt: string;
+  closedAt: string | null;
+  notes?: string;
+  createdBy?: string;
+  closedBy?: string;
+  isVirtual?: boolean;
+  recordCount?: number;
 }
 
 export interface ScrapRecord {

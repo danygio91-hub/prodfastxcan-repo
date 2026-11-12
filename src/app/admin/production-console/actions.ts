@@ -1171,8 +1171,8 @@ export async function reopenOperatorPhase(jobId: string, phaseId: string, operat
 
             t.update(adminDb.collection('operators').doc(operatorId), {
                 stato: 'in pausa',
-                activeJobId: jobId,
-                activePhaseName: phases[pIdx].name
+                activeJobId: (itemData as any).ordinePF || jobId,
+                activePhaseName: null
             });
         });
 

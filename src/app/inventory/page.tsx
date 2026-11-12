@@ -39,11 +39,12 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode } from '@/app/scan-job/actions';
 import {
+  getActiveInventoryCountingSession,
   getPackagingItems,
   registerInventoryBatch,
   searchInventoryMaterials,
 } from './actions';
-import type { RawMaterial, Packaging, UnitOfMeasure } from '@/types';
+import type { RawMaterial, Packaging, UnitOfMeasure, InventoryCountingSession } from '@/types';
 import {
   Warehouse,
   QrCode,
@@ -100,6 +101,7 @@ export default function InventoryPage() {
   const [step, setStep] = useState<Step>('scan_material');
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
+  const [activeSession, setActiveSession] = useState<InventoryCountingSession | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isLottoScanOpen, setIsLottoScanOpen] = useState(false);
 
@@ -203,6 +205,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);
+    getActiveInventoryCountingSession().then(setActiveSession);
   }, []);
 
   // Debounced manual search for materials & lots
@@ -346,6 +349,16 @@ export default function InventoryPage() {
       return;
     }
 
+    if (liveMetrics?.hasNegativeNetWarning) {
+      toast({
+        variant: 'destructive',
+        title: 'Peso Netto Negativo',
+        description:
+          'Il peso lordo inserito è inferiore alla tara selezionata. Correggi il peso o imposta 0 se il lotto è esaurito.',
+      });
+      return;
+    }
+
     setStep('saving');
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
@@ -401,10 +414,21 @@ export default function InventoryPage() {
       <AppShell>
         <div className="space-y-6 max-w-3xl mx-auto">
           <header className="space-y-2">
-            <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-              <Warehouse className="h-8 w-8 text-primary" />
-              Registrazione Inventario (SSoT)
-            </h1>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+                <Warehouse className="h-8 w-8 text-primary" />
+                Registrazione Inventario (SSoT)
+              </h1>
+              {activeSession ? (
+                <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 text-xs font-semibold">
+                  Campagna Attiva: {activeSession.name} ({activeSession.year})
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs px-3 py-1">
+                  Modalità: Rilevazione Libera
+                </Badge>
+              )}
+            </div>
             <p className="text-muted-foreground">
               Scansiona il QR/Barcode oppure cerca manualmente il materiale e il lotto per registrare la giacenza fisica rilevata.
             </p>
@@ -837,6 +861,16 @@ export default function InventoryPage() {
                       />
                     </div>
 
+                    {liveMetrics?.hasNegativeNetWarning && (
+                      <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Tara superiore al peso lordo</AlertTitle>
+                        <AlertDescription>
+                          Il peso lordo inserito è inferiore alla tara selezionata. Correggi il peso/imballo oppure premi &quot;Lotto Esaurito (0)&quot; se il lotto è terminato.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     {/* Riepilogo Calcolo Live: CountedUnits, NetWeight, e Delta rispetto a SSoT */}
                     <div className="p-4 rounded-xl border bg-muted/40 grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
@@ -898,7 +932,11 @@ export default function InventoryPage() {
                     </Button>
                     <Button
                       type="submit"
-                      disabled={liveMetrics === null || form.formState.isSubmitting}
+                      disabled={
+                        liveMetrics === null ||
+                        liveMetrics.hasNegativeNetWarning ||
+                        form.formState.isSubmitting
+                      }
                     >
                       {form.formState.isSubmitting ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

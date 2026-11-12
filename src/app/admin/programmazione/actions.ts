@@ -16,14 +16,14 @@ import {
 } from '@/app/admin/data-management/actions';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { getJobDisplayStatus, type JobDisplayStatus } from '@/lib/job-status';
+import { getJobDisplayStatus, rollbackLastCompletedPhase, type JobDisplayStatus } from '@/lib/job-status';
 import { convertTimestampsToDates, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId, serializeForClient } from '@/lib/utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
 import { getISOWeek, getISOWeekYear, format, addWeeks } from 'date-fns';
 import { generatePlanningExcelBuffer, type ExportJobData } from '@/lib/excel-export';
-import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
+import type { JobOrder, JobPhase, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
 export async function getJobOrders(): Promise<JobOrder[]> {
@@ -405,7 +405,7 @@ export async function startJobProduction(
 export async function updateJobExecutionStatus(
     jobId: string, 
     targetStatus: JobDisplayStatus
-): Promise<{ success: boolean; message: string; odlNumber?: string }> {
+): Promise<{ success: boolean; message: string; odlNumber?: string; updatedPhases?: JobPhase[]; updatedStatus?: string }> {
     try {
         const jobRef = adminDb.collection("jobOrders").doc(jobId);
         const jobSnap = await jobRef.get();
@@ -429,6 +429,7 @@ export async function updateJobExecutionStatus(
             const resetPhases = (job.phases || []).map(p => ({
                 ...p,
                 status: 'pending' as const,
+                forced: false,
                 workPeriods: [],
                 materialConsumptions: [],
                 qualityResult: null,
@@ -451,19 +452,28 @@ export async function updateJobExecutionStatus(
             revalidatePath('/admin/programmazione');
             revalidatePath('/admin/data-management');
             revalidatePath('/admin/production-console');
-            return { success: true, message: `Commessa ${job.ordinePF || jobId} riportata in pianificazione.` };
+            return {
+                success: true,
+                message: `Commessa ${job.ordinePF || jobId} riportata in pianificazione.`,
+                updatedPhases: serializeForClient(resetPhases),
+                updatedStatus: 'IN_PIANIFICAZIONE'
+            };
         }
 
         // 2. STATO: IN PRODUZIONE
         if (targetStatus === 'In Produzione') {
-            const isBacklogPlanned = [
+            const hasAnyPhaseActiveOrDone = (job.phases || []).some(
+                p => p.status === 'in-progress' || p.status === 'completed'
+            );
+            const isBacklogPlanned = !hasAnyPhaseActiveOrDone && (!currentStatusLower || [
+                'pending',
                 'planned', 
                 'in_attesa', 
                 'in pianificazione', 
                 'in_pianificazione', 
                 'pianificata', 
                 'pianificato'
-            ].includes(currentStatusLower);
+            ].includes(currentStatusLower));
 
             if (isBacklogPlanned) {
                 // Avvia tramite createODL (genera ODL e verifica distinte)
@@ -476,13 +486,20 @@ export async function updateJobExecutionStatus(
                 return { 
                     success: true, 
                     message: res.message, 
-                    odlNumber: refreshedData?.numeroODLInterno || undefined 
+                    odlNumber: refreshedData?.numeroODLInterno || undefined,
+                    updatedPhases: refreshedData?.phases ? serializeForClient(refreshedData.phases) : undefined,
+                    updatedStatus: refreshedData?.status || 'DA_INIZIARE'
                 };
             } else {
-                // Riapertura da completata o spedita
+                // FASE 78: Riapertura da stato chiuso/completato (FINE_PRODUZIONE, QLTY_PACK, SPEDITO, CHIUSO, completed, ecc.)
+                // Rollback dell'ultima fase completata (es. Imballo/Collaudo/Fine Linea) a 'pending' (es. da 10/10 a 9/10)
+                const { updatedPhases } = rollbackLastCompletedPhase(job.phases || []);
+                const nextRawStatus = 'IN_PRODUZIONE';
+
                 const batch = adminDb.batch();
                 batch.update(jobRef, {
-                    status: 'DA_INIZIARE',
+                    status: nextRawStatus,
+                    phases: updatedPhases,
                     forcedCompletion: admin.firestore.FieldValue.delete(),
                     overallEndTime: admin.firestore.FieldValue.delete(),
                     packingListId: admin.firestore.FieldValue.delete(),
@@ -490,8 +507,14 @@ export async function updateJobExecutionStatus(
                 });
                 await batch.commit();
                 revalidatePath('/admin/programmazione');
+                revalidatePath('/admin/data-management');
                 revalidatePath('/admin/production-console');
-                return { success: true, message: `Commessa ${job.ordinePF || jobId} riaperta in produzione.` };
+                return {
+                    success: true,
+                    message: `Commessa ${job.ordinePF || jobId} riaperta in produzione.`,
+                    updatedPhases: serializeForClient(updatedPhases),
+                    updatedStatus: nextRawStatus
+                };
             }
         }
 
@@ -531,7 +554,12 @@ export async function updateJobExecutionStatus(
             await batch.commit();
             revalidatePath('/admin/programmazione');
             revalidatePath('/admin/production-console');
-            return { success: true, message: `Commessa ${job.ordinePF || jobId} completata con successo.` };
+            return {
+                success: true,
+                message: `Commessa ${job.ordinePF || jobId} completata con successo.`,
+                updatedPhases: serializeForClient(updatedPhases),
+                updatedStatus: 'completed'
+            };
         }
 
         // 4. STATO: SPEDITO
@@ -572,7 +600,12 @@ export async function updateJobExecutionStatus(
             revalidatePath('/admin/programmazione');
             revalidatePath('/admin/production-console');
             revalidatePath('/operator/packing');
-            return { success: true, message: `Commessa ${job.ordinePF || jobId} contrassegnata come spedita.` };
+            return {
+                success: true,
+                message: `Commessa ${job.ordinePF || jobId} contrassegnata come spedita.`,
+                updatedPhases: serializeForClient(updatedPhases),
+                updatedStatus: 'SPEDITA'
+            };
         }
 
         return { success: false, message: `Stato non riconosciuto: ${targetStatus}` };

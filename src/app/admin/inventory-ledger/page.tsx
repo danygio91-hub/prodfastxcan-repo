@@ -1,6 +1,6 @@
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { getInventoryLedgerData } from './actions';
+import { getInventoryLedgerData, type InventoryLedgerPageData } from './actions';
 import InventoryLedgerClientPage from './InventoryLedgerClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -8,7 +8,31 @@ import { Loader2 } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function InventoryLedgerPage() {
-  const initialData = await getInventoryLedgerData();
+  let initialData: InventoryLedgerPageData = {
+    sessions: [
+      {
+        id: 'VIRTUAL_2025',
+        name: 'Storico Inventario 2025',
+        year: 2025,
+        status: 'closed',
+        openedAt: '2025-01-01T00:00:00.000Z',
+        closedAt: '2025-12-31T23:59:59.999Z',
+        isVirtual: true,
+        recordCount: 0,
+      },
+    ],
+    defaultSessionId: 'VIRTUAL_2025',
+    baseLots: [],
+    allActiveLots: [],
+    unscannedLots: [],
+    records: [],
+  };
+
+  try {
+    initialData = await getInventoryLedgerData();
+  } catch (error) {
+    console.error('Errore caricamento iniziale InventoryLedgerPage:', error);
+  }
 
   return (
     <AdminAuthGuard>

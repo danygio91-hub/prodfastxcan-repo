@@ -228,3 +228,72 @@ export function formatToDateInputMask(value: string): string {
     return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
 }
 
+export const SUPPORT_EXPANDED_DEPARTMENTS = [
+    'SUPPORT',
+    'MAG',
+    'MAGAZZINO',
+    'QLTY',
+    'QUALITA',
+    'QUALITÀ',
+    'COLLAUDO',
+    'PACK',
+    'IMBALLO',
+    'QLTY_PACK',
+] as const;
+
+/**
+ * FASE 76: Espande sempre il reparto 'SUPPORT' in
+ * ['SUPPORT', 'MAG', 'MAGAZZINO', 'QLTY', 'QUALITA', 'QUALITÀ', 'COLLAUDO', 'PACK', 'IMBALLO', 'QLTY_PACK'].
+ */
+export function expandOperatorDepartments(reparti?: string[] | string | null): string[] {
+    const rawList = Array.isArray(reparti)
+        ? reparti
+        : typeof reparti === 'string' && reparti.trim() !== ''
+          ? [reparti]
+          : [];
+
+    const expanded = new Set<string>();
+    for (const r of rawList) {
+        const clean = String(r ?? '').trim();
+        if (!clean) continue;
+        expanded.add(clean);
+        const upper = clean.toUpperCase();
+        expanded.add(upper);
+        if (upper === 'SUPPORT') {
+            for (const d of SUPPORT_EXPANDED_DEPARTMENTS) {
+                expanded.add(d);
+            }
+        }
+    }
+    return Array.from(expanded);
+}
+
+/**
+ * FASE 76: Normalizza gli ID commessa (jobId, doc.id, ordinePF) in modo case-insensitive
+ * ignorando la differenza tra '/' e '-', i suffissi anno '_YYYY' e i punti legacy.
+ */
+export function normalizeJobIdForComparison(id?: string | null): string {
+    if (!id) return '';
+    return String(id)
+        .trim()
+        .toUpperCase()
+        .replace(/\//g, '-')
+        .replace(/_\d{4}$/, '');
+}
+
+export function areJobIdsEquivalent(a?: string | null, b?: string | null): boolean {
+    if (!a || !b) return false;
+    const rawA = String(a).trim().toUpperCase().replace(/\//g, '-');
+    const rawB = String(b).trim().toUpperCase().replace(/\//g, '-');
+    if (rawA === rawB) return true;
+
+    const normA = normalizeJobIdForComparison(a);
+    const normB = normalizeJobIdForComparison(b);
+    if (normA && normA === normB) return true;
+
+    const legacyA = normA.replace(/[\.#$\[\]]/g, '');
+    const legacyB = normB.replace(/[\.#$\[\]]/g, '');
+    return Boolean(legacyA && legacyA === legacyB);
+}
+
+

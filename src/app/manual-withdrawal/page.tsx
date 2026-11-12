@@ -20,8 +20,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { logManualWithdrawal } from './actions';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
-import { closeMaterialSessionAndUpdateStock, getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
-import { getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
+import { closeMaterialSessionAndUpdateStock, getRawMaterialByCode, findLastWeightForLotto, getLotInfoForMaterial } from '@/app/scan-job/actions';
+import { extractHydratedLots, normStockLot, previewWithdrawalImpact, type HydratedLotInfo as LotInfo } from '@/lib/stock-logic';
+import { WithdrawalLivePreviewCard } from '@/components/operator/WithdrawalLivePreviewCard';
 import type { RawMaterial, ActiveMaterialSessionData } from '@/types';
 
 import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info, PlayCircle, Weight, X, Lock, CheckCircle2, AlertCircle, Edit3 } from 'lucide-react';
@@ -73,6 +74,7 @@ export default function ManualWithdrawalPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [useSession, setUseSession] = useState(false);
+  const [packagingItems, setPackagingItems] = useState<any[]>([]);
 
 
   const { activeSessions, startSession, closeSession, getSessionByMaterialId } = useActiveMaterialSession();
@@ -93,6 +95,13 @@ export default function ManualWithdrawalPage() {
 
   const lottoValue = form.watch('lotto');
   const packagingIdValue = form.watch('packagingId');
+  const quantityValue = form.watch('quantity');
+
+  const isKgMode = scannedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
+  const tareWeight = useMemo(() => {
+    const selectedPackaging = packagingItems.find(p => p.id === packagingIdValue);
+    return selectedPackaging?.weightKg || 0;
+  }, [packagingItems, packagingIdValue]);
 
   const {
       isLoading: isLoadingLots,
@@ -106,10 +115,29 @@ export default function ManualWithdrawalPage() {
   } = useBatchSelection({
       form,
       materialId: scannedMaterial?.id,
+      hydratedMaterial: scannedMaterial,
+      selectedTareKg: tareWeight,
       quantityFieldName: 'quantity',
       packagingFieldName: 'packagingId',
       autoFillQuantity: useSession // Flusso A: Sessione (Auto-compila peso noto) | Flusso B: Manuale (Vuoto)
   });
+
+  const hasScaleInput = quantityValue !== undefined && quantityValue !== null && String(quantityValue).trim() !== '';
+  const effectiveNet = hasScaleInput ? calculatedNet : (lotAvailability?.available || 0);
+  const expectedGross = effectiveNet + tareWeight;
+
+  const withdrawalPreview = useMemo(() => {
+    if (!scannedMaterial || !lotAvailability || useSession) return null;
+    return previewWithdrawalImpact({
+      availableUnits: lotAvailability.available,
+      rawInput: quantityValue,
+      isScaleMode: isKgMode,
+      tareKg: tareWeight,
+      unitOfMeasure: scannedMaterial.unitOfMeasure,
+      conversionFactor: scannedMaterial.conversionFactor,
+      rapportoKgMt: scannedMaterial.rapportoKgMt,
+    });
+  }, [scannedMaterial, lotAvailability, useSession, quantityValue, isKgMode, tareWeight]);
 
 
   useEffect(() => {
@@ -244,16 +272,23 @@ export default function ManualWithdrawalPage() {
       return;
     }
 
+    if (!isFinished && withdrawalPreview?.isOverdraw) {
+      toast({
+        variant: 'destructive',
+        title: "Quantità superiore alla giacenza",
+        description: withdrawalPreview.errorMessage || "Lo scarico supera la giacenza residua disponibile del lotto."
+      });
+      setIsSubmitting(false);
+      return;
+    }
+
     let finalQty = values.quantity || 0;
     let finalUnit = scannedMaterial.unitOfMeasure;
 
     if (isKgMode && lotAvailability) {
-      // In SCALE mode, effectiveNet is what is LEFT on the scale.
-      // The withdrawal is the DIFFERENCE.
-      const currentAvail = lotAvailability.available;
-      const remaining = effectiveNet;
-      const consumed = Math.max(0, currentAvail - remaining);
-      
+      // In SCALE mode, withdrawalPreview computes delta between current availability and remaining scale net.
+      const consumed = withdrawalPreview ? withdrawalPreview.withdrawalUnits : Math.max(0, lotAvailability.available - effectiveNet);
+
       finalQty = consumed;
       finalUnit = scannedMaterial.unitOfMeasure; // USE BASE UOM (n, mt), NOT kg
       
@@ -284,11 +319,12 @@ export default function ManualWithdrawalPage() {
     });
 
     if (result.success) {
+      const freshMaterial = result.hydratedMaterial || result.updatedMaterial;
       if (isFinished) {
           resetFlow();
-      } else if (result.updatedMaterial) {
-          setScannedMaterial(result.updatedMaterial);
-          getLotInfoForMaterial(result.updatedMaterial.id).then(setAllLots);
+      } else if (freshMaterial) {
+          setScannedMaterial(freshMaterial);
+          setAllLots(extractHydratedLots(freshMaterial));
           form.setValue('quantity', undefined);
       } else {
           resetFlow();
@@ -309,12 +345,10 @@ export default function ManualWithdrawalPage() {
     });
   };
 
-
-  const [packagingItems, setPackagingItems] = useState<any[]>([]);
-
   useEffect(() => {
      if (scannedMaterial) {
-        getLotInfoForMaterial(scannedMaterial.id).then(setAllLots);
+        setAllLots(extractHydratedLots(scannedMaterial));
+        getLotInfoForMaterial(scannedMaterial.id).then(setAllLots).catch(console.error);
      }
   }, [scannedMaterial]);
 
@@ -453,15 +487,6 @@ export default function ManualWithdrawalPage() {
     </DialogContent>
   );
 
-  const isKgMode = scannedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
-  const selectedPackaging = packagingItems.find(p => p.id === packagingIdValue);
-  const tareWeight = selectedPackaging?.weightKg || 0;
-  // Use calculated net from hook
-  const effectiveNet = calculatedNet > 0 ? calculatedNet : (lotAvailability?.available || 0);
-  const expectedGross = effectiveNet + tareWeight;
-
-
-
   if (authLoading || !operator) {
     return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
   }
@@ -558,14 +583,16 @@ export default function ManualWithdrawalPage() {
                           </div>
                           <ScrollArea className="h-36 border-2 rounded-2xl bg-muted/20 border-muted p-1">
                               <div className="grid grid-cols-1 gap-1">
-                                  {allLots.length > 0 ? allLots.map(lot => (
+                                  {allLots.length > 0 ? allLots.map(lot => {
+                                      const isSelectedLot = normStockLot(lot.lotto) === normStockLot(lottoValue);
+                                      return (
                                       <Button 
                                         key={lot.lotto}
                                         type="button"
-                                        variant={lot.lotto === lottoValue ? "default" : "ghost"}
+                                        variant={isSelectedLot ? "default" : "ghost"}
                                         className={cn(
                                             "justify-between h-10 px-4 rounded-xl border-transparent",
-                                            lot.lotto === lottoValue && "border-primary shadow-md"
+                                            isSelectedLot && "border-primary shadow-md"
                                         )}
                                         onClick={() => {
                                           form.setValue('lotto', lot.lotto);
@@ -580,7 +607,8 @@ export default function ManualWithdrawalPage() {
                                               {formatDisplayStock(lot.available, scannedMaterial.unitOfMeasure)}
                                           </div>
                                       </Button>
-                                  )) : !isLoadingLots && (
+                                      );
+                                  }) : !isLoadingLots && (
                                       <div className="flex flex-col items-center justify-center h-24 text-center">
                                           <Package className="h-8 w-8 text-muted-foreground/30 mb-2" />
                                           <p className="text-[10px] text-muted-foreground font-bold uppercase">Nessun lotto attivo</p>
@@ -795,6 +823,14 @@ export default function ManualWithdrawalPage() {
                                 />
                             </div>
 
+                            {!useSession && scannedMaterial && (
+                              <WithdrawalLivePreviewCard
+                                preview={withdrawalPreview}
+                                unitOfMeasure={scannedMaterial.unitOfMeasure}
+                                isScaleMode={isKgMode}
+                              />
+                            )}
+
                             <FormField
                               control={form.control}
                               name="notes"
@@ -836,7 +872,13 @@ export default function ManualWithdrawalPage() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                             <Button 
                                 type="submit" 
-                                disabled={isSubmitting} 
+                                disabled={
+                                    isSubmitting ||
+                                    (!useSession && (
+                                        withdrawalPreview?.isOverdraw === true ||
+                                        (isKgMode && !!lotAvailability && (withdrawalPreview?.withdrawalUnits ?? 0) <= 0.001)
+                                    ))
+                                } 
                                 className="w-full h-16 text-xl font-black uppercase tracking-tighter rounded-2xl shadow-xl shadow-primary/20"
                             >
                                 {isSubmitting ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : (useSession ? <PlayCircle className="mr-2 h-6 w-6" /> : <Send className="mr-2 h-6 w-6" />)}

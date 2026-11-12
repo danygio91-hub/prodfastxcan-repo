@@ -33,4 +33,16 @@ if (!admin.apps.length) {
 }
 
 export const adminDb = admin.firestore();
+
+// FASE 76: Configurazione idempotente e sicura di ignoreUndefinedProperties su Firestore Admin SDK
+if (!(globalThis as any).__firestoreAdminSettingsApplied) {
+  try {
+    adminDb.settings({ ignoreUndefinedProperties: true });
+    (globalThis as any).__firestoreAdminSettingsApplied = true;
+  } catch {
+    // Se Firestore è già stato inizializzato e utilizzato nel processo, ignora silenziosamente l'errore
+    (globalThis as any).__firestoreAdminSettingsApplied = true;
+  }
+}
+
 export const adminAuth = admin.auth();

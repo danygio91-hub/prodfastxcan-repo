@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { STATUS_WEIGHTS, getJobStatusPriority, defaultJobStatusComparator } from './job-sorting';
-import type { JobOrder } from '@/types';
+import { getDerivedJobStatus, getJobDisplayStatus, rollbackLastCompletedPhase } from './job-status';
+import type { JobOrder, JobPhase } from '@/types';
 
 describe('FASE 71: Ordinamento Gerarchico Automatico Stato Commessa', () => {
   const makeJob = (overrides: Partial<JobOrder>): JobOrder => ({
@@ -116,4 +117,67 @@ describe('FASE 71: Ordinamento Gerarchico Automatico Stato Commessa', () => {
       expect(list.map((j) => j.id)).toEqual(['b', 'a']);
     });
   });
+
+  describe('FASE 78: Rollback ultima fase e riapertura commessa da Completato Prod. a In Produzione', () => {
+    const createTenCompletedPhases = (): JobPhase[] =>
+      Array.from({ length: 10 }, (_, idx) => {
+        const seq = idx + 1;
+        const type: JobPhase['type'] =
+          seq <= 2 ? 'preparation' : seq <= 8 ? 'production' : seq === 9 ? 'quality' : 'packaging';
+        return {
+          id: `phase-${seq}`,
+          name: seq === 10 ? 'Imballo Finale' : seq === 9 ? 'Collaudo' : `Fase ${seq}`,
+          type,
+          status: 'completed' as const,
+          forced: true,
+          sequence: seq,
+          materialReady: true,
+          workPeriods: [],
+          materialConsumptions: [],
+          departmentCodes: ['REP'],
+          endDate: '2026-11-12T10:00:00.000Z',
+          completedAt: '2026-11-12T10:00:00.000Z',
+        } as JobPhase & { endDate?: string; completedAt?: string };
+      });
+
+    it('riporta l’ultima fase completata (10/10 -> 9/10) a pending, rimuove endDate/completedAt e mantiene In Produzione senza ri-forzare Completato Prod.', () => {
+      const closedJob = makeJob({
+        id: 'job-closed-10',
+        status: 'completed',
+        forcedCompletion: true,
+        phases: createTenCompletedPhases(),
+      });
+
+      expect(getJobDisplayStatus(closedJob)).toBe('Completato Prod.');
+      expect(getDerivedJobStatus(closedJob)).toBe('CHIUSO');
+
+      const { updatedPhases, rolledBackPhaseId, rolledBackPhaseName, hasAnyCompletedRemaining } =
+        rollbackLastCompletedPhase(closedJob.phases);
+
+      expect(rolledBackPhaseId).toBe('phase-10');
+      expect(rolledBackPhaseName).toBe('Imballo Finale');
+      expect(hasAnyCompletedRemaining).toBe(true);
+
+      const completedCount = updatedPhases.filter((p) => p.status === 'completed').length;
+      expect(completedCount).toBe(9);
+      expect(updatedPhases[9].status).toBe('pending');
+      expect(updatedPhases[9].forced).toBe(false);
+      expect((updatedPhases[9] as any).endDate).toBeUndefined();
+      expect((updatedPhases[9] as any).completedAt).toBeUndefined();
+
+      const reopenedJob: JobOrder = {
+        ...closedJob,
+        status: 'IN_PRODUZIONE',
+        forcedCompletion: false,
+        overallEndTime: undefined,
+        packingListId: undefined,
+        phases: updatedPhases,
+      };
+
+      expect(getDerivedJobStatus(reopenedJob)).toBe('IN_PRODUZIONE');
+      expect(getJobDisplayStatus(reopenedJob)).toBe('In Produzione');
+      expect(getJobStatusPriority(reopenedJob)).toBe(3);
+    });
+  });
 });
+

@@ -12,7 +12,8 @@ import { useCameraStream } from '@/hooks/use-camera-stream';
 import type { JobOrder, JobPhase, RawMaterial, ActiveMaterialSessionData, RawMaterialType, Packaging, MaterialConsumption, IndependentMaterialSession } from '@/types';
 import { findLastWeightForLotto, logTubiGuainaWithdrawal, getRawMaterialByCode, markPhaseMaterialReady } from './actions';
 import { getPackagingItems } from '../inventory/actions';
-import { getLotInfoForMaterial, type LotInfo } from '../admin/raw-material-management/actions';
+import { extractHydratedLots, normStockLot, previewWithdrawalImpact } from '@/lib/stock-logic';
+import { WithdrawalLivePreviewCard } from '@/components/operator/WithdrawalLivePreviewCard';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
@@ -87,6 +88,20 @@ export default function MaterialAssociationDialog({
 
   const selectedMaterial = form.watch('material');
   const lottoValue = form.watch('lotto');
+  const watchedPackagingId = form.watch('packagingId');
+  const watchedQuantityToWithdraw = form.watch('quantityToWithdraw');
+
+  useEffect(() => {
+    if (isOpen && packagingItems.length === 0) {
+      getPackagingItems().then(setPackagingItems).catch(console.error);
+    }
+  }, [isOpen, packagingItems.length]);
+
+  const tare = useMemo(() => {
+    const selectedPackaging = packagingItems.find(p => p.id === watchedPackagingId);
+    return selectedPackaging?.weightKg || 0;
+  }, [packagingItems, watchedPackagingId]);
+
   const isBobina = useMemo(() => (phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0') && selectedMaterial?.unitOfMeasure !== 'n', [phase.name, selectedMaterial]);
 
   const bomRequirement = useMemo(() => {
@@ -107,20 +122,34 @@ export default function MaterialAssociationDialog({
   } = useBatchSelection({
       form,
       materialId: selectedMaterial?.id,
+      hydratedMaterial: selectedMaterial,
+      selectedTareKg: tare,
       quantityFieldName: isBobina ? 'openingWeightManual' : 'quantityToWithdraw',
       packagingFieldName: 'packagingId',
       autoFillQuantity: (selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg') // Only auto-fill for Kg (scale weight)
   });
 
   const isKgMode = selectedMaterial?.unitOfMeasure === 'kg' || inputUnit === 'kg';
-  const effectiveNet = (calculatedNet > 0) ? calculatedNet : (lotAvailability?.available || 0);
+  const hasScaleInput = watchedQuantityToWithdraw !== undefined && watchedQuantityToWithdraw !== null && String(watchedQuantityToWithdraw).trim() !== '';
+  const effectiveNet = hasScaleInput ? calculatedNet : (lotAvailability?.available || 0);
 
-  const fifoBatches = useMemo(() => {
-    if (!selectedMaterial?.batches) return [];
-    return [...selectedMaterial.batches]
-      .filter(b => !b.isExhausted && (b.currentQuantity || 0) > 0.001)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [selectedMaterial?.batches]);
+  const hydratedLots = useMemo(() => {
+    if (!selectedMaterial) return [];
+    return extractHydratedLots(selectedMaterial);
+  }, [selectedMaterial]);
+
+  const withdrawalPreview = useMemo(() => {
+    if (!selectedMaterial || !lotAvailability || isBobina) return null;
+    return previewWithdrawalImpact({
+      availableUnits: lotAvailability.available,
+      rawInput: watchedQuantityToWithdraw,
+      isScaleMode: isKgMode,
+      tareKg: tare,
+      unitOfMeasure: selectedMaterial.unitOfMeasure,
+      conversionFactor: selectedMaterial.conversionFactor,
+      rapportoKgMt: selectedMaterial.rapportoKgMt,
+    });
+  }, [selectedMaterial, lotAvailability, isBobina, watchedQuantityToWithdraw, isKgMode, tare]);
 
   // Split-Picking Pre-fill Logic (Non-KG Mode)
   useEffect(() => {
@@ -258,6 +287,23 @@ export default function MaterialAssociationDialog({
   };
     const onPrelevaMateriale = async (values: FormValues, isFinished: boolean = false) => {
       if (!selectedMaterial || !job || !operator || (!values.quantityToWithdraw && !isFinished)) return;
+      if (!isFinished && withdrawalPreview?.isOverdraw) {
+          toast({ variant: 'destructive', title: 'Quantità superiore alla giacenza', description: withdrawalPreview.errorMessage || 'Lo scarico supera la disponibilità attuale del lotto.' });
+          return;
+      }
+
+      let finalQty = values.quantityToWithdraw || 0;
+      let finalUnit = selectedMaterial.unitOfMeasure;
+
+      if (!isFinished && isKgMode && lotAvailability && withdrawalPreview) {
+          if (withdrawalPreview.withdrawalUnits <= 0.001) {
+              toast({ variant: 'destructive', title: 'Nessun Prelievo', description: 'Il peso residuo inserito coincide con la giacenza attuale o la supera.' });
+              return;
+          }
+          finalQty = withdrawalPreview.withdrawalUnits;
+          finalUnit = selectedMaterial.unitOfMeasure;
+      }
+
       setIsProcessing(true);
       const formData = new FormData();
       formData.append('materialId', selectedMaterial.id);
@@ -265,8 +311,8 @@ export default function MaterialAssociationDialog({
       formData.append('jobId', job.id);
       formData.append('jobOrderPF', job.ordinePF);
       formData.append('phaseId', phase.id);
-      formData.append('quantity', String(isKgMode ? effectiveNet : (values.quantityToWithdraw || 0)));
-      formData.append('unit', isKgMode ? 'kg' : selectedMaterial.unitOfMeasure);
+      formData.append('quantity', String(isFinished ? (lotAvailability?.available || finalQty) : finalQty));
+      formData.append('unit', finalUnit);
       formData.append('lotto', values.lotto || '');
       
       const result = await logTubiGuainaWithdrawal(formData, isFinished);
@@ -276,6 +322,10 @@ export default function MaterialAssociationDialog({
           variant: result.success ? 'default' : 'destructive',
       });
       if (result.success) {
+          if (result.hydratedMaterial) {
+              form.setValue('material', result.hydratedMaterial);
+          }
+          form.setValue('quantityToWithdraw', undefined);
           onWithdrawalComplete();
       }
       setIsProcessing(false);
@@ -322,8 +372,6 @@ export default function MaterialAssociationDialog({
   );
 
   const renderForm = () => {
-    const selectedPackaging = packagingItems.find(p => p.id === form.watch('packagingId'));
-    const tare = selectedPackaging?.weightKg || 0;
     const expectedGross = effectiveNet + tare;
 
 
@@ -478,20 +526,20 @@ export default function MaterialAssociationDialog({
                         </FormItem>
                     )}/>
 
-                    {fifoBatches.length > 0 && (
+                    {hydratedLots.length > 0 && (
                         <div className="space-y-2">
                             <Label className="font-black text-[9px] uppercase text-muted-foreground flex items-center gap-2">
-                                <Boxes className="h-3 w-3" /> Lotti Disponibili ({fifoBatches.length})
+                                <Boxes className="h-3 w-3" /> Lotti Disponibili ({hydratedLots.length})
                             </Label>
                             <ScrollArea className="h-28 border-2 rounded-xl p-1 bg-muted/30 border-muted">
                                 <div className="grid grid-cols-1 gap-1">
-                                    {fifoBatches.map((b, idx) => {
-                                        const availableQty = b.currentQuantity || 0;
+                                    {hydratedLots.map((lot, idx) => {
+                                        const availableQty = lot.available;
                                         const isOldest = idx === 0;
-                                        const isSelected = lottoValue === b.lotto;
+                                        const isSelected = normStockLot(lottoValue) === normStockLot(lot.lotto);
                                         return (
                                             <Button 
-                                                key={b.id || b.lotto || idx}
+                                                key={lot.lotto || idx}
                                                 type="button"
                                                 variant={isSelected ? "default" : "ghost"}
                                                 size="sm"
@@ -500,12 +548,12 @@ export default function MaterialAssociationDialog({
                                                     isSelected ? "border-primary" : "border-transparent hover:bg-primary/5",
                                                     isOldest && !isSelected && "border-green-500/20 bg-green-500/5 text-green-700"
                                                 )}
-                                                onClick={() => form.setValue('lotto', b.lotto || '')}
+                                                onClick={() => form.setValue('lotto', lot.lotto || '')}
 
                                             >
                                                 <div className="flex items-center gap-2">
                                                     <Barcode className="h-3 w-3 opacity-50" />
-                                                    {b.lotto || 'Senza Lotto'}
+                                                    {lot.lotto || 'Senza Lotto'}
                                                     {isOldest && <Badge className="text-[7px] h-3 px-1 bg-green-500 font-black">FIFO</Badge>}
                                                 </div>
                                                 <div className="text-[10px] font-mono opacity-80">
@@ -607,6 +655,11 @@ export default function MaterialAssociationDialog({
                                         <FormMessage/>
                                     </FormItem>
                                 )}/>
+                                <WithdrawalLivePreviewCard
+                                    preview={withdrawalPreview}
+                                    unitOfMeasure={selectedMaterial.unitOfMeasure}
+                                    isScaleMode={isKgMode}
+                                />
                             </div>
                         )}
                     </div>
@@ -625,7 +678,14 @@ export default function MaterialAssociationDialog({
                     <Button 
                         type="button" 
                         onClick={form.handleSubmit((v) => onPrelevaMateriale(v, false))} 
-                        disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} 
+                        disabled={
+                            !selectedMaterial ||
+                            isProcessing ||
+                            watchedQuantityToWithdraw === undefined ||
+                            watchedQuantityToWithdraw === null ||
+                            withdrawalPreview?.isOverdraw === true ||
+                            (isKgMode && !!lotAvailability && (withdrawalPreview?.withdrawalUnits ?? 0) <= 0.001)
+                        } 
                         className="w-full h-14 text-lg font-black uppercase tracking-tighter rounded-xl"
                     >
                         {isProcessing ? <Loader2 className="mr-2 h-5 w-5 animate-spin"/> : <Send className="mr-2 h-5 w-5" />}

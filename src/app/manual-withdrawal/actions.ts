@@ -8,7 +8,8 @@ import { revalidatePath } from 'next/cache';
 
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
-import { recalculateMaterialStock } from '@/lib/stock-sync';
+import { hydrateMaterialWithWithdrawals, getLotResidualSummary, normStockLot } from '@/lib/stock-logic';
+import { convertTimestampsToDates } from '@/lib/utils';
 
 const manualWithdrawalSchema = z.object({
   materialId: z.string(),
@@ -24,7 +25,7 @@ const manualWithdrawalSchema = z.object({
 
 export async function logManualWithdrawal(
   data: z.infer<typeof manualWithdrawalSchema>
-): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial }> {
+): Promise<{ success: boolean; message: string; hydratedMaterial?: RawMaterial; updatedMaterial?: RawMaterial }> {
   const validated = manualWithdrawalSchema.safeParse(data);
   if (!validated.success) return { success: false, message: 'Dati non validi.' };
   
@@ -36,6 +37,7 @@ export async function logManualWithdrawal(
   
   try {
     const globalSettings = await getGlobalSettings();
+    let hydratedAfter: RawMaterial | undefined;
     
     await adminDb.runTransaction(async (transaction) => {
         const materialRef = adminDb.collection("rawMaterials").doc(materialId);
@@ -45,20 +47,20 @@ export async function logManualWithdrawal(
         ]);
         
         if (!materialDoc.exists) throw new Error("Materiale non trovato.");
-        const material = materialDoc.data() as RawMaterial;
-        const withdrawals = withdrawalsSnap.docs.map(d => d.data());
+        const material = { id: materialDoc.id, ...convertTimestampsToDates(materialDoc.data()) } as RawMaterial;
+        const withdrawals = withdrawalsSnap.docs.map(d => ({ id: d.id, ...convertTimestampsToDates(d.data()) }));
         
+        // FASE 80: Idratazione SSoT prima del calcolo isFinished per leggere sempre currentQuantity residuo reale
+        const hydratedPre = hydrateMaterialWithWithdrawals(material, withdrawals as any);
+        const targetLottoStr = lotto ? String(lotto) : '';
+        const residual = targetLottoStr ? getLotResidualSummary(hydratedPre, targetLottoStr) : null;
+        const canonicalLotto = residual?.matchingBatches[0]?.lotto || (targetLottoStr || undefined);
+
         let qtyToUse = quantity;
-        if (isFinished && lotto) {
-            const batch = (material.batches || []).find(b => b.lotto === lotto);
-            if (batch) {
-                // In a Lot-Centric model with Live Aggregation, we must deduct already registered withdrawals
-                const withdrawn = withdrawals
-                    .filter(w => w.lotto === lotto && w.status !== 'cancelled')
-                    .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
-                
-                qtyToUse = Math.max(0, (batch.netQuantity || 0) - withdrawn);
-            }
+        let unitToUse = unit;
+        if (isFinished && targetLottoStr) {
+            qtyToUse = Math.max(0, residual?.availableUnits ?? 0);
+            unitToUse = material.unitOfMeasure;
         }
 
         const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
@@ -72,20 +74,20 @@ export async function logManualWithdrawal(
             material,
             config,
             qtyToUse,
-            unit as any,
+            unitToUse as any,
             false, 
-            lotto,
+            canonicalLotto,
             withdrawals
         );
 
+        let finalBatches = updatedBatches;
         const updates: any = {};
         if (isFinished && usedLotto) {
-            const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
-            if (bIdx !== -1) {
-                updatedBatches[bIdx].isExhausted = true;
-                // SACRED QUANTITY: the load remains unchanged in the array
-                updates.batches = updatedBatches; 
-            }
+            const targetNorm = normStockLot(usedLotto);
+            finalBatches = updatedBatches.map((b) =>
+                normStockLot(b.lotto) === targetNorm ? { ...b, isExhausted: true } : b
+            );
+            updates.batches = finalBatches;
         }
         
         if (Object.keys(updates).length > 0) {
@@ -99,8 +101,8 @@ export async function logManualWithdrawal(
             currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
         });
         
-        const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
-        transaction.set(withdrawalRef, {
+        const nowTs = admin.firestore.Timestamp.now();
+        const newWithdrawalDoc = {
             jobIds: [],
             jobOrderPFs: (jobOrderPFs && jobOrderPFs.length > 0) ? jobOrderPFs : ['SCARICO_MANUALE'],
             materialId,
@@ -109,25 +111,42 @@ export async function logManualWithdrawal(
             consumedUnits: unitsToChange,
             operatorId,
             operatorName,
-            withdrawalDate: admin.firestore.Timestamp.now(),
+            withdrawalDate: nowTs,
             notes: notes || null,
             lotto: usedLotto,
             isFinal: isFinished,
             source: 'manual'
-        });
+        };
+        const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
+        transaction.set(withdrawalRef, newWithdrawalDoc);
 
-        // INTENTIONALLY REMOVED: Do not call resolveJobBOMCommitmentsByType anymore.
-        // I prelievi manuali non devono alterare la Distinta Base Teorica (Job BOM)
-        // anche qualora associati ad uno o più jobOrderPFs.
+        const postMaterialRaw: RawMaterial = {
+            ...material,
+            batches: finalBatches,
+            stock: Math.max(0, (material.stock || 0) - unitsToChange),
+            currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange),
+            currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
+        };
+        const postWithdrawals = [
+            ...withdrawals,
+            { id: withdrawalRef.id, ...newWithdrawalDoc, withdrawalDate: new Date() },
+        ];
+        hydratedAfter = hydrateMaterialWithWithdrawals(postMaterialRaw, postWithdrawals as any);
     });
 
-    const newMatSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
-    const updatedMaterial = newMatSnap.exists ? { id: newMatSnap.id, ...newMatSnap.data() } as RawMaterial : undefined;
+    const serializedHydrated = hydratedAfter ? JSON.parse(JSON.stringify(hydratedAfter)) : undefined;
 
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/reports');
     revalidatePath('/manual-withdrawal');
-    return { success: true, message: isFinished ? `Lotto esaurito e scaricato.` : `Scarico registrato.`, updatedMaterial };
+    revalidatePath('/material-check');
+    revalidatePath('/scan-job');
+    return {
+        success: true,
+        message: isFinished ? `Lotto esaurito e scaricato.` : `Scarico registrato.`,
+        hydratedMaterial: serializedHydrated,
+        updatedMaterial: serializedHydrated,
+    };
   } catch (error) {
      console.error("Manual withdrawal error:", error);
      const message = error instanceof Error ? error.message : "Errore durante la registrazione.";

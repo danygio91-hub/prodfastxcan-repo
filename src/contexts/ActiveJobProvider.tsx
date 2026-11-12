@@ -42,10 +42,17 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     if (!operator) return;
     try {
         if (jobId === null) {
-            // Explicitly abandoning: Clear local view and DB
+            // FASE 76: Abbandono esplicito — chiude eventuali workPeriods aperti (end === null) nel DB prima di azzerare activeJobId
+            const previousJobId = localViewedJobId || operator.activeJobId || null;
             setLocalViewedJobId(null);
-            const operatorRef = doc(db, "operators", operator.id);
-            await updateDoc(operatorRef, { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
+            setActiveJobState(null);
+            try {
+                const { abandonOperatorActiveJob } = await import('@/app/scan-job/actions');
+                await abandonOperatorActiveJob(operator.id, previousJobId);
+            } catch {
+                const operatorRef = doc(db, "operators", operator.id);
+                await updateDoc(operatorRef, { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
+            }
         } else {
             // Just scanning/viewing: ONLY update local state. Do NOT mutate DB!
             setLocalViewedJobId(jobId);
@@ -53,7 +60,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
         console.error("Failed to update active job ID on operator profile", error);
     }
-  }, [operator]);
+  }, [operator, localViewedJobId]);
 
 
   const [refreshKey, setRefreshKey] = useState(0);

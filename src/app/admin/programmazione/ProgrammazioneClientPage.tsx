@@ -153,7 +153,7 @@ import {
 } from './actions';
 import { collection, onSnapshot, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { getJobDisplayStatus, getDerivedJobStatus, type JobDisplayStatus } from '@/lib/job-status';
+import { getJobDisplayStatus, getDerivedJobStatus, rollbackLastCompletedPhase, type JobDisplayStatus } from '@/lib/job-status';
 import {
   Popover,
   PopoverContent,
@@ -3178,17 +3178,38 @@ export default function ProgrammazioneClientPage({
               }));
             }
           } else if (newStatus === 'In Produzione') {
-            updated.status = 'DA_INIZIARE';
+            if (currentStatus === 'Completato Prod.' || currentStatus === 'Spedito') {
+              const { updatedPhases } = rollbackLastCompletedPhase(updated.phases || []);
+              updated.phases = updatedPhases;
+              updated.status = 'IN_PRODUZIONE';
+            } else {
+              updated.status = 'DA_INIZIARE';
+            }
             updated.forcedCompletion = false;
+            updated.overallEndTime = undefined as any;
             updated.packingListId = undefined;
           } else if (newStatus === 'Completato Prod.') {
             updated.status = 'completed';
             updated.forcedCompletion = true;
             updated.overallEndTime = new Date() as any;
+            if (updated.phases && updated.phases.length > 0) {
+              updated.phases = updated.phases.map((p) => ({
+                ...p,
+                status: 'completed' as const,
+                forced: true,
+              }));
+            }
           } else if (newStatus === 'Spedito') {
             updated.status = 'SPEDITA';
             updated.forcedCompletion = true;
             updated.overallEndTime = new Date() as any;
+            if (updated.phases && updated.phases.length > 0) {
+              updated.phases = updated.phases.map((p) => ({
+                ...p,
+                status: 'completed' as const,
+                forced: true,
+              }));
+            }
           }
           return updated;
         }
@@ -3208,16 +3229,32 @@ export default function ProgrammazioneClientPage({
         return;
       }
 
+      setJobs((prev) =>
+        prev.map((j) => {
+          if (j.id !== job.id) return j;
+          return {
+            ...j,
+            ...(res.updatedStatus ? { status: res.updatedStatus as any } : {}),
+            ...(res.updatedPhases ? { phases: res.updatedPhases } : {}),
+            ...(res.odlNumber ? { numeroODLInterno: res.odlNumber } : {}),
+            ...(newStatus === 'In Produzione' || newStatus === 'Pianificata'
+              ? {
+                  forcedCompletion: false,
+                  overallEndTime: undefined as any,
+                  packingListId: undefined,
+                }
+              : {}),
+          };
+        })
+      );
+
+      router.refresh();
+      void refreshJobsFromServer();
+
       toast({
         title: newStatus === 'Pianificata' ? "Commessa Ripristinata" : "Stato Commessa Modificato",
         description: res.message,
       });
-
-      if (res.odlNumber) {
-        setJobs((prev) =>
-          prev.map((j) => (j.id === job.id ? { ...j, numeroODLInterno: res.odlNumber } : j))
-        );
-      }
     } catch (e: any) {
       setJobs((prev) => prev.map((j) => (j.id === job.id ? prevJob : j)));
       toast({
@@ -3226,7 +3263,7 @@ export default function ProgrammazioneClientPage({
         description: e?.message || "Impossibile aggiornare lo stato.",
       });
     }
-  }, [toast]);
+  }, [toast, router, refreshJobsFromServer]);
 
   // FASE 19: Handler dedicato per Rollback rapido da pulsante Undo/RotateCcw
   const handleRollbackJob = useCallback(async (job: JobOrder) => {
