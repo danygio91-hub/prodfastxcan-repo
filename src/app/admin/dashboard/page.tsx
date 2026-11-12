@@ -25,6 +25,7 @@ const navItems = [
   // { href: '/admin/resource-planning', label: 'Foglio Pianificazione Risorse', description: 'Bilancia la capacità dei reparti e gestisci i prestiti operatori.', icon: Activity },
   { href: '/admin/work-group-management', label: 'Gruppi Commesse', description: 'Visualizza e gestisci i gruppi di commesse concatenate.', icon: Combine },
   { href: '/admin/inventory-management', label: 'Inventari', description: 'Visualizza e approva le registrazioni di inventario.', icon: Warehouse },
+  { href: '/admin/inventory-ledger', label: 'Registro Inventario (Nuovo)', description: 'Registro SSoT universale di spunta lotti, confronto delta e scarico lotti non battuti.', icon: ListChecks },
   { href: '/admin/reports', label: 'Report Produzione', description: 'Genera e visualizza i report di lavorazione.', icon: BarChart3 },
   { href: '/admin/production-time-analysis', label: 'Analisi Tempi Articolo', description: 'Analizza i tempi medi di produzione per articolo.', icon: Timer },
   { href: '/admin/non-conformity-reports', label: 'Report Non Conformità', description: 'Gestisci le segnalazioni di non conformità.', icon: ShieldAlert },

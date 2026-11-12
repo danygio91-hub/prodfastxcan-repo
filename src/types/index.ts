@@ -226,7 +226,7 @@ export interface RawMaterialBatch {
   currentQuantity?: number; // Live Residual (Hydrated in memory)
   currentWeightKg?: number; // Live Residual Weight (Hydrated in memory)
   isReturn?: boolean; // Flag per carichi di rientro (Conto Lavoro / Rettifica)
-  type?: 'CARICO' | 'CARICO_RIENTRO' | 'RETTIFICA' | string;
+  type?: 'CARICO' | 'CARICO_RIENTRO' | 'RETTIFICA' | 'RETTIFICA_INVENTARIO' | string;
 }
 
 export interface RawMaterial {
@@ -418,7 +418,9 @@ export interface MaterialWithdrawal {
   declaredAt?: string;
   status?: 'pending' | 'completed' | 'cancelled';
   sessionId?: string;
-  source?: 'manual' | 'session' | 'production' | string;
+  source?: 'manual' | 'session' | 'production' | 'inventory_reconciliation' | string;
+  type?: 'RETTIFICA_INVENTARIO' | string;
+  inventoryRecordId?: string;
 }
 
 export type ProductionProblemType = string;
@@ -514,6 +516,15 @@ export interface InventoryRecord {
   conversionFactor?: number;
   rapportoKgMt?: number;
   materialUnitOfMeasure?: UnitOfMeasure;
+  // FASE 74: SSoT Ledger Reconciliation Fields
+  uom?: UnitOfMeasure;
+  countedUnits?: number;
+  theoreticalUnitsAtScan?: number;
+  deltaUnits?: number;
+  theoreticalUnitsAtApproval?: number;
+  deltaApplied?: number;
+  ledgerRefId?: string | null;
+  ledgerActionType?: 'NONE' | 'ADD_BATCH' | 'WITHDRAWAL' | 'WRITE_OFF';
 }
 
 export interface ScrapRecord {

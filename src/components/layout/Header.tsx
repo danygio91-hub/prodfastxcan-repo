@@ -45,6 +45,7 @@ const adminNavItems = [
   // { href: '/admin/resource-planning', label: 'Pianificazione Risorse', icon: Activity },
   { href: '/admin/work-group-management', label: 'Gruppi Commesse', icon: Combine },
   { href: '/admin/inventory-management', label: 'Inventari', icon: Warehouse },
+  { href: '/admin/inventory-ledger', label: 'Registro Inventario (Nuovo)', icon: ListChecks },
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },
   { href: '/admin/production-time-analysis', label: 'Analisi Tempi', icon: Timer },
   { href: '/admin/non-conformity-reports', label: 'Non Conformità', icon: ShieldAlert },
@@ -69,16 +70,16 @@ export default function Header() {
   const router = useRouter();
   const { toast } = useToast();
   const [isGlobalRefreshing, setIsGlobalRefreshing] = React.useState(false);
-  
+
   const handleRefresh = () => {
     setIsGlobalRefreshing(true);
     router.refresh();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('app:refresh'));
     }
-    toast({ 
-      title: "Aggiornamento in corso...", 
-      description: "Sincronizzazione dati in tempo reale della pagina corrente." 
+    toast({
+      title: "Aggiornamento in corso...",
+      description: "Sincronizzazione dati in tempo reale della pagina corrente."
     });
     setTimeout(() => {
       setIsGlobalRefreshing(false);
@@ -87,7 +88,7 @@ export default function Header() {
 
   const handleExitJobScreen = () => {
     if (!activeJob) return;
-    toast({ title: "Sei uscito dalla schermata della commessa", description: "La fase attiva rimane in corso in background."});
+    toast({ title: "Sei uscito dalla schermata della commessa", description: "La fase attiva rimane in corso in background." });
   };
 
   const getInitials = (name: string | null) => {
@@ -97,13 +98,13 @@ export default function Header() {
     const lastInitial = names.length > 1 ? names[names.length - 1][0] : (names[0]?.[1] || '');
     return `${firstInitial}${lastInitial}`.toUpperCase();
   };
-  
+
   const operatorName = operator ? operator.nome : null;
   const isAdmin = operator?.role === 'admin';
   const isSupervisor = operator?.role === 'supervisor';
   const isManagement = isAdmin || isSupervisor;
   const [hasAlerts, setHasAlerts] = React.useState(false);
-  
+
   const isAdminPage = pathname.startsWith('/admin') || pathname.startsWith('/supervisor');
 
   React.useEffect(() => {
@@ -117,43 +118,43 @@ export default function Header() {
 
   const avatarName = operator ? operator.nome : 'Operatore';
   const displayInitials = getInitials(avatarName);
-  
+
   const showExitButton = pathname === '/scan-job' && activeJob;
 
-  const homeLink = isAdmin 
-    ? '/admin/dashboard' 
+  const homeLink = isAdmin
+    ? '/admin/dashboard'
     : (isSupervisor ? '/supervisor/dashboard' : '/dashboard');
 
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
       <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-            <Link href={homeLink} className="flex items-center text-xl font-bold font-headline text-primary">
-                <Image src="/logo.png" alt="PFXcan Logo" width={50} height={33} unoptimized={true} />
-            </Link>
+          <Link href={homeLink} className="flex items-center text-xl font-bold font-headline text-primary">
+            <Image src="/logo.png" alt="PFXcan Logo" width={50} height={33} unoptimized={true} />
+          </Link>
         </div>
 
         {isAdminPage && (
           <div className="flex-1 hidden md:flex items-center justify-center">
-             <TooltipProvider delayDuration={0}>
-                <div className="flex items-center justify-center p-2 gap-2 flex-wrap">
+            <TooltipProvider delayDuration={0}>
+              <div className="flex items-center justify-center p-2 gap-2 flex-wrap">
                 {(isAdmin ? adminNavItems : supervisorNavItems).map((item) => {
-                    const isActive = pathname.startsWith(item.href) || 
-                      (item.href === '/admin/article-management' && pathname.startsWith('/admin/anagrafica-articoli'));
-                    const showDot = item.icon === Bell && hasAlerts;
-                    return (
+                  const isActive = pathname.startsWith(item.href) ||
+                    (item.href === '/admin/article-management' && pathname.startsWith('/admin/anagrafica-articoli'));
+                  const showDot = item.icon === Bell && hasAlerts;
+                  return (
                     <Tooltip key={item.href}>
-                        <TooltipTrigger asChild>
+                      <TooltipTrigger asChild>
                         <Link href={item.href} passHref>
-                            <Button
+                          <Button
                             variant={isActive ? 'default' : 'ghost'}
                             size="icon"
                             className={cn(
-                                "h-10 w-10 relative",
-                                !isActive && "text-muted-foreground hover:bg-muted/50"
+                              "h-10 w-10 relative",
+                              !isActive && "text-muted-foreground hover:bg-muted/50"
                             )}
                             aria-label={item.label}
-                            >
+                          >
                             <item.icon className="h-5 w-5" />
                             {showDot && (
                               <span className="absolute top-2 right-2 flex h-2.5 w-2.5">
@@ -161,16 +162,16 @@ export default function Header() {
                                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-destructive"></span>
                               </span>
                             )}
-                            </Button>
+                          </Button>
                         </Link>
-                        </TooltipTrigger>
-                        <TooltipContent>
+                      </TooltipTrigger>
+                      <TooltipContent>
                         <p>{item.label}</p>
-                        </TooltipContent>
+                      </TooltipContent>
                     </Tooltip>
-                    );
+                  );
                 })}
-                </div>
+              </div>
             </TooltipProvider>
           </div>
         )}
@@ -178,31 +179,31 @@ export default function Header() {
         <div className="flex items-center space-x-2">
           <TooltipProvider delayDuration={0}>
             {showExitButton && (
-                 <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button asChild size="icon" className="h-10 w-10 bg-orange-600 hover:bg-orange-700 text-white" onClick={handleExitJobScreen} aria-label="Esci dalla commessa">
-                           <Link href="/dashboard">
-                              <LogOut className="h-5 w-5" />
-                           </Link>
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        <p>Esci dalla schermata della commessa</p>
-                    </TooltipContent>
-                </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button asChild size="icon" className="h-10 w-10 bg-orange-600 hover:bg-orange-700 text-white" onClick={handleExitJobScreen} aria-label="Esci dalla commessa">
+                    <Link href="/dashboard">
+                      <LogOut className="h-5 w-5" />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Esci dalla schermata della commessa</p>
+                </TooltipContent>
+              </Tooltip>
             )}
 
             {/* Integrated Text+Icon View Switcher - ONLY FOR SUPERVISORS */}
             {isSupervisor && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    asChild 
-                    variant="default" 
+                  <Button
+                    asChild
+                    variant="default"
                     className={cn(
                       "h-10 px-4 font-black uppercase text-[11px] gap-2 hidden md:flex min-w-[140px]",
-                      isAdminPage 
-                        ? "bg-slate-800 hover:bg-slate-900 text-white" 
+                      isAdminPage
+                        ? "bg-slate-800 hover:bg-slate-900 text-white"
                         : "bg-blue-600 hover:bg-blue-700 text-white"
                     )}
                   >
@@ -228,10 +229,10 @@ export default function Header() {
             )}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={handleRefresh} 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleRefresh}
                   disabled={isGlobalRefreshing}
                   aria-label="Aggiorna pagina"
                   className="text-muted-foreground hover:text-foreground"
@@ -245,7 +246,7 @@ export default function Header() {
             </Tooltip>
           </TooltipProvider>
 
-           <DropdownMenu>
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-10 w-10">
@@ -265,20 +266,20 @@ export default function Header() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               {isSupervisor && !isAdminPage && (
-                 <DropdownMenuItem asChild className="cursor-pointer md:hidden">
-                    <Link href={isAdmin ? '/admin/dashboard' : '/supervisor/dashboard'} className="flex items-center w-full">
-                        <LayoutDashboard className="mr-2 h-4 w-4" />
-                        <span>Vista Gestionale</span>
-                    </Link>
-                 </DropdownMenuItem>
+                <DropdownMenuItem asChild className="cursor-pointer md:hidden">
+                  <Link href={isAdmin ? '/admin/dashboard' : '/supervisor/dashboard'} className="flex items-center w-full">
+                    <LayoutDashboard className="mr-2 h-4 w-4" />
+                    <span>Vista Gestionale</span>
+                  </Link>
+                </DropdownMenuItem>
               )}
               {isSupervisor && isAdminPage && (
-                 <DropdownMenuItem asChild className="cursor-pointer">
-                    <Link href="/dashboard" className="flex items-center w-full">
-                        <ArrowRightLeft className="mr-2 h-4 w-4" />
-                        <span>Vista Operatore</span>
-                    </Link>
-                 </DropdownMenuItem>
+                <DropdownMenuItem asChild className="cursor-pointer">
+                  <Link href="/dashboard" className="flex items-center w-full">
+                    <ArrowRightLeft className="mr-2 h-4 w-4" />
+                    <span>Vista Operatore</span>
+                  </Link>
+                </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={logout} className="cursor-pointer">
