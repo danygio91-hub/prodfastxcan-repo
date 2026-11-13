@@ -3610,38 +3610,27 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // 2. FASE 33: Avvio Massivo in Produzione (Solo Avvio Produzione)
+  // 2. FASE 33 & FASE 81: Avvio Massivo in Produzione (Solo Avvio Produzione)
   const handleBulkStartProduction = async () => {
     if (selectedJobIds.length === 0) return;
-
-    const selectedJobs = jobs.filter((j) => selectedJobIds.includes(j.id));
-    const jobsWithDate = selectedJobs.filter((j) => j.dataConsegnaFinale && j.dataConsegnaFinale.trim().length > 0);
-    const jobsWithoutDate = selectedJobs.filter((j) => !j.dataConsegnaFinale || !j.dataConsegnaFinale.trim());
-
-    if (jobsWithDate.length === 0) {
-      toast({
-        variant: "destructive",
-        title: "Impossibile Avviare",
-        description: "Tutte le commesse selezionate sono prive di Data di Consegna. Inserire le date per avviare.",
-      });
-      return;
-    }
 
     setIsBulkProcessing(true);
     setIsBulkPrinting(false);
     try {
-      const res = await bulkStartProduction(jobsWithDate.map((j) => j.id));
+      const res = await bulkStartProduction(selectedJobIds);
+      const detailError = res.error || res.message;
+
       if (!res.success) {
         toast({
           variant: "destructive",
           title: "Errore Avvio Massivo",
-          description: res.message,
+          description: detailError || "Impossibile completare l'avvio massivo in produzione.",
         });
         return;
       }
 
-      const startedIdsSet = new Set(res.startedJobs.map((s) => s.id));
-      const startedMap = new Map(res.startedJobs.map((s) => [s.id, s]));
+      const startedIdsSet = new Set((res.startedJobs || []).map((s) => s.id));
+      const startedMap = new Map((res.startedJobs || []).map((s) => [s.id, s]));
 
       setJobs((prev) =>
         prev.map((j) => {
@@ -3660,16 +3649,28 @@ export default function ProgrammazioneClientPage({
       // Deseleziona le commesse avviate con successo
       setSelectedJobIds((prev) => prev.filter((id) => !startedIdsSet.has(id)));
 
+      const hasSkipped = (res.skippedNoCycle && res.skippedNoCycle.length > 0) || 
+                         (res.skippedNoDate && res.skippedNoDate.length > 0) ||
+                         (res.skippedOther && res.skippedOther.length > 0);
+
       toast({
-        title: "Avvio Produzione Completato",
+        title: hasSkipped ? "Avvio Parziale Completato" : "Avvio Produzione Completato",
         description: res.message,
       });
 
-      if (jobsWithoutDate.length > 0) {
+      if (res.skippedNoCycle && res.skippedNoCycle.length > 0) {
         toast({
           variant: "destructive",
-          title: "Commesse Escluse",
-          description: `${jobsWithoutDate.length} commesse escluse perché prive di Data di Consegna: ${jobsWithoutDate.map(j => j.ordinePF || j.id).join(', ')}.`,
+          title: "Ciclo di Lavorazione Mancante",
+          description: `${res.skippedNoCycle.length} ${res.skippedNoCycle.length === 1 ? 'commessa non avviata' : 'commesse non avviate'} (nessun ciclo configurato): ${res.skippedNoCycle.join(', ')}.`,
+        });
+      }
+
+      if (res.skippedNoDate && res.skippedNoDate.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Data di Consegna Mancante",
+          description: `${res.skippedNoDate.length} ${res.skippedNoDate.length === 1 ? 'commessa esclusa' : 'commesse escluse'} (priva di data di consegna): ${res.skippedNoDate.join(', ')}.`,
         });
       }
     } catch (e: any) {
@@ -5453,7 +5454,7 @@ export default function ProgrammazioneClientPage({
               disabled={isBulkProcessing}
               onClick={handleBulkStartProduction}
               className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
-              title="Avvia in produzione le commesse selezionate (richiede Data di Consegna compilata)"
+              title="Avvia in produzione le commesse selezionate (richiede Data di Consegna e Ciclo di Lavorazione)"
             >
               {isBulkProcessing && !isBulkPrinting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

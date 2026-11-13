@@ -23,6 +23,7 @@ import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
 import { getISOWeek, getISOWeekYear, format, addWeeks } from 'date-fns';
 import { generatePlanningExcelBuffer, type ExportJobData } from '@/lib/excel-export';
+import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
 import type { JobOrder, JobPhase, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
@@ -1222,27 +1223,39 @@ export async function bulkShipJobs(
 }
 
 /**
- * FASE 16: Avvio e Stampa massiva commesse selezionate
- * Nota logica: le commesse prive di data di consegna vengono escluse in automatico dall'avvio
+ * FASE 16 & FASE 81: Avvio e Stampa massiva commesse selezionate
+ * Verifica e tiene traccia dei motivi di esclusione (data consegna mancante, ciclo mancante, errori ODL)
  */
 export async function bulkStartProductionAndPrint(
     jobIds: string[]
 ): Promise<{ 
     success: boolean; 
     message: string; 
+    error?: string;
     startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[];
     skippedNoDate: string[];
+    skippedNoCycle: string[];
+    skippedOther?: { ordinePF: string; reason: string }[];
 }> {
     try {
         const startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[] = [];
         const skippedNoDate: string[] = [];
+        const skippedNoCycle: string[] = [];
+        const skippedOther: { ordinePF: string; reason: string }[] = [];
 
         for (const id of jobIds) {
             const docSnap = await adminDb.collection("jobOrders").doc(id).get();
             if (!docSnap.exists) continue;
             const job = docSnap.data() as JobOrder;
+            const jobLabel = job.ordinePF || id;
+
             if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
-                skippedNoDate.push(job.ordinePF || id);
+                skippedNoDate.push(jobLabel);
+                continue;
+            }
+
+            if (!Array.isArray(job.phases) || job.phases.length === 0) {
+                skippedNoCycle.push(jobLabel);
                 continue;
             }
 
@@ -1255,6 +1268,17 @@ export async function bulkStartProductionAndPrint(
                 if (res.success) {
                     const refreshed = await adminDb.collection("jobOrders").doc(id).get();
                     odlNum = (refreshed.data() as JobOrder)?.numeroODLInterno || odlNum;
+                } else {
+                    console.warn(`Impossibile avviare commessa ${id}:`, res.message);
+                    const msgLower = (res.message || '').toLowerCase();
+                    if (msgLower.includes('ciclo')) {
+                        skippedNoCycle.push(jobLabel);
+                    } else if (msgLower.includes('data')) {
+                        skippedNoDate.push(jobLabel);
+                    } else {
+                        skippedOther.push({ ordinePF: jobLabel, reason: res.message });
+                    }
+                    continue;
                 }
             }
 
@@ -1266,7 +1290,7 @@ export async function bulkStartProductionAndPrint(
 
             startedJobs.push({
                 id,
-                ordinePF: job.ordinePF || id,
+                ordinePF: jobLabel,
                 numeroODLInterno: odlNum || undefined
             });
         }
@@ -1275,44 +1299,73 @@ export async function bulkStartProductionAndPrint(
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
-        const message = startedJobs.length > 0 
-            ? `Avviate e segnate come stampate ${startedJobs.length} commesse.${skippedNoDate.length > 0 ? ` Escluse ${skippedNoDate.length} prive di data.` : ''}`
-            : `Nessuna commessa avviata.${skippedNoDate.length > 0 ? ` Tutte le ${skippedNoDate.length} commesse selezionate erano prive di data.` : ''}`;
+        const feedback = formatBulkStartFeedback({
+            startedCount: startedJobs.length,
+            skippedNoCycleCount: skippedNoCycle.length,
+            skippedNoDateCount: skippedNoDate.length,
+            skippedOtherReasons: skippedOther.map((o) => o.reason),
+            actionType: 'print',
+        });
 
         return {
-            success: startedJobs.length > 0,
-            message,
+            success: feedback.success,
+            message: feedback.message,
+            error: feedback.error,
             startedJobs,
-            skippedNoDate
+            skippedNoDate,
+            skippedNoCycle,
+            skippedOther,
         };
     } catch (e: any) {
         console.error("Errore in bulkStartProductionAndPrint:", e);
-        return { success: false, message: e?.message || "Errore durante l'avvio massivo.", startedJobs: [], skippedNoDate: [] };
+        const err = e?.message || "Errore durante l'avvio massivo.";
+        return {
+            success: false,
+            message: err,
+            error: err,
+            startedJobs: [],
+            skippedNoDate: [],
+            skippedNoCycle: [],
+            skippedOther: [],
+        };
     }
 }
 
 /**
- * FASE 33: Avvio massivo commesse in produzione (Solo Avvio Produzione)
- * Transiziona le commesse a DA_INIZIARE e genera i timestamp/ODL SSoT senza marcare come stampate
+ * FASE 33 & FASE 81: Avvio massivo commesse in produzione (Solo Avvio Produzione)
+ * Transiziona le commesse a DA_INIZIARE e genera i timestamp/ODL SSoT senza marcare come stampate.
+ * Traccia puntualmente i motivi di scarto (mancanza ciclo, data mancante, errori specifici).
  */
 export async function bulkStartProduction(
     jobIds: string[]
 ): Promise<{ 
     success: boolean; 
     message: string; 
+    error?: string;
     startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[];
     skippedNoDate: string[];
+    skippedNoCycle: string[];
+    skippedOther?: { ordinePF: string; reason: string }[];
 }> {
     try {
         const startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[] = [];
         const skippedNoDate: string[] = [];
+        const skippedNoCycle: string[] = [];
+        const skippedOther: { ordinePF: string; reason: string }[] = [];
 
         for (const id of jobIds) {
             const docSnap = await adminDb.collection("jobOrders").doc(id).get();
             if (!docSnap.exists) continue;
             const job = docSnap.data() as JobOrder;
+            const jobLabel = job.ordinePF || id;
+
             if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
-                skippedNoDate.push(job.ordinePF || id);
+                skippedNoDate.push(jobLabel);
+                continue;
+            }
+
+            if (!Array.isArray(job.phases) || job.phases.length === 0) {
+                skippedNoCycle.push(jobLabel);
                 continue;
             }
 
@@ -1327,16 +1380,24 @@ export async function bulkStartProduction(
                     odlNum = (refreshed.data() as JobOrder)?.numeroODLInterno || odlNum;
                     startedJobs.push({
                         id,
-                        ordinePF: job.ordinePF || id,
+                        ordinePF: jobLabel,
                         numeroODLInterno: odlNum || undefined
                     });
                 } else {
                     console.warn(`Impossibile avviare commessa ${id}:`, res.message);
+                    const msgLower = (res.message || '').toLowerCase();
+                    if (msgLower.includes('ciclo')) {
+                        skippedNoCycle.push(jobLabel);
+                    } else if (msgLower.includes('data')) {
+                        skippedNoDate.push(jobLabel);
+                    } else {
+                        skippedOther.push({ ordinePF: jobLabel, reason: res.message });
+                    }
                 }
             } else {
                 startedJobs.push({
                     id,
-                    ordinePF: job.ordinePF || id,
+                    ordinePF: jobLabel,
                     numeroODLInterno: odlNum || undefined
                 });
             }
@@ -1346,19 +1407,35 @@ export async function bulkStartProduction(
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
-        const message = startedJobs.length > 0 
-            ? `Avviate in produzione ${startedJobs.length} commesse.${skippedNoDate.length > 0 ? ` Escluse ${skippedNoDate.length} prive di data di consegna.` : ''}`
-            : `Nessuna commessa avviata.${skippedNoDate.length > 0 ? ` Tutte le ${skippedNoDate.length} commesse selezionate erano prive di data di consegna.` : ''}`;
+        const feedback = formatBulkStartFeedback({
+            startedCount: startedJobs.length,
+            skippedNoCycleCount: skippedNoCycle.length,
+            skippedNoDateCount: skippedNoDate.length,
+            skippedOtherReasons: skippedOther.map((o) => o.reason),
+            actionType: 'production',
+        });
 
         return {
-            success: startedJobs.length > 0,
-            message,
+            success: feedback.success,
+            message: feedback.message,
+            error: feedback.error,
             startedJobs,
-            skippedNoDate
+            skippedNoDate,
+            skippedNoCycle,
+            skippedOther,
         };
     } catch (e: any) {
         console.error("Errore in bulkStartProduction:", e);
-        return { success: false, message: e?.message || "Errore durante l'avvio massivo in produzione.", startedJobs: [], skippedNoDate: [] };
+        const err = e?.message || "Errore durante l'avvio massivo in produzione.";
+        return {
+            success: false,
+            message: err,
+            error: err,
+            startedJobs: [],
+            skippedNoDate: [],
+            skippedNoCycle: [],
+            skippedOther: [],
+        };
     }
 }
 

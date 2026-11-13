@@ -10,6 +10,7 @@ import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
 import { getJobDisplayStatus } from '@/lib/job-status';
+import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
 
 export async function checkJobExists(ordinePF: string, annoCompetenza?: number) {
     const year = annoCompetenza ?? new Date().getFullYear();
@@ -781,10 +782,34 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
   }
 }
 
-export async function createMultipleODLs(jobIds: string[]) {
+export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string; error?: string }> {
     let success = 0;
-    for (const id of jobIds) { const res = await createODL(id); if (res.success) success++; }
-    return { success: success > 0, message: `${success} ODL avviati.` };
+    const skippedNoCycle: string[] = [];
+    const skippedOther: string[] = [];
+
+    for (const id of jobIds) {
+        const res = await createODL(id);
+        if (res.success) {
+            success++;
+        } else {
+            const msgLower = (res.message || '').toLowerCase();
+            if (msgLower.includes('ciclo')) skippedNoCycle.push(id);
+            else skippedOther.push(res.message);
+        }
+    }
+
+    const feedback = formatBulkStartFeedback({
+        startedCount: success,
+        skippedNoCycleCount: skippedNoCycle.length,
+        skippedNoDateCount: 0,
+        skippedOtherReasons: skippedOther,
+    });
+
+    return {
+        success: feedback.success,
+        message: feedback.message,
+        error: feedback.error,
+    };
 }
 
 export async function cancelODL(jobId: string) {
