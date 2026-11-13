@@ -62,10 +62,21 @@ interface ArticleFormDialogProps {
   isOpen: boolean;
   onClose: (refresh?: boolean, updatedArticle?: Article) => void;
   article: Article | null;
+  workCycles?: WorkCycle[];
+  globalSettings?: GlobalSettings | null;
+  preloadedMaterials?: RawMaterial[];
   embedded?: boolean;
 }
 
-export default function ArticleFormDialog({ isOpen, onClose, article, embedded = false }: ArticleFormDialogProps) {
+export default function ArticleFormDialog({
+  isOpen,
+  onClose,
+  article,
+  workCycles: initialWorkCycles,
+  globalSettings: initialGlobalSettings,
+  preloadedMaterials,
+  embedded = false,
+}: ArticleFormDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [isPending, setIsPending] = useState(false);
@@ -78,26 +89,48 @@ export default function ArticleFormDialog({ isOpen, onClose, article, embedded =
   const [suggestions, setSuggestions] = useState<RawMaterial[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [availableWorkCycles, setAvailableWorkCycles] = useState<WorkCycle[]>([]);
-  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
+  const [availableWorkCycles, setAvailableWorkCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(initialGlobalSettings || null);
 
   // Load initial materials, work cycles and global settings
   useEffect(() => {
-    getWorkCycles().then(setAvailableWorkCycles);
-    getGlobalSettings().then(setGlobalSettings);
-    if (isOpen && article?.billOfMaterials) {
-       const codes = article.billOfMaterials.map(i => i.component).filter(Boolean);
-       if (codes.length > 0) {
-          getMaterialsByCodes(codes).then(mats => {
-             setMaterialCache(prev => {
-                const newC = { ...prev };
-                mats.forEach(m => newC[m.code.toUpperCase()] = m);
-                return newC;
-             });
-          });
-       }
+    if (!isOpen) return;
+
+    if (initialWorkCycles && initialWorkCycles.length > 0) {
+      setAvailableWorkCycles(initialWorkCycles);
+    } else {
+      getWorkCycles().then(setAvailableWorkCycles);
     }
-  }, [isOpen, article]);
+
+    if (initialGlobalSettings) {
+      setGlobalSettings(initialGlobalSettings);
+    } else {
+      getGlobalSettings().then(setGlobalSettings);
+    }
+
+    if (preloadedMaterials && preloadedMaterials.length > 0) {
+      setMaterialCache((prev) => {
+        const newC = { ...prev };
+        preloadedMaterials.forEach((m) => {
+          if (m.code) newC[m.code.toUpperCase()] = m;
+        });
+        return newC;
+      });
+    } else if (article?.billOfMaterials) {
+      const codes = article.billOfMaterials.map((i) => i.component).filter(Boolean);
+      if (codes.length > 0) {
+        getMaterialsByCodes(codes).then((mats) => {
+          setMaterialCache((prev) => {
+            const newC = { ...prev };
+            mats.forEach((m) => {
+              if (m.code) newC[m.code.toUpperCase()] = m;
+            });
+            return newC;
+          });
+        });
+      }
+    }
+  }, [isOpen, article, initialWorkCycles, initialGlobalSettings, preloadedMaterials]);
 
   const handleSearch = (term: string) => {
       if (searchTimeout) clearTimeout(searchTimeout);

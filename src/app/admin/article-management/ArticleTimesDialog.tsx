@@ -31,6 +31,7 @@ interface ArticleTimesDialogProps {
     onClose: (refresh?: boolean, updatedArticle?: Article) => void;
     article: Article | null;
     phaseTemplates: WorkPhaseTemplate[];
+    workCycles?: WorkCycle[];
     embedded?: boolean;
 }
 
@@ -59,12 +60,12 @@ function applyCyclePhases(
     return newPhaseTimes;
 }
 
-export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates, embedded = false }: ArticleTimesDialogProps) {
+export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates, embedded = false, workCycles: initialWorkCycles }: ArticleTimesDialogProps) {
     const router = useRouter();
     const { toast } = useToast();
     const [isPending, setIsPending] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
+    const [workCycles, setWorkCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
 
     const [activeView, setActiveView] = useState<'default' | 'secondary'>('default');
     const [primaryCycleId, setPrimaryCycleId] = useState<string>('manual');
@@ -75,79 +76,85 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
     const [localPhaseTimesSecondary, setLocalPhaseTimesSecondary] = useState<Record<string, ArticlePhaseTime>>({});
 
     useEffect(() => {
-        if (isOpen) {
-            getWorkCycles().then((cycles) => {
-                setWorkCycles(cycles);
-                if (article) {
-                    const primaryId = article.workCycleId || 'manual';
-                    const secondaryId = article.secondaryWorkCycleId || 'manual';
+        if (!isOpen) return;
 
-                    setPrimaryCycleId(primaryId);
-                    setSecondaryCycleId(secondaryId);
-                    setExpectedTotalDefault(article.expectedMinutesDefault || "");
-                    setExpectedTotalSecondary(article.expectedMinutesSecondary || "");
-                    
-                    const roundTo3 = (v: any) => {
-                        const parsed = parseFloat(v);
-                        if (isNaN(parsed)) return "";
-                        return (Math.round(parsed * 1000) / 1000).toString();
-                    };
+        const populateFromCycles = (cycles: WorkCycle[]) => {
+            setWorkCycles(cycles);
+            if (article) {
+                const primaryId = article.workCycleId || 'manual';
+                const secondaryId = article.secondaryWorkCycleId || 'manual';
 
-                    const prepareInitialTimes = (obj: Record<string, ArticlePhaseTime>) => {
-                        const res: Record<string, ArticlePhaseTime> = {};
-                        Object.keys(obj).forEach(key => {
-                            res[key] = {
-                                ...obj[key],
-                                expectedMinutesPerPiece: obj[key].expectedMinutesPerPiece !== undefined ? roundTo3(obj[key].expectedMinutesPerPiece) as any : ""
+                setPrimaryCycleId(primaryId);
+                setSecondaryCycleId(secondaryId);
+                setExpectedTotalDefault(article.expectedMinutesDefault || "");
+                setExpectedTotalSecondary(article.expectedMinutesSecondary || "");
+                
+                const roundTo3 = (v: any) => {
+                    const parsed = parseFloat(v);
+                    if (isNaN(parsed)) return "";
+                    return (Math.round(parsed * 1000) / 1000).toString();
+                };
+
+                const prepareInitialTimes = (obj: Record<string, ArticlePhaseTime>) => {
+                    const res: Record<string, ArticlePhaseTime> = {};
+                    Object.keys(obj).forEach(key => {
+                        res[key] = {
+                            ...obj[key],
+                            expectedMinutesPerPiece: obj[key].expectedMinutesPerPiece !== undefined ? roundTo3(obj[key].expectedMinutesPerPiece) as any : ""
+                        };
+                    });
+                    return res;
+                };
+
+                let initialDefault = prepareInitialTimes(article.phaseTimes || {});
+                let initialSecondary = prepareInitialTimes(article.phaseTimesSecondary || {});
+
+                // Auto-populate from historicalTimes
+                if (article.historicalTimes?.averagePhaseTimes) {
+                    const historicalUpdates: Record<string, number> = {};
+                    article.historicalTimes.averagePhaseTimes.forEach((rptPhase: any) => {
+                        const template = phaseTemplates.find(t => t.name.trim().toUpperCase() === rptPhase.name.trim().toUpperCase());
+                        if (template) {
+                            historicalUpdates[template.id] = rptPhase.averageMinutesPerPiece;
+                        }
+                    });
+
+                    const applyHistorical = (phaseTimesObj: Record<string, ArticlePhaseTime>) => {
+                        const newObj = { ...phaseTimesObj };
+                        Object.keys(historicalUpdates).forEach(templateId => {
+                            const existingExpected = newObj[templateId]?.expectedMinutesPerPiece;
+                            newObj[templateId] = {
+                                ...(newObj[templateId] || { expectedMinutesPerPiece: "", enabled: true }),
+                                detectedMinutesPerPiece: historicalUpdates[templateId],
+                                expectedMinutesPerPiece: existingExpected !== undefined && existingExpected !== null ? existingExpected : "" as any
                             };
                         });
-                        return res;
+                        return newObj;
                     };
 
-                    let initialDefault = prepareInitialTimes(article.phaseTimes || {});
-                    let initialSecondary = prepareInitialTimes(article.phaseTimesSecondary || {});
-
-                    // Auto-populate from historicalTimes
-                    if (article.historicalTimes?.averagePhaseTimes) {
-                        const historicalUpdates: Record<string, number> = {};
-                        article.historicalTimes.averagePhaseTimes.forEach((rptPhase: any) => {
-                            const template = phaseTemplates.find(t => t.name.trim().toUpperCase() === rptPhase.name.trim().toUpperCase());
-                            if (template) {
-                                historicalUpdates[template.id] = rptPhase.averageMinutesPerPiece;
-                            }
-                        });
-
-                        const applyHistorical = (phaseTimesObj: Record<string, ArticlePhaseTime>) => {
-                            const newObj = { ...phaseTimesObj };
-                            Object.keys(historicalUpdates).forEach(templateId => {
-                                const existingExpected = newObj[templateId]?.expectedMinutesPerPiece;
-                                newObj[templateId] = {
-                                    ...(newObj[templateId] || { expectedMinutesPerPiece: "", enabled: true }),
-                                    detectedMinutesPerPiece: historicalUpdates[templateId],
-                                    expectedMinutesPerPiece: existingExpected !== undefined && existingExpected !== null ? existingExpected : "" as any
-                                };
-                            });
-                            return newObj;
-                        };
-
-                        initialDefault = applyHistorical(initialDefault);
-                        initialSecondary = applyHistorical(initialSecondary);
-                    }
-
-                    // Apply standard phases of the cycles if they are assigned, preserving existing times/targets
-                    if (primaryId !== 'manual') {
-                        initialDefault = applyCyclePhases(primaryId, cycles, initialDefault, phaseTemplates);
-                    }
-                    if (secondaryId !== 'manual') {
-                        initialSecondary = applyCyclePhases(secondaryId, cycles, initialSecondary, phaseTemplates);
-                    }
-
-                    setLocalPhaseTimesDefault(initialDefault);
-                    setLocalPhaseTimesSecondary(initialSecondary);
+                    initialDefault = applyHistorical(initialDefault);
+                    initialSecondary = applyHistorical(initialSecondary);
                 }
-            });
+
+                // Apply standard phases of the cycles if they are assigned, preserving existing times/targets
+                if (primaryId !== 'manual') {
+                    initialDefault = applyCyclePhases(primaryId, cycles, initialDefault, phaseTemplates);
+                }
+                if (secondaryId !== 'manual') {
+                    initialSecondary = applyCyclePhases(secondaryId, cycles, initialSecondary, phaseTemplates);
+                }
+
+                setLocalPhaseTimesDefault(initialDefault);
+                setLocalPhaseTimesSecondary(initialSecondary);
+            }
+        };
+
+        if (initialWorkCycles && initialWorkCycles.length > 0) {
+            populateFromCycles(initialWorkCycles);
+        } else {
+            getWorkCycles().then(populateFromCycles);
         }
-    }, [isOpen, article, phaseTemplates]);
+    }, [isOpen, article, phaseTemplates, initialWorkCycles]);
 
     const currentPhaseTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
 

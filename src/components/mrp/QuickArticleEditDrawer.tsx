@@ -14,11 +14,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Timer, Layers, Package, Loader2, X, ExternalLink, AlertCircle, CheckCircle2 } from 'lucide-react';
-import type { Article, WorkPhaseTemplate } from '@/types';
+import type { Article, WorkPhaseTemplate, WorkCycle, RawMaterial } from '@/types';
+import type { GlobalSettings } from '@/lib/settings-types';
 import ArticleTimesDialog from '@/app/admin/article-management/ArticleTimesDialog';
 import ArticleFormDialog from '@/app/admin/article-management/ArticleFormDialog';
-import { getArticles } from '@/app/admin/article-management/actions';
-import { getWorkPhaseTemplates } from '@/app/admin/work-phase-management/actions';
+import { getArticleMasterData } from '@/app/admin/article-management/actions';
+import { quickArticleCache } from '@/lib/quick-article-cache';
 import { cn } from '@/lib/utils';
 
 export interface QuickArticleEditDrawerProps {
@@ -51,17 +52,34 @@ export function QuickArticleEditDrawer({
   const [currentArticle, setCurrentArticle] = useState<Article | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [phaseTemplates, setPhaseTemplates] = useState<WorkPhaseTemplate[]>(initialPhaseTemplates || []);
+  const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
+  const [preloadedMaterials, setPreloadedMaterials] = useState<RawMaterial[]>([]);
   const [hasSavedAny, setHasSavedAny] = useState(false);
   const articlesRef = useRef(articles);
   articlesRef.current = articles;
 
   const cleanCode = (articleCode || '').trim();
 
-  // Caricamento / Risoluzione dell'articolo e dei template di fase
+  // Caricamento / Risoluzione dell'articolo e dei dati master (Parallelizzato con Cache Istantanea SWR)
   useEffect(() => {
     if (!isOpen || !cleanCode) {
       setCurrentArticle(null);
       setHasSavedAny(false);
+      return;
+    }
+
+    const upper = cleanCode.toUpperCase();
+
+    // 1. Client-side SWR Cache: apertura ISTANTANEA in 0ms se già aperto recentemente
+    const cached = quickArticleCache.get(upper);
+    if (cached) {
+      setCurrentArticle(cached.article);
+      setWorkCycles(cached.workCycles);
+      setPhaseTemplates(cached.phaseTemplates);
+      setGlobalSettings(cached.globalSettings);
+      setPreloadedMaterials(cached.materials);
+      setIsLoading(false);
       return;
     }
 
@@ -72,46 +90,18 @@ export function QuickArticleEditDrawer({
       setHasSavedAny(false);
 
       try {
-        // 1. Cerca nella lista locale passata come prop (via ref per evitare reset dopo un salvataggio)
-        const upper = cleanCode.toUpperCase();
-        let matched = articlesRef.current.find(
-          (a) => (a.code || '').trim().toUpperCase() === upper || (a.id || '').trim().toUpperCase() === upper
-        );
+        // 2. Fetch server-side singolo e parallelizzato (Promise.all - no waterfall)
+        const masterData = await getArticleMasterData(upper);
+        if (isCancelled) return;
 
-        // 2. Se non presente o per avere dati freschi completi (con phaseTimes e BOM), interroga Firestore
-        const fetchedList = await getArticles(upper);
-        if (!isCancelled && fetchedList && fetchedList.length > 0) {
-          const exact = fetchedList.find(
-            (a) => (a.code || '').trim().toUpperCase() === upper || (a.id || '').trim().toUpperCase() === upper
-          );
-          if (exact) {
-            matched = exact;
-          } else if (!matched) {
-            matched = fetchedList[0];
-          }
-        }
+        // Memorizza nella cache client per riaperture istantanee
+        quickArticleCache.set(upper, masterData);
 
-        // 3. Se l'articolo non esiste ancora in anagrafica, crea uno scheletro iniziale
-        if (!matched) {
-          matched = {
-            id: upper,
-            code: upper,
-            billOfMaterials: [],
-            phaseTimes: {},
-          } as Article;
-        }
-
-        if (!isCancelled) {
-          setCurrentArticle(matched);
-        }
-
-        // 4. Carica template fasi di lavoro se mancanti
-        if (phaseTemplates.length === 0) {
-          const templates = await getWorkPhaseTemplates();
-          if (!isCancelled && templates) {
-            setPhaseTemplates(templates);
-          }
-        }
+        setCurrentArticle(masterData.article);
+        setWorkCycles(masterData.workCycles);
+        setPhaseTemplates(masterData.phaseTemplates);
+        setGlobalSettings(masterData.globalSettings);
+        setPreloadedMaterials(masterData.materials);
       } catch (err: any) {
         console.error("Errore nel caricamento anagrafica rapida articolo:", err);
         if (!isCancelled) {
@@ -140,6 +130,7 @@ export function QuickArticleEditDrawer({
     (refresh?: boolean, updatedArticle?: Article) => {
       if (updatedArticle) {
         setCurrentArticle(updatedArticle);
+        quickArticleCache.updateArticle(updatedArticle);
         setHasSavedAny(true);
         onArticleUpdated?.(updatedArticle);
         router.refresh();
@@ -156,6 +147,7 @@ export function QuickArticleEditDrawer({
     (refresh?: boolean, updatedArticle?: Article) => {
       if (updatedArticle) {
         setCurrentArticle(updatedArticle);
+        quickArticleCache.updateArticle(updatedArticle);
         setHasSavedAny(true);
         onArticleUpdated?.(updatedArticle);
         router.refresh();
@@ -268,6 +260,7 @@ export function QuickArticleEditDrawer({
                     isOpen={isOpen}
                     article={currentArticle}
                     phaseTemplates={phaseTemplates}
+                    workCycles={workCycles}
                     onClose={handleTimesSaved}
                   />
                 </div>
@@ -280,6 +273,9 @@ export function QuickArticleEditDrawer({
                     embedded
                     isOpen={isOpen}
                     article={currentArticle}
+                    workCycles={workCycles}
+                    globalSettings={globalSettings}
+                    preloadedMaterials={preloadedMaterials}
                     onClose={handleBOMSaved}
                   />
                 </div>

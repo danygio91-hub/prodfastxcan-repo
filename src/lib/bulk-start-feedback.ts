@@ -96,3 +96,4 @@ export function formatBulkStartFeedback(params: BulkStartFeedbackParams): BulkSt
         message: `Avviate ${startedCount} commesse. ${skipDetails.join(', ')}.`,
     };
 }
+

@@ -11,6 +11,8 @@ import { getGlobalSettings } from '@/lib/settings-actions';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
+import type { ArticleMasterData } from '@/lib/quick-article-cache';
+export type { ArticleMasterData };
 
 async function fetchJobDocsByArticleKeys(articleId: string, articleCode: string): Promise<admin.firestore.QueryDocumentSnapshot[]> {
     const cleanCode = (articleCode || articleId || '').toString().trim();
@@ -600,6 +602,90 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
         console.error("Error saving article standard times:", e);
         return { success: false, message: 'Errore durante il salvataggio.' };
     }
+}
+
+/**
+ * FASE 82: Caricamento Dati Completi Anagrafica Rapida Articolo (Eliminazione Waterfall).
+ * Raggruppa in parallelo via Promise.all() le query per:
+ * - Dati Articolo (lettura diretta per docId con fallback su code)
+ * - Cicli di lavorazione standard (workCycles)
+ * - Template fasi di lavoro (phaseTemplates)
+ * - Impostazioni globali (globalSettings)
+ * - Pre-caricamento parallelo dei materiali distinti (BOM rawMaterials)
+ *
+ * ESCLUDE categoricamente qualsiasi interrogazione alla collection 'jobOrders' (Lazy Job Lookup),
+ * garantendo tempi di risposta immediati durante il render e l'apertura del modale.
+ */
+export async function getArticleMasterData(articleCode: string): Promise<ArticleMasterData> {
+    const cleanCode = (articleCode || '').trim();
+    if (!cleanCode) {
+        return {
+            article: null,
+            workCycles: [],
+            phaseTemplates: [],
+            globalSettings: null,
+            materials: [],
+        };
+    }
+
+    const upper = cleanCode.toUpperCase();
+
+    // 1. Parallelizzazione di tutte le query indipendenti (Eliminazione Waterfall)
+    const [articleSnap, articleQuerySnap, workCyclesSnap, phaseTemplates, globalSettings] = await Promise.all([
+        adminDb.collection('articles').doc(upper).get(),
+        adminDb.collection('articles').where('code', '==', upper).limit(1).get(),
+        adminDb.collection('workCycles').orderBy('name').get(),
+        getWorkPhaseTemplates(),
+        getGlobalSettings(),
+    ]);
+
+    let article: Article | null = null;
+    if (articleSnap.exists) {
+        article = { ...articleSnap.data(), id: articleSnap.id } as Article;
+    } else if (!articleQuerySnap.empty) {
+        article = { ...articleQuerySnap.docs[0].data(), id: articleQuerySnap.docs[0].id } as Article;
+    }
+
+    const workCycles: WorkCycle[] = workCyclesSnap.docs.map(
+        d => ({ ...d.data(), id: d.id } as WorkCycle)
+    );
+
+    // 2. Pre-caricamento parallelo dei materiali BOM
+    let materials: RawMaterial[] = [];
+    if (article?.billOfMaterials && article.billOfMaterials.length > 0) {
+        const uniqueComponents = Array.from(
+            new Set(article.billOfMaterials.map(i => (i.component || '').trim().toUpperCase()).filter(Boolean))
+        );
+        if (uniqueComponents.length > 0) {
+            const materialChunks: string[][] = [];
+            for (let i = 0; i < uniqueComponents.length; i += 30) {
+                materialChunks.push(uniqueComponents.slice(i, i + 30));
+            }
+            const matSnaps = await Promise.all(
+                materialChunks.map(chunk =>
+                    adminDb.collection('rawMaterials').where('code', 'in', chunk).get()
+                )
+            );
+            materials = matSnaps.flatMap(s => s.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial)));
+        }
+    }
+
+    if (!article) {
+        article = {
+            id: upper,
+            code: upper,
+            billOfMaterials: [],
+            phaseTimes: {},
+        } as Article;
+    }
+
+    return JSON.parse(JSON.stringify({
+        article,
+        workCycles,
+        phaseTemplates,
+        globalSettings,
+        materials,
+    }));
 }
 
 export async function getWorkCycles(): Promise<WorkCycle[]> {
