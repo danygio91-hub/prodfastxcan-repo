@@ -1,62 +1,83 @@
 import type { Article, JobBillOfMaterialsItem, JobOrder, JobPhase } from '@/types';
 import { calculateJobHours } from '@/lib/time-reliability';
 
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizePfForComparison(pf: string): string {
-  return (pf || '').trim().toUpperCase().replace(/\//g, '-');
+/**
+ * Normalizza l'ordinePF figlio per ottenere l'ID documento Firestore (es. "779/PF.2_1" -> "779-PF.2_1").
+ */
+export function normalizeChildJobId(childOrdinePF: string): string {
+  return (childOrdinePF || '').trim().replace(/\//g, '-');
 }
 
 /**
- * Estrae la radice dell'Ordine PF rimuovendo eventuali suffissi di split esistenti (es. "860/PF.6_1" -> "860/PF.6").
+ * Estrae la radice dell'Ordine PF (mantenuta per compatibilità).
  */
 export function extractBaseOrdinePF(ordinePF: string): string {
-  const clean = (ordinePF || '').trim();
-  if (!clean) return '';
-  return clean.replace(/_\d+$/, '');
+  return (ordinePF || '').trim();
 }
 
 /**
- * Calcola il prossimo codice ordinePF figlio (es. "860/PF.6_1", "860/PF.6_2", ecc.)
- * analizzando i codici già presenti a sistema (case-insensitive e tollerante a "/" vs "-").
+ * FASE 83-BIS: Calcola il prossimo codice ordinePF figlio (es. "779/PF.2_1", "779/PF.2_2", ecc.)
+ * cercando tra i documenti il cui ordinePF inizia per `${parentOrdinePF}_` ed estraendo
+ * il numero progressivo dopo l'ultimo `_`.
  */
 export function computeNextChildOrdinePF(
-  baseOrdinePF: string,
+  parentOrdinePF: string,
   existingOrdiniPF: string[] = []
-): { childOrdinePF: string; suffixNumber: number } {
-  const root = extractBaseOrdinePF(baseOrdinePF);
-  const normRoot = normalizePfForComparison(root);
-  const pattern = new RegExp(`^${escapeRegExp(normRoot)}_(\\d+)(?:_\\d{4})?$`, 'i');
+): { childOrdinePF: string; suffixNumber: number; childDocId: string } {
+  const cleanParent = (parentOrdinePF || '').trim();
+  const prefix = `${cleanParent}_`;
+  const normPrefix = prefix.toUpperCase().replace(/\//g, '-');
 
   let maxSuffix = 0;
+
   for (const raw of existingOrdiniPF) {
     if (!raw) continue;
-    const normCandidate = normalizePfForComparison(raw);
-    const match = normCandidate.match(pattern);
-    if (match && match[1]) {
-      const parsed = parseInt(match[1], 10);
-      if (!isNaN(parsed) && parsed > maxSuffix) {
-        maxSuffix = parsed;
-      }
+    const candidate = raw.trim();
+    const normCandidate = candidate.toUpperCase().replace(/\//g, '-');
+
+    if (!candidate.startsWith(prefix) && !normCandidate.startsWith(normPrefix)) {
+      continue;
+    }
+
+    const lastUnderscoreIdx = candidate.lastIndexOf('_');
+    if (lastUnderscoreIdx === -1) continue;
+
+    const suffixStr = candidate.slice(lastUnderscoreIdx + 1).trim();
+    if (!/^\d+$/.test(suffixStr)) continue;
+
+    const parsed = parseInt(suffixStr, 10);
+    // Ignora numeri >= 1900 che rappresentano anni (es. _2026, _2027) e considera solo i progressivi di split
+    if (!isNaN(parsed) && parsed > 0 && parsed < 1900 && parsed > maxSuffix) {
+      maxSuffix = parsed;
     }
   }
 
   const nextSuffix = maxSuffix + 1;
+  const childOrdinePF = `${cleanParent}_${nextSuffix}`;
+  const childDocId = normalizeChildJobId(childOrdinePF);
+
   return {
-    childOrdinePF: `${root}_${nextSuffix}`,
+    childOrdinePF,
     suffixNumber: nextSuffix,
+    childDocId,
   };
 }
 
 /**
- * Azzera le fasi per la commessa figlia generata dallo split:
- * riporta lo stato a 'pending', svuota workPeriods, consumi, timestamp e operatori assegnati.
+ * FASE 83-BIS: Eredità delle Fasi di Lavorazione Completate per la commessa figlia:
+ * - Se la fase nel padre ha status === 'completed': mantiene la fase intatta nel figlio
+ *   (lasciando status: 'completed', operatorId, workPeriods e i timestamp originali).
+ * - Se la fase nel padre è pending, in-progress/in_progress o paused/in pausa:
+ *   la azzera per la commessa figlia riportando status a 'pending' e pulendo
+ *   startDate, endDate, operatorId, workPeriods e i metrics interni.
  */
-export function resetPhasesForSplitChild(phases: JobPhase[] = []): JobPhase[] {
+export function mapPhasesForSplitChild(phases: JobPhase[] = []): JobPhase[] {
   if (!Array.isArray(phases)) return [];
   return phases.map((p, idx) => {
+    if (p.status === 'completed') {
+      return JSON.parse(JSON.stringify(p)) as JobPhase;
+    }
+
     const cloned: Record<string, any> = {
       ...p,
       status: 'pending' as const,
@@ -78,10 +99,17 @@ export function resetPhasesForSplitChild(phases: JobPhase[] = []): JobPhase[] {
     delete cloned.assignedOperatorId;
     delete cloned.operatorId;
     delete cloned.operatorIds;
+    delete cloned.detectedMinutesPerPiece;
+    delete cloned.actualMinutes;
+    delete cloned.elapsedSeconds;
+    delete cloned.metrics;
 
     return cloned as JobPhase;
   });
 }
+
+// Alias per retrocompatibilità
+export const resetPhasesForSplitChild = mapPhasesForSplitChild;
 
 /**
  * Ricalcola proporzionalmente il fabbisogno totale e il peso stimato della Distinta Base (BOM).
@@ -234,7 +262,7 @@ export function computeSplitJobPayloads(params: ComputeSplitJobParams): ComputeS
     qtaRichiesta: newQuantityChild,
     orePreviste: orePrevisteChild,
     status: 'Pianificata',
-    phases: resetPhasesForSplitChild(originalJob.phases || []),
+    phases: mapPhasesForSplitChild(originalJob.phases || []),
     billOfMaterials: childBOM ?? [],
     numeroODL: null,
     numeroODLInterno: null,

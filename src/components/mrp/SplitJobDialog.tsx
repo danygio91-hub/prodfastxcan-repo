@@ -57,8 +57,7 @@ export function SplitJobDialog({
 
   const previewChildOrdinePF = useMemo(() => {
     if (!job) return '';
-    const base = extractBaseOrdinePF(job.ordinePF || job.id);
-    return computeNextChildOrdinePF(base, existingOrdiniPF).childOrdinePF;
+    return computeNextChildOrdinePF(job.ordinePF || job.id, existingOrdiniPF).childOrdinePF;
   }, [job, existingOrdiniPF]);
 
   useEffect(() => {
@@ -299,7 +298,7 @@ export function SplitJobDialog({
                 <strong>{parsedOriginal.toLocaleString('it-IT')} pz</strong> ({origHoursPreview.toFixed(2)} h) e verrà
                 creata <strong>{previewChildOrdinePF}</strong> da{' '}
                 <strong>{parsedChild.toLocaleString('it-IT')} pz</strong> ({childHoursPreview.toFixed(2)} h) in stato{' '}
-                <strong>Pianificata</strong> con fasi azzerate.
+                <strong>Pianificata</strong> (ereditando eventuali fasi già completate).
               </div>
             </div>
           )}
@@ -338,3 +337,4 @@ export function SplitJobDialog({
     </Dialog>
   );
 }
+

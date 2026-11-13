@@ -5794,7 +5794,7 @@ export default function ProgrammazioneClientPage({
               ? articleMap.get(((jobToSplit as any).articolo || jobToSplit.details || '').trim().toUpperCase())
               : undefined
           }
-          existingOrdiniPF={jobs.map((j) => j.ordinePF || j.id)}
+          existingOrdiniPF={jobs.map((j) => j.ordinePF).filter(Boolean)}
           onSplitSuccess={handleJobSplitSuccess}
         />
       </div>

@@ -25,9 +25,9 @@ import { getISOWeek, getISOWeekYear, format, addWeeks } from 'date-fns';
 import { generatePlanningExcelBuffer, type ExportJobData } from '@/lib/excel-export';
 import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
 import {
-    extractBaseOrdinePF,
     computeNextChildOrdinePF,
     computeSplitJobPayloads,
+    normalizeChildJobId,
 } from '@/lib/job-split-logic';
 import type { JobOrder, JobPhase, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
@@ -2138,58 +2138,43 @@ export async function splitJobOrder(
                 };
             }
 
-            // 2. Ricerca figli già esistenti per calcolare il suffisso incrementale (_1, _2, ...)
-            const rawOrdinePF = (originalJob.ordinePF || originalJob.id || '').trim();
-            const baseOrdinePF = extractBaseOrdinePF(rawOrdinePF);
-            const sanitizedBase = baseOrdinePF.replace(/\//g, '-');
+            // 2. FASE 83-BIS: Ricerca figli già esistenti il cui ordinePF inizia esattamente per `${job.ordinePF}_`
+            const parentOrdinePF = (originalJob.ordinePF || '').trim();
 
             const childrenByPfQuery = adminDb
                 .collection('jobOrders')
-                .where('ordinePF', '>=', `${baseOrdinePF}_`)
-                .where('ordinePF', '<=', `${baseOrdinePF}_\uf8ff`);
+                .where('ordinePF', '>=', `${parentOrdinePF}_`)
+                .where('ordinePF', '<=', `${parentOrdinePF}_\uf8ff`);
 
-            const childrenByIdQuery = adminDb
-                .collection('jobOrders')
-                .where(admin.firestore.FieldPath.documentId(), '>=', `${sanitizedBase}_`)
-                .where(admin.firestore.FieldPath.documentId(), '<=', `${sanitizedBase}_\uf8ff`);
+            const childrenPfSnap = await transaction.get(childrenByPfQuery);
 
-            const [childrenPfSnap, childrenIdSnap] = await Promise.all([
-                transaction.get(childrenByPfQuery),
-                transaction.get(childrenByIdQuery),
-            ]);
-
-            const existingIdentifiers = new Set<string>();
+            const existingChildOrdiniPF: string[] = [];
             childrenPfSnap.docs.forEach((d) => {
                 const pf = d.data()?.ordinePF;
-                if (pf) existingIdentifiers.add(String(pf));
-                existingIdentifiers.add(d.id);
-            });
-            childrenIdSnap.docs.forEach((d) => {
-                const pf = d.data()?.ordinePF;
-                if (pf) existingIdentifiers.add(String(pf));
-                existingIdentifiers.add(d.id);
+                if (pf && String(pf).trim().startsWith(`${parentOrdinePF}_`)) {
+                    existingChildOrdiniPF.push(String(pf).trim());
+                }
             });
 
-            let { childOrdinePF, suffixNumber } = computeNextChildOrdinePF(
-                baseOrdinePF,
-                Array.from(existingIdentifiers)
+            let { childOrdinePF, suffixNumber, childDocId } = computeNextChildOrdinePF(
+                parentOrdinePF,
+                existingChildOrdiniPF
             );
 
-            const annoCompetenza =
-                originalJob.annoCompetenza || extractAnnoCompetenza(originalJob.dataConsegnaFinale);
-
-            let childDocId = generateJobDocumentId(childOrdinePF, annoCompetenza);
             let childRef = adminDb.collection('jobOrders').doc(childDocId);
             let childCheckSnap = await transaction.get(childRef);
 
-            // Salvaguardia anti-collisione sull'ID documento all'interno della transazione (prima delle scritture)
+            // Salvaguardia anti-collisione sull'ID documento normalizzato (es. 779-PF.2_1)
             while (childCheckSnap.exists) {
                 suffixNumber += 1;
-                childOrdinePF = `${baseOrdinePF}_${suffixNumber}`;
-                childDocId = generateJobDocumentId(childOrdinePF, annoCompetenza);
+                childOrdinePF = `${parentOrdinePF}_${suffixNumber}`;
+                childDocId = normalizeChildJobId(childOrdinePF);
                 childRef = adminDb.collection('jobOrders').doc(childDocId);
                 childCheckSnap = await transaction.get(childRef);
             }
+
+            const annoCompetenza =
+                originalJob.annoCompetenza || extractAnnoCompetenza(originalJob.dataConsegnaFinale);
 
             // 3. Validazione quantità e ricalcolo proporzionale (orePreviste, qtaRichiesta, BOM, fasi)
             const splitComputation = computeSplitJobPayloads({
