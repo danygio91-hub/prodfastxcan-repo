@@ -20,10 +20,15 @@ import { getJobDisplayStatus, rollbackLastCompletedPhase, type JobDisplayStatus 
 import { convertTimestampsToDates, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId, serializeForClient } from '@/lib/utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
-import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
+import { fetchInChunks, checkJobOrderExists, getJobOrderRefAndSnap } from '@/lib/firestore-utils';
 import { getISOWeek, getISOWeekYear, format, addWeeks } from 'date-fns';
 import { generatePlanningExcelBuffer, type ExportJobData } from '@/lib/excel-export';
 import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
+import {
+    extractBaseOrdinePF,
+    computeNextChildOrdinePF,
+    computeSplitJobPayloads,
+} from '@/lib/job-split-logic';
 import type { JobOrder, JobPhase, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
@@ -2073,6 +2078,195 @@ export async function updateExternalizedMaterials(
         return { success: false, message: error?.message || "Errore durante l'aggiornamento del Conto Lavoro." };
     }
 }
+
+export interface SplitJobOrderResponse {
+    success: boolean;
+    message: string;
+    error?: string;
+    updatedOriginalJob?: JobOrder;
+    childJob?: JobOrder;
+}
+
+/**
+ * FASE 83: Motore Transazionale di "Split Commessa" (Lato Admin)
+ * Divide una commessa esistente in due:
+ * 1. Aggiorna la commessa originale con newQuantityOriginal e ricalcola proporzionalmente orePreviste e BOM.
+ * 2. Crea la commessa figlia (es. 860/PF.6_1, _2, ...) con newQuantityChild, orePreviste complementari,
+ *    stato resettato a "Pianificata" e fasi azzerate a pending.
+ */
+export async function splitJobOrder(
+    jobId: string,
+    newQuantityOriginal: number,
+    newQuantityChild: number
+): Promise<SplitJobOrderResponse> {
+    try {
+        const cleanJobId = (jobId || '').trim();
+        if (!cleanJobId) {
+            return {
+                success: false,
+                message: 'ID commessa mancante.',
+                error: 'ID commessa mancante.',
+            };
+        }
+
+        const qtyOrig = Number(newQuantityOriginal);
+        const qtyChild = Number(newQuantityChild);
+
+        const txResult = await adminDb.runTransaction(async (transaction): Promise<SplitJobOrderResponse> => {
+            // 1. Lettura commessa originale in transazione
+            const { jobRef, jobSnap } = await getJobOrderRefAndSnap(adminDb, cleanJobId, transaction);
+            if (!jobSnap.exists) {
+                return {
+                    success: false,
+                    message: 'Commessa originale non trovata.',
+                    error: 'Commessa originale non trovata.',
+                };
+            }
+
+            const originalJob = {
+                ...convertTimestampsToDates(jobSnap.data()),
+                id: jobSnap.id,
+            } as JobOrder;
+
+            const currentDisplayStatus = getJobDisplayStatus(originalJob);
+            if (currentDisplayStatus === 'Completato Prod.' || currentDisplayStatus === 'Spedito') {
+                const msg = `Impossibile dividere una commessa già conclusa (${currentDisplayStatus}).`;
+                return {
+                    success: false,
+                    message: msg,
+                    error: msg,
+                };
+            }
+
+            // 2. Ricerca figli già esistenti per calcolare il suffisso incrementale (_1, _2, ...)
+            const rawOrdinePF = (originalJob.ordinePF || originalJob.id || '').trim();
+            const baseOrdinePF = extractBaseOrdinePF(rawOrdinePF);
+            const sanitizedBase = baseOrdinePF.replace(/\//g, '-');
+
+            const childrenByPfQuery = adminDb
+                .collection('jobOrders')
+                .where('ordinePF', '>=', `${baseOrdinePF}_`)
+                .where('ordinePF', '<=', `${baseOrdinePF}_\uf8ff`);
+
+            const childrenByIdQuery = adminDb
+                .collection('jobOrders')
+                .where(admin.firestore.FieldPath.documentId(), '>=', `${sanitizedBase}_`)
+                .where(admin.firestore.FieldPath.documentId(), '<=', `${sanitizedBase}_\uf8ff`);
+
+            const [childrenPfSnap, childrenIdSnap] = await Promise.all([
+                transaction.get(childrenByPfQuery),
+                transaction.get(childrenByIdQuery),
+            ]);
+
+            const existingIdentifiers = new Set<string>();
+            childrenPfSnap.docs.forEach((d) => {
+                const pf = d.data()?.ordinePF;
+                if (pf) existingIdentifiers.add(String(pf));
+                existingIdentifiers.add(d.id);
+            });
+            childrenIdSnap.docs.forEach((d) => {
+                const pf = d.data()?.ordinePF;
+                if (pf) existingIdentifiers.add(String(pf));
+                existingIdentifiers.add(d.id);
+            });
+
+            let { childOrdinePF, suffixNumber } = computeNextChildOrdinePF(
+                baseOrdinePF,
+                Array.from(existingIdentifiers)
+            );
+
+            const annoCompetenza =
+                originalJob.annoCompetenza || extractAnnoCompetenza(originalJob.dataConsegnaFinale);
+
+            let childDocId = generateJobDocumentId(childOrdinePF, annoCompetenza);
+            let childRef = adminDb.collection('jobOrders').doc(childDocId);
+            let childCheckSnap = await transaction.get(childRef);
+
+            // Salvaguardia anti-collisione sull'ID documento all'interno della transazione (prima delle scritture)
+            while (childCheckSnap.exists) {
+                suffixNumber += 1;
+                childOrdinePF = `${baseOrdinePF}_${suffixNumber}`;
+                childDocId = generateJobDocumentId(childOrdinePF, annoCompetenza);
+                childRef = adminDb.collection('jobOrders').doc(childDocId);
+                childCheckSnap = await transaction.get(childRef);
+            }
+
+            // 3. Validazione quantità e ricalcolo proporzionale (orePreviste, qtaRichiesta, BOM, fasi)
+            const splitComputation = computeSplitJobPayloads({
+                originalJob,
+                newQuantityOriginal: qtyOrig,
+                newQuantityChild: qtyChild,
+                childId: childDocId,
+                childOrdinePF,
+            });
+
+            if (!splitComputation.valid || !splitComputation.originalUpdatePayload || !splitComputation.childJobPayload) {
+                const errMsg = splitComputation.error || 'Impossibile completare lo split della commessa.';
+                return {
+                    success: false,
+                    message: errMsg,
+                    error: errMsg,
+                };
+            }
+
+            const now = new Date();
+            const nowTs = admin.firestore.Timestamp.fromDate(now);
+
+            const originalFirestoreUpdate = sanitizeFirestoreData({
+                ...splitComputation.originalUpdatePayload,
+                updatedAt: nowTs,
+            });
+
+            const childFirestoreDoc = sanitizeFirestoreData({
+                ...splitComputation.childJobPayload,
+                annoCompetenza,
+                createdAt: nowTs,
+                updatedAt: nowTs,
+            });
+
+            // 4. Scritture transazionali atomiche (update originale + set figlia)
+            transaction.update(jobRef, originalFirestoreUpdate);
+            transaction.set(childRef, childFirestoreDoc);
+
+            const updatedOriginalClient: JobOrder = serializeForClient({
+                ...originalJob,
+                ...splitComputation.originalUpdatePayload,
+                updatedAt: now.toISOString(),
+            });
+
+            const childClient: JobOrder = serializeForClient({
+                ...splitComputation.childJobPayload,
+                annoCompetenza,
+                createdAt: now.toISOString(),
+                updatedAt: now.toISOString(),
+            });
+
+            return {
+                success: true,
+                message: `Commessa divisa con successo: ${originalJob.ordinePF} (${qtyOrig} pz) + nuova commessa ${childOrdinePF} (${qtyChild} pz).`,
+                updatedOriginalJob: updatedOriginalClient,
+                childJob: childClient,
+            };
+        });
+
+        if (txResult.success) {
+            revalidatePath('/admin/programmazione');
+            revalidatePath('/admin/data-management');
+            revalidatePath('/admin/production-console');
+        }
+
+        return txResult;
+    } catch (error: any) {
+        console.error('Errore in splitJobOrder:', error);
+        const msg = error?.message || 'Errore imprevisto durante lo split della commessa.';
+        return {
+            success: false,
+            message: msg,
+            error: msg,
+        };
+    }
+}
+
 
 
 

@@ -109,6 +109,9 @@ export interface JobOrder {
   id: string;
   cliente: string;
   qta: number;
+  qtaRichiesta?: number;
+  orePreviste?: number;
+  parentJobId?: string;
   department: string;
   details: string;
   ordinePF: string;

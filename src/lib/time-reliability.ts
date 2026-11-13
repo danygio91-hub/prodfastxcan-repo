@@ -46,6 +46,10 @@ export function calculateJobHours(job: JobOrder, article?: Article): number {
     }
   }
 
+  if (typeof job.orePreviste === 'number' && !isNaN(job.orePreviste) && job.orePreviste > 0) {
+    return Math.round(job.orePreviste * 10) / 10;
+  }
+
   return 0;
 }
 

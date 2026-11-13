@@ -47,7 +47,8 @@ import {
   EyeOff,
   Hourglass,
   Activity,
-  Target
+  Target,
+  Split
 } from 'lucide-react';
 import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -119,6 +120,7 @@ import { ManualMultiAddModal } from '@/components/mrp/ManualMultiAddModal';
 import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 import { ContoLavoroModal } from '@/components/mrp/ContoLavoroModal';
 import { QuickArticleEditDrawer } from '@/components/mrp/QuickArticleEditDrawer';
+import { SplitJobDialog } from '@/components/mrp/SplitJobDialog';
 import {
   getJobOrders,
   getActiveJobOrders,
@@ -1139,6 +1141,7 @@ interface JobTableRowProps {
   onStartProduction: (job: JobOrder) => void;
   onRollbackJob: (job: JobOrder) => void;
   onOpenEditModal: (job: JobOrder) => void;
+  onOpenSplitModal: (job: JobOrder) => void;
   onDeleteJob: (job: JobOrder) => void;
   onOpenContoLavoroModal: (job: JobOrder) => void;
   onOpenArticleQuickEdit: (articleCode: string) => void;
@@ -1160,6 +1163,7 @@ const JobTableRow = React.memo(function JobTableRow({
   onStartProduction,
   onRollbackJob,
   onOpenEditModal,
+  onOpenSplitModal,
   onDeleteJob,
   onOpenContoLavoroModal,
   onOpenArticleQuickEdit,
@@ -1567,6 +1571,33 @@ const JobTableRow = React.memo(function JobTableRow({
             </TooltipContent>
           </Tooltip>
 
+          {/* FASE 83: Split Commessa (Produzione Parziale - solo commesse non concluse) */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-block">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={isFinished || (job.qta || 0) <= 1}
+                  onClick={() => onOpenSplitModal(job)}
+                  className={cn(
+                    "h-7 w-7 text-amber-500 hover:text-amber-600 hover:bg-amber-500/15 cursor-pointer transition-colors",
+                    (isFinished || (job.qta || 0) <= 1) && "opacity-30 cursor-not-allowed"
+                  )}
+                >
+                  <Split className="h-3.5 w-3.5" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isFinished
+                ? "Commessa conclusa (non divisibile)"
+                : (job.qta || 0) <= 1
+                  ? "Quantità non divisibile"
+                  : "Split Commessa (dividi produzione parziale)"}
+            </TooltipContent>
+          </Tooltip>
+
           {/* FASE 28: Elimina Commessa Singola (solo stato Pianificata) */}
           {currentStatus === 'Pianificata' && (
             <Tooltip>
@@ -1687,6 +1718,23 @@ export default function ProgrammazioneClientPage({
     );
   }, [jobToEdit]);
 
+  // FASE 83: Modale di Split Commessa (Produzione Parziale)
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [jobToSplit, setJobToSplit] = useState<JobOrder | null>(null);
+
+  const handleOpenSplitModal = useCallback((job: JobOrder) => {
+    if (isJobFinished(job)) {
+      toast({
+        variant: "destructive",
+        title: "Azione non consentita",
+        description: "Impossibile dividere una commessa già conclusa.",
+      });
+      return;
+    }
+    setJobToSplit(job);
+    setIsSplitModalOpen(true);
+  }, [toast]);
+
   // FASE 54: Quick-Edit Anagrafica Articolo in sovrimpressione (No Redirect)
   const [quickEditArticleCode, setQuickEditArticleCode] = useState<string | null>(null);
   const [isQuickEditDrawerOpen, setIsQuickEditDrawerOpen] = useState(false);
@@ -1707,6 +1755,29 @@ export default function ProgrammazioneClientPage({
       console.warn("Errore sincronizzazione commesse post-aggiornamento:", err);
     }
   }, []);
+
+  const handleJobSplitSuccess = useCallback((updatedOriginalJob: JobOrder, childJob: JobOrder) => {
+    setJobs((prev) => {
+      const next: JobOrder[] = [];
+      let insertedChild = false;
+      for (const j of prev) {
+        if (j.id === updatedOriginalJob.id) {
+          next.push({ ...j, ...updatedOriginalJob });
+          next.push(childJob);
+          insertedChild = true;
+        } else if (j.id !== childJob.id) {
+          next.push(j);
+        }
+      }
+      if (!insertedChild) {
+        return [childJob, ...next];
+      }
+      return next;
+    });
+    setMrpCacheVersion((v) => v + 1);
+    router.refresh();
+    void refreshJobsFromServer();
+  }, [router, refreshJobsFromServer]);
 
   const handleArticleUpdated = useCallback((updatedArticle: Article) => {
     // 1. Aggiorna cache locale degli articoli
@@ -5398,6 +5469,7 @@ export default function ProgrammazioneClientPage({
                         onStartProduction={handleStartProduction}
                         onRollbackJob={handleRollbackJob}
                         onOpenEditModal={handleOpenEditModal}
+                        onOpenSplitModal={handleOpenSplitModal}
                         onDeleteJob={handleDeleteJob}
                         onOpenContoLavoroModal={handleOpenContoLavoroModal}
                         onOpenArticleQuickEdit={handleOpenArticleQuickEdit}
@@ -5705,6 +5777,25 @@ export default function ProgrammazioneClientPage({
           articles={articles}
           phaseTemplates={phaseTemplates}
           onArticleUpdated={handleArticleUpdated}
+        />
+
+        {/* =========================================================================
+            8. MODALE SPLIT COMMESSA (FASE 83)
+        ========================================================================== */}
+        <SplitJobDialog
+          isOpen={isSplitModalOpen}
+          onClose={() => {
+            setIsSplitModalOpen(false);
+            setJobToSplit(null);
+          }}
+          job={jobToSplit}
+          article={
+            jobToSplit
+              ? articleMap.get(((jobToSplit as any).articolo || jobToSplit.details || '').trim().toUpperCase())
+              : undefined
+          }
+          existingOrdiniPF={jobs.map((j) => j.ordinePF || j.id)}
+          onSplitSuccess={handleJobSplitSuccess}
         />
       </div>
     </TooltipProvider>
