@@ -158,6 +158,7 @@ import {
   unmuteMaterialOnJob,
   toggleExternalizedMaterial,
   updateExternalizedMaterials,
+  getOdlPrintData,
   type DayCapacityConfigData
 } from './actions';
 import { collection, onSnapshot, getDocs, query, where } from 'firebase/firestore';
@@ -1696,6 +1697,9 @@ export default function ProgrammazioneClientPage({
     article: Article | null;
     materials: RawMaterial[];
     printDate: Date;
+    contoLavoroMap?: Record<string, string[]>;
+    materialsByCode?: Record<string, RawMaterial>;
+    articlesByCode?: Record<string, Article>;
   } | null>(null);
 
   const qrRule = globalSettings?.jobOrderQrCodeRule || (globalSettings as any)?.qrCodeRule || "{ordinePF}@{details}@{qta}";
@@ -3699,79 +3703,175 @@ export default function ProgrammazioneClientPage({
     }
   }, []);
 
-  // FASE 33: Helper comune per recupero distinta, fasi e materiali per la stampa ODL
-  const prepareJobForPrint = useCallback(async (job: JobOrder) => {
-    const articleCode = (job.details || '').trim().toUpperCase();
-    let article = articles.find((a) => a.code.toUpperCase() === articleCode)
-      || articlesCacheRef.current.get(articleCode)
-      || null;
+  // FASE 88: Bulk Pre-fetcher Parallelo e Costruzione Dizionari O(1) in memoria per Stampa ODL
+  // Elimina completamente le query N+1 / waterfall nel ciclo di stampa massiva
+  const prepareBulkJobsForPrint = useCallback(async (targetJobs: JobOrder[]) => {
+    const jobIds = targetJobs.map((j) => j.id).filter(Boolean);
 
-    if (!article && articleCode) {
-      try {
-        const targeted = await getTargetedMRPData([], [articleCode]);
-        if (targeted.articles.length > 0) {
-          article = targeted.articles[0];
-          articlesCacheRef.current.set(articleCode, article);
+    // 1. Estrai array unico di tutti gli articleCode dalle commesse selezionate
+    const allArticleCodesSet = new Set<string>();
+    const allMaterialCodesSet = new Set<string>();
+
+    targetJobs.forEach((j) => {
+      const artCode = ((j as any).articolo || j.details || (j as any).articleCode || '').trim().toUpperCase();
+      if (artCode) {
+        allArticleCodesSet.add(artCode);
+        const cachedArt = articleMap.get(artCode) || articlesCacheRef.current.get(artCode);
+        if (cachedArt?.billOfMaterials) {
+          cachedArt.billOfMaterials.forEach((b) => {
+            if (b?.component) allMaterialCodesSet.add(b.component.trim().toUpperCase());
+          });
         }
-      } catch (e) {
-        console.warn("Impossibile caricare articolo per ODL:", e);
       }
-    }
+      (j.billOfMaterials || []).forEach((b) => {
+        if (b?.component) allMaterialCodesSet.add(b.component.trim().toUpperCase());
+      });
+    });
 
-    let bomItems = job.billOfMaterials || [];
-    if ((!bomItems || bomItems.length === 0) && article?.billOfMaterials) {
-      bomItems = article.billOfMaterials.map((item) => ({
-        ...item,
-        status: 'pending',
-        isFromTemplate: true,
-      }));
-    }
+    const missingArticleCodes = Array.from(allArticleCodesSet).filter(
+      (code) => !articleMap.has(code) && !articlesCacheRef.current.has(code)
+    );
+    const missingMaterialCodes = Array.from(allMaterialCodesSet).filter(
+      (code) => !materialsCacheRef.current.has(code)
+    );
 
-    let jobPhases = job.phases || [];
-    if ((!jobPhases || jobPhases.length === 0) && (job.workCycleId || article?.workCycleId)) {
-      const cycleId = job.workCycleId || article?.workCycleId;
-      const cycle = workCycles.find((c) => c.id === cycleId);
-      if (cycle && (cycle as any).phases) {
-        jobPhases = (cycle as any).phases;
-      }
-    }
-
-    const requiredMatCodes = bomItems
-      .map((i) => (i.component || '').trim().toUpperCase())
-      .filter(Boolean);
-    const missingMatCodes = requiredMatCodes.filter((c) => !materialsCacheRef.current.has(c));
-
-    if (missingMatCodes.length > 0) {
-      try {
-        const targeted = await getTargetedMRPData(missingMatCodes, articleCode ? [articleCode] : []);
-        targeted.rawMaterials.forEach((m) => {
-          if (m.code) materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
-        });
-      } catch (e) {
-        console.warn("Impossibile scaricare anagrafica materiali mancanti per ODL:", e);
-      }
-    }
-
-    const currentOdl = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
-    const enrichedJob: JobOrder = {
-      ...job,
-      numeroODL: currentOdl,
-      numeroODLInterno: currentOdl,
-      billOfMaterials: bomItems,
-      phases: jobPhases,
+    // 2. Singola chiamata Bulk Pre-fetch parallela su Server Action (zero query N+1 nel loop)
+    let serverBulkData: Awaited<ReturnType<typeof getOdlPrintData>> = {
+      jobsById: {},
+      articlesByCode: {},
+      materialsByCode: {},
+      contoLavoroMap: {},
     };
 
-    const materialsList = Array.from(materialsCacheRef.current.values());
+    try {
+      serverBulkData = await getOdlPrintData(
+        jobIds,
+        Array.from(allArticleCodesSet),
+        missingMaterialCodes.length > 0 ? Array.from(allMaterialCodesSet) : []
+      );
 
-    return {
-      enrichedJob,
-      article,
-      materials: materialsList,
-      currentOdl,
-    };
-  }, [articles, workCycles]);
+      // Idrata le cache locali in memoria
+      Object.values(serverBulkData.articlesByCode).forEach((art) => {
+        if (art?.code) articlesCacheRef.current.set(art.code.trim().toUpperCase(), art);
+        if (art?.id) articlesCacheRef.current.set(art.id.trim().toUpperCase(), art);
+      });
+      Object.values(serverBulkData.materialsByCode).forEach((mat) => {
+        if (mat?.code) materialsCacheRef.current.set(mat.code.trim().toUpperCase(), mat);
+      });
+    } catch (e) {
+      console.warn("Avviso bulk pre-fetch stampa ODL (uso fallback cache in memoria):", e);
+    }
 
-  // 1. FASE 33: Stampa Massiva ODL (Solo Stampa, senza alterare lo stato)
+    // 3. Costruisci Dizionari O(1) completi unendo cache locale + risposta bulk server
+    const articlesByCode: Record<string, Article> = { ...serverBulkData.articlesByCode };
+    allArticleCodesSet.forEach((code) => {
+      if (!articlesByCode[code]) {
+        const localArt = articleMap.get(code) || articlesCacheRef.current.get(code);
+        if (localArt) articlesByCode[code] = localArt;
+      }
+    });
+
+    const materialsByCode: Record<string, RawMaterial> = { ...serverBulkData.materialsByCode };
+    materialsCacheRef.current.forEach((mat, code) => {
+      if (!materialsByCode[code]) {
+        materialsByCode[code] = mat;
+      }
+    });
+
+    const contoLavoroMap: Record<string, string[]> = { ...serverBulkData.contoLavoroMap };
+    targetJobs.forEach((localJob) => {
+      const freshServerJob = serverBulkData.jobsById[localJob.id];
+      const extSource =
+        freshServerJob?.externalizedMaterials ??
+        localJob.externalizedMaterials ??
+        [];
+      const normalizedExt = Array.from(
+        new Set(extSource.map((m) => (m || '').trim().toUpperCase()).filter(Boolean))
+      );
+      // Se l'utente ha appena aggiornato ottimisticamente il Conto Lavoro in UI, preserva l'optimistic shield
+      const shielded = optimisticPatchesRef.current.get(localJob.id)?.patch?.externalizedMaterials;
+      const finalExt = shielded
+        ? Array.from(new Set(shielded.map((m) => (m || '').trim().toUpperCase()).filter(Boolean)))
+        : normalizedExt;
+
+      contoLavoroMap[localJob.id] = finalExt;
+      if (localJob.ordinePF) {
+        contoLavoroMap[localJob.ordinePF] = finalExt;
+      }
+    });
+
+    const materialsList = Object.values(materialsByCode);
+
+    // 4. Risoluzione sincrona in memoria O(1) per ogni commessa selezionata
+    return targetJobs.map((localJob) => {
+      const serverJob = serverBulkData.jobsById[localJob.id];
+      const mergedJob: JobOrder = serverJob
+        ? {
+            ...serverJob,
+            ...localJob,
+            externalizedMaterials: contoLavoroMap[localJob.id] || localJob.externalizedMaterials || [],
+            billOfMaterials:
+              localJob.billOfMaterials && localJob.billOfMaterials.length > 0
+                ? localJob.billOfMaterials
+                : serverJob.billOfMaterials || [],
+          }
+        : {
+            ...localJob,
+            externalizedMaterials: contoLavoroMap[localJob.id] || localJob.externalizedMaterials || [],
+          };
+
+      const articleCode = ((mergedJob as any).articolo || mergedJob.details || (mergedJob as any).articleCode || '')
+        .trim()
+        .toUpperCase();
+      const article = (articleCode ? articlesByCode[articleCode] : null) || null;
+
+      let bomItems = mergedJob.billOfMaterials || [];
+      if ((!bomItems || bomItems.length === 0) && article?.billOfMaterials) {
+        bomItems = article.billOfMaterials.map((item) => ({
+          ...item,
+          status: 'pending' as const,
+          isFromTemplate: true,
+        }));
+      }
+
+      let jobPhases = mergedJob.phases || [];
+      if ((!jobPhases || jobPhases.length === 0) && (mergedJob.workCycleId || article?.workCycleId)) {
+        const cycleId = mergedJob.workCycleId || article?.workCycleId;
+        const cycle = workCycles.find((c) => c.id === cycleId);
+        if (cycle && (cycle as any).phases) {
+          jobPhases = (cycle as any).phases;
+        }
+      }
+
+      const currentOdl = getCleanOdlValue(mergedJob.numeroODLInterno || mergedJob.numeroODL);
+      const enrichedJob: JobOrder = {
+        ...mergedJob,
+        numeroODL: currentOdl,
+        numeroODLInterno: currentOdl,
+        billOfMaterials: bomItems,
+        phases: jobPhases,
+        externalizedMaterials: contoLavoroMap[mergedJob.id] || [],
+      };
+
+      return {
+        enrichedJob,
+        article,
+        materials: materialsList,
+        contoLavoroMap,
+        materialsByCode,
+        articlesByCode,
+        currentOdl,
+      };
+    });
+  }, [articleMap, workCycles]);
+
+  // FASE 33 & FASE 88: Helper per singola commessa basato sul motore Bulk O(1)
+  const prepareJobForPrint = useCallback(async (job: JobOrder) => {
+    const [singlePrepared] = await prepareBulkJobsForPrint([job]);
+    return singlePrepared;
+  }, [prepareBulkJobsForPrint]);
+
+  // 1. FASE 33 & FASE 88: Stampa Massiva ODL con Bulk Pre-fetching Parallelo e Lookup O(1)
   const handleBulkPrintODL = async () => {
     if (selectedJobIds.length === 0) return;
 
@@ -3795,8 +3895,12 @@ export default function ProgrammazioneClientPage({
     try {
       toast({
         title: "Generazione PDF ODL in corso",
-        description: `Elaborazione di ${selectedJobs.length} commesse selezionate...`,
+        description: `Pre-caricamento massivo parallelo per ${selectedJobs.length} commesse...`,
       });
+
+      // FASE 88: Esegui un UNICO Bulk Pre-fetch parallelo PRIMA del ciclo di rendering PDF
+      // Zero chiamate di rete (N+1) all'interno del ciclo for!
+      const preparedJobsBatch = await prepareBulkJobsForPrint(selectedJobs);
 
       const pdf = new jsPDF({
         orientation: 'landscape',
@@ -3807,19 +3911,32 @@ export default function ProgrammazioneClientPage({
 
       let totalPagesAdded = 0;
 
-      for (let i = 0; i < selectedJobs.length; i++) {
-        const currentJob = selectedJobs[i];
-        const { enrichedJob, article, materials } = await prepareJobForPrint(currentJob);
+      for (let i = 0; i < preparedJobsBatch.length; i++) {
+        const {
+          enrichedJob,
+          article,
+          materials,
+          contoLavoroMap,
+          materialsByCode,
+          articlesByCode,
+        } = preparedJobsBatch[i];
 
         setPdfData({
           job: enrichedJob,
           article,
           materials,
+          contoLavoroMap,
+          materialsByCode,
+          articlesByCode,
           printDate: new Date(),
         });
 
-        // Attesa rendering del template nascosto nel DOM
-        await new Promise((r) => setTimeout(r, 600));
+        // Attesa minima di paint sincrono del DOM (nessun fetch nel template)
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            setTimeout(resolve, 250);
+          });
+        });
 
         const container = document.getElementById('odl-pdf-pages');
         if (!container) {
@@ -3828,7 +3945,7 @@ export default function ProgrammazioneClientPage({
 
         const pageElements = container.querySelectorAll('.odl-page');
         if (pageElements.length === 0) {
-          throw new Error(`Nessuna pagina ODL generata per la commessa ${currentJob.ordinePF}.`);
+          throw new Error(`Nessuna pagina ODL generata per la commessa ${enrichedJob.ordinePF}.`);
         }
 
         for (let pIdx = 0; pIdx < pageElements.length; pIdx++) {
@@ -4206,7 +4323,14 @@ export default function ProgrammazioneClientPage({
     setIsDownloadingPdf(job.id);
 
     try {
-      const { enrichedJob, article, materials } = await prepareJobForPrint(job);
+      const {
+        enrichedJob,
+        article,
+        materials,
+        contoLavoroMap,
+        materialsByCode,
+        articlesByCode,
+      } = await prepareJobForPrint(job);
 
       // =========================================================================
       // PASSO 1 (Azione Fisica): Monta il template e forza download PDF
@@ -4215,11 +4339,18 @@ export default function ProgrammazioneClientPage({
         job: enrichedJob,
         article,
         materials,
+        contoLavoroMap,
+        materialsByCode,
+        articlesByCode,
         printDate: new Date(),
       });
 
-      // Attesa rendering del template nascosto nel DOM (esattamente come in Gestione Dati Commesse)
-      await new Promise((r) => setTimeout(r, 800));
+      // Attesa rendering sincrono del template nascosto nel DOM
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          setTimeout(resolve, 300);
+        });
+      });
 
       const container = document.getElementById('odl-pdf-pages');
       if (!container) {
@@ -5987,6 +6118,9 @@ export default function ProgrammazioneClientPage({
               qrRule={qrRule}
               globalSettings={globalSettingsRef.current || globalSettings}
               departments={departments}
+              contoLavoroMap={pdfData.contoLavoroMap}
+              materialsByCode={pdfData.materialsByCode}
+              articlesByCode={pdfData.articlesByCode}
             />
           </div>
         )}

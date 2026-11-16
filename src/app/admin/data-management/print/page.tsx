@@ -21,6 +21,8 @@ function PrintPageContent() {
   const [job, setJob] = useState<JobOrder | null>(null);
   const [article, setArticle] = useState<Article | null>(null);
   const [materials, setMaterials] = useState<RawMaterial[]>([]);
+  const [contoLavoroMap, setContoLavoroMap] = useState<Record<string, string[]>>({});
+  const [materialsByCode, setMaterialsByCode] = useState<Record<string, RawMaterial>>({});
   const [departments, setDepartments] = useState<any[]>([]);
   const [config, setConfig] = useState<ODLConfig>(DEFAULT_ODL_CONFIG);
   const [qrRule, setQrRule] = useState<string>("{ordinePF}@{details}@{qta}");
@@ -53,6 +55,8 @@ function PrintPageContent() {
           setJob(odlData.job);
           setArticle(odlData.article as Article | null);
           setMaterials(odlData.materials as RawMaterial[]);
+          if (odlData.contoLavoroMap) setContoLavoroMap(odlData.contoLavoroMap);
+          if (odlData.materialsByCode) setMaterialsByCode(odlData.materialsByCode);
         } else {
           setError('Commessa non trovata.');
         }
@@ -109,6 +113,8 @@ function PrintPageContent() {
                 config={config}
                 qrRule={qrRule}
                 departments={departments}
+                contoLavoroMap={contoLavoroMap}
+                materialsByCode={materialsByCode}
             />
         </div>
 

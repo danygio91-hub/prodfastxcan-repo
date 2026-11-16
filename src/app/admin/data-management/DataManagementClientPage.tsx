@@ -392,7 +392,15 @@ export default function DataManagementClientPage({
 
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
-  const [pdfData, setPdfData] = useState<{ job: JobOrder, article: Article | null, materials: RawMaterial[], printDate: Date } | null>(null);
+  const [pdfData, setPdfData] = useState<{
+    job: JobOrder;
+    article: Article | null;
+    materials: RawMaterial[];
+    printDate: Date;
+    contoLavoroMap?: Record<string, string[]>;
+    materialsByCode?: Record<string, RawMaterial>;
+    articlesByCode?: Record<string, Article>;
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -552,12 +560,46 @@ export default function DataManagementClientPage({
     setTimeout(() => setIsRefreshingMRP(false), 1500);
   };
 
-  const generateSinglePdf = async (job: JobOrder) => {
+  // FASE 88: Dizionari pre-compilati O(1) in memoria per stampa ODL
+  const articlesByCodeMap = useMemo(() => {
+    const dict: Record<string, Article> = {};
+    articles.forEach((a) => {
+      if (a.code) dict[a.code.toUpperCase().trim()] = a;
+      if (a.id) dict[a.id.toUpperCase().trim()] = a;
+    });
+    return dict;
+  }, [articles]);
+
+  const materialsByCodeMap = useMemo(() => {
+    const dict: Record<string, RawMaterial> = {};
+    rawMaterials.forEach((m) => {
+      if (m.code) dict[m.code.toUpperCase().trim()] = m;
+      if (m.id) dict[m.id.toUpperCase().trim()] = m;
+    });
+    return dict;
+  }, [rawMaterials]);
+
+  const generateSinglePdf = async (
+    job: JobOrder,
+    precomputedContoLavoroMap?: Record<string, string[]>
+  ) => {
     setIsDownloadingPdf(job.id);
     try {
-      const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
-      setPdfData({ job, article, materials: rawMaterials, printDate: new Date() });
-      await new Promise(r => setTimeout(r, 1000));
+      const artKey = (job.details || '').toUpperCase().trim();
+      const article = articlesByCodeMap[artKey] || null;
+      const contoLavoroMap = precomputedContoLavoroMap || {
+        [job.id]: (job.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim()),
+      };
+      setPdfData({
+        job,
+        article,
+        materials: rawMaterials,
+        contoLavoroMap,
+        materialsByCode: materialsByCodeMap,
+        articlesByCode: articlesByCodeMap,
+        printDate: new Date(),
+      });
+      await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 300)));
       const container = document.getElementById('odl-pdf-pages');
       if (!container) throw new Error("Template non trovato.");
       const pageElements = container.querySelectorAll('.odl-page');
@@ -591,9 +633,13 @@ export default function DataManagementClientPage({
     setIsProcessingBatch(true);
     
     const jobsToDownload = allJobsUnfiltered.filter(j => selectedRows.includes(j.id));
+    const batchContoLavoroMap: Record<string, string[]> = {};
+    jobsToDownload.forEach((j) => {
+      batchContoLavoroMap[j.id] = (j.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim());
+    });
     
     for (const job of jobsToDownload) {
-      await generateSinglePdf(job);
+      await generateSinglePdf(job, batchContoLavoroMap);
     }
     
     setIsDownloadingPdf(null);
@@ -1120,7 +1166,22 @@ export default function DataManagementClientPage({
         </div>
       </header>
 
-      {pdfData && <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}><ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} config={odlConfig} qrRule={qrRule} globalSettings={globalSettings} /></div>}
+      {pdfData && (
+        <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}>
+          <ODLPrintTemplate
+            job={pdfData.job}
+            article={pdfData.article}
+            materials={pdfData.materials}
+            printDate={pdfData.printDate}
+            config={odlConfig}
+            qrRule={qrRule}
+            globalSettings={globalSettings}
+            contoLavoroMap={pdfData.contoLavoroMap}
+            materialsByCode={pdfData.materialsByCode}
+            articlesByCode={pdfData.articlesByCode}
+          />
+        </div>
+      )}
 
       {isDataLoading ? (
         <div className="flex flex-col items-center justify-center py-20 space-y-4 bg-muted/20 rounded-lg border border-dashed">

@@ -2094,22 +2094,15 @@ export async function getOptimizedODLData(jobId: string) {
     const job = convertTimestampsToDates(jobSnap.data()) as JobOrder;
     job.id = jobSnap.id;
 
-    // 1. Fetch Article with .select() to reduce payload
-    let article: Partial<Article> | null = null;
-    if (job.details) {
-        const articleSnap = await adminDb.collection("articles")
-            .where(admin.firestore.FieldPath.documentId(), "==", job.details.toUpperCase())
-            .select("code", "phaseTimes", "billOfMaterials", "technicalNotes", "technicalDrawingUrl")
-            .limit(1)
-            .get();
-            
-        if (!articleSnap.empty) { article = articleSnap.docs[0].data() as Partial<Article>; }
-    }
+    const extList = Array.from(
+        new Set((job.externalizedMaterials || []).map(m => (m || '').toUpperCase().trim()).filter(Boolean))
+    );
+    const contoLavoroMap: Record<string, string[]> = {
+        [job.id]: extList,
+        ...(job.ordinePF ? { [job.ordinePF]: extList } : {}),
+    };
 
-    // 2. Fetch Materials with chunking and .select()
-    const materials: Partial<RawMaterial>[] = [];
     const materialCodes = new Set<string>();
-    
     if (job.billOfMaterials) {
         job.billOfMaterials.forEach(item => {
             if (item.component) materialCodes.add(item.component.toUpperCase().trim());
@@ -2117,20 +2110,67 @@ export async function getOptimizedODLData(jobId: string) {
     }
 
     const uniqueMaterials = Array.from(materialCodes);
-    if (uniqueMaterials.length > 0) {
-        const CHUNK_SIZE = 30;
-        for (let i = 0; i < uniqueMaterials.length; i += CHUNK_SIZE) {
-            const chunk = uniqueMaterials.slice(i, i + CHUNK_SIZE);
-            const materialsSnap = await adminDb.collection("rawMaterials")
-                .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
-                .select('code', 'type', 'unitOfMeasure')
-                .get();
-            
-            materialsSnap.forEach(doc => {
-                materials.push({ id: doc.id, ...doc.data() } as Partial<RawMaterial>);
-            });
-        }
+    const CHUNK_SIZE = 30;
+    const matChunks: string[][] = [];
+    for (let i = 0; i < uniqueMaterials.length; i += CHUNK_SIZE) {
+        matChunks.push(uniqueMaterials.slice(i, i + CHUNK_SIZE));
     }
 
-    return { job, article, materials };
+    const artCode = (job.details || '').trim().toUpperCase();
+
+    // Parallelizza il fetch dell'Articolo e delle Materie Prime
+    const [articleByIdSnap, articleByCodeSnap, matSnapsById, matSnapsByCode] = await Promise.all([
+        artCode
+            ? adminDb.collection("articles")
+                .where(admin.firestore.FieldPath.documentId(), "==", artCode)
+                .select("code", "phaseTimes", "billOfMaterials", "technicalNotes", "technicalDrawingUrl")
+                .limit(1)
+                .get()
+            : Promise.resolve(null),
+        artCode
+            ? adminDb.collection("articles")
+                .where("code", "==", artCode)
+                .select("code", "phaseTimes", "billOfMaterials", "technicalNotes", "technicalDrawingUrl")
+                .limit(1)
+                .get()
+            : Promise.resolve(null),
+        Promise.all(
+            matChunks.map(chunk =>
+                adminDb.collection("rawMaterials")
+                    .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+                    .select('code', 'type', 'unitOfMeasure', 'conversionFactor', 'rapportoKgMt')
+                    .get()
+            )
+        ),
+        Promise.all(
+            matChunks.map(chunk =>
+                adminDb.collection("rawMaterials")
+                    .where('code', 'in', chunk)
+                    .select('code', 'type', 'unitOfMeasure', 'conversionFactor', 'rapportoKgMt')
+                    .get()
+            )
+        )
+    ]);
+
+    let article: Partial<Article> | null = null;
+    if (articleByIdSnap && !articleByIdSnap.empty) {
+        article = articleByIdSnap.docs[0].data() as Partial<Article>;
+    } else if (articleByCodeSnap && !articleByCodeSnap.empty) {
+        article = articleByCodeSnap.docs[0].data() as Partial<Article>;
+    }
+
+    const materialsByCode: Record<string, RawMaterial> = {};
+    const registerMat = (doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+        const raw = doc.data();
+        const mat = { id: doc.id, ...raw, code: (raw.code || doc.id || '').trim() } as RawMaterial;
+        const normCode = mat.code.toUpperCase().trim();
+        if (normCode) materialsByCode[normCode] = mat;
+    };
+
+    matSnapsById.forEach(snap => snap.forEach(registerMat));
+    matSnapsByCode.forEach(snap => snap.forEach(registerMat));
+
+    const materials = Object.values(materialsByCode);
+
+    return { job, article, materials, contoLavoroMap, materialsByCode };
 }

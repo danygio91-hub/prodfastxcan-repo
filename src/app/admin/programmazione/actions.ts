@@ -2340,11 +2340,227 @@ export async function splitJobOrder(
     }
 }
 
+/**
+ * FASE 88: Bulk Pre-fetcher Parallelo e Costruzione Dizionari O(1) per Stampa ODL (Singola e Massiva).
+ * Elimina le query N+1 / waterfall nel ciclo di stampa:
+ * 1. Carica in un'unica chiamata parallela le commesse selezionate (incluso externalizedMaterials / Conto Lavoro).
+ * 2. Estrae un array unico di tutti gli articleCode / articleId e carica in parallelo le anagrafiche Article e BOM.
+ * 3. Estrae tutti i codici componente della BOM e carica in un unico batch parallelo leggero (senza i pesanti array batches/PO)
+ *    i soli campi RawMaterial necessari al calcolo pesi/metri della scheda ODL.
+ * 4. Restituisce dizionari pre-compilati in memoria per lookup O(1) istantaneo nel template ODLPrintTemplate.
+ */
+export async function getOdlPrintData(
+    jobIds: string[],
+    fallbackArticleCodes: string[] = [],
+    fallbackMaterialCodes: string[] = []
+): Promise<{
+    jobsById: Record<string, JobOrder>;
+    articlesByCode: Record<string, Article>;
+    materialsByCode: Record<string, RawMaterial>;
+    contoLavoroMap: Record<string, string[]>;
+}> {
+    const CHUNK_SIZE = 30;
+    const jobsById: Record<string, JobOrder> = {};
+    const articlesByCode: Record<string, Article> = {};
+    const materialsByCode: Record<string, RawMaterial> = {};
+    const contoLavoroMap: Record<string, string[]> = {};
 
+    try {
+        const cleanJobIds = Array.from(
+            new Set((jobIds || []).map((id) => (id || '').trim()).filter(Boolean))
+        );
 
+        const uniqueArticleCodes = new Set<string>(
+            (fallbackArticleCodes || []).map((c) => (c || '').trim().toUpperCase()).filter(Boolean)
+        );
+        const uniqueMaterialCodes = new Set<string>(
+            (fallbackMaterialCodes || []).map((c) => (c || '').trim().toUpperCase()).filter(Boolean)
+        );
 
+        // 1. Bulk fetch parallelo di tutte le commesse selezionate (per stato fresco externalizedMaterials e BOM)
+        if (cleanJobIds.length > 0) {
+            const jobChunks: string[][] = [];
+            for (let i = 0; i < cleanJobIds.length; i += CHUNK_SIZE) {
+                jobChunks.push(cleanJobIds.slice(i, i + CHUNK_SIZE));
+            }
 
+            const jobSnapshots = await Promise.all(
+                jobChunks.map((chunk) =>
+                    adminDb
+                        .collection('jobOrders')
+                        .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+                        .get()
+                )
+            );
 
+            for (const snap of jobSnapshots) {
+                snap.forEach((docSnap) => {
+                    const jobData = serializeForClient({
+                        ...convertTimestampsToDates(docSnap.data()),
+                        id: docSnap.id,
+                    }) as JobOrder;
 
+                    jobsById[jobData.id] = jobData;
 
+                    // Pre-compila il dizionario Conto Lavoro O(1): Record<JobId, MaterialId[]>
+                    const extList = Array.from(
+                        new Set(
+                            (jobData.externalizedMaterials || [])
+                                .map((m) => (m || '').trim().toUpperCase())
+                                .filter(Boolean)
+                        )
+                    );
+                    contoLavoroMap[jobData.id] = extList;
+                    if (jobData.ordinePF) {
+                        contoLavoroMap[jobData.ordinePF] = extList;
+                    }
 
+                    const artCode = (
+                        (jobData as any).articolo ||
+                        jobData.details ||
+                        (jobData as any).articleCode ||
+                        ''
+                    )
+                        .trim()
+                        .toUpperCase();
+                    if (artCode) {
+                        uniqueArticleCodes.add(artCode);
+                    }
+
+                    (jobData.billOfMaterials || []).forEach((item) => {
+                        if (item?.component) {
+                            uniqueMaterialCodes.add(item.component.trim().toUpperCase());
+                        }
+                    });
+                });
+            }
+        }
+
+        // 2. Bulk fetch parallelo di tutti gli Articoli unici (sia per campo 'code' che per documentId)
+        const artCodesList = Array.from(uniqueArticleCodes);
+        if (artCodesList.length > 0) {
+            const artChunks: string[][] = [];
+            for (let i = 0; i < artCodesList.length; i += CHUNK_SIZE) {
+                artChunks.push(artCodesList.slice(i, i + CHUNK_SIZE));
+            }
+
+            const [byCodeSnaps, byIdSnaps] = await Promise.all([
+                Promise.all(
+                    artChunks.map((chunk) =>
+                        adminDb.collection('articles').where('code', 'in', chunk).get()
+                    )
+                ),
+                Promise.all(
+                    artChunks.map((chunk) =>
+                        adminDb
+                            .collection('articles')
+                            .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+                            .get()
+                    )
+                ),
+            ]);
+
+            const registerArticle = (docSnap: FirebaseFirestore.QueryDocumentSnapshot) => {
+                const raw = docSnap.data();
+                const art = serializeForClient({
+                    ...convertTimestampsToDates(raw),
+                    id: docSnap.id,
+                    code: (raw.code || docSnap.id || '').trim(),
+                }) as Article;
+
+                const normCode = (art.code || '').trim().toUpperCase();
+                const normId = (art.id || '').trim().toUpperCase();
+                if (normCode) articlesByCode[normCode] = art;
+                if (normId) articlesByCode[normId] = art;
+
+                (art.billOfMaterials || []).forEach((b) => {
+                    if (b?.component) {
+                        uniqueMaterialCodes.add(b.component.trim().toUpperCase());
+                    }
+                });
+            };
+
+            byCodeSnaps.forEach((snap) => snap.forEach(registerArticle));
+            byIdSnaps.forEach((snap) => snap.forEach(registerArticle));
+        }
+
+        // 3. Bulk fetch parallelo leggero (.select) di tutte le Materie Prime necessarie alla BOM
+        // Esclude il pesante array storico 'batches' e non interroga 'purchaseOrders' (inutili per la stampa ODL)
+        const matCodesList = Array.from(uniqueMaterialCodes);
+        if (matCodesList.length > 0) {
+            const matChunks: string[][] = [];
+            for (let i = 0; i < matCodesList.length; i += CHUNK_SIZE) {
+                matChunks.push(matCodesList.slice(i, i + CHUNK_SIZE));
+            }
+
+            const [matByCodeSnaps, matByIdSnaps] = await Promise.all([
+                Promise.all(
+                    matChunks.map((chunk) =>
+                        adminDb
+                            .collection('rawMaterials')
+                            .where('code', 'in', chunk)
+                            .select(
+                                'code',
+                                'type',
+                                'unitOfMeasure',
+                                'conversionFactor',
+                                'rapportoKgMt',
+                                'description'
+                            )
+                            .get()
+                    )
+                ),
+                Promise.all(
+                    matChunks.map((chunk) =>
+                        adminDb
+                            .collection('rawMaterials')
+                            .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+                            .select(
+                                'code',
+                                'type',
+                                'unitOfMeasure',
+                                'conversionFactor',
+                                'rapportoKgMt',
+                                'description'
+                            )
+                            .get()
+                    )
+                ),
+            ]);
+
+            const registerMaterial = (docSnap: FirebaseFirestore.QueryDocumentSnapshot) => {
+                const raw = docSnap.data();
+                const mat = serializeForClient({
+                    ...convertTimestampsToDates(raw),
+                    id: docSnap.id,
+                    code: (raw.code || docSnap.id || '').trim(),
+                }) as RawMaterial;
+
+                const normCode = (mat.code || '').trim().toUpperCase();
+                const normId = (mat.id || '').trim().toUpperCase();
+                if (normCode) materialsByCode[normCode] = mat;
+                if (normId) materialsByCode[normId] = mat;
+            };
+
+            matByCodeSnaps.forEach((snap) => snap.forEach(registerMaterial));
+            matByIdSnaps.forEach((snap) => snap.forEach(registerMaterial));
+        }
+
+        return {
+            jobsById,
+            articlesByCode,
+            materialsByCode,
+            contoLavoroMap,
+        };
+    } catch (error) {
+        console.error('Errore durante getOdlPrintData:', error);
+        return {
+            jobsById,
+            articlesByCode,
+            materialsByCode,
+            contoLavoroMap,
+        };
+    }
+}
+
+export const getBulkOdlPrintData = getOdlPrintData;

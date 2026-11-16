@@ -15,6 +15,10 @@ interface ODLPrintTemplateProps {
   qrRule?: string;
   globalSettings?: GlobalSettings | null;
   departments?: Department[];
+  /** FASE 88: Dizionari pre-compilati in memoria per lookup O(1) sincrono e puro */
+  contoLavoroMap?: Record<string, string[]>;
+  materialsByCode?: Record<string, RawMaterial>;
+  articlesByCode?: Record<string, Article>;
 }
 
 export default function ODLPrintTemplate({ 
@@ -25,35 +29,81 @@ export default function ODLPrintTemplate({
   config = DEFAULT_ODL_CONFIG,
   qrRule = "{ordinePF}@{details}@{qta}",
   globalSettings,
-  departments = []
+  departments = [],
+  contoLavoroMap,
+  materialsByCode,
+  articlesByCode,
 }: ODLPrintTemplateProps) {
-  console.log("ODL Print Job Data:", {
-    id: job.id,
-    numeroODL: job.numeroODL,
-    ordinePF: job.ordinePF,
-    dataFinePreparazione: job.dataFinePreparazione,
-    dataConsegnaFinale: job.dataConsegnaFinale
-  });
+  const jobArticleKey = ((job as any).articolo || job.details || (job as any).articleCode || '').trim().toUpperCase();
+  const resolvedArticle = article || (jobArticleKey && articlesByCode ? articlesByCode[jobArticleKey] || null : null);
 
-  const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
-  const extList = (job.externalizedMaterials || []).map((m: string) => (m || '').toUpperCase().trim());
+  // FASE 88: Costruzione dizionari/mappe in memoria per lookup O(1)
+  const materialsMap = new Map<string, RawMaterial>();
+  for (const m of materials) {
+    if (m?.code) {
+      materialsMap.set(m.code.toUpperCase().trim(), m);
+    }
+  }
 
-  const allItems = (job.billOfMaterials || []).map(item => {
-    const compUpper = (item.component || '').toUpperCase().trim();
-    const mat = materialsMap.get(compUpper);
-    const type = mat?.type?.toUpperCase() || 'TRECCIA';
-    const isExternalized = extList.includes(compUpper);
-    
-    // FALLBACK LOGIC: If job item has no notes, try to find them in the Article BOM
-    let finalNote = (item.note || '').trim();
-    if (!finalNote && article?.billOfMaterials) {
-        const articleMatch = article.billOfMaterials.find(aItem => 
-            aItem.component.toUpperCase().trim() === compUpper &&
-            (aItem.lunghezzaTaglioMm || 0) === (item.lunghezzaTaglioMm || 0)
-        );
-        if (articleMatch?.note) {
-            finalNote = articleMatch.note.trim();
+  const jobContoLavoroList =
+    contoLavoroMap?.[job.id] ??
+    (job.ordinePF ? contoLavoroMap?.[job.ordinePF] : undefined) ??
+    job.externalizedMaterials ??
+    [];
+
+  const contoLavoroSet = new Set<string>(
+    jobContoLavoroList.map((m: string) => (m || '').toUpperCase().trim()).filter(Boolean)
+  );
+
+  // Pre-indicizza le note della BOM Articolo in O(1) per evitare .find() nidificati (N*M)
+  const articleBomNotesByKey = new Map<string, string>();
+  const articleBomNotesByComp = new Map<string, string>();
+  if (resolvedArticle?.billOfMaterials) {
+    for (const aItem of resolvedArticle.billOfMaterials) {
+      const compKey = (aItem.component || '').toUpperCase().trim();
+      const cutKey = aItem.lunghezzaTaglioMm || 0;
+      const cleanNote = (aItem.note || '').trim();
+      if (compKey && cleanNote) {
+        articleBomNotesByKey.set(`${compKey}__${cutKey}`, cleanNote);
+        if (!articleBomNotesByComp.has(compKey)) {
+          articleBomNotesByComp.set(compKey, cleanNote);
         }
+      }
+    }
+  }
+
+  // Pre-indicizza i tipi di materia prima in O(1)
+  const rawMaterialTypesMap = new Map<string, any>();
+  if (globalSettings?.rawMaterialTypes) {
+    for (const t of globalSettings.rawMaterialTypes) {
+      if (t?.id) {
+        rawMaterialTypesMap.set(t.id, t);
+      }
+    }
+  }
+
+  const sourceBom =
+    job.billOfMaterials && job.billOfMaterials.length > 0
+      ? job.billOfMaterials
+      : (resolvedArticle?.billOfMaterials || []).map((b) => ({
+          ...b,
+          status: 'pending' as const,
+          isFromTemplate: true,
+        }));
+
+  const allItems = sourceBom.map(item => {
+    const compUpper = (item.component || '').toUpperCase().trim();
+    const mat = materialsByCode?.[compUpper] ?? materialsMap.get(compUpper);
+    const type = mat?.type?.toUpperCase() || 'TRECCIA';
+    const isExternalized = Boolean(
+      contoLavoroMap?.[job.id]?.includes(compUpper) || contoLavoroSet.has(compUpper)
+    );
+    
+    // FALLBACK LOGIC O(1): Se la riga commessa non ha nota, recupera in O(1) dalla mappa BOM articolo
+    let finalNote = (item.note || '').trim();
+    if (!finalNote) {
+      const cutKey = item.lunghezzaTaglioMm || 0;
+      finalNote = articleBomNotesByKey.get(`${compUpper}__${cutKey}`) || '';
     }
 
     return { ...item, note: finalNote, type, mat, isExternalized };
@@ -81,7 +131,7 @@ export default function ODLPrintTemplate({
   };
 
   const getEstimatedTimeForSection = (phaseId: string) => {
-    const timeData = article?.phaseTimes?.[phaseId];
+    const timeData = resolvedArticle?.phaseTimes?.[phaseId];
     if (!timeData || (!timeData.expectedMinutesPerPiece && !timeData.detectedMinutesPerPiece)) return 'N/D';
     const mins = timeData.expectedMinutesPerPiece || timeData.detectedMinutesPerPiece || 0;
     const totalMins = Math.round(mins * job.qta);
@@ -381,8 +431,8 @@ export default function ODLPrintTemplate({
     const valueW = config.info.valueWidth || '25%';
     const drawW = 100 - parseFloat(labelW) - parseFloat(valueW);
 
-    const technicalNotes = (article?.technicalNotes || job.technicalNotes || '').trim();
-    const technicalDrawingUrl = (article?.technicalDrawingUrl || job.technicalDrawingUrl || '').trim();
+    const technicalNotes = (resolvedArticle?.technicalNotes || job.technicalNotes || '').trim();
+    const technicalDrawingUrl = (resolvedArticle?.technicalDrawingUrl || job.technicalDrawingUrl || '').trim();
     const hasNotes = technicalNotes.length > 0;
     const hasDrawing = technicalDrawingUrl.length > 0;
 
@@ -634,13 +684,14 @@ export default function ODLPrintTemplate({
         </thead>
         <tbody>
           {items.map((item, i) => {
-            const configMat = globalSettings?.rawMaterialTypes.find(t => t.id === item.mat?.type) || { defaultUnit: item.mat?.unitOfMeasure };
+            const compUpper = (item.component || '').toUpperCase().trim();
+            const configMat = (item.mat?.type ? rawMaterialTypesMap.get(item.mat.type) : null) || { defaultUnit: item.mat?.unitOfMeasure };
             const req = calculateBOMRequirement(job.qta, item, item.mat as any, configMat as any);
             
-            // FASE 47: Verifica materiale esternalizzato in Conto Lavoro (externalizedMaterials)
+            // FASE 47 & FASE 88: Verifica materiale esternalizzato in Conto Lavoro tramite lookup O(1) sul dizionario in memoria
             const isExternalized = Boolean(
-              item.isExternalized ?? 
-              extList.includes((item.component || '').toUpperCase().trim())
+              item.isExternalized ??
+              (contoLavoroMap?.[job.id]?.includes(compUpper) || contoLavoroSet.has(compUpper))
             );
 
             const data: any = {
