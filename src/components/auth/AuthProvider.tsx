@@ -4,11 +4,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { storeOperator } from '@/lib/auth';
+import { storeOperator, getOperator } from '@/lib/auth';
 import type { Operator } from '@/types';
 import { useRouter, usePathname } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot, deleteField } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
+import { withNetworkRetry, emitNetworkStatus } from '@/lib/network-resilience';
 
 const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
 const LAST_LOGIN_TIMESTAMP_KEY = 'last_login_timestamp';
@@ -80,11 +81,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refetchOperator = useCallback(async () => {
     const currentUser = userRef.current;
     if (currentUser) {
-        const operatorProfile = await fetchOperatorProfile(currentUser);
+      try {
+        const operatorProfile = await withNetworkRetry(
+          () => fetchOperatorProfile(currentUser),
+          { shouldRetryOnError: true, errorRetryCount: 3, errorRetryInterval: 2000 }
+        );
         if (operatorProfile) {
           setOperator(operatorProfile);
           storeOperator(operatorProfile);
         }
+      } catch (err) {
+        console.warn("Avviso refetchOperator (errore di rete gestito):", err);
+      }
     }
   }, [fetchOperatorProfile]);
 
@@ -154,15 +162,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (firebaseUser) {
-        // Sync the token with the server using Session Cookies
-        const idToken = await firebaseUser.getIdToken();
-        await fetch('/api/auth/session', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ idToken })
-        });
+        let operatorProfile: Operator | null = null;
+        try {
+          // Sync the token with the server using Session Cookies (resiliente a 503/network blips)
+          const idToken = await firebaseUser.getIdToken();
+          await withNetworkRetry(
+            async () => {
+              const res = await fetch('/api/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken }),
+              });
+              if (res.status >= 500) {
+                throw new Error(`HTTP ${res.status} on session sync`);
+              }
+              return res;
+            },
+            { shouldRetryOnError: true, errorRetryCount: 3, errorRetryInterval: 2000 }
+          ).catch((sessionErr) => {
+            console.warn("Avviso sync session cookie (rete temporaneamente instabile):", sessionErr);
+          });
 
-        const operatorProfile = await fetchOperatorProfile(firebaseUser);
+          operatorProfile = await withNetworkRetry(
+            () => fetchOperatorProfile(firebaseUser),
+            { shouldRetryOnError: true, errorRetryCount: 3, errorRetryInterval: 2000 }
+          );
+        } catch (netErr) {
+          console.warn("Avviso recupero profilo operatore durante calo di rete, uso cache locale:", netErr);
+          emitNetworkStatus({ reconnecting: true, reason: 'Connessione persa, tentativo di riconnessione...' });
+          operatorProfile = operatorRef.current || getOperator();
+        }
+
         if (operatorProfile) {
           // Set user and operator state immediately to prevent race conditions
           setUser(firebaseUser);
@@ -172,6 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Then, set up the real-time listener for subsequent updates
           const operatorDocRef = doc(db, 'operators', operatorProfile.id);
           operatorUnsubscribe = onSnapshot(operatorDocRef, (docSnap) => {
+            emitNetworkStatus({ reconnecting: false });
             if (docSnap.exists()) {
                 const updatedOperator = { ...docSnap.data(), id: docSnap.id } as Operator;
                 setOperator(updatedOperator);
@@ -183,6 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }, (error) => {
              console.warn("Avviso listener real-time operatore (errore di rete gestito):", error);
+             emitNetworkStatus({ reconnecting: true, reason: error?.message });
           });
 
           localStorage.setItem(LAST_LOGIN_TIMESTAMP_KEY, Date.now().toString());

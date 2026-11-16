@@ -12,6 +12,7 @@ import type {
     ProductionSettings 
 } from '@/types';
 import { GlobalSettings, DEFAULT_GLOBAL_SETTINGS } from '@/lib/settings-types';
+import { withNetworkRetry, DEFAULT_NETWORK_RETRY_CONFIG } from '@/lib/network-resilience';
 
 interface MasterDataContextType {
     operators: Operator[];
@@ -48,7 +49,7 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
         const start = performance.now();
 
         try {
-            // Fetch everything in parallel via Client SDK
+            // Fetch everything in parallel via Client SDK (con retry automatico FASE 87)
             const [
                 opsSnap,
                 deptsSnap,
@@ -57,15 +58,18 @@ export function MasterDataProvider({ children }: { children: React.ReactNode }) 
                 prodSettingsSnap,
                 hoursConfigSnap,
                 globalSettingsSnap
-            ] = await Promise.all([
-                getDocs(collection(db, "operators")),
-                getDocs(collection(db, "departments")),
-                getDocs(collection(db, "rawMaterials")),
-                getDocs(collection(db, "articles")),
-                getDoc(doc(db, "system", "productionSettings")),
-                getDoc(doc(db, "configuration", "workingHours")),
-                getDoc(doc(db, "settings", "global"))
-            ]);
+            ] = await withNetworkRetry(
+                () => Promise.all([
+                    getDocs(collection(db, "operators")),
+                    getDocs(collection(db, "departments")),
+                    getDocs(collection(db, "rawMaterials")),
+                    getDocs(collection(db, "articles")),
+                    getDoc(doc(db, "system", "productionSettings")),
+                    getDoc(doc(db, "configuration", "workingHours")),
+                    getDoc(doc(db, "settings", "global"))
+                ]),
+                DEFAULT_NETWORK_RETRY_CONFIG
+            );
 
             const ops = opsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Operator));
             const depts = deptsSnap.docs.map(d => ({ ...d.data(), id: d.id } as Department));

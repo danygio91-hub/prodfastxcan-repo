@@ -11,6 +11,7 @@ import PwaInstaller from '@/components/PwaInstaller';
 import NextTopLoader from 'nextjs-toploader';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AutoUpdater } from '@/components/AutoUpdater';
+import { NetworkResilienceBanner } from '@/components/layout/NetworkResilienceBanner';
 
 const ptSans = PT_Sans({
   subsets: ['latin'],
@@ -57,6 +58,7 @@ export default function RootLayout({
                 >
                   <TooltipProvider>
                     <NextTopLoader color="#0ea5e9" showSpinner={false} />
+                    <NetworkResilienceBanner />
                     {children}
                     <Toaster />
                     <AutoUpdater />

@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { WifiOff, RefreshCw, Home, ShieldAlert } from 'lucide-react';
+import { WifiOff, RefreshCw, Home, ShieldAlert, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { isTransientNetworkError } from '@/lib/network-resilience';
 
 interface ErrorProps {
   error: Error & { digest?: string };
@@ -12,18 +13,53 @@ interface ErrorProps {
 }
 
 export default function RootErrorBoundary({ error, reset }: ErrorProps) {
-  useEffect(() => {
-    // Registra l'errore a livello globale
-    console.error('[RootErrorBoundary]', error);
-  }, [error]);
+  const msgLower = (error?.message || '').toLowerCase();
+  const isNetworkErr =
+    msgLower.includes('network') ||
+    msgLower.includes('fetch') ||
+    isTransientNetworkError(error);
 
-  const handleReload = () => {
+  const [countdown, setCountdown] = useState<number>(isNetworkErr ? 4 : 0);
+
+  const handleReload = useCallback(() => {
     try {
       reset();
     } catch {
       window.location.reload();
     }
-  };
+  }, [reset]);
+
+  useEffect(() => {
+    console.error('[RootErrorBoundary]', error);
+  }, [error]);
+
+  // FASE 87: Auto-remount dei componenti figli dopo 4 secondi in caso di errore di rete/fetch
+  useEffect(() => {
+    if (!isNetworkErr) return;
+
+    setCountdown(4);
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          handleReload();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    const handleOnline = () => {
+      clearInterval(interval);
+      handleReload();
+    };
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [error, isNetworkErr, handleReload]);
 
   return (
     <div className="min-h-[80vh] w-full flex items-center justify-center p-4 bg-background">
@@ -40,6 +76,14 @@ export default function RootErrorBoundary({ error, reset }: ErrorProps) {
           <p className="leading-relaxed">
             L&apos;applicazione ha riscontrato un&apos;interruzione temporanea della comunicazione di rete con il database cloud.
           </p>
+
+          {isNetworkErr && countdown > 0 && (
+            <div className="flex items-center justify-center gap-2 p-2.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              <span>Connessione persa, tentativo di riconnessione tra {countdown}s...</span>
+            </div>
+          )}
+
           <div className="p-3 bg-muted/60 rounded-md border text-xs text-left font-mono break-all text-muted-foreground/90 max-h-24 overflow-y-auto shadow-2xs">
             <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-300 mb-1">
               <ShieldAlert className="h-3.5 w-3.5" />
@@ -48,11 +92,11 @@ export default function RootErrorBoundary({ error, reset }: ErrorProps) {
             {error?.message || "Interruzione della connessione di rete o errore client-side."}
           </div>
           <p className="text-xs text-muted-foreground/80 font-medium">
-            Tutti i tuoi dati sono protetti nel server. Clicca sul pulsante sottostante per ricaricare e ripristinare il flusso.
+            Tutti i tuoi dati sono protetti nel server. Il sistema riproverà automaticamente oppure puoi ricaricare subito.
           </p>
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2 pb-6 px-6">
-          <Button 
+          <Button
             onClick={handleReload}
             size="lg"
             className="w-full sm:w-auto font-bold gap-2 shadow-md bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer"
@@ -60,8 +104,8 @@ export default function RootErrorBoundary({ error, reset }: ErrorProps) {
             <RefreshCw className="h-4 w-4" />
             Ricarica Pagina
           </Button>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="lg"
             asChild
             className="w-full sm:w-auto gap-2 cursor-pointer"

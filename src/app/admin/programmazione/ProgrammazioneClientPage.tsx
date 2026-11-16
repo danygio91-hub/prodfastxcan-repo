@@ -109,6 +109,11 @@ import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCyc
 import type { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, type MRPTimelineEntry, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
+import {
+  withNetworkRetry,
+  emitNetworkStatus,
+  DEFAULT_NETWORK_RETRY_CONFIG,
+} from '@/lib/network-resilience';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
@@ -1772,12 +1777,19 @@ export default function ProgrammazioneClientPage({
     });
   }, []);
 
+  // FASE 87: Configurazione globale di retry automatico per fetch/SWR
+  const swrRetryConfig = DEFAULT_NETWORK_RETRY_CONFIG; // { shouldRetryOnError: true, errorRetryCount: 3, errorRetryInterval: 2000 }
+
   const refreshJobsFromServer = useCallback(async () => {
     try {
-      const [freshJobs, freshNextOdl] = await Promise.all([
-        getActiveJobOrders(),
-        getNextOdlNumber().catch(() => ''),
-      ]);
+      const [freshJobs, freshNextOdl] = await withNetworkRetry(
+        () =>
+          Promise.all([
+            getActiveJobOrders(),
+            getNextOdlNumber().catch(() => ''),
+          ]),
+        swrRetryConfig
+      );
       if (Array.isArray(freshJobs)) {
         setJobs(applyOptimisticShield(freshJobs));
       }
@@ -1787,7 +1799,7 @@ export default function ProgrammazioneClientPage({
     } catch (err) {
       console.warn("Errore sincronizzazione commesse post-aggiornamento:", err);
     }
-  }, [applyOptimisticShield]);
+  }, [applyOptimisticShield, swrRetryConfig]);
 
   const mutateJobs = useCallback(
     (
@@ -2109,6 +2121,7 @@ export default function ProgrammazioneClientPage({
     const unsub = onSnapshot(
       collection(db, "articles"),
       (snapshot) => {
+        emitNetworkStatus({ reconnecting: false });
         const liveArticles = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
           const code = (data.code || docSnap.id || '').trim();
@@ -2129,6 +2142,7 @@ export default function ProgrammazioneClientPage({
       },
       (error) => {
         console.warn("Avviso listener real-time anagrafica articoli (errore di rete gestito):", error);
+        emitNetworkStatus({ reconnecting: true, reason: error?.message });
       }
     );
 
@@ -2146,6 +2160,7 @@ export default function ProgrammazioneClientPage({
     const unsub = onSnapshot(
       q,
       (snapshot) => {
+        emitNetworkStatus({ reconnecting: false });
         const liveSessions = snapshot.docs.map((docSnap) => ({
           id: docSnap.id,
           ...docSnap.data(),
@@ -2154,6 +2169,7 @@ export default function ProgrammazioneClientPage({
       },
       (error) => {
         console.warn("Avviso listener real-time materialSessions (errore di rete gestito):", error);
+        emitNetworkStatus({ reconnecting: true, reason: error?.message });
       }
     );
 
@@ -2297,18 +2313,25 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // Caricamento asincrono capacità al cambio settimana
+  // Caricamento asincrono capacità al cambio settimana (con retry automatico FASE 87)
   useEffect(() => {
     let isMounted = true;
-    getCapacityBuckets(selectedYear, selectedWeekNumber).then((data) => {
-      if (isMounted && data && Object.keys(data).length > 0) {
-        setCapacitiesByBucket((prev) => ({ ...prev, ...data }));
-      }
-    });
+    withNetworkRetry(
+      () => getCapacityBuckets(selectedYear, selectedWeekNumber),
+      swrRetryConfig
+    )
+      .then((data) => {
+        if (isMounted && data && Object.keys(data).length > 0) {
+          setCapacitiesByBucket((prev) => ({ ...prev, ...data }));
+        }
+      })
+      .catch((err) => {
+        console.warn("Avviso caricamento capacityBuckets (rete temporaneamente instabile):", err);
+      });
     return () => {
       isMounted = false;
     };
-  }, [selectedYear, selectedWeekNumber]);
+  }, [selectedYear, selectedWeekNumber, swrRetryConfig]);
 
   const bucketKey = useMemo(() => {
     return `${selectedDept}_${selectedYear}_W${selectedWeekNumber}`;
@@ -2779,7 +2802,10 @@ export default function ProgrammazioneClientPage({
 
     setIsMrpLoading(true);
 
-    getTargetedMRPData(missingMaterials, missingArticles)
+    withNetworkRetry(
+      () => getTargetedMRPData(missingMaterials, missingArticles),
+      swrRetryConfig
+    )
       .then((data) => {
         if (isCancelled) return;
 
