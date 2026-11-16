@@ -11,6 +11,12 @@ import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
 import { getJobDisplayStatus } from '@/lib/job-status';
 import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
+import {
+    parseStandardOdl,
+    formatStandardOdl,
+    extractMaxStandardOdl,
+    computeNextStandardOdl,
+} from '@/lib/odl-numerator';
 
 export async function checkJobExists(ordinePF: string, annoCompetenza?: number) {
     const year = annoCompetenza ?? new Date().getFullYear();
@@ -694,15 +700,134 @@ export async function updateJobOrderPrepDate(jobId: string, newDate: string) {
     return syncJobOrderDates(jobId, newDate, 'prep');
 }
 
-export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string }> {
+/**
+ * FASE 84: Inizializza o legge il documento `settings/numerators` su Firestore.
+ * Se il documento non esiste (o è relativo a un anno precedente / non inizializzato),
+ * interroga `jobOrders` (filtrando con regex standard `/^(\d+)-(\d{2})$/`) e `counters/odl_${year}`
+ * per determinare `lastOdlNumber` e `lastOdlYear`.
+ */
+export async function ensureOdlNumeratorInitialized(): Promise<{
+    lastOdlNumber: number;
+    lastOdlYear: number;
+}> {
+    const now = new Date();
+    const fullYear = now.getFullYear();
+    const shortYearNum = parseInt(String(fullYear).slice(-2), 10);
+
+    const numeratorsRef = adminDb.collection('settings').doc('numerators');
+    const numeratorsSnap = await numeratorsRef.get();
+
+    if (numeratorsSnap.exists) {
+        const data = numeratorsSnap.data() || {};
+        const storedNum = Number(data.lastOdlNumber);
+        const storedYear = Number(data.lastOdlYear);
+        if (!isNaN(storedNum) && storedNum > 0 && storedYear === shortYearNum) {
+            return {
+                lastOdlNumber: storedNum,
+                lastOdlYear: storedYear,
+            };
+        }
+    }
+
+    // Inizializzazione automatica da jobOrders (ordinando per numeroODL e filtrando con regex standard) + counters legacy
+    const candidates: string[] = [];
+
+    try {
+        const [topOdlSnap, numericOdlSnap, numericInternoSnap, legacyCounterSnap] = await Promise.all([
+            adminDb.collection('jobOrders').orderBy('numeroODL', 'desc').limit(1).get().catch(() => null),
+            adminDb
+                .collection('jobOrders')
+                .where('numeroODL', '>=', '0')
+                .where('numeroODL', '<=', '9\uf8ff')
+                .select('numeroODL', 'numeroODLInterno')
+                .get()
+                .catch(() => null),
+            adminDb
+                .collection('jobOrders')
+                .where('numeroODLInterno', '>=', '0')
+                .where('numeroODLInterno', '<=', '9\uf8ff')
+                .select('numeroODL', 'numeroODLInterno')
+                .get()
+                .catch(() => null),
+            adminDb.collection('counters').doc(`odl_${fullYear}`).get().catch(() => null),
+        ]);
+
+        if (topOdlSnap && !topOdlSnap.empty) {
+            const d = topOdlSnap.docs[0].data();
+            if (d?.numeroODL) candidates.push(String(d.numeroODL));
+            if (d?.numeroODLInterno) candidates.push(String(d.numeroODLInterno));
+        }
+
+        numericOdlSnap?.docs.forEach((doc) => {
+            const d = doc.data();
+            if (d?.numeroODL) candidates.push(String(d.numeroODL));
+            if (d?.numeroODLInterno) candidates.push(String(d.numeroODLInterno));
+        });
+
+        numericInternoSnap?.docs.forEach((doc) => {
+            const d = doc.data();
+            if (d?.numeroODL) candidates.push(String(d.numeroODL));
+            if (d?.numeroODLInterno) candidates.push(String(d.numeroODLInterno));
+        });
+
+        const extracted = extractMaxStandardOdl(candidates, shortYearNum);
+        const legacyCounterVal =
+            legacyCounterSnap && legacyCounterSnap.exists
+                ? Number(legacyCounterSnap.data()?.value) || 0
+                : 0;
+
+        const initialLastOdl = Math.max(extracted.maxProgressive, legacyCounterVal, 0);
+
+        await numeratorsRef.set(
+            {
+                lastOdlNumber: initialLastOdl,
+                lastOdlYear: shortYearNum,
+                updatedAt: admin.firestore.Timestamp.now(),
+            },
+            { merge: true }
+        );
+
+        return {
+            lastOdlNumber: initialLastOdl,
+            lastOdlYear: shortYearNum,
+        };
+    } catch (err) {
+        console.warn('Impossibile inizializzare settings/numerators da jobOrders, uso default 0:', err);
+        return {
+            lastOdlNumber: 0,
+            lastOdlYear: shortYearNum,
+        };
+    }
+}
+
+/**
+ * FASE 84: Restituisce il prossimo ODL standard formattato (es. "2622-26")
+ * leggendo il documento `settings/numerators` (o inizializzandolo se assente).
+ */
+export async function getNextOdlNumber(): Promise<string> {
+    const { lastOdlNumber, lastOdlYear } = await ensureOdlNumeratorInitialized();
+    const { nextOdl } = computeNextStandardOdl(lastOdlNumber, lastOdlYear, lastOdlYear);
+    return nextOdl;
+}
+
+export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string; odlNumber?: string }> {
   try {
+    await ensureOdlNumeratorInitialized();
+
     const jobRef = adminDb.collection("jobOrders").doc(jobId);
+    const numeratorsRef = adminDb.collection("settings").doc("numerators");
     const now = new Date();
     const year = now.getFullYear();
     const shortYear = year.toString().slice(-2);
+    const shortYearNum = parseInt(shortYear, 10);
+    const counterRef = adminDb.collection("counters").doc(`odl_${year}`);
     
     const result = await adminDb.runTransaction(async (t) => {
-      const snap = await t.get(jobRef);
+      const [snap, numeratorsSnap, counterSnap] = await Promise.all([
+        t.get(jobRef),
+        t.get(numeratorsRef),
+        t.get(counterRef),
+      ]);
       if (!snap.exists) throw new Error("Commessa non trovata.");
       
       const job = snap.data() as JobOrder;
@@ -725,57 +850,91 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
       if (!job.billOfMaterials || job.billOfMaterials.length === 0) throw new Error("Distinta Base vuota.");
       if (!job.phases || job.phases.length === 0) throw new Error("Nessun ciclo di lavorazione presente.");
 
-      // Recuperiamo (o creiamo) il counter per l'ANNO CORRENTE
-      const counterRef = adminDb.collection("counters").doc(`odl_${year}`);
-      const counterSnap = await t.get(counterRef);
-      const currentCounter = (counterSnap.exists) ? (counterSnap.data()?.value || 0) : 0;
-      
-      let newOdlId: string;
-      let newCounterValue: number = currentCounter;
-      
-      if (manualOdlNumberStr) {
-          // Caso: numero inserito manualmente nell'app
-          const manualNum = parseInt(manualOdlNumberStr, 10);
-          newOdlId = `${String(manualNum).padStart(4, '0')}-${shortYear}`;
-          newCounterValue = Math.max(currentCounter, manualNum);
-      } else if (job.numeroODLInterno) {
-          // Caso: ODL già presente nel record (es. da import Excel)
-          newOdlId = job.numeroODLInterno;
-          // Non incrementiamo il counter globale ma assicuriamoci che sia almeno allineato 
-          // se il numero segue il formato standard
-          if (newOdlId.includes('-')) {
-              const [numPart] = newOdlId.split('-');
-              const numVal = parseInt(numPart, 10);
-              if (!isNaN(numVal)) newCounterValue = Math.max(currentCounter, numVal);
-          }
+      const numData = numeratorsSnap.exists ? numeratorsSnap.data() : null;
+      const currentLastOdl = numData && typeof numData.lastOdlNumber === 'number' && !isNaN(numData.lastOdlNumber)
+        ? numData.lastOdlNumber
+        : (counterSnap.exists ? (Number(counterSnap.data()?.value) || 0) : 0);
+      const currentLastYear = numData && typeof numData.lastOdlYear === 'number' && !isNaN(numData.lastOdlYear)
+        ? numData.lastOdlYear
+        : shortYearNum;
+
+      const cleanExisting = (raw?: string | null) => {
+        if (!raw) return '';
+        const tr = String(raw).trim();
+        if (['N/D', 'N/A', 'MANUALE', '---'].includes(tr)) return '';
+        return tr;
+      };
+
+      const explicitInput = cleanExisting(manualOdlNumberStr);
+      const existingOnJob = cleanExisting(job.numeroODL) || cleanExisting(job.numeroODLInterno);
+
+      let chosenOdl: string;
+      if (explicitInput) {
+        chosenOdl = explicitInput;
+      } else if (existingOnJob) {
+        chosenOdl = existingOnJob;
       } else {
-          // Caso: generazione automatica progressiva
-          newCounterValue = currentCounter + 1;
-          newOdlId = `${String(newCounterValue).padStart(4, '0')}-${shortYear}`;
+        // Generazione automatica dal contatore SSoT settings/numerators
+        chosenOdl = computeNextStandardOdl(currentLastOdl, currentLastYear, shortYearNum).nextOdl;
       }
-      
-      // Aggiorniamo la commessa allo stato DA_INIZIARE (nuova pipeline)
-      t.update(jobRef, { 
-          status: 'DA_INIZIARE', 
-          odlCreationDate: admin.firestore.Timestamp.fromDate(now), 
-          numeroODLInterno: newOdlId, 
-          odlCounter: newCounterValue,
-          updatedAt: admin.firestore.Timestamp.fromDate(now)
-      });
-      
-      // Aggiorniamo il counter solo se è aumentato
-      if (newCounterValue > currentCounter) {
-          t.set(counterRef, { value: newCounterValue, year: year, updatedAt: admin.firestore.Timestamp.fromDate(now) }, { merge: true });
+
+      // FASE 84: Verifica se l'ODL scelto rispetta il formato standard /^(\d+)-(\d{2})$/
+      const parsedStandard = parseStandardOdl(chosenOdl);
+
+      if (parsedStandard) {
+        // Formato standard (es. 2622-26): aggiorna commessa E contatore settings/numerators
+        const progressive = parsedStandard.progressive;
+        const odlYear = parsedStandard.yearTwoDigits;
+        const newMaxOdl = odlYear === currentLastYear
+          ? Math.max(currentLastOdl, progressive)
+          : progressive;
+
+        t.update(jobRef, {
+          status: 'DA_INIZIARE',
+          odlCreationDate: admin.firestore.Timestamp.fromDate(now),
+          numeroODL: chosenOdl,
+          numeroODLInterno: chosenOdl,
+          odlCounter: progressive,
+          updatedAt: admin.firestore.Timestamp.fromDate(now),
+        });
+
+        t.set(
+          numeratorsRef,
+          {
+            lastOdlNumber: newMaxOdl,
+            lastOdlYear: odlYear,
+            updatedAt: admin.firestore.Timestamp.fromDate(now),
+          },
+          { merge: true }
+        );
+
+        if (newMaxOdl > (counterSnap.exists ? (Number(counterSnap.data()?.value) || 0) : 0)) {
+          t.set(
+            counterRef,
+            { value: newMaxOdl, year: year, updatedAt: admin.firestore.Timestamp.fromDate(now) },
+            { merge: true }
+          );
+        }
+      } else {
+        // Formato custom (es. RG.1): salva l'ODL sulla commessa ma NON toccare/incrementare settings/numerators
+        t.update(jobRef, {
+          status: 'DA_INIZIARE',
+          odlCreationDate: admin.firestore.Timestamp.fromDate(now),
+          numeroODL: chosenOdl,
+          numeroODLInterno: chosenOdl,
+          updatedAt: admin.firestore.Timestamp.fromDate(now),
+        });
       }
-      
-      return newOdlId;
+
+      return chosenOdl;
     });
     
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/resource-planning');
+    revalidatePath('/admin/programmazione');
     
-    return { success: true, message: `ODL #${result} avviato con successo.` };
+    return { success: true, message: `ODL #${result} avviato con successo.`, odlNumber: result };
   } catch (error) { 
       console.error("Error in createODL:", error);
       return { success: false, message: error instanceof Error ? error.message : "Errore interno durante l'avvio." }; 

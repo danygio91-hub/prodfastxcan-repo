@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import ProgrammazioneClientPage from './ProgrammazioneClientPage';
-import { getActiveJobOrders, getDepartments, getWorkCycles, getCapacityBuckets } from './actions';
+import { getActiveJobOrders, getDepartments, getWorkCycles, getCapacityBuckets, getNextOdlNumber } from './actions';
 import { adminDb } from '@/lib/firebase-admin';
 import { convertTimestampsToDates, serializeForClient } from '@/lib/utils';
 import { getISOWeek, getISOWeekYear } from 'date-fns';
@@ -19,7 +19,7 @@ export default async function ProgrammazionePage() {
   const currentWeek = getISOWeek(now);
   const currentYear = getISOWeekYear(now);
 
-  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities, activeSessionsSnap, phaseTemplatesSnap] = await Promise.all([
+  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities, activeSessionsSnap, phaseTemplatesSnap, initialNextOdl] = await Promise.all([
     getActiveJobOrders(),
     getDepartments(),
     getWorkCycles(),
@@ -40,6 +40,7 @@ export default async function ProgrammazionePage() {
     getCapacityBuckets(currentYear, currentWeek),
     adminDb.collection("materialSessions").where("status", "==", "open").get(),
     adminDb.collection("workPhaseTemplates").get(),
+    getNextOdlNumber().catch(() => ''),
   ]);
 
   const phaseTemplates = phaseTemplatesSnap.docs.map(doc => ({
@@ -84,6 +85,7 @@ export default async function ProgrammazionePage() {
             initialOdlConfig={serializeForClient(odlConfig)}
             initialCapacities={serializeForClient(initialCapacities)}
             initialMaterialSessions={serializeForClient(initialMaterialSessions)}
+            initialNextOdl={initialNextOdl}
           />
         </Suspense>
       </AppShell>

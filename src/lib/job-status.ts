@@ -187,11 +187,15 @@ export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
         'pianificato'
     ].includes(statusLower);
 
-    const hasAnyPhaseActive = (job.phases || []).some(
-        p => p.status === 'in-progress' || p.status === 'completed'
+    const hasAnyPhaseInProgress = (job.phases || []).some(
+        p => p.status === 'in-progress'
     );
+    const hasAnyPhaseCompleted = (job.phases || []).some(
+        p => p.status === 'completed'
+    );
+    const isUnstartedSplitChild = Boolean(job.parentJobId) && !job.odlCreationDate;
 
-    if (isBacklogPlanned && !hasAnyPhaseActive) {
+    if (isBacklogPlanned && !hasAnyPhaseInProgress && (!hasAnyPhaseCompleted || isUnstartedSplitChild)) {
         return 'Pianificata';
     }
 

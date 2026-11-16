@@ -121,6 +121,7 @@ import { EditStandardJobModal } from '@/components/mrp/EditStandardJobModal';
 import { ContoLavoroModal } from '@/components/mrp/ContoLavoroModal';
 import { QuickArticleEditDrawer } from '@/components/mrp/QuickArticleEditDrawer';
 import { SplitJobDialog } from '@/components/mrp/SplitJobDialog';
+import { ConfirmOdlDialog } from '@/components/mrp/ConfirmOdlDialog';
 import {
   getJobOrders,
   getActiveJobOrders,
@@ -131,6 +132,7 @@ import {
   markJobAsPrinted,
   markJobAsPrintedAndInProduction,
   startJobProduction,
+  getNextOdlNumber,
   updateJobExecutionStatus,
   updateJobOdlNumber,
   checkUniqueODL,
@@ -180,6 +182,7 @@ interface ProgrammazioneClientPageProps {
   initialOdlConfig?: ODLConfig;
   initialCapacities?: Record<string, DayCapacityConfigData>;
   initialMaterialSessions?: any[];
+  initialNextOdl?: string;
 }
 
 // 4 Macro-Gruppi Reparti Essenziali
@@ -1656,12 +1659,14 @@ export default function ProgrammazioneClientPage({
   initialOdlConfig,
   initialCapacities = {},
   initialMaterialSessions = [],
+  initialNextOdl = '',
 }: ProgrammazioneClientPageProps) {
   const { toast } = useToast();
   const router = useRouter();
 
   // Dati Commesse
   const [jobs, setJobs] = useState<JobOrder[]>(initialJobs || []);
+  const [nextOdlPreview, setNextOdlPreview] = useState<string>(initialNextOdl || '');
   const [departments] = useState<Department[]>(initialDepartments || []);
   const [articles, setArticles] = useState<Article[]>(initialArticles || []);
   const [workCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
@@ -1747,14 +1752,34 @@ export default function ProgrammazioneClientPage({
 
   const refreshJobsFromServer = useCallback(async () => {
     try {
-      const freshJobs = await getActiveJobOrders();
+      const [freshJobs, freshNextOdl] = await Promise.all([
+        getActiveJobOrders(),
+        getNextOdlNumber().catch(() => ''),
+      ]);
       if (Array.isArray(freshJobs)) {
         setJobs(freshJobs);
+      }
+      if (freshNextOdl) {
+        setNextOdlPreview(freshNextOdl);
       }
     } catch (err) {
       console.warn("Errore sincronizzazione commesse post-aggiornamento:", err);
     }
   }, []);
+
+  useEffect(() => {
+    if (!nextOdlPreview) {
+      getNextOdlNumber()
+        .then((val) => {
+          if (val) setNextOdlPreview(val);
+        })
+        .catch(() => {});
+    }
+  }, [nextOdlPreview]);
+
+  // FASE 84: Modale Conferma / Sovrascrittura N° ODL in Avvio Commessa
+  const [isConfirmOdlModalOpen, setIsConfirmOdlModalOpen] = useState(false);
+  const [jobToConfirmOdl, setJobToConfirmOdl] = useState<JobOrder | null>(null);
 
   const handleJobSplitSuccess = useCallback((updatedOriginalJob: JobOrder, childJob: JobOrder) => {
     setJobs((prev) => {
@@ -3161,6 +3186,9 @@ export default function ProgrammazioneClientPage({
     try {
       const res = await updateJobOdlNumber(job.id, cleanDraft);
       if (res.success) {
+        if (res.nextOdl) {
+          setNextOdlPreview(res.nextOdl);
+        }
         toast({
           title: "N° ODL Aggiornato",
           description: cleanDraft
@@ -3393,7 +3421,55 @@ export default function ProgrammazioneClientPage({
     }
   }, [jobs, toast]);
 
-  // 4. Workflow Avvio Produzione: richiama createODL transazionale
+  // 4. Workflow Avvio Produzione: richiama createODL transazionale (con intercetto FASE 84 se ODL vuoto)
+  const executeStartProduction = useCallback(async (job: JobOrder, chosenOdl?: string): Promise<boolean> => {
+    try {
+      const res = await startJobProduction(job.id, chosenOdl);
+      if (!res.success) {
+        toast({
+          variant: "destructive",
+          title: "Impossibile Avviare Commessa",
+          description: res.message,
+        });
+        return false;
+      }
+
+      if (res.nextOdl) {
+        setNextOdlPreview(res.nextOdl);
+      }
+
+      toast({
+        title: "Commessa Avviata in Produzione",
+        description: res.message,
+      });
+
+      const finalOdl = res.job?.numeroODL || res.job?.numeroODLInterno || chosenOdl || job.numeroODL || job.numeroODLInterno;
+
+      setJobs((prev) =>
+        prev.map((j) => {
+          if (j.id === job.id) {
+            return {
+              ...j,
+              status: 'DA_INIZIARE',
+              numeroODL: finalOdl,
+              numeroODLInterno: finalOdl,
+              odlCreationDate: res.job?.odlCreationDate || new Date().toISOString(),
+            };
+          }
+          return j;
+        })
+      );
+      return true;
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Errore durante l'avvio",
+        description: e?.message || "Errore sconosciuto",
+      });
+      return false;
+    }
+  }, [toast]);
+
   const handleStartProduction = useCallback(async (job: JobOrder) => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
     if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
@@ -3415,43 +3491,16 @@ export default function ProgrammazioneClientPage({
       return;
     }
 
-    try {
-      const res = await startJobProduction(job.id);
-      if (!res.success) {
-        toast({
-          variant: "destructive",
-          title: "Impossibile Avviare Commessa",
-          description: res.message,
-        });
-        return;
-      }
-
-      toast({
-        title: "Commessa Avviata in Produzione",
-        description: res.message,
-      });
-
-      setJobs((prev) =>
-        prev.map((j) => {
-          if (j.id === job.id) {
-            return {
-              ...j,
-              status: 'DA_INIZIARE',
-              numeroODLInterno: res.job?.numeroODLInterno || j.numeroODLInterno,
-              odlCreationDate: res.job?.odlCreationDate || new Date().toISOString(),
-            };
-          }
-          return j;
-        })
-      );
-    } catch (e: any) {
-      toast({
-        variant: "destructive",
-        title: "Errore durante l'avvio",
-        description: e?.message || "Errore sconosciuto",
-      });
+    // FASE 84: Se job.numeroODL è già valorizzato, procedi direttamente senza interruzioni;
+    // se è vuoto, intercetta il click e apri ConfirmOdlDialog con il valore proposto da getNextOdlNumber().
+    const existingOdl = getCleanOdlValue(job.numeroODL || job.numeroODLInterno);
+    if (existingOdl) {
+      await executeStartProduction(job, existingOdl);
+    } else {
+      setJobToConfirmOdl(job);
+      setIsConfirmOdlModalOpen(true);
     }
-  }, [toast]);
+  }, [toast, executeStartProduction]);
 
   // =========================================================================
   // FASE 16: GESTIONE SELEZIONE MULTIPLA E AZIONI MASSIVE (BULK ACTIONS)
@@ -4146,6 +4195,13 @@ export default function ProgrammazioneClientPage({
                 </h1>
                 <Badge variant="outline" className="border-blue-500/40 text-blue-500 text-[10px] px-1.5 py-0 font-medium">
                   Master Panel
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] px-2 py-0.5 font-mono font-bold"
+                  title="Prossimo numero ODL standard proposto dal numeratore automatico"
+                >
+                  Prossimo ODL: {nextOdlPreview || '---'}
                 </Badge>
                 {isMrpLoading && (
                   <span className="flex items-center gap-1 text-[11px] text-amber-500 animate-pulse font-medium">
@@ -5796,6 +5852,22 @@ export default function ProgrammazioneClientPage({
           }
           existingOrdiniPF={jobs.map((j) => j.ordinePF).filter(Boolean)}
           onSplitSuccess={handleJobSplitSuccess}
+        />
+
+        {/* =========================================================================
+            9. MODALE CONFERMA / SOVRASCRITTURA N° ODL IN AVVIO (FASE 84)
+        ========================================================================== */}
+        <ConfirmOdlDialog
+          isOpen={isConfirmOdlModalOpen}
+          onClose={() => {
+            setIsConfirmOdlModalOpen(false);
+            setJobToConfirmOdl(null);
+          }}
+          job={jobToConfirmOdl}
+          initialProposedOdl={nextOdlPreview}
+          onConfirmStart={async (targetJob, chosenOdl) => {
+            return await executeStartProduction(targetJob, chosenOdl);
+          }}
         />
       </div>
     </TooltipProvider>

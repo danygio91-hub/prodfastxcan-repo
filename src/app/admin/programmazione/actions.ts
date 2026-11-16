@@ -12,8 +12,11 @@ import {
     createPhasesFromCycle,
     createODL,
     cancelODL,
+    getNextOdlNumber,
+    ensureOdlNumeratorInitialized,
     markJobAsPrinted as markJobAsPrintedSSoT
 } from '@/app/admin/data-management/actions';
+import { parseStandardOdl } from '@/lib/odl-numerator';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { getJobDisplayStatus, rollbackLastCompletedPhase, type JobDisplayStatus } from '@/lib/job-status';
@@ -61,7 +64,7 @@ export async function getDepartments(): Promise<Department[]> {
     return await fetchAllDepartments();
 }
 
-export { saveManualJobOrder, getWorkCycles, checkJobOrderExists };
+export { saveManualJobOrder, getWorkCycles, checkJobOrderExists, getNextOdlNumber };
 export async function checkJobExists(ordinePF: string, annoCompetenza?: number) {
     const year = annoCompetenza ?? new Date().getFullYear();
     return await checkJobOrderExists(adminDb, ordinePF, year);
@@ -333,7 +336,7 @@ export async function checkUniqueODL(
 /**
  * Aggiornamento rapido N° ODL (on blur)
  */
-export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise<{ success: boolean; message: string }> {
+export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise<{ success: boolean; message: string; nextOdl?: string }> {
     try {
         const val = (newOdl || '').trim();
         const isPlaceholderVal = !val || val === 'N/D' || val === 'N/A' || val === 'MANUALE' || val === '---';
@@ -350,12 +353,45 @@ export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise
             }
         }
 
-        await adminDb.collection("jobOrders").doc(jobId).update({
-            numeroODLInterno: finalVal,
-            numeroODL: finalVal,
-            updatedAt: admin.firestore.Timestamp.now(),
-        });
-        return { success: true, message: 'N° ODL aggiornato con successo.' };
+        const parsedStandard = parseStandardOdl(finalVal);
+        if (parsedStandard) {
+            await ensureOdlNumeratorInitialized();
+            const numeratorsRef = adminDb.collection("settings").doc("numerators");
+            await adminDb.runTransaction(async (t) => {
+                const numSnap = await t.get(numeratorsRef);
+                const currentLast = numSnap.exists ? (Number(numSnap.data()?.lastOdlNumber) || 0) : 0;
+                const currentYear = numSnap.exists ? (Number(numSnap.data()?.lastOdlYear) || parsedStandard.yearTwoDigits) : parsedStandard.yearTwoDigits;
+                const nextMax = parsedStandard.yearTwoDigits === currentYear
+                    ? Math.max(currentLast, parsedStandard.progressive)
+                    : parsedStandard.progressive;
+
+                t.update(adminDb.collection("jobOrders").doc(jobId), {
+                    numeroODLInterno: finalVal,
+                    numeroODL: finalVal,
+                    odlCounter: parsedStandard.progressive,
+                    updatedAt: admin.firestore.Timestamp.now(),
+                });
+
+                t.set(
+                    numeratorsRef,
+                    {
+                        lastOdlNumber: nextMax,
+                        lastOdlYear: parsedStandard.yearTwoDigits,
+                        updatedAt: admin.firestore.Timestamp.now(),
+                    },
+                    { merge: true }
+                );
+            });
+        } else {
+            await adminDb.collection("jobOrders").doc(jobId).update({
+                numeroODLInterno: finalVal,
+                numeroODL: finalVal,
+                updatedAt: admin.firestore.Timestamp.now(),
+            });
+        }
+
+        const nextOdl = await getNextOdlNumber();
+        return { success: true, message: 'N° ODL aggiornato con successo.', nextOdl };
     } catch (error) {
         console.error("Errore salvataggio N° ODL:", error);
         return { success: false, message: "Errore durante il salvataggio del N° ODL." };
@@ -367,20 +403,23 @@ export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise
  * Richiama la Server Action transazionale createODL usata in Gestione Dati Commesse:
  * - Valida stato backlog (planned/in attesa/in pianificazione)
  * - Valida presenza di Ciclo e Distinta Base
- * - Riserva e incrementa il contatore odl_${year}
- * - Imposta status: 'DA_INIZIARE', numeroODLInterno e odlCreationDate
+ * - Riserva e incrementa il contatore settings/numerators (solo se formato standard /^(\d+)-(\d{2})$/)
+ * - Imposta status: 'DA_INIZIARE', numeroODL, numeroODLInterno e odlCreationDate
  */
 export async function startJobProduction(
     jobId: string, 
     manualOdlNumberStr?: string
-): Promise<{ success: boolean; message: string; job?: Partial<JobOrder> }> {
+): Promise<{ success: boolean; message: string; job?: Partial<JobOrder>; nextOdl?: string }> {
     try {
         const res = await createODL(jobId, manualOdlNumberStr);
         if (!res.success) {
             return { success: false, message: res.message };
         }
 
-        const jobSnap = await adminDb.collection("jobOrders").doc(jobId).get();
+        const [jobSnap, nextOdl] = await Promise.all([
+            adminDb.collection("jobOrders").doc(jobId).get(),
+            getNextOdlNumber(),
+        ]);
         const updatedData = jobSnap.data() as JobOrder | undefined;
 
         revalidatePath('/admin/programmazione');
@@ -390,8 +429,10 @@ export async function startJobProduction(
         return {
             success: true,
             message: res.message,
+            nextOdl,
             job: updatedData ? {
                 status: updatedData.status,
+                numeroODL: updatedData.numeroODL || updatedData.numeroODLInterno,
                 numeroODLInterno: updatedData.numeroODLInterno,
                 odlCreationDate: updatedData.odlCreationDate ? new Date().toISOString() : undefined,
                 odlCounter: updatedData.odlCounter,
@@ -468,18 +509,21 @@ export async function updateJobExecutionStatus(
 
         // 2. STATO: IN PRODUZIONE
         if (targetStatus === 'In Produzione') {
-            const hasAnyPhaseActiveOrDone = (job.phases || []).some(
-                p => p.status === 'in-progress' || p.status === 'completed'
-            );
-            const isBacklogPlanned = !hasAnyPhaseActiveOrDone && (!currentStatusLower || [
-                'pending',
-                'planned', 
-                'in_attesa', 
-                'in pianificazione', 
-                'in_pianificazione', 
-                'pianificata', 
-                'pianificato'
-            ].includes(currentStatusLower));
+            const hasAnyPhaseInProgress = (job.phases || []).some(p => p.status === 'in-progress');
+            const hasAnyPhaseCompleted = (job.phases || []).some(p => p.status === 'completed');
+            const isUnstartedSplitChild = Boolean(job.parentJobId) && !job.odlCreationDate;
+            const isBacklogPlanned =
+                !hasAnyPhaseInProgress &&
+                (!hasAnyPhaseCompleted || isUnstartedSplitChild) &&
+                (!currentStatusLower || [
+                    'pending',
+                    'planned', 
+                    'in_attesa', 
+                    'in pianificazione', 
+                    'in_pianificazione', 
+                    'pianificata', 
+                    'pianificato'
+                ].includes(currentStatusLower));
 
             if (isBacklogPlanned) {
                 // Avvia tramite createODL (genera ODL e verifica distinte)
