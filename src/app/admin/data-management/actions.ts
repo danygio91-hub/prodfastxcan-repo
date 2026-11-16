@@ -945,7 +945,6 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/resource-planning');
-    revalidatePath('/admin/programmazione');
     
     return { success: true, message: `ODL #${result} avviato con successo.`, odlNumber: result };
   } catch (error) { 

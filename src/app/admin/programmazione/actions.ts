@@ -254,7 +254,6 @@ export async function markJobAsPrinted(jobId: string): Promise<{ success: boolea
             odlPrinted: true,
             updatedAt: admin.firestore.Timestamp.now(),
         });
-        revalidatePath('/admin/programmazione');
         revalidatePath('/admin/data-management');
         return { success: true, message: 'Commessa segnata come stampata.' };
     } catch (e: any) {
@@ -434,7 +433,6 @@ export async function startJobProduction(
         ]);
         const updatedData = jobSnap.data() as JobOrder | undefined;
 
-        revalidatePath('/admin/programmazione');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
@@ -465,7 +463,7 @@ export async function startJobProduction(
 export async function updateJobExecutionStatus(
     jobId: string, 
     targetStatus: JobDisplayStatus
-): Promise<{ success: boolean; message: string; odlNumber?: string; updatedPhases?: JobPhase[]; updatedStatus?: string }> {
+): Promise<{ success: boolean; message: string; odlNumber?: string; nextOdl?: string; updatedPhases?: JobPhase[]; updatedStatus?: string }> {
     try {
         const jobRef = adminDb.collection("jobOrders").doc(jobId);
         const jobSnap = await jobRef.get();
@@ -509,7 +507,6 @@ export async function updateJobExecutionStatus(
             });
 
             await batch.commit();
-            revalidatePath('/admin/programmazione');
             revalidatePath('/admin/data-management');
             revalidatePath('/admin/production-console');
             return {
@@ -544,12 +541,16 @@ export async function updateJobExecutionStatus(
                 if (!res.success) {
                     return { success: false, message: res.message };
                 }
-                const refreshed = await jobRef.get();
+                const [refreshed, nextOdl] = await Promise.all([
+                    jobRef.get(),
+                    getNextOdlNumber().catch(() => undefined),
+                ]);
                 const refreshedData = refreshed.data() as JobOrder;
                 return { 
                     success: true, 
                     message: res.message, 
-                    odlNumber: refreshedData?.numeroODLInterno || undefined,
+                    odlNumber: refreshedData?.numeroODL || refreshedData?.numeroODLInterno || undefined,
+                    nextOdl,
                     updatedPhases: refreshedData?.phases ? serializeForClient(refreshedData.phases) : undefined,
                     updatedStatus: refreshedData?.status || 'DA_INIZIARE'
                 };
@@ -569,7 +570,6 @@ export async function updateJobExecutionStatus(
                     updatedAt: admin.firestore.Timestamp.now()
                 });
                 await batch.commit();
-                revalidatePath('/admin/programmazione');
                 revalidatePath('/admin/data-management');
                 revalidatePath('/admin/production-console');
                 return {
@@ -615,7 +615,6 @@ export async function updateJobExecutionStatus(
             });
 
             await batch.commit();
-            revalidatePath('/admin/programmazione');
             revalidatePath('/admin/production-console');
             return {
                 success: true,
@@ -660,7 +659,6 @@ export async function updateJobExecutionStatus(
             });
 
             await batch.commit();
-            revalidatePath('/admin/programmazione');
             revalidatePath('/admin/production-console');
             revalidatePath('/operator/packing');
             return {
@@ -700,7 +698,10 @@ export async function updateJobStatus(jobId: string, newStatus: string): Promise
 /**
  * Aggiornamento Data Consegna Finale (on blur / Enter)
  */
-export async function updateJobDeliveryDate(jobId: string, newDate: string): Promise<{ success: boolean; message: string }> {
+export async function updateJobDeliveryDate(
+    jobId: string,
+    newDate: string
+): Promise<{ success: boolean; message: string; updatedFields?: Partial<JobOrder> }> {
     try {
         const val = (newDate || '').trim();
         let isoWeek: number | null = null;
@@ -715,16 +716,27 @@ export async function updateJobDeliveryDate(jobId: string, newDate: string): Pro
             }
         }
 
+        const nowIso = new Date().toISOString();
         const updatePayload: Record<string, any> = {
             dataConsegnaFinale: val,
-            updatedAt: new Date().toISOString(),
+            updatedAt: nowIso,
         };
         if (isoWeek !== null) updatePayload.isoWeek = isoWeek;
         if (weekYear !== null) updatePayload.weekYear = weekYear;
         if (targetWeek !== null) updatePayload.targetWeek = targetWeek;
 
         await adminDb.collection("jobOrders").doc(jobId).update(updatePayload);
-        return { success: true, message: 'Data di consegna aggiornata con successo.' };
+        return {
+            success: true,
+            message: 'Data di consegna aggiornata con successo.',
+            updatedFields: {
+                dataConsegnaFinale: val,
+                isoWeek,
+                weekYear,
+                targetWeek,
+                updatedAt: nowIso,
+            },
+        };
     } catch (error) {
         console.error("Errore aggiornamento data consegna:", error);
         return { success: false, message: "Errore durante il salvataggio della data." };
@@ -740,17 +752,28 @@ export async function updateJobAssignedWeek(
     isoWeek: number | null, 
     weekYear: number | null,
     targetWeek: string | null
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; updatedFields?: Partial<JobOrder> }> {
     try {
+        const nowIso = new Date().toISOString();
         const payload: Record<string, any> = {
             assignedDate: assignedDate || null,
             isoWeek: isoWeek || null,
             weekYear: weekYear || null,
             targetWeek: targetWeek || null,
-            updatedAt: new Date().toISOString(),
+            updatedAt: nowIso,
         };
         await adminDb.collection("jobOrders").doc(jobId).update(payload);
-        return { success: true, message: 'Settimana aggiornata con successo.' };
+        return {
+            success: true,
+            message: 'Settimana aggiornata con successo.',
+            updatedFields: {
+                assignedDate: assignedDate || undefined,
+                isoWeek: isoWeek || null,
+                weekYear: weekYear || null,
+                targetWeek: targetWeek || null,
+                updatedAt: nowIso,
+            },
+        };
     } catch (error) {
         console.error("Errore aggiornamento settimana commessa:", error);
         return { success: false, message: "Errore durante il salvataggio della settimana." };

@@ -1750,6 +1750,24 @@ export default function ProgrammazioneClientPage({
     setIsQuickEditDrawerOpen(true);
   }, []);
 
+  // FASE 85: Scudo anti-effetto elastico (Optimistic Patch Shield) e mutateJobs stile SWR
+  const optimisticPatchesRef = useRef<Map<string, { patch: Partial<JobOrder>; expiresAt: number }>>(new Map());
+
+  const applyOptimisticShield = useCallback((incomingJobs: JobOrder[]): JobOrder[] => {
+    const nowMs = Date.now();
+    for (const [id, entry] of optimisticPatchesRef.current.entries()) {
+      if (entry.expiresAt <= nowMs) {
+        optimisticPatchesRef.current.delete(id);
+      }
+    }
+    if (optimisticPatchesRef.current.size === 0) return incomingJobs;
+    return incomingJobs.map((j) => {
+      const shielded = optimisticPatchesRef.current.get(j.id);
+      if (!shielded) return j;
+      return { ...j, ...shielded.patch };
+    });
+  }, []);
+
   const refreshJobsFromServer = useCallback(async () => {
     try {
       const [freshJobs, freshNextOdl] = await Promise.all([
@@ -1757,7 +1775,7 @@ export default function ProgrammazioneClientPage({
         getNextOdlNumber().catch(() => ''),
       ]);
       if (Array.isArray(freshJobs)) {
-        setJobs(freshJobs);
+        setJobs(applyOptimisticShield(freshJobs));
       }
       if (freshNextOdl) {
         setNextOdlPreview(freshNextOdl);
@@ -1765,7 +1783,32 @@ export default function ProgrammazioneClientPage({
     } catch (err) {
       console.warn("Errore sincronizzazione commesse post-aggiornamento:", err);
     }
-  }, []);
+  }, [applyOptimisticShield]);
+
+  const mutateJobs = useCallback(
+    (
+      updater: (currentJobs: JobOrder[]) => JobOrder[],
+      options: { revalidate?: boolean; patchedJobId?: string; patch?: Partial<JobOrder>; clearPatchId?: string } = {
+        revalidate: false,
+      }
+    ) => {
+      if (options.clearPatchId) {
+        optimisticPatchesRef.current.delete(options.clearPatchId);
+      }
+      if (options.patchedJobId && options.patch) {
+        const existing = optimisticPatchesRef.current.get(options.patchedJobId)?.patch || {};
+        optimisticPatchesRef.current.set(options.patchedJobId, {
+          patch: { ...existing, ...options.patch },
+          expiresAt: Date.now() + 20000,
+        });
+      }
+      setJobs((currentJobs) => updater(currentJobs));
+      if (options.revalidate) {
+        void refreshJobsFromServer();
+      }
+    },
+    [refreshJobsFromServer]
+  );
 
   useEffect(() => {
     if (!nextOdlPreview) {
@@ -2436,12 +2479,12 @@ export default function ProgrammazioneClientPage({
     }
   }, [toast]);
 
-  // Sincronizzazione props in caso di soft reload (router.refresh())
+  // Sincronizzazione props in caso di soft reload (protetta da applyOptimisticShield contro l'effetto elastico FASE 85)
   useEffect(() => {
     if (initialJobs) {
-      setJobs(initialJobs);
+      setJobs(applyOptimisticShield(initialJobs));
     }
-  }, [initialJobs]);
+  }, [initialJobs, applyOptimisticShield]);
 
   useEffect(() => {
     if (initialArticles && initialArticles.length > 0) {
@@ -3067,22 +3110,54 @@ export default function ProgrammazioneClientPage({
   }, [mrpTimelines, isMrpLoading, activeSessions]);
 
   // =========================================================================
-  // =========================================================================
-  // 1. INLINE EDITING: DATA CONSEGNA (GG/MM/AAAA) - SALVATAGGIO DIFFERITO
+  // 1. INLINE EDITING: DATA CONSEGNA (GG/MM/AAAA) - SALVATAGGIO DIFFERITO (FASE 85 OPTIMISTIC MUTATE)
   // =========================================================================
   const handleSaveDeliveryDate = useCallback(async (job: JobOrder, isoFormatted: string, parsedDate?: Date) => {
+    const prevJob = { ...job };
+
     if (!isoFormatted) {
-      // Data azzerata
-      setJobs((prev) =>
-        prev.map((j) => (j.id === job.id ? { ...j, dataConsegnaFinale: '', assignedDate: undefined } : j))
+      // Data azzerata (Optimistic Update)
+      const emptyPatch: Partial<JobOrder> = {
+        dataConsegnaFinale: '',
+        assignedDate: undefined,
+        isoWeek: null,
+        weekYear: null,
+        targetWeek: null,
+      };
+      mutateJobs(
+        (currentJobs) => currentJobs.map((j) => (j.id === job.id ? { ...j, ...emptyPatch } : j)),
+        { revalidate: false, patchedJobId: job.id, patch: emptyPatch }
       );
       try {
-        await updateJobDeliveryDate(job.id, '');
-        toast({
-          title: "Data Consegna Rimossa",
-          description: `Commessa ${job.ordinePF}: data di consegna azzerata.`,
-        });
+        const res = await updateJobDeliveryDate(job.id, '');
+        if (res.success) {
+          mutateJobs(
+            (currentJobs) =>
+              currentJobs.map((j) =>
+                j.id === job.id ? { ...j, ...emptyPatch, ...(res.updatedFields || {}) } : j
+              ),
+            { revalidate: false, patchedJobId: job.id, patch: { ...emptyPatch, ...(res.updatedFields || {}) } }
+          );
+          toast({
+            title: "Data Consegna Rimossa",
+            description: `Commessa ${job.ordinePF}: data di consegna azzerata.`,
+          });
+        } else {
+          mutateJobs(
+            (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+            { revalidate: false, clearPatchId: job.id }
+          );
+          toast({
+            variant: "destructive",
+            title: "Errore Data",
+            description: res.message || "Impossibile rimuovere la data.",
+          });
+        }
       } catch (e: any) {
+        mutateJobs(
+          (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+          { revalidate: false, clearPatchId: job.id }
+        );
         toast({
           variant: "destructive",
           title: "Errore Data",
@@ -3099,40 +3174,63 @@ export default function ProgrammazioneClientPage({
     const newYear = getISOWeekYear(parsed);
     const newTargetWeek = `${newYear}-W${String(newWeek).padStart(2, '0')}`;
 
-    // Aggiornamento Ottimistico
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === job.id
-          ? {
-            ...j,
-            dataConsegnaFinale: isoFormatted,
-            assignedDate: undefined,
-            isoWeek: newWeek,
-            weekYear: newYear,
-            targetWeek: newTargetWeek,
-          }
-          : j
-      )
+    const optimisticPatch: Partial<JobOrder> = {
+      dataConsegnaFinale: isoFormatted,
+      assignedDate: undefined,
+      isoWeek: newWeek,
+      weekYear: newYear,
+      targetWeek: newTargetWeek,
+    };
+
+    // 1. Aggiornamento Ottimistico immediato (revalidate: false)
+    mutateJobs(
+      (currentJobs) =>
+        currentJobs.map((j) => (j.id === job.id ? { ...j, ...optimisticPatch } : j)),
+      { revalidate: false, patchedJobId: job.id, patch: optimisticPatch }
     );
 
     try {
       const res = await updateJobDeliveryDate(job.id, isoFormatted);
       if (res.success) {
+        const confirmedPatch: Partial<JobOrder> = {
+          ...optimisticPatch,
+          ...(res.updatedFields || {}),
+          dataConsegnaFinale: isoFormatted,
+        };
+        mutateJobs(
+          (currentJobs) =>
+            currentJobs.map((j) => (j.id === job.id ? { ...j, ...confirmedPatch } : j)),
+          { revalidate: false, patchedJobId: job.id, patch: confirmedPatch }
+        );
         toast({
           title: "Data Consegna Salvata",
           description: `Commessa ${job.ordinePF}: consegna aggiornata al ${format(parsed, 'dd/MM/yyyy')}.`,
         });
+      } else {
+        mutateJobs(
+          (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+          { revalidate: false, clearPatchId: job.id }
+        );
+        toast({
+          variant: "destructive",
+          title: "Errore Data",
+          description: res.message || "Impossibile salvare la nuova data.",
+        });
       }
     } catch (e: any) {
+      mutateJobs(
+        (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+        { revalidate: false, clearPatchId: job.id }
+      );
       toast({
         variant: "destructive",
         title: "Errore Data",
         description: e?.message || "Impossibile salvare la nuova data.",
       });
     }
-  }, [toast]);
+  }, [toast, mutateJobs]);
 
-  // Aggiornamento N° ODL (on blur / Enter differito con validazione unicità anti-doppione)
+  // Aggiornamento N° ODL (on blur / Enter differito con validazione unicità anti-doppione e Optimistic Mutate FASE 85)
   const handleSaveOdl = useCallback(async (job: JobOrder, draftVal: string): Promise<boolean> => {
     const currentClean = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
     const cleanDraft = getCleanOdlValue(draftVal);
@@ -3174,13 +3272,16 @@ export default function ProgrammazioneClientPage({
       }
     }
 
-    // Se unico (o svuotato), procedi con l'aggiornamento
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === job.id
-          ? { ...j, numeroODLInterno: cleanDraft || null, numeroODL: cleanDraft || null }
-          : j
-      )
+    const odlPatch: Partial<JobOrder> = {
+      numeroODLInterno: cleanDraft || null,
+      numeroODL: cleanDraft || null,
+    };
+
+    // 1. Optimistic Update immediato (revalidate: false)
+    mutateJobs(
+      (currentJobs) =>
+        currentJobs.map((j) => (j.id === job.id ? { ...j, ...odlPatch } : j)),
+      { revalidate: false, patchedJobId: job.id, patch: odlPatch }
     );
 
     try {
@@ -3189,6 +3290,11 @@ export default function ProgrammazioneClientPage({
         if (res.nextOdl) {
           setNextOdlPreview(res.nextOdl);
         }
+        mutateJobs(
+          (currentJobs) =>
+            currentJobs.map((j) => (j.id === job.id ? { ...j, ...odlPatch } : j)),
+          { revalidate: false, patchedJobId: job.id, patch: odlPatch }
+        );
         toast({
           title: "N° ODL Aggiornato",
           description: cleanDraft
@@ -3198,12 +3304,14 @@ export default function ProgrammazioneClientPage({
         return true;
       } else {
         // Ripristino ottimistico in caso di rifiuto server
-        setJobs((prev) =>
-          prev.map((j) =>
-            j.id === job.id
-              ? { ...j, numeroODLInterno: currentClean || null, numeroODL: currentClean || null }
-              : j
-          )
+        mutateJobs(
+          (currentJobs) =>
+            currentJobs.map((j) =>
+              j.id === job.id
+                ? { ...j, numeroODLInterno: currentClean || null, numeroODL: currentClean || null }
+                : j
+            ),
+          { revalidate: false, clearPatchId: job.id }
         );
         toast({
           variant: "destructive",
@@ -3213,12 +3321,14 @@ export default function ProgrammazioneClientPage({
         return false;
       }
     } catch (e: any) {
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.id === job.id
-            ? { ...j, numeroODLInterno: currentClean || null, numeroODL: currentClean || null }
-            : j
-        )
+      mutateJobs(
+        (currentJobs) =>
+          currentJobs.map((j) =>
+            j.id === job.id
+              ? { ...j, numeroODLInterno: currentClean || null, numeroODL: currentClean || null }
+              : j
+          ),
+        { revalidate: false, clearPatchId: job.id }
       );
       toast({
         variant: "destructive",
@@ -3227,9 +3337,9 @@ export default function ProgrammazioneClientPage({
       });
       return false;
     }
-  }, [jobs, toast]);
+  }, [jobs, toast, mutateJobs]);
 
-  // Modifica Stato Commessa (4 stati SSoT rigorosi)
+  // Modifica Stato Commessa (4 stati SSoT rigorosi + Optimistic Mutate FASE 85)
   const handleStatusChange = useCallback(async (job: JobOrder, newStatus: JobStatusOption, isConfirmed?: boolean) => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
     if ((!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) && newStatus !== 'Pianificata') {
@@ -3253,73 +3363,81 @@ export default function ProgrammazioneClientPage({
       if (!confirmReset) return;
     }
 
-    // Aggiornamento ottimistico locale
-    setJobs((prev) =>
-      prev.map((j) => {
-        if (j.id === job.id) {
-          const updated: JobOrder = { ...j };
-          if (newStatus === 'Pianificata') {
-            updated.status = 'IN_PIANIFICAZIONE';
-            updated.forcedCompletion = false;
-            updated.packingListId = undefined;
-            updated.overallStartTime = undefined as any;
-            updated.overallEndTime = undefined as any;
-            updated.odlCreationDate = undefined as any;
-            updated.isProblemReported = false;
-            if (updated.phases && updated.phases.length > 0) {
-              updated.phases = updated.phases.map((p) => ({
-                ...p,
-                status: 'pending' as const,
-                workPeriods: [],
-                materialConsumptions: [],
-                qualityResult: null,
-                materialReady: p.isIndependent || p.type === 'preparation',
-              }));
-            }
-          } else if (newStatus === 'In Produzione') {
-            if (currentStatus === 'Completato Prod.' || currentStatus === 'Spedito') {
-              const { updatedPhases } = rollbackLastCompletedPhase(updated.phases || []);
-              updated.phases = updatedPhases;
-              updated.status = 'IN_PRODUZIONE';
-            } else {
-              updated.status = 'DA_INIZIARE';
-            }
-            updated.forcedCompletion = false;
-            updated.overallEndTime = undefined as any;
-            updated.packingListId = undefined;
-          } else if (newStatus === 'Completato Prod.') {
-            updated.status = 'completed';
-            updated.forcedCompletion = true;
-            updated.overallEndTime = new Date() as any;
-            if (updated.phases && updated.phases.length > 0) {
-              updated.phases = updated.phases.map((p) => ({
-                ...p,
-                status: 'completed' as const,
-                forced: true,
-              }));
-            }
-          } else if (newStatus === 'Spedito') {
-            updated.status = 'SPEDITA';
-            updated.forcedCompletion = true;
-            updated.overallEndTime = new Date() as any;
-            if (updated.phases && updated.phases.length > 0) {
-              updated.phases = updated.phases.map((p) => ({
-                ...p,
-                status: 'completed' as const,
-                forced: true,
-              }));
-            }
-          }
-          return updated;
-        }
-        return j;
-      })
+    let optimisticStatusPatch: Partial<JobOrder> = {};
+    if (newStatus === 'Pianificata') {
+      optimisticStatusPatch = {
+        status: 'IN_PIANIFICAZIONE',
+        forcedCompletion: false,
+        packingListId: undefined,
+        overallStartTime: undefined as any,
+        overallEndTime: undefined as any,
+        odlCreationDate: undefined as any,
+        isProblemReported: false,
+        phases: (job.phases || []).map((p) => ({
+          ...p,
+          status: 'pending' as const,
+          workPeriods: [],
+          materialConsumptions: [],
+          qualityResult: null,
+          materialReady: p.isIndependent || p.type === 'preparation',
+        })),
+      };
+    } else if (newStatus === 'In Produzione') {
+      if (currentStatus === 'Completato Prod.' || currentStatus === 'Spedito') {
+        const { updatedPhases } = rollbackLastCompletedPhase(job.phases || []);
+        optimisticStatusPatch = {
+          status: 'IN_PRODUZIONE',
+          phases: updatedPhases,
+          forcedCompletion: false,
+          overallEndTime: undefined as any,
+          packingListId: undefined,
+        };
+      } else {
+        optimisticStatusPatch = {
+          status: 'DA_INIZIARE',
+          forcedCompletion: false,
+          overallEndTime: undefined as any,
+          packingListId: undefined,
+        };
+      }
+    } else if (newStatus === 'Completato Prod.') {
+      optimisticStatusPatch = {
+        status: 'completed',
+        forcedCompletion: true,
+        overallEndTime: new Date().toISOString() as any,
+        phases: (job.phases || []).map((p) => ({
+          ...p,
+          status: 'completed' as const,
+          forced: true,
+        })),
+      };
+    } else if (newStatus === 'Spedito') {
+      optimisticStatusPatch = {
+        status: 'SPEDITA',
+        forcedCompletion: true,
+        overallEndTime: new Date().toISOString() as any,
+        phases: (job.phases || []).map((p) => ({
+          ...p,
+          status: 'completed' as const,
+          forced: true,
+        })),
+      };
+    }
+
+    // 1. Aggiornamento ottimistico immediato (revalidate: false)
+    mutateJobs(
+      (currentJobs) =>
+        currentJobs.map((j) => (j.id === job.id ? { ...j, ...optimisticStatusPatch } : j)),
+      { revalidate: false, patchedJobId: job.id, patch: optimisticStatusPatch }
     );
 
     try {
       const res = await updateJobExecutionStatus(job.id, newStatus);
       if (!res.success) {
-        setJobs((prev) => prev.map((j) => (j.id === job.id ? prevJob : j)));
+        mutateJobs(
+          (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+          { revalidate: false, clearPatchId: job.id }
+        );
         toast({
           variant: "destructive",
           title: "Operazione Non Riuscita",
@@ -3328,41 +3446,40 @@ export default function ProgrammazioneClientPage({
         return;
       }
 
-      setJobs((prev) =>
-        prev.map((j) => {
-          if (j.id !== job.id) return j;
-          return {
-            ...j,
-            ...(res.updatedStatus ? { status: res.updatedStatus as any } : {}),
-            ...(res.updatedPhases ? { phases: res.updatedPhases } : {}),
-            ...(res.odlNumber ? { numeroODLInterno: res.odlNumber } : {}),
-            ...(newStatus === 'In Produzione' || newStatus === 'Pianificata'
-              ? {
-                  forcedCompletion: false,
-                  overallEndTime: undefined as any,
-                  packingListId: undefined,
-                }
-              : {}),
-          };
-        })
-      );
+      if (res.nextOdl) {
+        setNextOdlPreview(res.nextOdl);
+      }
 
-      router.refresh();
-      void refreshJobsFromServer();
+      const confirmedStatusPatch: Partial<JobOrder> = {
+        ...optimisticStatusPatch,
+        ...(res.updatedStatus ? { status: res.updatedStatus as any } : {}),
+        ...(res.updatedPhases ? { phases: res.updatedPhases } : {}),
+        ...(res.odlNumber ? { numeroODL: res.odlNumber, numeroODLInterno: res.odlNumber } : {}),
+      };
+
+      // 2. Iniezione diretta in cache del risultato confermato senza revalidate/router.refresh conflittuale
+      mutateJobs(
+        (currentJobs) =>
+          currentJobs.map((j) => (j.id === job.id ? { ...j, ...confirmedStatusPatch } : j)),
+        { revalidate: false, patchedJobId: job.id, patch: confirmedStatusPatch }
+      );
 
       toast({
         title: newStatus === 'Pianificata' ? "Commessa Ripristinata" : "Stato Commessa Modificato",
         description: res.message,
       });
     } catch (e: any) {
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? prevJob : j)));
+      mutateJobs(
+        (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+        { revalidate: false, clearPatchId: job.id }
+      );
       toast({
         variant: "destructive",
         title: "Errore Aggiornamento Stato",
         description: e?.message || "Impossibile aggiornare lo stato.",
       });
     }
-  }, [toast, router, refreshJobsFromServer]);
+  }, [toast, mutateJobs]);
 
   // FASE 19: Handler dedicato per Rollback rapido da pulsante Undo/RotateCcw
   const handleRollbackJob = useCallback(async (job: JobOrder) => {
@@ -3451,20 +3568,17 @@ export default function ProgrammazioneClientPage({
       });
 
       const finalOdl = res.job?.numeroODL || res.job?.numeroODLInterno || chosenOdl || job.numeroODL || job.numeroODLInterno;
+      const startPatch: Partial<JobOrder> = {
+        status: (res.job?.status as any) || 'DA_INIZIARE',
+        numeroODL: finalOdl,
+        numeroODLInterno: finalOdl,
+        odlCreationDate: res.job?.odlCreationDate || new Date().toISOString(),
+      };
 
-      setJobs((prev) =>
-        prev.map((j) => {
-          if (j.id === job.id) {
-            return {
-              ...j,
-              status: 'DA_INIZIARE',
-              numeroODL: finalOdl,
-              numeroODLInterno: finalOdl,
-              odlCreationDate: res.job?.odlCreationDate || new Date().toISOString(),
-            };
-          }
-          return j;
-        })
+      mutateJobs(
+        (currentJobs) =>
+          currentJobs.map((j) => (j.id === job.id ? { ...j, ...startPatch } : j)),
+        { revalidate: false, patchedJobId: job.id, patch: startPatch }
       );
       return { ok: true };
     } catch (e: any) {
@@ -3476,7 +3590,7 @@ export default function ProgrammazioneClientPage({
       });
       return { ok: false, error: errText };
     }
-  }, [toast]);
+  }, [toast, mutateJobs]);
 
   const handleStartProduction = useCallback(async (job: JobOrder) => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
@@ -4139,21 +4253,40 @@ export default function ProgrammazioneClientPage({
     return generateAvailableWeeksFromJobs(jobs);
   }, [jobs]);
 
-  // Riassegnazione manuale settimana per una commessa
+  // Riassegnazione manuale settimana per una commessa (con Optimistic Mutate FASE 85)
   const handleAssignJobWeek = useCallback(async (job: JobOrder, newWeekVal: string) => {
+    const prevJob = { ...job };
+
     if (newWeekVal === 'Non ass.') {
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.id === job.id
-            ? { ...j, targetWeek: 'unassigned', assignedDate: undefined, isoWeek: null, weekYear: null }
-            : j
-        )
+      const unassignPatch: Partial<JobOrder> = {
+        targetWeek: 'unassigned',
+        assignedDate: undefined,
+        isoWeek: null,
+        weekYear: null,
+      };
+      mutateJobs(
+        (currentJobs) => currentJobs.map((j) => (j.id === job.id ? { ...j, ...unassignPatch } : j)),
+        { revalidate: false, patchedJobId: job.id, patch: unassignPatch }
       );
-      toast({
-        title: "Settimana Rimossa",
-        description: `Commessa ${job.ordinePF} non assegnata a nessun secchiello.`,
-      });
-      await updateJobAssignedWeek(job.id, null, null, null, 'unassigned');
+      try {
+        const res = await updateJobAssignedWeek(job.id, null, null, null, 'unassigned');
+        if (res.success) {
+          toast({
+            title: "Settimana Rimossa",
+            description: `Commessa ${job.ordinePF} non assegnata a nessun secchiello.`,
+          });
+        } else {
+          mutateJobs(
+            (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+            { revalidate: false, clearPatchId: job.id }
+          );
+        }
+      } catch {
+        mutateJobs(
+          (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+          { revalidate: false, clearPatchId: job.id }
+        );
+      }
       return;
     }
 
@@ -4168,18 +4301,16 @@ export default function ProgrammazioneClientPage({
     const mondayIso = format(startOfISOWeek(opt.date), 'yyyy-MM-dd');
     const targetWeekStr = `${opt.year}-W${String(opt.weekNumber).padStart(2, '0')}`;
 
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === job.id
-          ? {
-            ...j,
-            assignedDate: mondayIso,
-            isoWeek: opt.weekNumber,
-            weekYear: opt.year,
-            targetWeek: targetWeekStr,
-          }
-          : j
-      )
+    const assignPatch: Partial<JobOrder> = {
+      assignedDate: mondayIso,
+      isoWeek: opt.weekNumber,
+      weekYear: opt.year,
+      targetWeek: targetWeekStr,
+    };
+
+    mutateJobs(
+      (currentJobs) => currentJobs.map((j) => (j.id === job.id ? { ...j, ...assignPatch } : j)),
+      { revalidate: false, patchedJobId: job.id, patch: assignPatch }
     );
 
     toast({
@@ -4188,17 +4319,27 @@ export default function ProgrammazioneClientPage({
     });
 
     try {
-      await updateJobAssignedWeek(
+      const res = await updateJobAssignedWeek(
         job.id,
         mondayIso,
         opt.weekNumber,
         opt.year,
         targetWeekStr
       );
+      if (!res.success) {
+        mutateJobs(
+          (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+          { revalidate: false, clearPatchId: job.id }
+        );
+      }
     } catch (e) {
+      mutateJobs(
+        (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
+        { revalidate: false, clearPatchId: job.id }
+      );
       console.error("Errore salvataggio riassegnazione settimana:", e);
     }
-  }, [weekOptions, toast]);
+  }, [weekOptions, toast, mutateJobs]);
 
   return (
     <TooltipProvider delayDuration={150}>
