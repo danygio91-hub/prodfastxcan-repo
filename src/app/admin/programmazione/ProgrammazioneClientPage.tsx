@@ -1718,6 +1718,10 @@ export default function ProgrammazioneClientPage({
 
   const handleJobUpdated = useCallback((updatedJob: JobOrder) => {
     const oldId = jobToEdit?.id;
+    optimisticPatchesRef.current.set(updatedJob.id, {
+      patch: updatedJob,
+      expiresAt: Date.now() + 20000,
+    });
     setJobs((prev) =>
       prev.map((j) => (j.id === oldId || j.id === updatedJob.id ? { ...j, ...updatedJob } : j))
     );
@@ -1825,7 +1829,15 @@ export default function ProgrammazioneClientPage({
   const [jobToConfirmOdl, setJobToConfirmOdl] = useState<JobOrder | null>(null);
 
   const handleJobSplitSuccess = useCallback((updatedOriginalJob: JobOrder, childJob: JobOrder) => {
-    setJobs((prev) => {
+    optimisticPatchesRef.current.set(updatedOriginalJob.id, {
+      patch: updatedOriginalJob,
+      expiresAt: Date.now() + 20000,
+    });
+    optimisticPatchesRef.current.set(childJob.id, {
+      patch: childJob,
+      expiresAt: Date.now() + 20000,
+    });
+    mutateJobs((prev) => {
       const next: JobOrder[] = [];
       let insertedChild = false;
       for (const j of prev) {
@@ -1841,11 +1853,9 @@ export default function ProgrammazioneClientPage({
         return [childJob, ...next];
       }
       return next;
-    });
+    }, { revalidate: false });
     setMrpCacheVersion((v) => v + 1);
-    router.refresh();
-    void refreshJobsFromServer();
-  }, [router, refreshJobsFromServer]);
+  }, [mutateJobs]);
 
   const handleArticleUpdated = useCallback((updatedArticle: Article) => {
     // 1. Aggiorna cache locale degli articoli
@@ -1912,17 +1922,20 @@ export default function ProgrammazioneClientPage({
     setIsContoLavoroModalOpen(true);
   }, []);
 
-  // FASE 53: Salvataggio in blocco (Batch Save) dei materiali C.to Lavoro
+  // FASE 53 & FASE 85: Salvataggio in blocco (Batch Save) dei materiali C.to Lavoro con Optimistic Mutate
   const handleSaveContoLavoro = useCallback(async (jobId: string, updatedMaterials: string[]): Promise<boolean> => {
     if (!jobId) return false;
     const cleanList = Array.from(new Set(updatedMaterials.map((c) => (c || '').trim().toUpperCase()).filter(Boolean)));
+    const prevJob = jobs.find((j) => j.id === jobId);
 
-    // Optimistic Update su lista jobs
-    setJobs((prev) =>
-      prev.map((j) => {
-        if (j.id !== jobId) return j;
-        return { ...j, externalizedMaterials: cleanList };
-      })
+    // Optimistic Update su lista jobs (revalidate: false)
+    mutateJobs(
+      (prev) =>
+        prev.map((j) => {
+          if (j.id !== jobId) return j;
+          return { ...j, externalizedMaterials: cleanList };
+        }),
+      { revalidate: false, patchedJobId: jobId, patch: { externalizedMaterials: cleanList } }
     );
 
     // Optimistic Update sul job attivo nel modale
@@ -1937,9 +1950,14 @@ export default function ProgrammazioneClientPage({
         title: "C.to Lavoro Aggiornato",
         description: res.message,
       });
-      router.refresh();
       return true;
     } else {
+      if (prevJob) {
+        mutateJobs(
+          (prev) => prev.map((j) => (j.id === jobId ? prevJob : j)),
+          { revalidate: false, clearPatchId: jobId }
+        );
+      }
       toast({
         variant: "destructive",
         title: "Errore C.to Lavoro",
@@ -1947,7 +1965,7 @@ export default function ProgrammazioneClientPage({
       });
       return false;
     }
-  }, [router, toast]);
+  }, [jobs, toast, mutateJobs]);
 
 
   // FASE 44: Gestione Silenziamento e Riattivazione Allarmi MRP per Singola Commessa

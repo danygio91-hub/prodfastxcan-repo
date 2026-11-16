@@ -381,21 +381,145 @@ export default function ODLPrintTemplate({
     const valueW = config.info.valueWidth || '25%';
     const drawW = 100 - parseFloat(labelW) - parseFloat(valueW);
 
+    const technicalNotes = (article?.technicalNotes || job.technicalNotes || '').trim();
+    const technicalDrawingUrl = (article?.technicalDrawingUrl || job.technicalDrawingUrl || '').trim();
+    const hasNotes = technicalNotes.length > 0;
+    const hasDrawing = technicalDrawingUrl.length > 0;
+
     const renderDrawingArea = () => (
-      <td style={{ ...styles.cell, color: config.colors.drawingAreaText, fontWeight: 'bold', fontSize: '18pt', backgroundColor: config.colors.drawingAreaBg, textAlign: 'center', verticalAlign: 'middle', borderLeft: `1.5px solid ${config.colors.border}`, height: config.layout.drawingAreaHeight || '40mm' }} rowSpan={rowCount}>
-        <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
-          <div>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
-          {job.attachments && job.attachments.length > 0 && (
-            <div style={{ fontSize: '7.5pt', color: '#555', textAlign: 'left', width: '90%', marginTop: 'auto', borderTop: '1px dashed #ccc', paddingTop: '2mm' }}>
-              <div style={{ textTransform: 'uppercase', marginBottom: '1mm', color: '#000', fontSize: '8pt' }}>📄 Documentazione MES:</div>
-              {job.attachments.map((att, i) => (
-                <div key={i} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  • {att.name}
-                </div>
-              ))}
+      <td
+        style={{
+          ...styles.cell,
+          color: hasNotes || hasDrawing ? '#111111' : config.colors.drawingAreaText,
+          fontWeight: 'bold',
+          fontSize: '18pt',
+          backgroundColor: config.colors.drawingAreaBg,
+          textAlign: 'center',
+          verticalAlign: 'middle',
+          borderLeft: `1.5px solid ${config.colors.border}`,
+          height: config.layout.drawingAreaHeight || '40mm',
+          maxHeight: config.layout.drawingAreaHeight || '40mm',
+          overflow: 'hidden',
+        }}
+        rowSpan={rowCount}
+      >
+        {hasNotes && hasDrawing ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              width: '100%',
+              height: config.layout.drawingAreaHeight || '40mm',
+              padding: '2mm',
+              boxSizing: 'border-box',
+              gap: '1.5mm',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: '100%',
+                fontSize: '9pt',
+                fontWeight: 'bold',
+                color: '#111111',
+                textAlign: 'left',
+                whiteSpace: 'pre-wrap',
+                lineHeight: '1.25',
+                flex: '0 0 auto',
+                maxHeight: '42%',
+                overflow: 'hidden',
+              }}
+            >
+              {technicalNotes}
             </div>
-          )}
-        </div>
+            <div
+              style={{
+                flex: '1 1 auto',
+                width: '100%',
+                minHeight: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+              }}
+            >
+              <img
+                src={technicalDrawingUrl}
+                alt="Disegno Tecnico"
+                crossOrigin="anonymous"
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  width: 'auto',
+                  height: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            </div>
+          </div>
+        ) : hasNotes ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+              justifyContent: 'flex-start',
+              width: '100%',
+              height: config.layout.drawingAreaHeight || '40mm',
+              padding: '2.5mm',
+              boxSizing: 'border-box',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: '100%',
+                fontSize: '10pt',
+                fontWeight: 'bold',
+                color: '#111111',
+                textAlign: 'left',
+                whiteSpace: 'pre-wrap',
+                lineHeight: '1.3',
+              }}
+            >
+              {technicalNotes}
+            </div>
+          </div>
+        ) : hasDrawing ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              height: config.layout.drawingAreaHeight || '40mm',
+              padding: '1.5mm',
+              boxSizing: 'border-box',
+              overflow: 'hidden',
+            }}
+          >
+            <img
+              src={technicalDrawingUrl}
+              alt="Disegno Tecnico"
+              crossOrigin="anonymous"
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            />
+          </div>
+        ) : (
+          <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
+            <div>{config.layout.showDrawingArea ? config.layout.drawingAreaText : ''}</div>
+          </div>
+        )}
       </td>
     );
 

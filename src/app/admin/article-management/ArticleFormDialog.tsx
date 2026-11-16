@@ -20,10 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { PlusCircle, Trash2, Save, Loader2, Check, FileText, Link as LinkIcon, Ship } from 'lucide-react';
+import { PlusCircle, Trash2, Save, Loader2, Check, FileText, Upload, Image as ImageIcon, Ship, ExternalLink } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { storage } from '@/lib/firebase';
 
 import type { Article, RawMaterial, WorkCycle } from '@/types';
 import { saveArticle, getWorkCycles } from './actions';
@@ -46,10 +49,8 @@ const articleSchema = z.object({
   billOfMaterials: z.array(bomItemSchema).optional().default([]),
   workCycleId: z.string().optional(),
   secondaryWorkCycleId: z.string().optional(),
-  attachments: z.array(z.object({
-    name: z.string().min(1, "Nome obbligatorio"),
-    url: z.string().url("URL non valido")
-  })).optional().default([]),
+  technicalNotes: z.string().optional().default(''),
+  technicalDrawingUrl: z.string().optional().default(''),
   packagingType: z.string().optional(),
   packingInstructions: z.string().optional(),
   unitWeightKg: z.coerce.number().min(0).optional(),
@@ -160,7 +161,8 @@ export default function ArticleFormDialog({
       billOfMaterials: [],
       workCycleId: '',
       secondaryWorkCycleId: '',
-      attachments: [],
+      technicalNotes: '',
+      technicalDrawingUrl: '',
     },
   });
 
@@ -169,13 +171,15 @@ export default function ArticleFormDialog({
     name: "billOfMaterials",
   });
 
-  const { fields: attachmentFields, append: appendAttachment, remove: removeAttachment } = useFieldArray({
-    control: form.control,
-    name: "attachments",
-  });
+  const [isUploadingDrawing, setIsUploadingDrawing] = useState(false);
+  const [isRemovingDrawing, setIsRemovingDrawing] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
+      setUploadedFileName('');
       if (article) {
         form.reset({
           id: article.id,
@@ -183,7 +187,8 @@ export default function ArticleFormDialog({
           billOfMaterials: article.billOfMaterials || [],
           workCycleId: article.workCycleId || '',
           secondaryWorkCycleId: article.secondaryWorkCycleId || '',
-          attachments: article.attachments || [],
+          technicalNotes: article.technicalNotes || '',
+          technicalDrawingUrl: article.technicalDrawingUrl || '',
           packagingType: article.packagingType || '',
           packingInstructions: article.packingInstructions || '',
           unitWeightKg: article.unitWeightKg || 0,
@@ -197,7 +202,8 @@ export default function ArticleFormDialog({
           billOfMaterials: defaultBOM,
           workCycleId: '',
           secondaryWorkCycleId: '',
-          attachments: [],
+          technicalNotes: '',
+          technicalDrawingUrl: '',
           packagingType: '',
           packingInstructions: '',
           unitWeightKg: 0,
@@ -206,6 +212,72 @@ export default function ArticleFormDialog({
       }
     }
   }, [article, form, isOpen]);
+
+  const handleDrawingFileUpload = async (file: File) => {
+    const allowedTypes = ['image/png', 'image/jpeg', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        variant: 'destructive',
+        title: 'Formato non supportato',
+        description: 'Seleziona un file PNG, JPEG o PDF.',
+      });
+      return;
+    }
+
+    const rawCode = (form.getValues('code') || article?.code || article?.id || 'ART').trim().toUpperCase();
+    const cleanArticleId = rawCode.replace(/[^A-Z0-9._-]/g, '_') || 'ART';
+    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `technical_drawings/${cleanArticleId}_${Date.now()}_${safeFileName}`;
+
+    setIsUploadingDrawing(true);
+    try {
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(storageRef);
+
+      form.setValue('technicalDrawingUrl', downloadURL, { shouldDirty: true, shouldValidate: true });
+      setUploadedFileName(file.name);
+      toast({
+        title: 'Disegno Caricato',
+        description: `Il file "${file.name}" è stato caricato con successo.`,
+      });
+    } catch (error: any) {
+      console.error('Errore upload disegno tecnico:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Errore Upload',
+        description: error?.message || 'Impossibile caricare il file su Firebase Storage.',
+      });
+    } finally {
+      setIsUploadingDrawing(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveDrawing = async () => {
+    const currentUrl = form.getValues('technicalDrawingUrl');
+    if (!currentUrl) return;
+
+    setIsRemovingDrawing(true);
+    try {
+      try {
+        const fileRef = ref(storage, currentUrl);
+        await deleteObject(fileRef);
+      } catch (storageErr) {
+        console.warn('Avviso rimozione file da Firebase Storage (potrebbe non esistere più):', storageErr);
+      }
+      form.setValue('technicalDrawingUrl', '', { shouldDirty: true, shouldValidate: true });
+      setUploadedFileName('');
+      toast({
+        title: 'Disegno Rimosso',
+        description: 'Il disegno tecnico è stato rimosso.',
+      });
+    } finally {
+      setIsRemovingDrawing(false);
+    }
+  };
 
   // UX REFINEMENT: SYNC UNIT OF MEASURE ON MATCH (FOR COPY-PASTE)
   const bomData = form.watch("billOfMaterials");
@@ -294,13 +366,13 @@ export default function ArticleFormDialog({
         billOfMaterials: (filteredData.billOfMaterials || []) as Article['billOfMaterials'],
         workCycleId: filteredData.workCycleId,
         secondaryWorkCycleId: filteredData.secondaryWorkCycleId,
-        attachments: filteredData.attachments || [],
+        technicalNotes: filteredData.technicalNotes || '',
+        technicalDrawingUrl: filteredData.technicalDrawingUrl || '',
         packagingType: data.packagingType,
         packingInstructions: data.packingInstructions,
         unitWeightKg: data.unitWeightKg,
         packagingTareWeightKg: data.packagingTareWeightKg,
       };
-      router.refresh();
       onClose(true, updatedArticle);
     }
     setIsPending(false);
@@ -547,62 +619,181 @@ export default function ArticleFormDialog({
                   <div className="flex items-center justify-between">
                     <h4 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground flex items-center">
                       <FileText className="mr-2 h-4 w-4" />
-                      Allegati Tecnici (Disegni, Schede)
+                      NOTE TECNICHE E DISEGNO
                     </h4>
                   </div>
-                  
-                  <div className="space-y-3">
-                    {attachmentFields.map((field, index) => (
-                      <div key={field.id} className="flex gap-3 items-start p-3 border rounded-lg bg-blue-50/30">
-                        <FormField
-                          control={form.control}
-                          name={`attachments.${index}.name`}
-                          render={({ field }) => (
-                            <FormItem className="flex-1">
-                              <FormControl>
-                                <Input {...field} placeholder="Titolo Allegato (es. Disegno Tecnico)" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name={`attachments.${index}.url`}
-                          render={({ field }) => (
-                            <FormItem className="flex-[2]">
-                              <FormControl>
-                                <div className="relative">
-                                  <LinkIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                  <Input {...field} className="pl-9" placeholder="https://drive.google.com/..." />
+
+                  <div className="space-y-4 p-4 border rounded-lg bg-muted/10">
+                    {/* 1. Note Tecniche Testuali */}
+                    <FormField
+                      control={form.control}
+                      name="technicalNotes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Note Tecniche / Istruzioni Speciali ODL</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              value={field.value ?? ''}
+                              placeholder="Inserisci note tecniche o istruzioni speciali..."
+                              className="min-h-[110px] resize-y"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* 2. Upload Disegno Tecnico (PNG / JPEG / PDF) su Firebase Storage */}
+                    <div className="space-y-2">
+                      <FormLabel className="block">Disegno Tecnico / Immagine ODL (PNG, JPEG, PDF)</FormLabel>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png, image/jpeg, application/pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            void handleDrawingFileUpload(file);
+                          }
+                        }}
+                      />
+
+                      {(() => {
+                        const currentDrawingUrl = form.watch('technicalDrawingUrl') || '';
+                        const isPdfUrl =
+                          currentDrawingUrl.toLowerCase().includes('.pdf') ||
+                          uploadedFileName.toLowerCase().endsWith('.pdf');
+
+                        let displayFileName = uploadedFileName;
+                        if (!displayFileName && currentDrawingUrl) {
+                          try {
+                            const decoded = decodeURIComponent(currentDrawingUrl);
+                            const afterSlash = decoded.split('/').pop() || '';
+                            displayFileName = afterSlash.split('?')[0] || 'Disegno caricato';
+                          } catch {
+                            displayFileName = 'Disegno caricato';
+                          }
+                        }
+
+                        return (
+                          <div className="space-y-3">
+                            {!currentDrawingUrl ? (
+                              <div
+                                onDragOver={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setIsDragOver(true);
+                                }}
+                                onDragLeave={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setIsDragOver(false);
+                                }}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setIsDragOver(false);
+                                  const file = e.dataTransfer.files?.[0];
+                                  if (file) {
+                                    void handleDrawingFileUpload(file);
+                                  }
+                                }}
+                                onClick={() => !isUploadingDrawing && fileInputRef.current?.click()}
+                                className={cn(
+                                  "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-2",
+                                  isDragOver
+                                    ? "border-primary bg-primary/10"
+                                    : "border-muted-foreground/30 hover:border-primary/60 hover:bg-muted/30",
+                                  isUploadingDrawing && "opacity-60 pointer-events-none"
+                                )}
+                              >
+                                {isUploadingDrawing ? (
+                                  <>
+                                    <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                                    <p className="text-sm font-medium">Caricamento disegno su Firebase Storage...</p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Upload className="h-7 w-7 text-muted-foreground" />
+                                    <div className="text-sm font-medium">
+                                      Trascina qui il file oppure <span className="text-primary underline">clicca per sfogliare</span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Formati supportati: PNG, JPEG, PDF
+                                    </p>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-3 border rounded-lg bg-background">
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  {!isPdfUrl ? (
+                                    <div className="h-20 w-28 rounded border bg-white flex items-center justify-center overflow-hidden shrink-0">
+                                      <img
+                                        src={currentDrawingUrl}
+                                        alt="Anteprima Disegno Tecnico"
+                                        className="max-h-full max-w-full object-contain"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="h-14 w-14 rounded border bg-muted flex items-center justify-center shrink-0">
+                                      <FileText className="h-7 w-7 text-primary" />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <p className="text-xs font-mono font-semibold truncate" title={displayFileName}>
+                                      {displayFileName}
+                                    </p>
+                                    <a
+                                      href={currentDrawingUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
+                                    >
+                                      <ExternalLink className="h-3 w-3" />
+                                      <span>Apri file originale</span>
+                                    </a>
+                                  </div>
                                 </div>
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeAttachment(index)}
-                          className="text-destructive shrink-0"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                    
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full border-blue-200 text-blue-600 hover:bg-blue-50"
-                      onClick={() => appendAttachment({ name: '', url: '' })}
-                    >
-                      <PlusCircle className="mr-2 h-4 w-4" />
-                      Aggiungi Nuovo Allegato
-                    </Button>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isUploadingDrawing || isRemovingDrawing}
+                                    onClick={() => fileInputRef.current?.click()}
+                                  >
+                                    {isUploadingDrawing ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                                    ) : (
+                                      <ImageIcon className="h-3.5 w-3.5 mr-1.5" />
+                                    )}
+                                    Sostituisci
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    disabled={isRemovingDrawing || isUploadingDrawing}
+                                    onClick={handleRemoveDrawing}
+                                  >
+                                    {isRemovingDrawing ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                    )}
+                                    Rimuovi
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
 

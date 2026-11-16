@@ -145,6 +145,9 @@ export interface JobOrder {
   isCarryover?: boolean;
   packingListId?: string;
   excludedFromPackingList?: boolean;
+  technicalNotes?: string;
+  technicalDrawingUrl?: string;
+  /** @deprecated Usa technicalNotes e technicalDrawingUrl */
   attachments?: { name: string, url: string }[];
   actualWeightKg?: number;
   numberOfPackages?: number;
@@ -282,6 +285,9 @@ export interface Article {
   secondaryWorkCycleId?: string;
   expectedMinutesDefault?: number;
   expectedMinutesSecondary?: number;
+  technicalNotes?: string;
+  technicalDrawingUrl?: string;
+  /** @deprecated Usa technicalNotes e technicalDrawingUrl */
   attachments?: { name: string, url: string }[];
   packagingType?: string;
   packingInstructions?: string;

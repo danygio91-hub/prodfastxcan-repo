@@ -2,6 +2,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getStorage } from "firebase/storage";
 
 // Your web app's Firebase configuration for the "prodfastxcanwork" project.
 const firebaseConfig = {
@@ -36,6 +37,7 @@ try {
 }
 
 const auth = getAuth(app);
+const storage = getStorage(app);
 
-// We export the db and auth instances to be used in other parts of the application
-export { db, auth };
+// We export the db, auth, and storage instances to be used in other parts of the application
+export { db, auth, storage };

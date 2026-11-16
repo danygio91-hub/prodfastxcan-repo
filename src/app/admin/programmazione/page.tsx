@@ -33,7 +33,9 @@ export default async function ProgrammazionePage() {
       "expectedMinutesDefault",
       "expectedMinutesSecondary",
       "phaseTimes",
-      "phaseTimesSecondary"
+      "phaseTimesSecondary",
+      "technicalNotes",
+      "technicalDrawingUrl"
     ).get(),
     adminDb.collection("settings").doc("global").get(),
     getODLConfig(),

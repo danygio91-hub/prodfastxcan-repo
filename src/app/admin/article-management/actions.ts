@@ -54,10 +54,12 @@ const articleSchema = z.object({
     secondaryWorkCycleId: z.string().optional(),
     expectedMinutesDefault: z.coerce.number().optional(),
     expectedMinutesSecondary: z.coerce.number().optional(),
-    attachments: z.array(z.object({
-        name: z.string().min(1, "Nome allegato obbligatorio"),
-        url: z.string().url("URL non valido")
-    })).optional().default([]),
+    technicalNotes: z.string().optional().default(''),
+    technicalDrawingUrl: z.string().optional().default(''),
+    packagingType: z.string().optional(),
+    packingInstructions: z.string().optional(),
+    unitWeightKg: z.coerce.number().min(0).optional(),
+    packagingTareWeightKg: z.coerce.number().min(0).optional(),
 });
 
 export async function getArticles(searchTerm?: string, lastCode?: string, limitCount: number = 50): Promise<Article[]> {
@@ -103,15 +105,17 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
             return { success: false, message: 'Dati non validi: ' + validatedFields.error.errors.map(e => e.message).join(', ') };
         }
 
-        const { 
-            code, billOfMaterials, workCycleId, secondaryWorkCycleId, 
-            expectedMinutesDefault, expectedMinutesSecondary, attachments 
+        const {
+            code, billOfMaterials, workCycleId, secondaryWorkCycleId,
+            expectedMinutesDefault, expectedMinutesSecondary,
+            technicalNotes, technicalDrawingUrl,
+            packagingType, packingInstructions, unitWeightKg, packagingTareWeightKg
         } = validatedFields.data;
 
         // Check if components exist in rawMaterials
         const uniqueCodes = [...new Set(billOfMaterials.map(i => i.component).filter(Boolean))];
         const materialCodes = new Set<string>();
-        
+
         for (let i = 0; i < uniqueCodes.length; i += 30) {
             const chunk = uniqueCodes.slice(i, i + 30);
             const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
@@ -124,22 +128,27 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         }
 
         const docId = code.toUpperCase();
-        
+
         // Build articleData carefully to avoid undefined values
         const articleData: any = {
             id: docId,
             code: docId,
             billOfMaterials: billOfMaterials,
+            technicalNotes: technicalNotes ?? '',
+            technicalDrawingUrl: technicalDrawingUrl ?? '',
         };
-        
+
         if (workCycleId !== undefined) articleData.workCycleId = workCycleId;
         if (secondaryWorkCycleId !== undefined) articleData.secondaryWorkCycleId = secondaryWorkCycleId;
         if (expectedMinutesDefault !== undefined) articleData.expectedMinutesDefault = expectedMinutesDefault;
         if (expectedMinutesSecondary !== undefined) articleData.expectedMinutesSecondary = expectedMinutesSecondary;
-        if (attachments !== undefined) articleData.attachments = attachments;
+        if (packagingType !== undefined) articleData.packagingType = packagingType;
+        if (packingInstructions !== undefined) articleData.packingInstructions = packingInstructions;
+        if (unitWeightKg !== undefined) articleData.unitWeightKg = unitWeightKg;
+        if (packagingTareWeightKg !== undefined) articleData.packagingTareWeightKg = packagingTareWeightKg;
 
         await adminDb.collection('articles').doc(docId).set(articleData, { merge: true });
-        
+
         // --- AUTO-SYNC JOBS LISTENER (Solo commesse PIANIFICATA - Ciclo Congelato) ---
         try {
             const shouldSyncCycles =
@@ -231,7 +240,7 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/programmazione');
         revalidatePath('/admin/production-console');
-        
+
         return { success: true, message: 'Articolo salvato e impegni commesse sincronizzati.' };
     } catch (error: any) {
         console.error('Error in saveArticle:', error);
@@ -260,14 +269,14 @@ export async function deleteArticle(id: string): Promise<{ success: boolean; mes
 
 export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
     const allImportedComponents = new Set<string>();
-    articles.forEach(art => art.billOfMaterials?.forEach(item => { 
+    articles.forEach(art => art.billOfMaterials?.forEach(item => {
         if (item.component) {
             item.component = item.component.toUpperCase().trim();
             allImportedComponents.add(item.component);
         }
     }));
     const uniqueComponents = [...allImportedComponents];
-    
+
     const validCodes = new Set<string>();
     for (let i = 0; i < uniqueComponents.length; i += 30) {
         const chunk = uniqueComponents.slice(i, i + 30);
@@ -277,7 +286,7 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
 
     const existingCodes = new Set<string>();
     const importedCodes = articles.map(a => a.code.toUpperCase()).filter(Boolean);
-    
+
     for (let i = 0; i < importedCodes.length; i += 30) {
         const chunk = importedCodes.slice(i, i + 30);
         const snap = await adminDb.collection("articles").where("code", "in", chunk).get();
@@ -313,7 +322,7 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
 
 export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
     const batch = adminDb.batch();
-    
+
     for (const art of articles) {
         const id = art.code.toUpperCase().trim();
         // Ensure BOM components are uppercase
@@ -321,7 +330,7 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
             ...item,
             component: item.component.toUpperCase().trim()
         }));
-        
+
         batch.set(adminDb.collection('articles').doc(id), { ...art, id, code: id, billOfMaterials: normalizedBOM }, { merge: true });
 
         // --- CASCADING SYNC FOR BULK (Solo commesse PIANIFICATA - Ciclo Congelato) ---
@@ -371,7 +380,7 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
 }
 
 export async function validateArticleSettingsImport(rows: any[]) {
-    const codes = [...new Set(rows.map(row => 
+    const codes = [...new Set(rows.map(row =>
         String(row['CODICE ARTICOLO'] || row['codice articolo'] || '').trim().toUpperCase()
     ).filter(Boolean))];
 
@@ -481,7 +490,7 @@ export async function validateArticleSettingsImport(rows: any[]) {
 
         const expectedDef = Number(row['TEMPO PREVISTO CICLO PREDEFINITO'] || row['tempo previsto ciclo predefinito']);
         if (!isNaN(expectedDef) && expectedDef > 0) updateObj.expectedMinutesDefault = expectedDef;
-        
+
         const expectedSec = Number(row['TEMPO PREVISTO CICLO SECONDARIO'] || row['tempo previsto ciclo secondario']);
         if (!isNaN(expectedSec) && expectedSec > 0) updateObj.expectedMinutesSecondary = expectedSec;
 
@@ -510,7 +519,7 @@ export async function bulkUpdateArticleSettings(updates: Partial<Article>[]) {
 export async function saveArticleStandardTimes(articleId: string, data: Partial<Article>) {
     try {
         await adminDb.collection('articles').doc(articleId).set(data, { merge: true });
-        
+
         let syncedCount = 0;
         let skippedFrozenCount = 0;
 
@@ -582,7 +591,7 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
             console.error("Error during mass sync of job expected times:", syncErr);
         }
         // ------------------------------------------------
-        
+
         revalidatePath('/admin/article-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/programmazione');
@@ -701,7 +710,7 @@ export async function syncAllHistoricalToTargets(): Promise<{ success: boolean; 
         ]);
 
         const phaseMap = new Map(phases.map(p => [p.name.toUpperCase().trim(), p.id]));
-        
+
         let currentBatch = adminDb.batch();
         let batchCount = 0;
         let totalUpdated = 0;
@@ -752,8 +761,8 @@ export async function syncAllHistoricalToTargets(): Promise<{ success: boolean; 
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-time-analysis');
 
-        return { 
-            success: true, 
+        return {
+            success: true,
             message: `Sincronizzazione completata. Aggiornati ${totalUpdated} articoli.`,
             updatedCount: totalUpdated
         };
