@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Play, Loader2, Hash, Sparkles, Edit3 } from 'lucide-react';
+import { Play, Loader2, Hash, Sparkles, Edit3, AlertCircle } from 'lucide-react';
 import type { JobOrder } from '@/types';
 import { getNextOdlNumber } from '@/app/admin/programmazione/actions';
 import { parseStandardOdl } from '@/lib/odl-numerator';
@@ -23,7 +23,10 @@ interface ConfirmOdlDialogProps {
   onClose: () => void;
   job: JobOrder | null;
   initialProposedOdl?: string;
-  onConfirmStart: (job: JobOrder, chosenOdl: string) => Promise<boolean | void>;
+  onConfirmStart: (
+    job: JobOrder,
+    chosenOdl: string
+  ) => Promise<{ ok: boolean; error?: string } | boolean | void>;
 }
 
 export function ConfirmOdlDialog({
@@ -36,12 +39,14 @@ export function ConfirmOdlDialog({
   const [odlInput, setOdlInput] = useState<string>('');
   const [isLoadingProposal, setIsLoadingProposal] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const userEditedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (isOpen && job) {
       userEditedRef.current = false;
       setIsSubmitting(false);
+      setErrorMessage(null);
       setOdlInput(initialProposedOdl || '');
 
       let cancelled = false;
@@ -78,11 +83,24 @@ export function ConfirmOdlDialog({
     if (!isValidInput || isSubmitting) return;
 
     setIsSubmitting(true);
+    setErrorMessage(null);
     try {
-      const ok = await onConfirmStart(job, trimmedOdl);
-      if (ok !== false) {
+      const res = await onConfirmStart(job, trimmedOdl);
+      if (typeof res === 'object' && res !== null) {
+        if (res.ok) {
+          onClose();
+        } else {
+          setErrorMessage(
+            res.error || "Attenzione: il numero ODL inserito è già in uso su un'altra commessa."
+          );
+        }
+      } else if (res !== false) {
         onClose();
+      } else {
+        setErrorMessage("Attenzione: il numero ODL inserito è già in uso su un'altra commessa.");
       }
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Errore durante l'avvio della commessa.");
     } finally {
       setIsSubmitting(false);
     }
@@ -148,6 +166,7 @@ export function ConfirmOdlDialog({
               value={odlInput}
               onChange={(e) => {
                 userEditedRef.current = true;
+                if (errorMessage) setErrorMessage(null);
                 setOdlInput(e.target.value);
               }}
               disabled={isSubmitting}
@@ -156,7 +175,14 @@ export function ConfirmOdlDialog({
               autoFocus
             />
 
-            {trimmedOdl && (
+            {errorMessage && (
+              <div className="flex items-start gap-2 p-2.5 rounded-md bg-red-500/15 border border-red-500/40 text-red-300 text-xs">
+                <AlertCircle className="h-4 w-4 shrink-0 text-red-400 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {trimmedOdl && !errorMessage && (
               <div className="flex items-center gap-1.5 text-[11px] pt-0.5">
                 {parsedStandard ? (
                   <span className="inline-flex items-center gap-1 text-emerald-400">
@@ -211,4 +237,3 @@ export function ConfirmOdlDialog({
     </Dialog>
   );
 }
-

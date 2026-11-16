@@ -409,11 +409,23 @@ export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise
 export async function startJobProduction(
     jobId: string, 
     manualOdlNumberStr?: string
-): Promise<{ success: boolean; message: string; job?: Partial<JobOrder>; nextOdl?: string }> {
+): Promise<{ success: boolean; message: string; error?: string; job?: Partial<JobOrder>; nextOdl?: string }> {
     try {
+        if (manualOdlNumberStr && manualOdlNumberStr.trim()) {
+            const uniqueCheck = await checkUniqueODL(manualOdlNumberStr.trim(), jobId);
+            if (!uniqueCheck.isUnique) {
+                const dupErr = "Attenzione: il numero ODL inserito è già in uso su un'altra commessa.";
+                return { success: false, error: dupErr, message: dupErr };
+            }
+        }
+
         const res = await createODL(jobId, manualOdlNumberStr);
         if (!res.success) {
-            return { success: false, message: res.message };
+            return {
+                success: false,
+                error: res.error || res.message,
+                message: res.message,
+            };
         }
 
         const [jobSnap, nextOdl] = await Promise.all([
@@ -440,7 +452,8 @@ export async function startJobProduction(
         };
     } catch (e: any) {
         console.error("Errore in startJobProduction:", e);
-        return { success: false, message: e?.message || "Errore durante l'avvio della commessa." };
+        const msg = e?.message || "Errore durante l'avvio della commessa.";
+        return { success: false, error: msg, message: msg };
     }
 }
 
@@ -1281,6 +1294,7 @@ export async function bulkStartProductionAndPrint(
     success: boolean; 
     message: string; 
     error?: string;
+    nextOdl?: string;
     startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[];
     skippedNoDate: string[];
     skippedNoCycle: string[];
@@ -1348,6 +1362,8 @@ export async function bulkStartProductionAndPrint(
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
+        const nextOdl = await getNextOdlNumber().catch(() => undefined);
+
         const feedback = formatBulkStartFeedback({
             startedCount: startedJobs.length,
             skippedNoCycleCount: skippedNoCycle.length,
@@ -1360,6 +1376,7 @@ export async function bulkStartProductionAndPrint(
             success: feedback.success,
             message: feedback.message,
             error: feedback.error,
+            nextOdl,
             startedJobs,
             skippedNoDate,
             skippedNoCycle,
@@ -1391,6 +1408,7 @@ export async function bulkStartProduction(
     success: boolean; 
     message: string; 
     error?: string;
+    nextOdl?: string;
     startedJobs: { id: string; ordinePF: string; numeroODLInterno?: string }[];
     skippedNoDate: string[];
     skippedNoCycle: string[];
@@ -1456,6 +1474,8 @@ export async function bulkStartProduction(
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
+        const nextOdl = await getNextOdlNumber().catch(() => undefined);
+
         const feedback = formatBulkStartFeedback({
             startedCount: startedJobs.length,
             skippedNoCycleCount: skippedNoCycle.length,
@@ -1468,6 +1488,7 @@ export async function bulkStartProduction(
             success: feedback.success,
             message: feedback.message,
             error: feedback.error,
+            nextOdl,
             startedJobs,
             skippedNoDate,
             skippedNoCycle,

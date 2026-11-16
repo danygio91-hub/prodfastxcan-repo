@@ -810,7 +810,7 @@ export async function getNextOdlNumber(): Promise<string> {
     return nextOdl;
 }
 
-export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string; odlNumber?: string }> {
+export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string; error?: string; odlNumber?: string }> {
   try {
     await ensureOdlNumeratorInitialized();
 
@@ -878,6 +878,19 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
         chosenOdl = computeNextStandardOdl(currentLastOdl, currentLastYear, shortYearNum).nextOdl;
       }
 
+      // FASE 84-BIS: Controllo Anti-Duplicato dentro la transazione PRIMA dell'update
+      const [dupOdlSnap, dupInternoSnap] = await Promise.all([
+        t.get(adminDb.collection("jobOrders").where("numeroODL", "==", chosenOdl)),
+        t.get(adminDb.collection("jobOrders").where("numeroODLInterno", "==", chosenOdl)),
+      ]);
+      const conflictingDoc =
+        dupOdlSnap.docs.find((d) => d.id !== jobId) ||
+        dupInternoSnap.docs.find((d) => d.id !== jobId);
+
+      if (conflictingDoc) {
+        throw new Error("Attenzione: il numero ODL inserito è già in uso su un'altra commessa.");
+      }
+
       // FASE 84: Verifica se l'ODL scelto rispetta il formato standard /^(\d+)-(\d{2})$/
       const parsedStandard = parseStandardOdl(chosenOdl);
 
@@ -937,7 +950,8 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
     return { success: true, message: `ODL #${result} avviato con successo.`, odlNumber: result };
   } catch (error) { 
       console.error("Error in createODL:", error);
-      return { success: false, message: error instanceof Error ? error.message : "Errore interno durante l'avvio." }; 
+      const errMsg = error instanceof Error ? error.message : "Errore interno durante l'avvio.";
+      return { success: false, message: errMsg, error: errMsg }; 
   }
 }
 

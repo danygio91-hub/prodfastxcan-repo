@@ -3421,21 +3421,28 @@ export default function ProgrammazioneClientPage({
     }
   }, [jobs, toast]);
 
-  // 4. Workflow Avvio Produzione: richiama createODL transazionale (con intercetto FASE 84 se ODL vuoto)
-  const executeStartProduction = useCallback(async (job: JobOrder, chosenOdl?: string): Promise<boolean> => {
+  // 4. Workflow Avvio Produzione: richiama createODL transazionale (con intercetto FASE 84 & anti-duplicato FASE 84-BIS)
+  const executeStartProduction = useCallback(async (job: JobOrder, chosenOdl?: string): Promise<{ ok: boolean; error?: string }> => {
     try {
       const res = await startJobProduction(job.id, chosenOdl);
       if (!res.success) {
+        const errText = res.error || res.message || "Impossibile avviare la commessa.";
         toast({
           variant: "destructive",
           title: "Impossibile Avviare Commessa",
-          description: res.message,
+          description: errText,
         });
-        return false;
+        return { ok: false, error: errText };
       }
 
       if (res.nextOdl) {
         setNextOdlPreview(res.nextOdl);
+      } else {
+        getNextOdlNumber()
+          .then((freshOdl) => {
+            if (freshOdl) setNextOdlPreview(freshOdl);
+          })
+          .catch(() => {});
       }
 
       toast({
@@ -3459,14 +3466,15 @@ export default function ProgrammazioneClientPage({
           return j;
         })
       );
-      return true;
+      return { ok: true };
     } catch (e: any) {
+      const errText = e?.message || "Errore sconosciuto";
       toast({
         variant: "destructive",
         title: "Errore durante l'avvio",
-        description: e?.message || "Errore sconosciuto",
+        description: errText,
       });
-      return false;
+      return { ok: false, error: errText };
     }
   }, [toast]);
 
@@ -3730,14 +3738,25 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // 2. FASE 33 & FASE 81: Avvio Massivo in Produzione (Solo Avvio Produzione)
+  // 2. FASE 33, FASE 81 & FASE 84-BIS: Avvio Massivo in Produzione (con refresh immediato badge Prossimo ODL)
   const handleBulkStartProduction = async () => {
     if (selectedJobIds.length === 0) return;
 
     setIsBulkProcessing(true);
     setIsBulkPrinting(false);
     try {
-      const res = await bulkStartProduction(selectedJobIds);
+      const res = await bulkStartProduction(selectedJobIds).then(async (bulkRes) => {
+        if (bulkRes.nextOdl) {
+          setNextOdlPreview(bulkRes.nextOdl);
+        } else {
+          await getNextOdlNumber()
+            .then((freshOdl) => {
+              if (freshOdl) setNextOdlPreview(freshOdl);
+            })
+            .catch(() => {});
+        }
+        return bulkRes;
+      });
       const detailError = res.error || res.message;
 
       if (!res.success) {
@@ -3756,10 +3775,12 @@ export default function ProgrammazioneClientPage({
         prev.map((j) => {
           if (startedIdsSet.has(j.id)) {
             const startedInfo = startedMap.get(j.id);
+            const assignedOdl = startedInfo?.numeroODLInterno || j.numeroODLInterno || j.numeroODL;
             return {
               ...j,
               status: 'DA_INIZIARE',
-              numeroODLInterno: startedInfo?.numeroODLInterno || j.numeroODLInterno,
+              numeroODL: assignedOdl,
+              numeroODLInterno: assignedOdl,
             };
           }
           return j;
