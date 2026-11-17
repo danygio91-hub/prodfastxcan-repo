@@ -44,26 +44,52 @@ export class QuickArticleCache {
         });
     }
 
-    updateArticle(updatedArticle: Article): void {
+    updateArticle(updatedArticle: Article, fallbackMaster?: Partial<ArticleMasterData>): void {
         const key = (updatedArticle.code || updatedArticle.id || '').trim().toUpperCase();
         if (!key) return;
 
         const existing = this.cache.get(key);
         if (existing) {
-            existing.data.article = updatedArticle;
-            existing.timestamp = Date.now();
+            this.cache.set(key, {
+                data: {
+                    ...existing.data,
+                    ...(fallbackMaster || {}),
+                    article: updatedArticle,
+                },
+                timestamp: Date.now(),
+            });
         } else {
             this.cache.set(key, {
                 data: {
                     article: updatedArticle,
-                    workCycles: [],
-                    phaseTemplates: [],
-                    globalSettings: null,
-                    materials: [],
+                    workCycles: fallbackMaster?.workCycles || [],
+                    phaseTemplates: fallbackMaster?.phaseTemplates || [],
+                    globalSettings: fallbackMaster?.globalSettings ?? null,
+                    materials: fallbackMaster?.materials || [],
                 },
                 timestamp: Date.now(),
             });
         }
+    }
+
+    mutate(
+        code: string,
+        updater: ArticleMasterData | ((current: ArticleMasterData | null) => ArticleMasterData | null)
+    ): ArticleMasterData | null {
+        const key = (code || '').trim().toUpperCase();
+        if (!key) return null;
+
+        const current = this.cache.get(key)?.data ?? null;
+        const next = typeof updater === 'function' ? updater(current) : updater;
+        if (!next) {
+            this.cache.delete(key);
+            return null;
+        }
+        this.cache.set(key, {
+            data: next,
+            timestamp: Date.now(),
+        });
+        return next;
     }
 
     invalidate(code?: string): void {

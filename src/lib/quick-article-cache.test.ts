@@ -76,4 +76,36 @@ describe('FASE 82: Client-Side QuickArticleCache', () => {
         cache.invalidate();
         expect(cache.size()).toBe(0);
     });
+
+    it('FASE 90: mutate aggiorna in modo immutabile e updateArticle preserva cicli e template di fallback', () => {
+        cache.set('E60025', mockArticleData);
+        const beforeRef = cache.get('E60025');
+
+        const mutated = cache.mutate('E60025', (prev) =>
+            prev
+                ? {
+                      ...prev,
+                      article: { ...prev.article!, expectedMinutesDefault: 99 },
+                  }
+                : null
+        );
+
+        expect(mutated).not.toBe(beforeRef);
+        expect(cache.get('E60025')?.article?.expectedMinutesDefault).toBe(99);
+        expect(cache.get('E60025')?.phaseTemplates).toHaveLength(1);
+
+        // Update su articolo non ancora in cache con fallbackMaster
+        cache.updateArticle(
+            { id: 'NEW-ART', code: 'NEW-ART', billOfMaterials: [] } as Article,
+            {
+                workCycles: mockArticleData.workCycles,
+                phaseTemplates: mockArticleData.phaseTemplates,
+            }
+        );
+
+        const newArtEntry = cache.get('NEW-ART');
+        expect(newArtEntry?.article?.code).toBe('NEW-ART');
+        expect(newArtEntry?.workCycles).toHaveLength(1);
+        expect(newArtEntry?.phaseTemplates).toHaveLength(1);
+    });
 });

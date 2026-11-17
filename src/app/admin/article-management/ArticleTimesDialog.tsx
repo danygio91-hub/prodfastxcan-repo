@@ -61,7 +61,6 @@ function applyCyclePhases(
 }
 
 export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates, embedded = false, workCycles: initialWorkCycles }: ArticleTimesDialogProps) {
-    const router = useRouter();
     const { toast } = useToast();
     const [isPending, setIsPending] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
@@ -75,10 +74,28 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
     const [localPhaseTimesDefault, setLocalPhaseTimesDefault] = useState<Record<string, ArticlePhaseTime>>({});
     const [localPhaseTimesSecondary, setLocalPhaseTimesSecondary] = useState<Record<string, ArticlePhaseTime>>({});
 
+    const articleIdentity = article?.id || article?.code || '';
+
+    // FASE 90 (1): Pulizia esplicita dello stato locale quando cambia l'ID dell'articolo
+    useEffect(() => {
+        setIsPending(false);
+        setIsUpdating(false);
+        setActiveView('default');
+        setPrimaryCycleId(article?.workCycleId || 'manual');
+        setSecondaryCycleId(article?.secondaryWorkCycleId || 'manual');
+        setExpectedTotalDefault(article?.expectedMinutesDefault || "");
+        setExpectedTotalSecondary(article?.expectedMinutesSecondary || "");
+        setLocalPhaseTimesDefault({});
+        setLocalPhaseTimesSecondary({});
+    }, [articleIdentity]);
+
     useEffect(() => {
         if (!isOpen) return;
 
+        let isCancelled = false;
+
         const populateFromCycles = (cycles: WorkCycle[]) => {
+            if (isCancelled) return;
             setWorkCycles(cycles);
             if (article) {
                 const primaryId = article.workCycleId || 'manual';
@@ -152,8 +169,12 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         if (initialWorkCycles && initialWorkCycles.length > 0) {
             populateFromCycles(initialWorkCycles);
         } else {
-            getWorkCycles().then(populateFromCycles);
+            getWorkCycles().then(populateFromCycles).catch(() => {});
         }
+
+        return () => {
+            isCancelled = true;
+        };
     }, [isOpen, article, phaseTemplates, initialWorkCycles]);
 
     const currentPhaseTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
@@ -321,7 +342,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
     };
 
     const handleSave = async () => {
-        if (!article) return;
+        if (!article || isPending) return;
         setIsPending(true);
 
         const parseTimes = (obj: Record<string, ArticlePhaseTime>) => {
@@ -357,18 +378,27 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
             phaseTimesSecondary: parseTimes(localPhaseTimesSecondary),
         };
 
-        const result = await saveArticleStandardTimes(article.id, data);
-        toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
-        if (result.success) {
-            const updatedArticle: Article = {
-                ...article,
-                ...data,
-                code: article.code || article.id,
-            };
-            router.refresh();
-            onClose(true, updatedArticle);
+        try {
+            const result = await saveArticleStandardTimes(article.id, data);
+            toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
+            if (result.success) {
+                const updatedArticle: Article = {
+                    ...article,
+                    ...data,
+                    code: article.code || article.id,
+                };
+                onClose(true, updatedArticle);
+            }
+        } catch (err: any) {
+            console.error("Errore salvataggio standard tempi:", err);
+            toast({
+                title: "Errore",
+                description: err?.message || "Impossibile salvare i tempi standard.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsPending(false);
         }
-        setIsPending(false);
     };
 
     const sortedTemplates = [...phaseTemplates].sort((a, b) => a.name.localeCompare(b.name));

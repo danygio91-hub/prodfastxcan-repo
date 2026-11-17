@@ -193,8 +193,9 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
           return [updatedArticle, ...prev];
         }
       });
+    } else if (refresh) {
+      void refreshData();
     }
-    if (refresh) router.refresh();
   }
 
   const handleTimesClose = (refresh: boolean = false, updatedArticle?: Article) => {
@@ -202,8 +203,9 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
     setEditingArticle(null);
     if (updatedArticle) {
       setArticles(prev => prev.map(a => a.id === updatedArticle.id ? { ...a, ...updatedArticle } : a));
+    } else if (refresh) {
+      void refreshData();
     }
-    if (refresh) router.refresh();
   };
 
   const handleDelete = async (articleId: string) => {
@@ -563,10 +565,16 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
         </Card>
       </div>
 
-      <ArticleFormDialog isOpen={isFormOpen} onClose={handleFormClose} article={editingArticle} />
+      <ArticleFormDialog
+        key={editingArticle ? `form-${editingArticle.id || editingArticle.code}` : 'form-new'}
+        isOpen={isFormOpen}
+        onClose={handleFormClose}
+        article={editingArticle}
+      />
 
       {editingArticle && (
         <ArticleTimesDialog
+          key={`times-${editingArticle.id || editingArticle.code}`}
           isOpen={isTimesOpen}
           onClose={handleTimesClose}
           article={editingArticle}

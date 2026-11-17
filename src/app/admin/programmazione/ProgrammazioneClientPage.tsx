@@ -109,6 +109,8 @@ import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCyc
 import type { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, type MRPTimelineEntry, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
+import { syncJobBOMItems } from '@/lib/inventory-utils';
+import { quickArticleCache } from '@/lib/quick-article-cache';
 import {
   withNetworkRetry,
   emitNetworkStatus,
@@ -1874,7 +1876,7 @@ export default function ProgrammazioneClientPage({
   }, [mutateJobs]);
 
   const handleArticleUpdated = useCallback((updatedArticle: Article) => {
-    // 1. Aggiorna cache locale degli articoli
+    // 1. Aggiorna cache locale degli articoli e SWR cache rapida
     setArticles((prev) => {
       const exists = prev.some((a) => a.id === updatedArticle.id || a.code === updatedArticle.code);
       if (exists) {
@@ -1885,49 +1887,84 @@ export default function ProgrammazioneClientPage({
     const normArtCode = (updatedArticle.code || updatedArticle.id || '').trim().toUpperCase();
     if (normArtCode) {
       articlesCacheRef.current.set(normArtCode, updatedArticle);
-      setMrpCacheVersion((v) => v + 1);
+      quickArticleCache.updateArticle(updatedArticle, {
+        workCycles,
+        phaseTemplates,
+        globalSettings,
+      });
     }
 
-    // 2. Aggiorna ottimisticamente SOLO le commesse PIANIFICATA (FASE 72: Regola Ciclo Congelato)
+    // 2. FASE 90: Optimistic Mutate SWR-style SOLO sulle righe delle commesse PIANIFICATA interessate (NO router.refresh)
     const targetCode = (updatedArticle.code || '').trim().toUpperCase();
     const targetId = (updatedArticle.id || '').trim().toUpperCase();
-    setJobs((prevJobs) =>
-      prevJobs.map((j) => {
-        const jobArt = ((j as any).articolo || j.details || (j as any).articleCode || '').trim().toUpperCase();
-        const isMatchingArticle = (targetCode && jobArt === targetCode) || (targetId && jobArt === targetId);
-        if (!isMatchingArticle) return j;
+    const cachedRawMaterials = Array.from(materialsCacheRef.current.values());
 
-        // Ciclo Congelato: non toccare commesse già avviate (DA_INIZIARE, IN_PREP, IN_PRODUZIONE, ecc.)
-        if (!isJobEligibleForArticleSync(j)) {
-          return j;
-        }
+    mutateJobs(
+      (prevJobs) =>
+        prevJobs.map((j) => {
+          const jobArt = ((j as any).articolo || j.details || (j as any).articleCode || '').trim().toUpperCase();
+          const isMatchingArticle = (targetCode && jobArt === targetCode) || (targetId && jobArt === targetId);
+          if (!isMatchingArticle) return j;
 
-        const syncResult = computeArticleCycleSyncForJob({
-          job: j,
-          article: updatedArticle,
-          workCycles,
-          phaseTemplates,
-        });
+          // Ciclo Congelato: non toccare commesse già avviate (DA_INIZIARE, IN_PREP, IN_PRODUZIONE, ecc.)
+          if (!isJobEligibleForArticleSync(j)) {
+            return j;
+          }
 
-        const hadEmptyPhasesNowFilled =
-          syncResult.phases.length > 0 && (!j.phases || j.phases.length === 0);
+          const syncResult = computeArticleCycleSyncForJob({
+            job: j,
+            article: updatedArticle,
+            workCycles,
+            phaseTemplates,
+          });
 
-        if (!syncResult.changed && !hadEmptyPhasesNowFilled) {
-          return j;
-        }
+          const hadEmptyPhasesNowFilled =
+            syncResult.phases.length > 0 && (!j.phases || j.phases.length === 0);
 
-        return {
-          ...j,
-          phases: syncResult.phases,
-          workCycleId: syncResult.workCycleId,
-          expectedMinutesDefault: syncResult.expectedMinutesDefault,
-        };
-      })
+          let nextBOM = j.billOfMaterials;
+          if (Array.isArray(updatedArticle.billOfMaterials) && globalSettings) {
+            const syncedBOMRaw = syncJobBOMItems(
+              j.qta,
+              j.billOfMaterials || [],
+              updatedArticle.billOfMaterials,
+              cachedRawMaterials,
+              globalSettings
+            );
+            nextBOM = syncedBOMRaw.map((item) => ({
+              ...item,
+              lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
+              fabbisognoTotale: item.fabbisognoTotale ?? 0,
+              pesoStimato: item.pesoStimato ?? 0,
+              note: item.note ?? '',
+            }));
+          }
+
+          const patch: Partial<JobOrder> = {
+            billOfMaterials: nextBOM,
+          };
+
+          if (syncResult.changed || hadEmptyPhasesNowFilled) {
+            patch.phases = syncResult.phases;
+            patch.workCycleId = syncResult.workCycleId;
+            patch.expectedMinutesDefault = syncResult.expectedMinutesDefault;
+          }
+
+          const existingShield = optimisticPatchesRef.current.get(j.id)?.patch || {};
+          optimisticPatchesRef.current.set(j.id, {
+            patch: { ...existingShield, ...patch },
+            expiresAt: Date.now() + 20000,
+          });
+
+          return {
+            ...j,
+            ...patch,
+          };
+        }),
+      { revalidate: false }
     );
 
-    router.refresh();
-    void refreshJobsFromServer();
-  }, [router, workCycles, phaseTemplates, refreshJobsFromServer]);
+    setMrpCacheVersion((v) => v + 1);
+  }, [workCycles, phaseTemplates, globalSettings, mutateJobs]);
 
   // FASE 45: Modale di Gestione Conto Lavoro (C.to Lavoro)
   const [isContoLavoroModalOpen, setIsContoLavoroModalOpen] = useState(false);
@@ -6157,21 +6194,20 @@ export default function ProgrammazioneClientPage({
         />
 
         {/* =========================================================================
-            7. QUICK-EDIT ANAGRAFICA ARTICOLO DA DATAGRID (FASE 54)
+            7. QUICK-EDIT ANAGRAFICA ARTICOLO DA DATAGRID (FASE 54 & FASE 90)
         ========================================================================== */}
         <QuickArticleEditDrawer
+          key={quickEditArticleCode ? `quick-article-${quickEditArticleCode.trim().toUpperCase()}` : 'quick-article-closed'}
           isOpen={isQuickEditDrawerOpen}
-          onClose={(refreshed) => {
+          onClose={() => {
             setIsQuickEditDrawerOpen(false);
             setQuickEditArticleCode(null);
-            if (refreshed) {
-              router.refresh();
-              void refreshJobsFromServer();
-            }
           }}
           articleCode={quickEditArticleCode}
           articles={articles}
           phaseTemplates={phaseTemplates}
+          workCycles={workCycles}
+          globalSettings={globalSettings}
           onArticleUpdated={handleArticleUpdated}
         />
 

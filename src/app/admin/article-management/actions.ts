@@ -157,9 +157,8 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
                 expectedMinutesDefault !== undefined ||
                 expectedMinutesSecondary !== undefined;
 
-            const [linkedJobDocs, rawMaterialsSnap, globalSettings, articleSnap, workCycles, phaseTemplates] = await Promise.all([
+            const [linkedJobDocs, globalSettings, articleSnap, workCycles, phaseTemplates] = await Promise.all([
                 fetchJobDocsByArticleKeys(docId, docId),
-                adminDb.collection("rawMaterials").get(),
                 getGlobalSettings(),
                 shouldSyncCycles ? adminDb.collection('articles').doc(docId).get() : Promise.resolve(null),
                 shouldSyncCycles ? getWorkCycles() : Promise.resolve([] as WorkCycle[]),
@@ -171,7 +170,32 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
             );
 
             if (plannedJobDocs.length > 0) {
-                const rawMaterials = rawMaterialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
+                // FASE 90: Carica solo i materiali effettivamente coinvolti nelle distinte delle commesse pianificate
+                const neededMaterialCodes = new Set<string>(uniqueCodes.map(c => c.toUpperCase()));
+                plannedJobDocs.forEach(doc => {
+                    const job = doc.data() as JobOrder;
+                    (job.billOfMaterials || []).forEach(item => {
+                        if (item.component) neededMaterialCodes.add(item.component.trim().toUpperCase());
+                    });
+                });
+
+                const neededCodesArr = Array.from(neededMaterialCodes).filter(Boolean);
+                const matChunks: string[][] = [];
+                for (let i = 0; i < neededCodesArr.length; i += 30) {
+                    matChunks.push(neededCodesArr.slice(i, i + 30));
+                }
+                const matSnaps = await Promise.all(
+                    matChunks.map(chunk =>
+                        adminDb.collection("rawMaterials")
+                            .where("code", "in", chunk)
+                            .select("code", "description", "type", "unitOfMeasure", "conversionFactor", "rapportoKgMt")
+                            .get()
+                    )
+                );
+                const rawMaterials = matSnaps.flatMap(snap =>
+                    snap.docs.map(d => ({ ...d.data(), id: d.id, batches: [] } as unknown as RawMaterial))
+                );
+
                 const mergedArticle: Partial<Article> = {
                     ...(articleSnap?.data() || {}),
                     ...articleData,
@@ -233,13 +257,7 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
             // ma logghiamo l'errore.
         }
         // -------------------------------
-
-        revalidatePath('/admin/article-management');
-        revalidatePath('/admin/raw-material-management');
-        revalidatePath('/admin/data-management');
-        revalidatePath('/admin/resource-planning');
-        revalidatePath('/admin/programmazione');
-        revalidatePath('/admin/production-console');
+        // FASE 90: Rimossi revalidatePath massivi che causavano freeze della coda Server Actions sul client.
 
         return { success: true, message: 'Articolo salvato e impegni commesse sincronizzati.' };
     } catch (error: any) {
@@ -591,12 +609,7 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
             console.error("Error during mass sync of job expected times:", syncErr);
         }
         // ------------------------------------------------
-
-        revalidatePath('/admin/article-management');
-        revalidatePath('/admin/resource-planning');
-        revalidatePath('/admin/programmazione');
-        revalidatePath('/admin/production-console');
-        revalidatePath('/admin/data-management');
+        // FASE 90: Rimossi revalidatePath massivi che bloccavano la coda Server Actions sul client.
 
         const freezeSuffix = skippedFrozenCount > 0
             ? ` (${skippedFrozenCount} commesse già avviate mantenute congelate)`
@@ -614,13 +627,13 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
 }
 
 /**
- * FASE 82: Caricamento Dati Completi Anagrafica Rapida Articolo (Eliminazione Waterfall).
+ * FASE 82 & FASE 90: Caricamento Dati Completi Anagrafica Rapida Articolo (Eliminazione Waterfall).
  * Raggruppa in parallelo via Promise.all() le query per:
  * - Dati Articolo (lettura diretta per docId con fallback su code)
  * - Cicli di lavorazione standard (workCycles)
  * - Template fasi di lavoro (phaseTemplates)
  * - Impostazioni globali (globalSettings)
- * - Pre-caricamento parallelo dei materiali distinti (BOM rawMaterials)
+ * - Pre-caricamento parallelo dei materiali distinti (BOM rawMaterials leggeri senza array batches)
  *
  * ESCLUDE categoricamente qualsiasi interrogazione alla collection 'jobOrders' (Lazy Job Lookup),
  * garantendo tempi di risposta immediati durante il render e l'apertura del modale.
@@ -659,7 +672,7 @@ export async function getArticleMasterData(articleCode: string): Promise<Article
         d => ({ ...d.data(), id: d.id } as WorkCycle)
     );
 
-    // 2. Pre-caricamento parallelo dei materiali BOM
+    // 2. Pre-caricamento parallelo dei materiali BOM (senza lo storico pesante dei batches)
     let materials: RawMaterial[] = [];
     if (article?.billOfMaterials && article.billOfMaterials.length > 0) {
         const uniqueComponents = Array.from(
@@ -672,10 +685,15 @@ export async function getArticleMasterData(articleCode: string): Promise<Article
             }
             const matSnaps = await Promise.all(
                 materialChunks.map(chunk =>
-                    adminDb.collection('rawMaterials').where('code', 'in', chunk).get()
+                    adminDb.collection('rawMaterials')
+                        .where('code', 'in', chunk)
+                        .select('code', 'description', 'type', 'unitOfMeasure', 'conversionFactor', 'rapportoKgMt')
+                        .get()
                 )
             );
-            materials = matSnaps.flatMap(s => s.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial)));
+            materials = matSnaps.flatMap(s =>
+                s.docs.map(d => ({ ...d.data(), id: d.id, batches: [] } as unknown as RawMaterial))
+            );
         }
     }
 

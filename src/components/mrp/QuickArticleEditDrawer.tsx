@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   Sheet,
   SheetContent,
@@ -9,18 +8,17 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Timer, Layers, Package, Loader2, X, ExternalLink, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Timer, Layers, Package, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import type { Article, WorkPhaseTemplate, WorkCycle, RawMaterial } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 import ArticleTimesDialog from '@/app/admin/article-management/ArticleTimesDialog';
 import ArticleFormDialog from '@/app/admin/article-management/ArticleFormDialog';
 import { getArticleMasterData } from '@/app/admin/article-management/actions';
-import { quickArticleCache } from '@/lib/quick-article-cache';
-import { cn } from '@/lib/utils';
+import { quickArticleCache, type ArticleMasterData } from '@/lib/quick-article-cache';
+import { withNetworkRetry, DEFAULT_NETWORK_RETRY_CONFIG } from '@/lib/network-resilience';
 
 export interface QuickArticleEditDrawerProps {
   isOpen: boolean;
@@ -28,146 +26,246 @@ export interface QuickArticleEditDrawerProps {
   articleCode: string | null;
   articles?: Article[];
   phaseTemplates?: WorkPhaseTemplate[];
+  workCycles?: WorkCycle[];
+  globalSettings?: GlobalSettings | null;
   onArticleUpdated?: (updatedArticle: Article) => void;
 }
 
+interface UseQuickArticleSWROptions {
+  keepPreviousData?: boolean;
+  initialPhaseTemplates?: WorkPhaseTemplate[];
+  initialWorkCycles?: WorkCycle[];
+  initialGlobalSettings?: GlobalSettings | null;
+}
+
 /**
- * FASE 54: Quick-Edit Anagrafica Articolo in sovrimpressione da DataGrid.
+ * FASE 90: Hook SWR-style dedicato al caricamento isolato dei dati del singolo articolo
+ * con { keepPreviousData: false } per scartare istantaneamente i dati dell'articolo precedente
+ * al cambio di articleId / articleCode ed evitare stalli di stato o race condition.
+ */
+function useQuickArticleSWR(
+  articleId: string | null,
+  options: UseQuickArticleSWROptions = { keepPreviousData: false }
+) {
+  const {
+    keepPreviousData = false,
+    initialPhaseTemplates = [],
+    initialWorkCycles = [],
+    initialGlobalSettings = null,
+  } = options;
+  const { toast } = useToast();
+
+  const [data, setData] = useState<ArticleMasterData | null>(null);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const requestCounterRef = useRef(0);
+
+  // Scarta immediatamente i dati precedenti quando cambia l'ID e keepPreviousData è false
+  useEffect(() => {
+    if (!articleId) {
+      setData(null);
+      setLoadedId(null);
+      setIsLoading(false);
+      return;
+    }
+
+    const upper = articleId.trim().toUpperCase();
+
+    if (!keepPreviousData) {
+      setData(null);
+      setLoadedId(null);
+    }
+
+    // 1. Verifica cache client istantanea (0ms)
+    const cached = quickArticleCache.get(upper);
+    const hasCompleteMaster =
+      cached &&
+      cached.article &&
+      (cached.phaseTemplates.length > 0 || initialPhaseTemplates.length > 0) &&
+      (cached.workCycles.length > 0 || initialWorkCycles.length > 0);
+
+    if (cached && hasCompleteMaster) {
+      const mergedCached: ArticleMasterData = {
+        article: cached.article,
+        workCycles: cached.workCycles.length > 0 ? cached.workCycles : initialWorkCycles,
+        phaseTemplates: cached.phaseTemplates.length > 0 ? cached.phaseTemplates : initialPhaseTemplates,
+        globalSettings: cached.globalSettings ?? initialGlobalSettings,
+        materials: cached.materials || [],
+      };
+      setData(mergedCached);
+      setLoadedId(upper);
+      setIsLoading(false);
+      return;
+    }
+
+    // 2. Fetch server-side isolato con guardia anti-race e .finally() garantito
+    let isCancelled = false;
+    const currentReqId = ++requestCounterRef.current;
+    setIsLoading(true);
+
+    withNetworkRetry(() => getArticleMasterData(upper), DEFAULT_NETWORK_RETRY_CONFIG)
+      .then((masterData) => {
+        if (isCancelled || currentReqId !== requestCounterRef.current) return;
+
+        const normalizedMaster: ArticleMasterData = {
+          article: masterData.article,
+          workCycles: masterData.workCycles?.length ? masterData.workCycles : initialWorkCycles,
+          phaseTemplates: masterData.phaseTemplates?.length ? masterData.phaseTemplates : initialPhaseTemplates,
+          globalSettings: masterData.globalSettings ?? initialGlobalSettings,
+          materials: masterData.materials || [],
+        };
+
+        quickArticleCache.set(upper, normalizedMaster);
+        setData(normalizedMaster);
+        setLoadedId(upper);
+      })
+      .catch((err: any) => {
+        console.error('Errore nel caricamento anagrafica rapida articolo:', err);
+        if (!isCancelled && currentReqId === requestCounterRef.current) {
+          toast({
+            variant: 'destructive',
+            title: 'Errore Articolo',
+            description: "Impossibile recuperare i dettagli dell'articolo.",
+          });
+        }
+      })
+      .finally(() => {
+        if (!isCancelled && currentReqId === requestCounterRef.current) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [articleId, keepPreviousData, initialPhaseTemplates, initialWorkCycles, initialGlobalSettings, toast]);
+
+  // Mutate ottimistico specifico per l'articolo corrente senza blocco UI
+  const mutate = useCallback(
+    (
+      updater: ArticleMasterData | ((current: ArticleMasterData | null) => ArticleMasterData | null)
+    ) => {
+      if (!articleId) return;
+      const upper = articleId.trim().toUpperCase();
+      setData((prev) => {
+        const base =
+          prev ||
+          quickArticleCache.get(upper) || {
+            article: null,
+            workCycles: initialWorkCycles,
+            phaseTemplates: initialPhaseTemplates,
+            globalSettings: initialGlobalSettings,
+            materials: [],
+          };
+        const next = typeof updater === 'function' ? updater(base) : updater;
+        if (next) {
+          quickArticleCache.set(upper, next);
+          setLoadedId(upper);
+        } else {
+          quickArticleCache.invalidate(upper);
+        }
+        return next;
+      });
+    },
+    [articleId, initialWorkCycles, initialPhaseTemplates, initialGlobalSettings]
+  );
+
+  // Con keepPreviousData: false, se l'ID richiesto non coincide con quello caricato, non esporre mai il dato vecchio
+  const effectiveData =
+    !keepPreviousData && articleId && loadedId !== articleId.trim().toUpperCase() ? null : data;
+
+  return {
+    data: effectiveData,
+    isLoading: Boolean(articleId) && (isLoading || (!effectiveData && loadedId !== articleId?.trim().toUpperCase())),
+    mutate,
+  };
+}
+
+/**
+ * FASE 54 & FASE 90: Quick-Edit Anagrafica Articolo in sovrimpressione da DataGrid.
  * Permette di modificare Standard Tempi / Cicli e Distinta Base (BOM)
  * direttamente in un Drawer laterale senza mai abbandonare la pagina della programmazione,
- * mantenendo intatti filtri, contesto e posizione di scorrimento.
+ * usando Optimistic/Local Mutate senza router.refresh() bloccanti.
  */
 export function QuickArticleEditDrawer({
   isOpen,
   onClose,
   articleCode,
-  articles = [],
-  phaseTemplates: initialPhaseTemplates,
+  phaseTemplates: initialPhaseTemplates = [],
+  workCycles: initialWorkCycles = [],
+  globalSettings: initialGlobalSettings = null,
   onArticleUpdated,
 }: QuickArticleEditDrawerProps) {
-  const router = useRouter();
-  const { toast } = useToast();
-
   const [activeTab, setActiveTab] = useState<'times' | 'bom'>('times');
-  const [currentArticle, setCurrentArticle] = useState<Article | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [phaseTemplates, setPhaseTemplates] = useState<WorkPhaseTemplate[]>(initialPhaseTemplates || []);
-  const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
-  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
-  const [preloadedMaterials, setPreloadedMaterials] = useState<RawMaterial[]>([]);
   const [hasSavedAny, setHasSavedAny] = useState(false);
-  const articlesRef = useRef(articles);
-  articlesRef.current = articles;
 
   const cleanCode = (articleCode || '').trim();
+  const activeArticleKey = isOpen && cleanCode ? cleanCode.toUpperCase() : null;
 
-  // Caricamento / Risoluzione dell'articolo e dei dati master (Parallelizzato con Cache Istantanea SWR)
+  // FASE 90 (1): Hook di fetching isolato con { keepPreviousData: false }
+  const { data: masterData, isLoading, mutate: mutateArticle } = useQuickArticleSWR(activeArticleKey, {
+    keepPreviousData: false,
+    initialPhaseTemplates,
+    initialWorkCycles,
+    initialGlobalSettings,
+  });
+
+  // FASE 90 (1): Pulizia esplicita dello stato locale del pannello al cambio di articolo
   useEffect(() => {
-    if (!isOpen || !cleanCode) {
-      setCurrentArticle(null);
-      setHasSavedAny(false);
-      return;
-    }
+    setHasSavedAny(false);
+    setActiveTab('times');
+  }, [activeArticleKey]);
 
-    const upper = cleanCode.toUpperCase();
+  const currentArticle = masterData?.article ?? null;
+  const workCycles = masterData?.workCycles?.length ? masterData.workCycles : initialWorkCycles;
+  const phaseTemplates = masterData?.phaseTemplates?.length ? masterData.phaseTemplates : initialPhaseTemplates;
+  const globalSettings = masterData?.globalSettings ?? initialGlobalSettings;
+  const preloadedMaterials = masterData?.materials ?? [];
 
-    // 1. Client-side SWR Cache: apertura ISTANTANEA in 0ms se già aperto recentemente
-    const cached = quickArticleCache.get(upper);
-    if (cached) {
-      setCurrentArticle(cached.article);
-      setWorkCycles(cached.workCycles);
-      setPhaseTemplates(cached.phaseTemplates);
-      setGlobalSettings(cached.globalSettings);
-      setPreloadedMaterials(cached.materials);
-      setIsLoading(false);
-      return;
-    }
-
-    let isCancelled = false;
-
-    const resolveData = async () => {
-      setIsLoading(true);
-      setHasSavedAny(false);
-
-      try {
-        // 2. Fetch server-side singolo e parallelizzato (Promise.all - no waterfall)
-        const masterData = await getArticleMasterData(upper);
-        if (isCancelled) return;
-
-        // Memorizza nella cache client per riaperture istantanee
-        quickArticleCache.set(upper, masterData);
-
-        setCurrentArticle(masterData.article);
-        setWorkCycles(masterData.workCycles);
-        setPhaseTemplates(masterData.phaseTemplates);
-        setGlobalSettings(masterData.globalSettings);
-        setPreloadedMaterials(masterData.materials);
-      } catch (err: any) {
-        console.error("Errore nel caricamento anagrafica rapida articolo:", err);
-        if (!isCancelled) {
-          toast({
-            variant: "destructive",
-            title: "Errore Articolo",
-            description: "Impossibile recuperare i dettagli dell'articolo.",
-          });
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    resolveData();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [isOpen, cleanCode]);
-
-  // Gestione salvataggio Standard Tempi
+  // FASE 90 (2): Salvataggio Standard Tempi con Optimistic Mutate locale (NO router.refresh)
   const handleTimesSaved = useCallback(
     (refresh?: boolean, updatedArticle?: Article) => {
       if (updatedArticle) {
-        setCurrentArticle(updatedArticle);
-        quickArticleCache.updateArticle(updatedArticle);
+        mutateArticle((prev) => ({
+          article: updatedArticle,
+          workCycles: prev?.workCycles?.length ? prev.workCycles : initialWorkCycles,
+          phaseTemplates: prev?.phaseTemplates?.length ? prev.phaseTemplates : initialPhaseTemplates,
+          globalSettings: prev?.globalSettings ?? initialGlobalSettings,
+          materials: prev?.materials || [],
+        }));
         setHasSavedAny(true);
         onArticleUpdated?.(updatedArticle);
-        router.refresh();
       } else if (refresh) {
         setHasSavedAny(true);
-        router.refresh();
       }
     },
-    [onArticleUpdated, router]
+    [mutateArticle, initialWorkCycles, initialPhaseTemplates, initialGlobalSettings, onArticleUpdated]
   );
 
-  // Gestione salvataggio Distinta Base (BOM)
+  // FASE 90 (2): Salvataggio Distinta Base (BOM) con Optimistic Mutate locale (NO router.refresh)
   const handleBOMSaved = useCallback(
     (refresh?: boolean, updatedArticle?: Article) => {
       if (updatedArticle) {
-        setCurrentArticle(updatedArticle);
-        quickArticleCache.updateArticle(updatedArticle);
+        mutateArticle((prev) => ({
+          article: updatedArticle,
+          workCycles: prev?.workCycles?.length ? prev.workCycles : initialWorkCycles,
+          phaseTemplates: prev?.phaseTemplates?.length ? prev.phaseTemplates : initialPhaseTemplates,
+          globalSettings: prev?.globalSettings ?? initialGlobalSettings,
+          materials: prev?.materials || [],
+        }));
         setHasSavedAny(true);
         onArticleUpdated?.(updatedArticle);
-        router.refresh();
       } else if (refresh) {
         setHasSavedAny(true);
-        router.refresh();
       }
     },
-    [onArticleUpdated, router]
+    [mutateArticle, initialWorkCycles, initialPhaseTemplates, initialGlobalSettings, onArticleUpdated]
   );
 
-  // Chiusura del Drawer con revalidazione se ci sono stati salvataggi
+  // FASE 90 (2): Chiusura istantanea del Drawer senza router.refresh() bloccante
   const handleClose = useCallback(() => {
-    if (hasSavedAny) {
-      router.refresh();
-      onClose(true);
-    } else {
-      onClose(false);
-    }
-  }, [hasSavedAny, router, onClose]);
+    onClose(hasSavedAny);
+  }, [hasSavedAny, onClose]);
 
   if (!isOpen) return null;
 
@@ -256,6 +354,7 @@ export function QuickArticleEditDrawer({
               {activeTab === 'times' && (
                 <div className="flex-1 overflow-hidden flex flex-col h-full">
                   <ArticleTimesDialog
+                    key={`times-${currentArticle.id || currentArticle.code}`}
                     embedded
                     isOpen={isOpen}
                     article={currentArticle}
@@ -270,6 +369,7 @@ export function QuickArticleEditDrawer({
               {activeTab === 'bom' && (
                 <div className="flex-1 overflow-hidden flex flex-col h-full">
                   <ArticleFormDialog
+                    key={`bom-${currentArticle.id || currentArticle.code}`}
                     embedded
                     isOpen={isOpen}
                     article={currentArticle}
