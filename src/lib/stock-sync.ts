@@ -44,8 +44,20 @@ export async function recalculateMaterialStock(
     // 1. Use the shared logic to hydrate and calculate the live stock
     const hydrated = hydrateMaterialWithWithdrawals(material, withdrawals);
 
-    // 2. Extract values for update
+    // 2. Sync isExhausted flags on persisted batches from hydrated SSoT
+    const hydratedById = new Map((hydrated.batches || []).map((b) => [b.id, b]));
+    const syncedBatches = (material.batches || []).map((b) => {
+        const hb = hydratedById.get(b.id);
+        if (!hb) return b;
+        return {
+            ...b,
+            isExhausted: Boolean(hb.isExhausted),
+        };
+    });
+
+    // 3. Extract values for update
     const updateData = {
+        batches: syncedBatches,
         currentStockUnits: hydrated.currentStockUnits,
         currentWeightKg: hydrated.currentWeightKg,
         stock: hydrated.currentStockUnits // Legacy field sync

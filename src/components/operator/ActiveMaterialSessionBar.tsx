@@ -71,13 +71,20 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Inde
                 const hydratedMaterial = hydrateMaterialWithWithdrawals(rawMaterial, withdrawals);
                 const summary = getLotResidualSummary(hydratedMaterial, session.lotto);
                 const normalizedTarget = normStockLot(session.lotto);
-                const batch = summary.matchingBatches[0] || (hydratedMaterial.batches || []).find(b => normStockLot(b.lotto) === normalizedTarget);
+                // FASE 89: Seleziona l'ultimo sub-batch attivo con residuo (summary.activeBatch), mai matchingBatches[0] esaurito
+                const batch =
+                    summary.activeBatch ||
+                    summary.matchingBatches[summary.matchingBatches.length - 1] ||
+                    (hydratedMaterial.batches || []).find(b => normStockLot(b.lotto) === normalizedTarget);
 
                 if (batch || summary.matchingBatches.length > 0) {
                     setLiveBatch(batch || null);
                     // Residuo SSoT derivato esclusivamente da currentQuantity/currentWeightKg idratati
                     const residueKg = summary.availableWeightKg;
-                    const tare = batch?.tareWeight ?? (session.tareWeight || 0);
+                    const tare =
+                        session.tareWeight !== undefined && session.tareWeight !== null
+                            ? Number(session.tareWeight)
+                            : Number(batch?.tareWeight || 0);
                     const grossExpected = Number((residueKg + tare).toFixed(3));
 
                     setCalculatedResidue(residueKg);

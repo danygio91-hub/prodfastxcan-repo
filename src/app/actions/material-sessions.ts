@@ -7,6 +7,11 @@ import { IndependentMaterialSession, RawMaterial } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
+import {
+    hydrateMaterialWithWithdrawals,
+    getLotResidualSummary,
+    normStockLot,
+} from '@/lib/stock-logic';
 
 export async function startIndependentSession(data: Omit<IndependentMaterialSession, 'id' | 'startedAt' | 'status'>) {
     try {
@@ -44,34 +49,55 @@ export async function startIndependentSession(data: Omit<IndependentMaterialSess
             linkedJobOrderPFs: resolvedPFs
         };
 
-        // TRANSACTIONAL LOCK
+        // TRANSACTIONAL LOCK (FASE 89: Multiple-Batch SSoT Hydration)
         await adminDb.runTransaction(async (transaction) => {
             const materialRef = adminDb.collection('rawMaterials').doc(data.materialId);
-            const matSnap = await transaction.get(materialRef);
+            const [matSnap, withdrawalsSnap] = await Promise.all([
+                transaction.get(materialRef),
+                adminDb.collection('materialWithdrawals').where('materialId', '==', data.materialId).get()
+            ]);
             
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
-            const material = matSnap.data() as RawMaterial;
+            const material = { ...(matSnap.data() as RawMaterial), id: matSnap.id };
+            const withdrawals = withdrawalsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
             
+            // Idratazione SSoT del materiale per calcolare la disponibilità reale aggregata del lotto padre
+            const hydratedMaterial = hydrateMaterialWithWithdrawals(material, withdrawals);
+
             if (data.lotto) {
-                const batches = [...(material.batches || [])];
-                const batchIdx = batches.findIndex(b => b.lotto === data.lotto);
+                const targetNorm = normStockLot(data.lotto);
+                const residual = getLotResidualSummary(hydratedMaterial, data.lotto);
                 
-                if (batchIdx === -1) throw new Error(`Lotto "${data.lotto}" non trovato a magazzino.`);
+                if (residual.matchingBatches.length === 0) {
+                    throw new Error(`Lotto "${data.lotto}" non trovato a magazzino.`);
+                }
                 
-                const batch = batches[batchIdx];
-                if (batch.activeSessionId) {
+                const isAlreadyLocked = (material.batches || []).some(
+                    b => normStockLot(b.lotto) === targetNorm && Boolean(b.activeSessionId)
+                );
+                if (isAlreadyLocked) {
                     throw new Error("Questo lotto è già impegnato in una sessione attiva. Chiudi la sessione esistente per procedere.");
                 }
                 
-                // Set the lock
-                batches[batchIdx].activeSessionId = sessionId;
-                
-                // PREVENTION: Block opening if stock is 0
-                if ((batches[batchIdx].netQuantity || 0) <= 0 || batches[batchIdx].isExhausted) {
+                // FASE 89: Controlla isExhausted o giacenza zero ESCLUSIVAMENTE su residual.availableUnits / residual.availableWeightKg
+                if (residual.isExhausted || residual.availableUnits <= 0.001 || residual.availableWeightKg <= 0.001) {
                     throw new Error("Impossibile aprire una sessione su un lotto esaurito (giacenza zero).");
                 }
 
-                transaction.update(materialRef, { batches });
+                // Imposta activeSessionId = sessionId su TUTTI i sub-batch appartenenti al lotto normalizzato
+                // e riallinea il flag isExhausted sul singolo sub-batch in base al suo residuo idratato
+                const hydratedById = new Map((hydratedMaterial.batches || []).map(b => [b.id, b]));
+                const updatedBatches = (material.batches || []).map(b => {
+                    if (normStockLot(b.lotto) !== targetNorm) return b;
+                    const hb = hydratedById.get(b.id);
+                    return {
+                        ...b,
+                        activeSessionId: sessionId,
+                        isExhausted: hb ? Boolean(hb.isExhausted) : b.isExhausted,
+                    };
+                });
+
+                transaction.update(materialRef, { batches: updatedBatches });
             }
             
             transaction.set(adminDb.collection('materialSessions').doc(sessionId), session);
@@ -86,6 +112,8 @@ export async function startIndependentSession(data: Omit<IndependentMaterialSess
         return { success: false, message: e instanceof Error ? e.message : "Errore durante l'avvio della sessione." };
     }
 }
+
+export const startMaterialSession = startIndependentSession;
 
 export async function addJobsToSession(sessionId: string, jobIdsOrPFs: string[]) {
     try {
@@ -155,26 +183,31 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
             ]);
             
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
-            const material = matSnap.data() as RawMaterial;
-            const withdrawals = withdrawalsSnap.docs.map(d => d.data());
+            const material = { ...(matSnap.data() as RawMaterial), id: matSnap.id };
+            const withdrawals = withdrawalsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
-            // 2. CALCULATIONS
+            // 2. CALCULATIONS (FASE 89: Idratazione SSoT e singola tara attiva, senza sommare tare storiche)
+            const hydratedMaterial = hydrateMaterialWithWithdrawals(material, withdrawals);
+            const residual = session.lotto ? getLotResidualSummary(hydratedMaterial, session.lotto) : null;
+
+            const currentRealNet = session.lotto
+                ? (residual?.availableWeightKg ?? 0)
+                : Math.max(0, hydratedMaterial.currentWeightKg || 0);
+
+            const activeRefBatch = residual?.activeBatch;
+            const effectiveTareWeight =
+                session.tareWeight !== undefined && session.tareWeight !== null
+                    ? Number(session.tareWeight)
+                    : Number(activeRefBatch?.tareWeight || 0);
+
+            const currentRealGross = Number((currentRealNet + effectiveTareWeight).toFixed(3));
+
             let consumedWeight = 0;
-            const batchBatches = session.lotto ? (material.batches || []).filter(b => b.lotto === session.lotto) : [];
-            const totalBatchNetQuantity = batchBatches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-            const totalBatchTareWeight = batchBatches.reduce((sum, b) => sum + (b.tareWeight || 0), 0);
-
-            const lotWithdrawals = session.lotto 
-                ? withdrawals.filter(w => w.lotto === session.lotto && w.status !== 'cancelled')
-                : [];
-            
-            const totalWithdrawnSoFar = lotWithdrawals.reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
-            const currentRealNet = Math.max(0, totalBatchNetQuantity - totalWithdrawnSoFar);
-            const currentRealGross = currentRealNet + totalBatchTareWeight;
-
             if (isFinished && session.lotto) {
-                if (batchBatches.length === 0) throw new Error("Lotto non trovato durante il saldo finale.");
-                consumedWeight = currentRealNet; // Everything that was left is now consumed
+                if (!residual || residual.matchingBatches.length === 0) {
+                    throw new Error("Lotto non trovato durante il saldo finale.");
+                }
+                consumedWeight = currentRealNet; // Tutto il residuo vivo del lotto viene consumato
             } else {
                 // SSoT VALIDATION: Compare input Gross vs Real-time Calculated Gross
                 consumedWeight = currentRealGross - closingGrossWeight;
@@ -209,11 +242,12 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
             };
 
-            // UNLOCK LOGIC
+            // UNLOCK LOGIC (FASE 89: Rimuove activeSessionId su tutti i sub-batch del lotto normalizzato)
             if (session.lotto) {
+                const targetNorm = normStockLot(session.lotto);
                 let found = false;
                 updatedBatches = updatedBatches.map(b => {
-                    if (b.lotto === session.lotto) {
+                    if (normStockLot(b.lotto) === targetNorm) {
                         found = true;
                         const updated = { ...b, activeSessionId: null };
                         if (isFinished) {
@@ -295,13 +329,19 @@ export async function abortMaterialSession(sessionId: string, materialId: string
             const materialRef = adminDb.collection("rawMaterials").doc(materialId);
             const matSnap = await transaction.get(materialRef);
             
-            // EMERGENCY LOCK RELEASE
+            // EMERGENCY LOCK RELEASE (FASE 89: Rimuove activeSessionId: null su TUTTI i sub-batch del lotto normalizzato)
             if (matSnap.exists && lotto) {
                 const material = matSnap.data() as RawMaterial;
-                const batches = [...(material.batches || [])];
-                const bIdx = batches.findIndex(b => b.lotto === lotto);
-                if (bIdx !== -1) {
-                    batches[bIdx].activeSessionId = null;
+                const targetNorm = normStockLot(lotto);
+                let modified = false;
+                const batches = (material.batches || []).map(b => {
+                    if (normStockLot(b.lotto) === targetNorm) {
+                        modified = true;
+                        return { ...b, activeSessionId: null };
+                    }
+                    return b;
+                });
+                if (modified) {
                     transaction.update(materialRef, { batches });
                 }
             }

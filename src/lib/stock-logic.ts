@@ -135,13 +135,55 @@ export function extractHydratedLots(hydratedMaterial: RawMaterial): HydratedLotI
 }
 
 /**
+ * FASE 89: Seleziona il sub-batch attivo di riferimento per un lotto (per tara, imballo, ecc.).
+ * Non usa mai ciecamente matchingBatches[0] (che in un lotto con CARICO_RIENTRO è spesso il vecchio carico esaurito):
+ * 1. Ordina i sub-batch cronologicamente (dal più vecchio al più recente).
+ * 2. Restituisce l'ULTIMO sub-batch con residuo vivo (currentQuantity > 0.001).
+ * 3. Se tutti i sub-batch sono a 0, restituisce l'ultimo sub-batch cronologico inserito.
+ */
+export function selectActiveLotBatch(matchingBatches: RawMaterialBatch[]): RawMaterialBatch | undefined {
+    if (!Array.isArray(matchingBatches) || matchingBatches.length === 0) {
+        return undefined;
+    }
+
+    const sorted = [...matchingBatches].sort((a, b) => {
+        const tA = a?.date ? new Date(a.date).getTime() : 0;
+        const tB = b?.date ? new Date(b.date).getTime() : 0;
+        return (Number.isFinite(tA) ? tA : 0) - (Number.isFinite(tB) ? tB : 0);
+    });
+
+    for (let i = sorted.length - 1; i >= 0; i--) {
+        const candidate = sorted[i];
+        const qty = candidate.currentQuantity !== undefined ? candidate.currentQuantity : (candidate.netQuantity ?? 0);
+        if (qty > 0.001 && !candidate.isExhausted) {
+            return candidate;
+        }
+    }
+
+    for (let i = sorted.length - 1; i >= 0; i--) {
+        const candidate = sorted[i];
+        if ((candidate.currentQuantity ?? 0) > 0.001) {
+            return candidate;
+        }
+    }
+
+    return sorted[sorted.length - 1];
+}
+
+/**
  * Calcola il residuo vivo totale (unità e kg) di uno specifico lotto su un materiale già idratato.
  * Somma esclusivamente `currentQuantity` e `currentWeightKg` dei batch appartenenti al lotto normalizzato.
  */
 export function getLotResidualSummary(
     hydratedMaterial: RawMaterial,
     lotto?: string | null
-): { availableUnits: number; availableWeightKg: number; matchingBatches: RawMaterialBatch[] } {
+): {
+    availableUnits: number;
+    availableWeightKg: number;
+    matchingBatches: RawMaterialBatch[];
+    activeBatch: RawMaterialBatch | undefined;
+    isExhausted: boolean;
+} {
     const targetNorm = normStockLot(lotto);
     const matchingBatches = (hydratedMaterial.batches || []).filter(
         (b) => normStockLot(b.lotto) === targetNorm
@@ -152,10 +194,15 @@ export function getLotResidualSummary(
     const availableWeightKg = Number(
         matchingBatches.reduce((s, b) => s + (b.currentWeightKg ?? 0), 0).toFixed(3)
     );
+    const activeBatch = selectActiveLotBatch(matchingBatches);
+    const isExhausted = availableUnits <= 0.001 || availableWeightKg <= 0.001;
+
     return {
         availableUnits,
         availableWeightKg,
         matchingBatches,
+        activeBatch,
+        isExhausted,
     };
 }
 

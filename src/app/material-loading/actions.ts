@@ -3,9 +3,10 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging, PurchaseOrder } from '@/types';
+import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging, PurchaseOrder, MaterialWithdrawal } from '@/types';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
+import { recalculateMaterialStock } from '@/lib/stock-sync';
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
@@ -64,10 +65,14 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
   
   try {
       const finalMaterialState = await adminDb.runTransaction(async (transaction) => {
-          const docSnap = await transaction.get(materialRef);
+          const [docSnap, withdrawalsSnap] = await Promise.all([
+              transaction.get(materialRef),
+              transaction.get(adminDb.collection("materialWithdrawals").where("materialId", "==", materialId))
+          ]);
           if (!docSnap.exists) throw new Error('Materia prima non trovata.');
 
-          const material = docSnap.data() as RawMaterial;
+          const material = { ...(docSnap.data() as RawMaterial), id: docSnap.id };
+          const withdrawals = withdrawalsSnap.docs.map(d => ({ ...(d.data() as any), id: d.id } as MaterialWithdrawal));
           const existingBatches = material.batches || [];
           
           let tareWeight = 0;
@@ -142,17 +147,30 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           
           updatedBatches.push(newBatch);
           
-          transaction.update(materialRef, { 
-              batches: updatedBatches,
-              currentStockUnits: newStockUnits,
-              currentWeightKg: newWeightKg,
+          // FASE 89: Ricalcolo SSoT giacenze e riallineamento isExhausted su tutti i sub-batch del materiale
+          const syncUpdate = await recalculateMaterialStock(materialId, transaction, {
+              material: { ...material, batches: updatedBatches },
+              withdrawals,
           });
 
-          return { ...material, batches: updatedBatches, currentStockUnits: newStockUnits, currentWeightKg: newWeightKg };
+          const finalBatches = syncUpdate?.batches || updatedBatches;
+          const finalStockUnits = syncUpdate?.currentStockUnits ?? newStockUnits;
+          const finalWeightKg = syncUpdate?.currentWeightKg ?? newWeightKg;
+
+          return {
+              ...material,
+              batches: finalBatches,
+              stock: finalStockUnits,
+              currentStockUnits: finalStockUnits,
+              currentWeightKg: finalWeightKg,
+          };
       });
       
       revalidatePath('/admin/raw-material-management');
+      revalidatePath('/admin/batch-management');
       revalidatePath('/admin/purchase-orders');
+      revalidatePath('/scan-job');
+      revalidatePath('/manual-withdrawal');
       return { success: true, message: 'Lotto aggiunto con successo.', updatedMaterial: finalMaterialState as RawMaterial };
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };

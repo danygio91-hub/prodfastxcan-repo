@@ -218,4 +218,52 @@ describe('FASE 80: SSoT Stock Logic & Operator Alignment', () => {
     expect(scaleMt.estimatedRemainingUnits).toBe(160);
     expect(scaleMt.isOverdraw).toBe(false);
   });
+
+  it('FASE 89: handles return load (CARICO_RIENTRO) on previously exhausted lot B1350-26 and selects active batch tare', () => {
+    const raw = makeMaterial({
+      batches: [
+        {
+          id: 'b-initial',
+          lotto: 'B1350-26',
+          ddt: 'DDT-ORIG',
+          date: '2026-01-10T00:00:00.000Z',
+          grossWeight: 208,
+          tareWeight: 8,
+          tareName: 'Bobina Vecchia',
+          packagingId: 'pkg-old',
+          netQuantity: 200,
+          currentQuantity: 0,
+          isExhausted: true,
+        },
+        {
+          id: 'b-return',
+          lotto: 'B1350-26',
+          ddt: 'CARICO_RIENTRO',
+          date: '2026-03-15T10:00:00.000Z',
+          grossWeight: 127.2,
+          tareWeight: 12,
+          tareName: 'Bobina Rientro',
+          packagingId: 'pkg-new',
+          netQuantity: 115.2,
+          currentQuantity: 115.2,
+          isReturn: true,
+          type: 'CARICO_RIENTRO',
+          isExhausted: false,
+        },
+      ],
+    });
+
+    // 200 kg were withdrawn previously, exhausting b-initial, then 115.20 kg returned on b-return
+    const hydrated = hydrateMaterialWithWithdrawals(raw, [makeWithdrawal('B1350-26', 200)]);
+    const summary = getLotResidualSummary(hydrated, 'b1350-26');
+
+    expect(summary.isExhausted).toBe(false);
+    expect(summary.availableUnits).toBe(115.2);
+    expect(summary.availableWeightKg).toBe(115.2);
+    expect(summary.matchingBatches[0].isExhausted).toBe(true);
+    expect(summary.matchingBatches[1].isExhausted).toBe(false);
+    expect(summary.activeBatch?.id).toBe('b-return');
+    expect(summary.activeBatch?.tareWeight).toBe(12);
+    expect(summary.activeBatch?.packagingId).toBe('pkg-new');
+  });
 });

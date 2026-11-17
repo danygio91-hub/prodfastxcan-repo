@@ -253,16 +253,7 @@ export default function MaterialAssociationDialog({
         tareWeight: tare,
     };
 
-    const registerResult = await markPhaseMaterialReady(job.id, phase.id, { 
-        materialCode: selectedMaterial.code, 
-        lotto: values.lotto 
-    });
-    
-    if (registerResult.success) {
-    const openingGross = openingWeight;
-    const tare = selectedPackaging?.weightKg || 0;
-    const openingNet = Math.max(0, openingGross - tare);
-
+    // FASE 89: Avvia prima la sessione materiale SSoT; marca la fase materialReady solo se la sessione si apre con successo
     const sessionResult = await onSessionStart({
         materialId: selectedMaterial.id,
         materialCode: selectedMaterial.code,
@@ -274,14 +265,18 @@ export default function MaterialAssociationDialog({
         tareWeight: tare,
     }, selectedMaterial.type);
         
-        if (sessionResult.success) {
-            toast({ title: "Sessione Indipendente Avviata", description: "La bobina è ora attiva e condivisa." });
-            onOpenChange(false);
-        } else {
-            toast({ variant: 'destructive', title: 'Errore Sessione', description: sessionResult.message });
+    if (sessionResult?.success) {
+        const registerResult = await markPhaseMaterialReady(job.id, phase.id, { 
+            materialCode: selectedMaterial.code, 
+            lotto: values.lotto 
+        });
+        if (!registerResult.success) {
+            toast({ variant: 'destructive', title: 'Avviso Fase', description: registerResult.message });
         }
+        toast({ title: "Sessione Indipendente Avviata", description: "La bobina è ora attiva e condivisa." });
+        onOpenChange(false);
     } else {
-        toast({ variant: 'destructive', title: 'Errore', description: registerResult.message });
+        toast({ variant: 'destructive', title: 'Errore Sessione', description: sessionResult?.message || "Impossibile avviare la sessione sul lotto." });
     }
     setIsProcessing(false);
   };

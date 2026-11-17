@@ -1338,20 +1338,19 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             ]);
             
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
-            const material = matSnap.data() as RawMaterial;
-            const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
+            const material = { ...(matSnap.data() as RawMaterial), id: matSnap.id };
+            const withdrawals = withdrawalsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+
+            const hydratedPre = hydrateMaterialWithWithdrawals(material, withdrawals as any);
+            const residual = session.lotto ? getLotResidualSummary(hydratedPre, session.lotto) : null;
 
             let consumedWeight = 0;
             if (isFinished && session.lotto) {
-                const batch = (material.batches || []).find(b => b.lotto === session.lotto);
-                if (!batch) throw new Error("Lotto non trovato durante il saldo finale.");
-                
-                // Calculate remaining weight by deducting already registered withdrawals
-                const withdrawn = withdrawals
-                    .filter(w => w.lotto === session.lotto && w.status !== 'cancelled')
-                    .reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
-                
-                consumedWeight = Math.max(0, (batch.grossWeight - batch.tareWeight) - withdrawn);
+                if (!residual || residual.matchingBatches.length === 0) {
+                    throw new Error("Lotto non trovato durante il saldo finale.");
+                }
+                // FASE 89: Usa il residuo vivo totale idratato SSoT del lotto padre (non solo il primo sub-batch)
+                consumedWeight = Math.max(0, residual.availableWeightKg);
             } else {
                 consumedWeight = session.grossOpeningWeight - closingGrossWeight;
                 if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
@@ -1375,17 +1374,15 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 withdrawals
             );
 
-            const updates: any = { batches: updatedBatches };
+            let finalBatches = updatedBatches;
             if (isFinished && usedLotto) {
-                const bIdx = updatedBatches.findIndex(b => b.lotto === usedLotto);
-                if (bIdx !== -1) {
-                    updatedBatches[bIdx].isExhausted = true;
-                }
+                const targetNorm = normStockLot(usedLotto);
+                finalBatches = updatedBatches.map(b =>
+                    normStockLot(b.lotto) === targetNorm ? { ...b, isExhausted: true, activeSessionId: null } : b
+                );
             }
             
-            if (Object.keys(updates).length > 0) {
-                transaction.update(materialRef, updates);
-            }
+            transaction.update(materialRef, { batches: finalBatches });
 
             // ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
             transaction.update(materialRef, {
@@ -1594,7 +1591,8 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         const withdrawals = wSnap.docs.map((doc) => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
         const hydratedMaterial = hydrateMaterialWithWithdrawals(rawMaterial, withdrawals);
         const residual = getLotResidualSummary(hydratedMaterial, cleanLotto);
-        const refBatch = residual.matchingBatches[0];
+        // FASE 89: Seleziona l'ultimo sub-batch attivo con residuo (o l'ultimo cronologico), mai matchingBatches[0] esaurito
+        const refBatch = residual.activeBatch || residual.matchingBatches[residual.matchingBatches.length - 1];
 
         return {
             material: JSON.parse(JSON.stringify(hydratedMaterial)),
