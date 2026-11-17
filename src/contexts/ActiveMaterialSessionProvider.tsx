@@ -7,6 +7,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { startIndependentSession, addJobsToSession, closeIndependentSession } from '@/app/actions/material-sessions';
+import { handleFirestoreListenerError } from '@/lib/network-resilience';
 
 type MaterialSessionCategory = 'TRECCIA' | 'TUBI' | 'GUAINA';
 
@@ -64,7 +65,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
       setActiveSessions(sessions);
       setIsListenerLoading(false);
     }, (error) => {
-      console.error("Firestore Material Sessions Listener Error:", error);
+      handleFirestoreListenerError('ActiveMaterialSessionProvider:sessions', error);
       setIsListenerLoading(false);
     });
 

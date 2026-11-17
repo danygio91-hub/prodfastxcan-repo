@@ -9,22 +9,20 @@ interface GlobalErrorProps {
   reset: () => void;
 }
 
-export default function GlobalError({ error, reset }: GlobalErrorProps) {
+export default function GlobalError({ error, reset: _reset }: GlobalErrorProps) {
   const msgLower = (error?.message || '').toLowerCase();
   const isNetworkErr =
     msgLower.includes('network') ||
     msgLower.includes('fetch') ||
+    msgLower.includes('connection closed') ||
     isTransientNetworkError(error);
 
   const [countdown, setCountdown] = useState<number>(isNetworkErr ? 4 : 0);
 
+  // FASE 91: Hard Reload totale del browser per scartare payload RSC corrotti dalla cache client
   const handleReload = useCallback(() => {
-    try {
-      reset();
-    } catch {
-      window.location.reload();
-    }
-  }, [reset]);
+    window.location.reload();
+  }, []);
 
   useEffect(() => {
     console.error('[GlobalError]', error);

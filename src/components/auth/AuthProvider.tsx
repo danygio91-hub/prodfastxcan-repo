@@ -9,7 +9,7 @@ import type { Operator } from '@/types';
 import { useRouter, usePathname } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot, deleteField } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
-import { withNetworkRetry, emitNetworkStatus } from '@/lib/network-resilience';
+import { withNetworkRetry, emitNetworkStatus, handleFirestoreListenerError } from '@/lib/network-resilience';
 
 const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
 const LAST_LOGIN_TIMESTAMP_KEY = 'last_login_timestamp';
@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }, (error) => {
-      console.warn("Avviso listener real-time logoutTrigger (disconnessione temporanea):", error);
+      handleFirestoreListenerError('AuthProvider:logoutTrigger', error);
     });
 
     return () => unsubscribe();
@@ -213,8 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 fullLogout();
             }
           }, (error) => {
-             console.warn("Avviso listener real-time operatore (errore di rete gestito):", error);
-             emitNetworkStatus({ reconnecting: true, reason: error?.message });
+             handleFirestoreListenerError('AuthProvider:operator', error);
           });
 
           localStorage.setItem(LAST_LOGIN_TIMESTAMP_KEY, Date.now().toString());

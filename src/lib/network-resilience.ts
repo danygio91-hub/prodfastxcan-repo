@@ -7,6 +7,10 @@ export interface NetworkRetryConfig {
   shouldRetryOnError: boolean;
   errorRetryCount: number;
   errorRetryInterval: number;
+  keepPreviousData?: boolean;
+  revalidateOnFocus?: boolean;
+  revalidateOnReconnect?: boolean;
+  dedupingInterval?: number;
 }
 
 export const DEFAULT_NETWORK_RETRY_CONFIG: NetworkRetryConfig = {
@@ -16,11 +20,31 @@ export const DEFAULT_NETWORK_RETRY_CONFIG: NetworkRetryConfig = {
 };
 
 /**
+ * FASE 91: Configurazione SWR-style tollerante per la pagina Programmazione.
+ * Disabilita revalidateOnFocus per evitare RSC fetch interrotti sui cambi di tab,
+ * mantiene sempre i dati precedenti (keepPreviousData: true) e applica retry silenziosi.
+ */
+export const PROGRAMMAZIONE_SWR_CONFIG: NetworkRetryConfig = {
+  shouldRetryOnError: true,
+  errorRetryCount: 3,
+  errorRetryInterval: 2000,
+  keepPreviousData: true,
+  revalidateOnFocus: false,
+  revalidateOnReconnect: false,
+  dedupingInterval: 10000,
+};
+
+/**
  * Determina se un errore è causato da un calo temporaneo di rete, timeout,
- * 502/503/504 da deploy in corso o fallimento di fetch/stream.
+ * 502/503/504 da deploy in corso o fallimento di fetch/stream RSC ("Connection closed", ERR_CONTENT_DECODING_FAILED).
  */
 export function isTransientNetworkError(error: unknown): boolean {
   if (!error) return false;
+
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as any).code).toLowerCase()
+      : '';
 
   const msg = (
     error instanceof Error
@@ -31,12 +55,23 @@ export function isTransientNetworkError(error: unknown): boolean {
   ).toLowerCase();
 
   return (
+    code === 'unavailable' ||
+    code === 'deadline-exceeded' ||
+    code === 'resource-exhausted' ||
+    code === 'aborted' ||
+    code === 'cancelled' ||
     msg.includes('network') ||
     msg.includes('fetch') ||
     msg.includes('failed to fetch') ||
     msg.includes('load failed') ||
+    msg.includes('connection closed') ||
     msg.includes('err_content_decoding_failed') ||
+    msg.includes('content_decoding') ||
+    msg.includes('decoding') ||
     msg.includes('err_quic_protocol_error') ||
+    msg.includes('unexpected end') ||
+    msg.includes('socket') ||
+    msg.includes('aborted') ||
     msg.includes('503') ||
     msg.includes('502') ||
     msg.includes('504') ||
@@ -44,11 +79,14 @@ export function isTransientNetworkError(error: unknown): boolean {
     msg.includes('bad gateway') ||
     msg.includes('gateway timeout') ||
     msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
     msg.includes('etimedout') ||
+    msg.includes('broken pipe') ||
     msg.includes('offline') ||
     msg.includes('unavailable') ||
     msg.includes('quic') ||
-    msg.includes('webchannel')
+    msg.includes('webchannel') ||
+    msg.includes('stream')
   );
 }
 
@@ -133,4 +171,51 @@ export async function withNetworkRetry<T>(
     }
   }
 }
+
+/**
+ * FASE 91: Silenziatore errori di rete in background per Programmazione.
+ * Ritenta con backoff configurato e, in caso di fallimento di rete ("Connection closed",
+ * ERR_CONTENT_DECODING_FAILED, timeout, 502/503/504), NON lancia eccezioni al componente React,
+ * preservando i dati precedenti (keepPreviousData: true).
+ */
+export async function withSilentNetworkRetry<T>(
+  label: string,
+  fetcher: () => Promise<T>,
+  fallbackValue: T,
+  config: Partial<NetworkRetryConfig> = PROGRAMMAZIONE_SWR_CONFIG
+): Promise<{ ok: boolean; data: T }> {
+  try {
+    const data = await withNetworkRetry(fetcher, config);
+    return { ok: true, data };
+  } catch (err) {
+    if (isTransientNetworkError(err)) {
+      console.warn(`[NetworkResilience - ${label}] Errore di rete silenziato in background (keepPreviousData: true):`, err);
+    } else {
+      console.warn(`[NetworkResilience - ${label}] Errore background contenuto (keepPreviousData: true):`, err);
+    }
+    return { ok: false, data: fallbackValue };
+  }
+}
+
+/**
+ * FASE 91: Handler resiliente per callback di errore onSnapshot Firestore.
+ * Logga i cali di connessione / "Connection closed" in console senza propagarli all'albero React.
+ */
+export function handleFirestoreListenerError(contextLabel: string, error: unknown): void {
+  const isNetErr = isTransientNetworkError(error);
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as any).message)
+        : String(error || 'Errore connessione listener');
+
+  if (isNetErr) {
+    console.warn(`[FirestoreListener - ${contextLabel}] Calo connessione / Connection closed silenziato:`, error);
+    emitNetworkStatus({ reconnecting: true, reason: message });
+  } else {
+    console.warn(`[FirestoreListener - ${contextLabel}] Avviso listener gestito senza crash UI:`, error);
+  }
+}
+
 

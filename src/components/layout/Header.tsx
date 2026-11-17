@@ -73,7 +73,10 @@ export default function Header() {
 
   const handleRefresh = () => {
     setIsGlobalRefreshing(true);
-    router.refresh();
+    // FASE 91: Su /admin/programmazione evita router.refresh() RSC concorrente con app:refresh
+    if (!pathname.startsWith('/admin/programmazione')) {
+      router.refresh();
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('app:refresh'));
     }

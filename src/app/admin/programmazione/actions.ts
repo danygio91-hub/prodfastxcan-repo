@@ -1210,7 +1210,7 @@ export async function saveManualMultiJobOrders(items: {
         });
         await batch.commit();
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
@@ -1264,7 +1264,7 @@ export async function bulkUpdateJobDeliveryDate(
             await batch.commit();
         }
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         return { success: true, message: `Data consegna aggiornata su ${jobIds.length} commesse.`, updatedCount: jobIds.length };
     } catch (error: any) {
@@ -1297,7 +1297,7 @@ export async function bulkShipJobs(
             await batch.commit();
         }
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/production-console');
         revalidatePath('/operator/packing');
         return { success: true, message: `${jobIds.length} commesse contrassegnate come SPEDITE.`, count: jobIds.length };
@@ -1381,7 +1381,7 @@ export async function bulkStartProductionAndPrint(
             });
         }
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
@@ -1493,7 +1493,7 @@ export async function bulkStartProduction(
             }
         }
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
@@ -1555,7 +1555,7 @@ export async function bulkMarkJobsAsPrinted(
             await batch.commit();
         }
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         return { success: true, message: `${jobIds.length} commesse contrassegnate come stampate.` };
     } catch (e: any) {
@@ -1832,7 +1832,7 @@ export async function deleteJobOrder(
 
         await docRef.delete();
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
@@ -1901,7 +1901,7 @@ export async function bulkDeleteJobOrders(
             await batch.commit();
         }
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
@@ -2046,7 +2046,7 @@ export async function muteMaterialOnJob(jobId: string, materialCode: string): Pr
             updatedAt: admin.firestore.Timestamp.now()
         });
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         return { success: true, message: `Materiale ${cleanCode} silenziato con successo per la commessa.` };
     } catch (error: any) {
@@ -2075,7 +2075,7 @@ export async function unmuteMaterialOnJob(jobId: string, materialCode: string): 
             updatedAt: admin.firestore.Timestamp.now()
         });
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         return { success: true, message: `Materiale ${cleanCode} riattivato con successo per la commessa.` };
     } catch (error: any) {
@@ -2113,7 +2113,7 @@ export async function toggleExternalizedMaterial(
             updatedAt: admin.firestore.Timestamp.now()
         });
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         return { 
             success: true, 
@@ -2153,7 +2153,7 @@ export async function updateExternalizedMaterials(
             updatedAt: admin.firestore.Timestamp.now()
         });
 
-        revalidatePath('/admin/programmazione');
+        // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
         return { 
             success: true, 
@@ -2323,7 +2323,7 @@ export async function splitJobOrder(
         });
 
         if (txResult.success) {
-            revalidatePath('/admin/programmazione');
+            // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
             revalidatePath('/admin/data-management');
             revalidatePath('/admin/production-console');
         }

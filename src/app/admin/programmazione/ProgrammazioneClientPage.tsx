@@ -113,8 +113,10 @@ import { syncJobBOMItems } from '@/lib/inventory-utils';
 import { quickArticleCache } from '@/lib/quick-article-cache';
 import {
   withNetworkRetry,
+  withSilentNetworkRetry,
+  handleFirestoreListenerError,
   emitNetworkStatus,
-  DEFAULT_NETWORK_RETRY_CONFIG,
+  PROGRAMMAZIONE_SWR_CONFIG,
 } from '@/lib/network-resilience';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -1783,27 +1785,44 @@ export default function ProgrammazioneClientPage({
     });
   }, []);
 
-  // FASE 87: Configurazione globale di retry automatico per fetch/SWR
-  const swrRetryConfig = DEFAULT_NETWORK_RETRY_CONFIG; // { shouldRetryOnError: true, errorRetryCount: 3, errorRetryInterval: 2000 }
+  // FASE 87 & FASE 91: Configurazione SWR resiliente per Programmazione (keepPreviousData: true, revalidateOnFocus: false)
+  const swrRetryConfig = PROGRAMMAZIONE_SWR_CONFIG;
+  const isRefreshingJobsRef = useRef(false);
+  const lastJobsRefreshAtRef = useRef(0);
 
-  const refreshJobsFromServer = useCallback(async () => {
+  const refreshJobsFromServer = useCallback(async (force: boolean = false) => {
+    const nowMs = Date.now();
+    const dedupeMs = swrRetryConfig.dedupingInterval ?? 10000;
+    if (isRefreshingJobsRef.current) return;
+    if (!force && nowMs - lastJobsRefreshAtRef.current < dedupeMs) return;
+
+    isRefreshingJobsRef.current = true;
     try {
-      const [freshJobs, freshNextOdl] = await withNetworkRetry(
+      const { ok, data } = await withSilentNetworkRetry(
+        'refreshJobsFromServer',
         () =>
           Promise.all([
             getActiveJobOrders(),
             getNextOdlNumber().catch(() => ''),
           ]),
+        null as [JobOrder[], string] | null,
         swrRetryConfig
       );
-      if (Array.isArray(freshJobs)) {
-        setJobs(applyOptimisticShield(freshJobs));
+      if (ok && data) {
+        const [freshJobs, freshNextOdl] = data;
+        if (Array.isArray(freshJobs)) {
+          setJobs(applyOptimisticShield(freshJobs));
+          lastJobsRefreshAtRef.current = Date.now();
+        }
+        if (freshNextOdl) {
+          setNextOdlPreview(freshNextOdl);
+        }
       }
-      if (freshNextOdl) {
-        setNextOdlPreview(freshNextOdl);
-      }
+      // Se !ok, keepPreviousData: true -> i dati precedenti in stato rimangono intatti senza eccezioni
     } catch (err) {
-      console.warn("Errore sincronizzazione commesse post-aggiornamento:", err);
+      console.warn("Errore sincronizzazione commesse silenziato (keepPreviousData: true):", err);
+    } finally {
+      isRefreshingJobsRef.current = false;
     }
   }, [applyOptimisticShield, swrRetryConfig]);
 
@@ -1833,14 +1852,21 @@ export default function ProgrammazioneClientPage({
   );
 
   useEffect(() => {
+    let isCancelled = false;
     if (!nextOdlPreview) {
-      getNextOdlNumber()
-        .then((val) => {
-          if (val) setNextOdlPreview(val);
-        })
-        .catch(() => {});
+      withSilentNetworkRetry(
+        'getNextOdlNumber',
+        () => getNextOdlNumber(),
+        '',
+        { ...swrRetryConfig, errorRetryCount: 2 }
+      ).then(({ ok, data }) => {
+        if (!isCancelled && ok && data) setNextOdlPreview(data);
+      });
     }
-  }, [nextOdlPreview]);
+    return () => {
+      isCancelled = true;
+    };
+  }, [nextOdlPreview, swrRetryConfig]);
 
   // FASE 84: Modale Conferma / Sovrascrittura N° ODL in Avvio Commessa
   const [isConfirmOdlModalOpen, setIsConfirmOdlModalOpen] = useState(false);
@@ -2155,66 +2181,96 @@ export default function ProgrammazioneClientPage({
   const [bulkDateInput, setBulkDateInput] = useState('');
 
   // =========================================================================
-  // FASE 14: LIVE DATA FEED ANAGRAFICA ARTICOLI (Real-Time Listener)
+  // FASE 14 & FASE 91: LIVE DATA FEED ANAGRAFICA ARTICOLI (Real-Time Listener)
   // =========================================================================
   useEffect(() => {
-    // Sincronizzazione in tempo reale con Firestore per recepire nuovi articoli all'istante
-    const unsub = onSnapshot(
-      collection(db, "articles"),
-      (snapshot) => {
-        emitNetworkStatus({ reconnecting: false });
-        const liveArticles = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data();
-          const code = (data.code || docSnap.id || '').trim();
-          return {
-            ...data,
-            id: docSnap.id,
-            code: code,
-          } as Article;
-        });
-        setArticles(liveArticles);
+    let unsub: (() => void) | null = null;
+    try {
+      // Sincronizzazione in tempo reale con Firestore per recepire nuovi articoli all'istante
+      unsub = onSnapshot(
+        collection(db, "articles"),
+        (snapshot) => {
+          try {
+            emitNetworkStatus({ reconnecting: false });
+            const liveArticles = snapshot.docs.map((docSnap) => {
+              const data = docSnap.data();
+              const code = (data.code || docSnap.id || '').trim();
+              return {
+                ...data,
+                id: docSnap.id,
+                code: code,
+              } as Article;
+            });
+            setArticles(liveArticles);
 
-        // Mantieni allineata anche la cache locale articoli per il motore MRP
-        liveArticles.forEach((art) => {
-          if (art.code) {
-            articlesCacheRef.current.set(art.code.toUpperCase().trim(), art);
+            // Mantieni allineata anche la cache locale articoli per il motore MRP
+            liveArticles.forEach((art) => {
+              if (art.code) {
+                articlesCacheRef.current.set(art.code.toUpperCase().trim(), art);
+              }
+            });
+          } catch (snapErr) {
+            handleFirestoreListenerError('articles:parse', snapErr);
           }
-        });
-      },
-      (error) => {
-        console.warn("Avviso listener real-time anagrafica articoli (errore di rete gestito):", error);
-        emitNetworkStatus({ reconnecting: true, reason: error?.message });
-      }
-    );
+        },
+        (error) => {
+          // FASE 91: Calo connessione / Connection closed silenziato verso React
+          handleFirestoreListenerError('articles', error);
+        }
+      );
+    } catch (subErr) {
+      handleFirestoreListenerError('articles:subscribe', subErr);
+    }
 
-    return () => unsub();
+    return () => {
+      try {
+        unsub?.();
+      } catch {
+        // Ignora errori in fase di cleanup listener
+      }
+    };
   }, []);
 
   // =========================================================================
-  // FASE 67: LIVE DATA FEED SESSIONI ATTIVE MATERIALI (Real-Time Listener)
+  // FASE 67 & FASE 91: LIVE DATA FEED SESSIONI ATTIVE MATERIALI (Real-Time Listener)
   // =========================================================================
   useEffect(() => {
-    const q = query(
-      collection(db, "materialSessions"),
-      where("status", "==", "open")
-    );
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        emitNetworkStatus({ reconnecting: false });
-        const liveSessions = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }));
-        setActiveSessions(liveSessions);
-      },
-      (error) => {
-        console.warn("Avviso listener real-time materialSessions (errore di rete gestito):", error);
-        emitNetworkStatus({ reconnecting: true, reason: error?.message });
-      }
-    );
+    let unsub: (() => void) | null = null;
+    try {
+      const q = query(
+        collection(db, "materialSessions"),
+        where("status", "==", "open")
+      );
+      unsub = onSnapshot(
+        q,
+        (snapshot) => {
+          try {
+            emitNetworkStatus({ reconnecting: false });
+            const liveSessions = snapshot.docs.map((docSnap) => ({
+              id: docSnap.id,
+              ...docSnap.data(),
+            }));
+            setActiveSessions(liveSessions);
+          } catch (snapErr) {
+            handleFirestoreListenerError('materialSessions:parse', snapErr);
+          }
+        },
+        (error) => {
+          // FASE 91: Calo connessione / Connection closed silenziato verso React
+          handleFirestoreListenerError('materialSessions', error);
+        }
+      );
+    } catch (subErr) {
+      handleFirestoreListenerError('materialSessions:subscribe', subErr);
+    }
 
-    return () => unsub();
+    return () => {
+      try {
+        unsub?.();
+      } catch {
+        // Ignora errori in fase di cleanup listener
+      }
+    };
   }, []);
 
   // =========================================================================
@@ -2354,21 +2410,19 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // Caricamento asincrono capacità al cambio settimana (con retry automatico FASE 87)
+  // Caricamento asincrono capacità al cambio settimana (FASE 91: silenziatore errori rete + keepPreviousData)
   useEffect(() => {
     let isMounted = true;
-    withNetworkRetry(
+    withSilentNetworkRetry(
+      'getCapacityBuckets',
       () => getCapacityBuckets(selectedYear, selectedWeekNumber),
+      {} as Record<string, DayCapacityConfigData>,
       swrRetryConfig
-    )
-      .then((data) => {
-        if (isMounted && data && Object.keys(data).length > 0) {
-          setCapacitiesByBucket((prev) => ({ ...prev, ...data }));
-        }
-      })
-      .catch((err) => {
-        console.warn("Avviso caricamento capacityBuckets (rete temporaneamente instabile):", err);
-      });
+    ).then(({ ok, data }) => {
+      if (isMounted && ok && data && Object.keys(data).length > 0) {
+        setCapacitiesByBucket((prev) => ({ ...prev, ...data }));
+      }
+    });
     return () => {
       isMounted = false;
     };
@@ -2496,17 +2550,28 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // FASE 37: Ricalcolo Completo MRP (Forzatura rilettura stock, PO e commesse)
-  const handleRecalculateMRP = useCallback(async () => {
+  // FASE 37 & FASE 91: Ricalcolo Completo MRP con retry silenzioso e mantenimento dati precedenti (keepPreviousData: true)
+  const isRecalculatingMrpRef = useRef(false);
+  const handleRecalculateMRP = useCallback(async (options?: { silentBackground?: boolean }) => {
+    const isSilent = options?.silentBackground === true;
+    if (isRecalculatingMrpRef.current) return;
+    isRecalculatingMrpRef.current = true;
     setIsRecalculatingMrp(true);
     try {
-      const result = await forceRecalculateMRPAction();
+      const result = await withNetworkRetry(
+        () => forceRecalculateMRPAction(),
+        swrRetryConfig
+      );
       if (!result.success) {
+        if (isSilent) {
+          console.warn("[Programmazione] Ricalcolo MRP background non completato (keepPreviousData: true):", result.message);
+          return;
+        }
         throw new Error(result.message);
       }
 
       if (result.jobs && result.jobs.length > 0) {
-        setJobs(result.jobs);
+        setJobs(applyOptimisticShield(result.jobs));
       }
 
       // Svuota e ripopola la cache delle materie prime con lo stock aggiornato da Firestore
@@ -2545,21 +2610,28 @@ export default function ProgrammazioneClientPage({
       // Incrementa versione per forzare ricalcolo reattivo di mrpTimelines e semafori
       setMrpCacheVersion((v) => v + 1);
 
-      toast({
-        title: "MRP Ricalcolato",
-        description: result.message,
-      });
+      if (!isSilent) {
+        toast({
+          title: "MRP Ricalcolato",
+          description: result.message,
+        });
+      }
     } catch (error: any) {
-      console.error("Errore ricalcolo MRP:", error);
-      toast({
-        title: "Errore Ricalcolo MRP",
-        description: error?.message || "Impossibile ricalcolare l'MRP.",
-        variant: "destructive",
-      });
+      if (isSilent) {
+        console.warn("[Programmazione] Errore rete silenziato su sync background MRP (keepPreviousData: true):", error);
+      } else {
+        console.warn("Errore ricalcolo MRP:", error);
+        toast({
+          title: "Errore Ricalcolo MRP",
+          description: error?.message || "Impossibile ricalcolare l'MRP.",
+          variant: "destructive",
+        });
+      }
     } finally {
+      isRecalculatingMrpRef.current = false;
       setIsRecalculatingMrp(false);
     }
-  }, [toast]);
+  }, [toast, swrRetryConfig, applyOptimisticShield]);
 
   // Sincronizzazione props in caso di soft reload (protetta da applyOptimisticShield contro l'effetto elastico FASE 85)
   useEffect(() => {
@@ -2580,10 +2652,11 @@ export default function ProgrammazioneClientPage({
     }
   }, [initialArticles]);
 
-  // Ascolta l'evento di Soft Reload globale dalla Top Nav (Frecce circolari)
+  // Ascolta l'evento di Soft Reload globale dalla Top Nav / NetworkResilienceBanner
   useEffect(() => {
-    const handleGlobalRefresh = () => {
-      handleRecalculateMRP();
+    const handleGlobalRefresh = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ silentBackground?: boolean }>)?.detail;
+      void handleRecalculateMRP({ silentBackground: detail?.silentBackground ?? false });
     };
     window.addEventListener('app:refresh', handleGlobalRefresh);
     return () => {
@@ -2843,12 +2916,14 @@ export default function ProgrammazioneClientPage({
 
     setIsMrpLoading(true);
 
-    withNetworkRetry(
+    withSilentNetworkRetry(
+      'getTargetedMRPData',
       () => getTargetedMRPData(missingMaterials, missingArticles),
+      { rawMaterials: [], purchaseOrders: [], articles: [], globalSettings: null },
       swrRetryConfig
     )
-      .then((data) => {
-        if (isCancelled) return;
+      .then(({ ok, data }) => {
+        if (isCancelled || !ok) return;
 
         data.rawMaterials.forEach((m) => {
           if (m.code) materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
@@ -2872,9 +2947,6 @@ export default function ProgrammazioneClientPage({
         }
 
         setMrpCacheVersion((v) => v + 1);
-      })
-      .catch((err) => {
-        console.error("Errore caricamento MRP mirato:", err);
       })
       .finally(() => {
         if (!isCancelled) setIsMrpLoading(false);
@@ -5166,7 +5238,7 @@ export default function ProgrammazioneClientPage({
             <Button
               variant="outline"
               size="sm"
-              onClick={handleRecalculateMRP}
+              onClick={() => void handleRecalculateMRP()}
               disabled={isRecalculatingMrp || isRefreshing}
               className="h-8 text-xs gap-1.5 px-3 border-amber-500/30 hover:border-amber-500/60 bg-amber-500/5 hover:bg-amber-500/10 text-amber-500 dark:text-amber-400 font-semibold transition-all shadow-sm"
               title="Forza rilettura completa stock, ordini fornitore e ricalcola semafori MRP"

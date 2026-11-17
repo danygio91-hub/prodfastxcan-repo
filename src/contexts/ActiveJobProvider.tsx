@@ -6,6 +6,7 @@ import type { JobOrder, WorkGroup, Operator } from '@/types';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { handleFirestoreListenerError } from '@/lib/network-resilience';
 
 
 interface ActiveJobContextType {
@@ -148,7 +149,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
                     }
                     setIsLoading(false);
                 }, (error) => {
-                    console.error("Error in active job snapshot listener:", error);
+                    handleFirestoreListenerError('ActiveJobProvider:job', error);
                     setIsLoading(false);
                 });
             } else {

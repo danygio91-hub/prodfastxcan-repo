@@ -26,7 +26,10 @@ export function NetworkResilienceBanner() {
     const handleOnline = () => {
       setIsOffline(false);
       setStatus({ reconnecting: false });
-      window.dispatchEvent(new Event('app:refresh'));
+      // FASE 91: Evita refetch in background o su tab non visibili (revalidateOnFocus disabilitato)
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        window.dispatchEvent(new CustomEvent('app:refresh', { detail: { silentBackground: true } }));
+      }
     };
 
     // Intercetta rejection di rete transitorie (es. listener Firestore o fetch background caduto)
