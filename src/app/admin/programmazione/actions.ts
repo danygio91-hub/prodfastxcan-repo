@@ -32,6 +32,15 @@ import {
     computeSplitJobPayloads,
     normalizeChildJobId,
 } from '@/lib/job-split-logic';
+import {
+    getJobDepartmentGroup,
+    ALL_TRACKED_CAPACITY_DEPTS,
+    isCapacityPeriodAtOrAfter,
+    resolveBucketWithBaseline,
+    type DayCapacityConfigData,
+    type DefaultCapacityBaselineData,
+} from '@/lib/capacity-utils';
+export type { DayCapacityConfigData };
 import type { JobOrder, JobPhase, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
@@ -1565,24 +1574,22 @@ export async function bulkMarkJobsAsPrinted(
 }
 
 // =========================================================================
-// FASE 18: GESTIONE PERSISTENZA CAPACITÀ SETTIMANALE E AGGREGAZIONE REPARTI
+// FASE 18 & FASE 92: GESTIONE PERSISTENZA CAPACITÀ SETTIMANALE, BASELINE E PROPAGAZIONE
 // =========================================================================
-
-export interface DayCapacityConfigData {
-    L: number;
-    M: number;
-    Me: number;
-    G: number;
-    V: number;
-    overtime: number;
-}
 
 export async function getCapacityBuckets(year: number, week: number): Promise<Record<string, DayCapacityConfigData>> {
     try {
-        const snap = await adminDb.collection("capacityBuckets")
-            .where("year", "==", year)
-            .where("week", "==", week)
-            .get();
+        const baselineRefs = ALL_TRACKED_CAPACITY_DEPTS.map((dept) =>
+            adminDb.collection("settings").doc(`default_capacity_${dept}`)
+        );
+
+        const [snap, ...baselineSnaps] = await Promise.all([
+            adminDb.collection("capacityBuckets")
+                .where("year", "==", year)
+                .where("week", "==", week)
+                .get(),
+            ...baselineRefs.map((ref) => ref.get()),
+        ]);
 
         const result: Record<string, DayCapacityConfigData> = {};
         snap.docs.forEach(doc => {
@@ -1598,6 +1605,21 @@ export async function getCapacityBuckets(year: number, week: number): Promise<Re
                 overtime: Number(data.overtime) || 0,
             };
         });
+
+        // FASE 92: Se la settimana è vuota per un reparto, applica la baseline globale settings/default_capacity_${reparto}
+        ALL_TRACKED_CAPACITY_DEPTS.forEach((dept, idx) => {
+            const key = `${dept}_${year}_W${week}`;
+            const baselineSnap = baselineSnaps[idx];
+            const baselineData = baselineSnap?.exists
+                ? (baselineSnap.data() as DefaultCapacityBaselineData)
+                : undefined;
+
+            const resolved = resolveBucketWithBaseline(result[key], baselineData, year, week);
+            if (resolved) {
+                result[key] = resolved;
+            }
+        });
+
         return result;
     } catch (err) {
         console.error("Error fetching capacity buckets:", err);
@@ -1635,25 +1657,100 @@ export async function saveCapacityBucket(
 }
 
 /**
- * Determina il gruppo macro-reparto (CP, CG, BF, OTHER) per una commessa
+ * FASE 92: Propaga la dotazione addetti giornalieri dalla settimana visualizzata in avanti ("Da qui in avanti"):
+ * 1. Aggiorna la baseline globale settings/default_capacity_${reparto} per le future settimane vuote.
+ * 2. Sovrascrive gli addetti in tutti i record di capacityBuckets del reparto dove year > currentYear
+ *    oppure (year == currentYear && week >= startWeek), preservando tutte le settimane storiche passate.
  */
-function getJobDepartmentGroup(job: JobOrder): 'CP' | 'CG' | 'BF' | 'OTHER' {
-    const d = (job.department || '').toUpperCase().trim();
-    if (d === 'CP' || d.includes('PICCOL') || d.includes('CONNESSIONI PICCOLE')) return 'CP';
-    if (d === 'CG' || d.includes('GRAND') || d.includes('CONNESSIONI GRANDI')) return 'CG';
-    if (d === 'BF' || d.includes('BARRE') || d.includes('REPARTO BARRE')) return 'BF';
-
-    if (job.phases && job.phases.length > 0) {
-        for (const p of job.phases) {
-            const pDepts = (p.departmentCodes || []).map(c => c.toUpperCase());
-            const pName = (p.name || '').toUpperCase();
-            if (pDepts.includes('CP') || pName.includes('PICCOL')) return 'CP';
-            if (pDepts.includes('CG') || pName.includes('GRAND')) return 'CG';
-            if (pDepts.includes('BF') || pName.includes('BARRE')) return 'BF';
+export async function propagateCapacityForward(
+    dept: string,
+    currentYear: number,
+    startWeek: number,
+    workers: Pick<DayCapacityConfigData, 'L' | 'M' | 'Me' | 'G' | 'V'>
+): Promise<{ success: boolean; message: string; updatedDocsCount?: number }> {
+    try {
+        const cleanDept = (dept || '').toUpperCase().trim();
+        if (!cleanDept || cleanDept === 'ALL') {
+            return {
+                success: false,
+                message: 'Seleziona un reparto specifico (CP, CG, BF o MAG) per propagare gli addetti.',
+            };
         }
-    }
 
-    return 'OTHER';
+        const sanitizedWorkers = {
+            L: Math.max(0, Number(workers.L) || 0),
+            M: Math.max(0, Number(workers.M) || 0),
+            Me: Math.max(0, Number(workers.Me) || 0),
+            G: Math.max(0, Number(workers.G) || 0),
+            V: Math.max(0, Number(workers.V) || 0),
+        };
+
+        const nowTs = admin.firestore.Timestamp.now();
+
+        // 1. Aggiorna baseline globale settings/default_capacity_${reparto}
+        await adminDb.collection("settings").doc(`default_capacity_${cleanDept}`).set({
+            dept: cleanDept,
+            ...sanitizedWorkers,
+            overtime: 0,
+            effectiveFromYear: currentYear,
+            effectiveFromWeek: startWeek,
+            updatedAt: nowTs,
+        }, { merge: true });
+
+        // 2. Assicura il salvataggio della settimana di partenza
+        const startDocId = `${cleanDept}_${currentYear}_W${startWeek}`;
+        await adminDb.collection("capacityBuckets").doc(startDocId).set({
+            dept: cleanDept,
+            year: currentYear,
+            week: startWeek,
+            ...sanitizedWorkers,
+            updatedAt: nowTs,
+        }, { merge: true });
+
+        // 3. Query a singolo campo (nessun indice composito richiesto) sui record dall'anno corrente in poi
+        const futureSnap = await adminDb.collection("capacityBuckets")
+            .where("year", ">=", currentYear)
+            .get();
+
+        const docsToUpdate = futureSnap.docs.filter((d) => {
+            const data = d.data();
+            const docDept = String(data.dept || data.department || d.id.split('_')[0] || '').toUpperCase().trim();
+            const docYear = Number(data.year);
+            const docWeek = Number(data.week);
+            return (
+                docDept === cleanDept &&
+                Number.isFinite(docYear) &&
+                Number.isFinite(docWeek) &&
+                isCapacityPeriodAtOrAfter(docYear, docWeek, currentYear, startWeek)
+            );
+        });
+
+        let updatedCount = 0;
+        for (let i = 0; i < docsToUpdate.length; i += 450) {
+            const chunk = docsToUpdate.slice(i, i + 450);
+            const batch = adminDb.batch();
+            chunk.forEach((docSnap) => {
+                batch.set(docSnap.ref, {
+                    ...sanitizedWorkers,
+                    updatedAt: nowTs,
+                }, { merge: true });
+                updatedCount += 1;
+            });
+            await batch.commit();
+        }
+
+        return {
+            success: true,
+            updatedDocsCount: updatedCount,
+            message: `Baseline ${cleanDept} aggiornata dalla Sett. ${startWeek}/${currentYear} in avanti (${updatedCount} record settimanali allineati).`,
+        };
+    } catch (err: any) {
+        console.error("Error propagating capacity forward:", err);
+        return {
+            success: false,
+            message: err?.message || "Errore durante la propagazione futura degli addetti.",
+        };
+    }
 }
 
 export interface ExportPlanningReportOptions {

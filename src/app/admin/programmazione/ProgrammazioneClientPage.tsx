@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronsRight,
   RefreshCw,
   Search,
   Printer,
@@ -155,6 +156,7 @@ import {
   bulkMarkJobsAsPrinted,
   getCapacityBuckets,
   saveCapacityBucket,
+  propagateCapacityForward,
   exportPlanningReportAction,
   deleteJobOrder,
   bulkDeleteJobOrders,
@@ -165,6 +167,15 @@ import {
   getOdlPrintData,
   type DayCapacityConfigData
 } from './actions';
+import {
+  AGGREGATE_PRODUCTION_DEPTS,
+  aggregateCompanyCapacity,
+  filterJobsForCapacityMetrics,
+  getJobDepartmentGroup,
+  isCapacityPeriodAtOrAfter,
+  type MacroDepartmentCode,
+} from '@/lib/capacity-utils';
+export { getJobDepartmentGroup, type MacroDepartmentCode };
 import { collection, onSnapshot, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getJobDisplayStatus, getDerivedJobStatus, rollbackLastCompletedPhase, type JobDisplayStatus } from '@/lib/job-status';
@@ -195,9 +206,7 @@ interface ProgrammazioneClientPageProps {
   initialNextOdl?: string;
 }
 
-// 4 Macro-Gruppi Reparti Essenziali
-export type MacroDepartmentCode = 'ALL' | 'CP' | 'CG' | 'BF';
-
+// 5 Macro-Gruppi Reparti (CP, CG, BF + MAG)
 interface MacroDepartment {
   code: MacroDepartmentCode;
   label: string;
@@ -209,26 +218,8 @@ const MACRO_DEPARTMENTS: MacroDepartment[] = [
   { code: 'CP', label: 'CONNESSIONI PICCOLE (CP)', badge: 'CP' },
   { code: 'CG', label: 'CONNESSIONI GRANDI (CG)', badge: 'CG' },
   { code: 'BF', label: 'REPARTO BARRE (BF)', badge: 'BF' },
+  { code: 'MAG', label: 'MAGAZZINO (MAG)', badge: 'MAG' },
 ];
-
-export function getJobDepartmentGroup(job: JobOrder): 'CP' | 'CG' | 'BF' | 'OTHER' {
-  const d = (job.department || '').toUpperCase().trim();
-  if (d === 'CP' || d.includes('PICCOL') || d.includes('CONNESSIONI PICCOLE')) return 'CP';
-  if (d === 'CG' || d.includes('GRAND') || d.includes('CONNESSIONI GRANDI')) return 'CG';
-  if (d === 'BF' || d.includes('BARRE') || d.includes('REPARTO BARRE')) return 'BF';
-
-  if (job.phases && job.phases.length > 0) {
-    for (const p of job.phases) {
-      const pDepts = (p.departmentCodes || []).map(c => c.toUpperCase());
-      const pName = (p.name || '').toUpperCase();
-      if (pDepts.includes('CP') || pName.includes('PICCOL')) return 'CP';
-      if (pDepts.includes('CG') || pName.includes('GRAND')) return 'CG';
-      if (pDepts.includes('BF') || pName.includes('BARRE')) return 'BF';
-    }
-  }
-
-  return 'OTHER';
-}
 
 export type JobStatusOption = JobDisplayStatus;
 export type StatusFilterOption = 'ALL' | 'Pianificata' | 'In Produzione' | 'Completato Prod.' | 'Spedita';
@@ -2432,22 +2423,12 @@ export default function ProgrammazioneClientPage({
     return `${selectedDept}_${selectedYear}_W${selectedWeekNumber}`;
   }, [selectedDept, selectedYear, selectedWeekNumber]);
 
-  // FASE 18: Aggregazione Capacità Aziendale per Tab "TUTTI" (Somma CP + CG + BF)
-  const ACTIVE_PRODUCTION_DEPTS: MacroDepartmentCode[] = ['CP', 'CG', 'BF'];
+  // FASE 18 & FASE 92: Aggregazione Capacità Aziendale per Tab "TUTTI" (Esclusivamente CP + CG + BF, ignora MAG)
+  const ACTIVE_PRODUCTION_DEPTS = AGGREGATE_PRODUCTION_DEPTS;
+  const [isPropagatingCapacity, setIsPropagatingCapacity] = useState(false);
 
   const aggregatedCapacity = useMemo(() => {
-    const totals: DayCapacityConfig = { L: 0, M: 0, Me: 0, G: 0, V: 0, overtime: 0 };
-    ACTIVE_PRODUCTION_DEPTS.forEach((dept) => {
-      const key = `${dept}_${selectedYear}_W${selectedWeekNumber}`;
-      const cap = capacitiesByBucket[key] || DEFAULT_CAPACITY;
-      totals.L += cap.L || 0;
-      totals.M += cap.M || 0;
-      totals.Me += cap.Me || 0;
-      totals.G += cap.G || 0;
-      totals.V += cap.V || 0;
-      totals.overtime += cap.overtime || 0;
-    });
-    return totals;
+    return aggregateCompanyCapacity(capacitiesByBucket, selectedYear, selectedWeekNumber);
   }, [capacitiesByBucket, selectedYear, selectedWeekNumber]);
 
   const currentCapacity = useMemo(() => {
@@ -2472,6 +2453,80 @@ export default function ProgrammazioneClientPage({
     saveCapacityBucket(selectedDept, selectedYear, selectedWeekNumber, newConfig).catch((err) => {
       console.error("Errore salvataggio capacità su Firestore:", err);
     });
+  };
+
+  // FASE 92: Propagazione "Da qui in avanti" degli addetti giornalieri sulla baseline e sulle settimane future
+  const handlePropagateCapacityForward = async () => {
+    if (selectedDept === 'ALL' || isPropagatingCapacity) return;
+
+    const workersPayload = {
+      L: Math.max(0, Number(currentCapacity.L) || 0),
+      M: Math.max(0, Number(currentCapacity.M) || 0),
+      Me: Math.max(0, Number(currentCapacity.Me) || 0),
+      G: Math.max(0, Number(currentCapacity.G) || 0),
+      V: Math.max(0, Number(currentCapacity.V) || 0),
+    };
+
+    const confirmed = window.confirm(
+      `Applicare gli addetti giornalieri (${workersPayload.L}-${workersPayload.M}-${workersPayload.Me}-${workersPayload.G}-${workersPayload.V}) al reparto "${selectedDept}" dalla Settimana ${selectedWeekNumber}/${selectedYear} in avanti?\n\nVerrà aggiornata la baseline del reparto e tutte le settimane future già presenti, preservando le settimane passate.`
+    );
+    if (!confirmed) return;
+
+    setIsPropagatingCapacity(true);
+    try {
+      const res = await propagateCapacityForward(
+        selectedDept,
+        selectedYear,
+        selectedWeekNumber,
+        workersPayload
+      );
+
+      if (!res.success) {
+        toast({
+          variant: "destructive",
+          title: "Errore Propagazione",
+          description: res.message,
+        });
+        return;
+      }
+
+      // Aggiorna ottimisticamente in memoria tutte le settimane >= (selectedYear, selectedWeekNumber) del reparto
+      setCapacitiesByBucket((prev) => {
+        const next: Record<string, DayCapacityConfig> = { ...prev };
+        next[bucketKey] = {
+          ...(next[bucketKey] || DEFAULT_CAPACITY),
+          ...workersPayload,
+        };
+        Object.keys(next).forEach((k) => {
+          const match = /^([A-Z]+)_(\d+)_W(\d+)$/.exec(k);
+          if (!match) return;
+          const [, kDept, kYearStr, kWeekStr] = match;
+          const kYear = Number(kYearStr);
+          const kWeek = Number(kWeekStr);
+          if (kDept === selectedDept && isCapacityPeriodAtOrAfter(kYear, kWeek, selectedYear, selectedWeekNumber)) {
+            next[k] = {
+              ...next[k],
+              ...workersPayload,
+            };
+          }
+        });
+        return next;
+      });
+
+      toast({
+        title: "Addetti Propagati",
+        description: res.message,
+      });
+    } catch (err: any) {
+      console.error("Errore propagazione addetti:", err);
+      toast({
+        variant: "destructive",
+        title: "Errore Propagazione",
+        description: err?.message || "Impossibile propagare gli addetti alle settimane successive.",
+      });
+    } finally {
+      setIsPropagatingCapacity(false);
+    }
   };
 
   const availableHours = useMemo(() => {
@@ -2778,11 +2833,12 @@ export default function ProgrammazioneClientPage({
     return list;
   }, [filteredJobs, sortField, sortDirection]);
 
-  // Metriche Secchiello
+  // Metriche Secchiello (FASE 92: Nel filtro TUTTI esclude MAG dal carico e saturazione globale)
   const bucketMetrics = useMemo(() => {
-    const totalJobs = sortedAndFilteredJobs.length;
-    const totalPieces = sortedAndFilteredJobs.reduce((acc, j) => acc + (j.qta || 0), 0);
-    const loadedHours = sortedAndFilteredJobs.reduce((acc, j) => {
+    const metricsJobs = filterJobsForCapacityMetrics(sortedAndFilteredJobs, selectedDept);
+    const totalJobs = metricsJobs.length;
+    const totalPieces = metricsJobs.reduce((acc, j) => acc + (j.qta || 0), 0);
+    const loadedHours = metricsJobs.reduce((acc, j) => {
       const artKey = ((j as any).articolo || j.details || '').trim().toUpperCase();
       return acc + calculateJobHours(j, articleMap.get(artKey));
     }, 0);
@@ -2799,11 +2855,11 @@ export default function ProgrammazioneClientPage({
       saturationPercent,
       balanceHours,
     };
-  }, [sortedAndFilteredJobs, availableHours, articleMap]);
+  }, [sortedAndFilteredJobs, selectedDept, availableHours, articleMap]);
 
   // Conteggi per macro-reparti (Sensibili alla vista corrente)
   const deptCounts = useMemo(() => {
-    const counts: Record<MacroDepartmentCode, number> = { ALL: 0, CP: 0, CG: 0, BF: 0 };
+    const counts: Record<MacroDepartmentCode, number> = { ALL: 0, CP: 0, CG: 0, BF: 0, MAG: 0 };
     jobs.forEach((job) => {
       if (viewMode === 'settimana') {
         if (!showAllWeeks) {
@@ -2824,6 +2880,7 @@ export default function ProgrammazioneClientPage({
       if (group === 'CP') counts.CP++;
       else if (group === 'CG') counts.CG++;
       else if (group === 'BF') counts.BF++;
+      else if (group === 'MAG') counts.MAG++;
     });
     return counts;
   }, [jobs, viewMode, globalTab, showAllWeeks, selectedWeekNumber, selectedYear]);
@@ -5657,7 +5714,7 @@ export default function ProgrammazioneClientPage({
                       "flex items-center gap-1.5 px-2 py-0.5 rounded border",
                       selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
                     )}
-                    title={selectedDept === 'ALL' ? `Somma addetti ${day === 'Me' ? 'Mercoledì' : day} di tutti i reparti (Read-Only). Seleziona CP, CG o BF per modificare.` : undefined}
+                    title={selectedDept === 'ALL' ? `Somma addetti ${day === 'Me' ? 'Mercoledì' : day} dei reparti produttivi CP + CG + BF (Read-Only, MAG escluso). Seleziona CP, CG, BF o MAG per modificare.` : undefined}
                   >
                     <span className="font-bold text-[10px] text-muted-foreground">{day === 'Me' ? 'M' : day}:</span>
                     <input
@@ -5682,7 +5739,7 @@ export default function ProgrammazioneClientPage({
                     "flex items-center gap-1.5 px-2 py-0.5 rounded border ml-1",
                     selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
                   )}
-                  title={selectedDept === 'ALL' ? "Somma straordinari di tutti i reparti (Read-Only). Seleziona CP, CG o BF per modificare." : undefined}
+                  title={selectedDept === 'ALL' ? "Somma straordinari dei reparti produttivi CP + CG + BF (Read-Only, MAG escluso)." : undefined}
                 >
                   <span className="font-bold text-[10px] text-muted-foreground">+ Straord:</span>
                   <input
@@ -5701,6 +5758,31 @@ export default function ProgrammazioneClientPage({
                   />
                   <span className="text-[10px] text-muted-foreground font-mono">h</span>
                 </div>
+
+                {selectedDept !== 'ALL' && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isPropagatingCapacity}
+                        onClick={() => void handlePropagateCapacityForward()}
+                        className="h-7 px-2.5 text-[11px] font-semibold gap-1.5 border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/60 transition-colors shrink-0 cursor-pointer"
+                      >
+                        {isPropagatingCapacity ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ChevronsRight className="h-3.5 w-3.5" />
+                        )}
+                        <span>Applica alle settimane successive</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs text-xs">
+                      Imposta questi addetti giornalieri come nuova baseline di reparto ({selectedDept}) dalla Settimana {selectedWeekNumber}/{selectedYear} in poi, preservando lo storico passato.
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
 
               <div
