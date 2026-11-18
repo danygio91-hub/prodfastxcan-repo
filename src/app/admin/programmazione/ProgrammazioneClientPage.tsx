@@ -132,6 +132,7 @@ import { ContoLavoroModal } from '@/components/mrp/ContoLavoroModal';
 import { QuickArticleEditDrawer } from '@/components/mrp/QuickArticleEditDrawer';
 import { SplitJobDialog } from '@/components/mrp/SplitJobDialog';
 import { ConfirmOdlDialog } from '@/components/mrp/ConfirmOdlDialog';
+import { EditJobNoteDialog } from '@/components/mrp/EditJobNoteDialog';
 import {
   getJobOrders,
   getActiveJobOrders,
@@ -147,6 +148,7 @@ import {
   updateJobOdlNumber,
   checkUniqueODL,
   updateJobStatus,
+  updateJobNote,
   updateJobDeliveryDate,
   updateJobAssignedWeek,
   bulkUpdateJobDeliveryDate,
@@ -1149,6 +1151,7 @@ interface JobTableRowProps {
   onDeleteJob: (job: JobOrder) => void;
   onOpenContoLavoroModal: (job: JobOrder) => void;
   onOpenArticleQuickEdit: (articleCode: string) => void;
+  onOpenNoteModal: (job: JobOrder) => void;
   article?: Article;
 }
 
@@ -1171,6 +1174,7 @@ const JobTableRow = React.memo(function JobTableRow({
   onDeleteJob,
   onOpenContoLavoroModal,
   onOpenArticleQuickEdit,
+  onOpenNoteModal,
   article,
 }: JobTableRowProps) {
   const hours = calculateJobHours(job, article);
@@ -1235,6 +1239,11 @@ const JobTableRow = React.memo(function JobTableRow({
             BF
           </span>
         )}
+        {deptGroup === 'MAG' && (
+          <span className="bg-purple-500/15 text-purple-700 dark:text-purple-400 border border-purple-500/30 font-bold font-mono text-[10px] px-1 py-0.5 rounded-xs">
+            MAG
+          </span>
+        )}
         {deptGroup === 'OTHER' && (
           <span className="bg-slate-500/15 text-slate-700 dark:text-slate-400 border border-slate-500/30 font-bold font-mono text-[9px] px-1 py-0.5 rounded-xs truncate max-w-[45px] inline-block">
             {job.department || 'N/D'}
@@ -1242,16 +1251,66 @@ const JobTableRow = React.memo(function JobTableRow({
         )}
       </td>
 
-      {/* 2. ORDINE (Link a Console Produzione) */}
-      <td className="py-1.5 px-2.5 align-middle">
-        <Link
-          href={`/admin/production-console?search=${encodeURIComponent(job.ordinePF || '')}`}
-          className="font-mono font-bold text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer tracking-tight transition-colors inline-block"
-          title={`Apri console di produzione per commessa ${job.ordinePF}`}
-          prefetch={false}
-        >
-          {job.ordinePF || 'N/A'}
-        </Link>
+      {/* 2. ORDINE (Link a Console Produzione + Tasto Destro per Nota Rapida con Highlight e Tooltip - FASE 93) */}
+      <td
+        className="py-1.5 px-2.5 align-middle"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpenNoteModal(job);
+        }}
+      >
+        {(() => {
+          const jobNote = (job.note || '').trim();
+          const hasJobNote = jobNote.length > 0;
+
+          if (!hasJobNote) {
+            return (
+              <Link
+                href={`/admin/production-console?search=${encodeURIComponent(job.ordinePF || '')}`}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpenNoteModal(job);
+                }}
+                className="font-mono font-bold text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer tracking-tight transition-colors inline-block"
+                title={`Apri console di produzione per commessa ${job.ordinePF} (Tasto destro per inserire nota rapida)`}
+                prefetch={false}
+              >
+                {job.ordinePF || 'N/A'}
+              </Link>
+            );
+          }
+
+          return (
+            <Tooltip delayDuration={100}>
+              <TooltipTrigger asChild>
+                <Link
+                  href={`/admin/production-console?search=${encodeURIComponent(job.ordinePF || '')}`}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onOpenNoteModal(job);
+                  }}
+                  className="font-mono font-extrabold bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/50 hover:bg-amber-500/30 px-1.5 py-0.5 rounded shadow-2xs hover:underline cursor-pointer tracking-tight transition-colors inline-flex items-center gap-1"
+                  prefetch={false}
+                >
+                  <span>{job.ordinePF || 'N/A'}</span>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                align="start"
+                className="max-w-xs bg-amber-950 text-amber-100 border border-amber-500/50 text-xs whitespace-pre-wrap break-words shadow-xl z-50"
+              >
+                <div className="font-bold text-amber-400 text-[10px] uppercase tracking-wider mb-0.5">
+                  Nota Commessa {job.ordinePF}
+                </div>
+                <div>{jobNote}</div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        })()}
       </td>
 
       {/* 3. CLIENTE */}
@@ -1840,6 +1899,69 @@ export default function ProgrammazioneClientPage({
       }
     },
     [refreshJobsFromServer]
+  );
+
+  // FASE 93: Gestione Note Rapide Commesse con Optimistic UI (mutateJobs)
+  const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
+  const [jobForNote, setJobForNote] = useState<JobOrder | null>(null);
+
+  const handleOpenNoteModal = useCallback((job: JobOrder) => {
+    setJobForNote(job);
+    setIsNoteDialogOpen(true);
+  }, []);
+
+  const handleSaveJobNote = useCallback(
+    async (targetJob: JobOrder, newNote: string) => {
+      const cleanNote = (newNote || '').trim();
+      const previousNote = targetJob.note || '';
+
+      // 1. Optimistic UI istantanea tramite mutateJobs (senza attendere refetch globale)
+      mutateJobs(
+        (prev) =>
+          prev.map((j) => (j.id === targetJob.id ? { ...j, note: cleanNote } : j)),
+        { revalidate: false, patchedJobId: targetJob.id, patch: { note: cleanNote } }
+      );
+
+      setIsNoteDialogOpen(false);
+      setJobForNote(null);
+
+      try {
+        const res = await updateJobNote(targetJob.id, cleanNote);
+        if (!res.success) {
+          // Rollback in caso di errore server
+          mutateJobs(
+            (prev) =>
+              prev.map((j) => (j.id === targetJob.id ? { ...j, note: previousNote } : j)),
+            { revalidate: false, patchedJobId: targetJob.id, patch: { note: previousNote } }
+          );
+          toast({
+            variant: 'destructive',
+            title: 'Errore Salvataggio Nota',
+            description: res.message,
+          });
+          return;
+        }
+
+        toast({
+          title: cleanNote ? 'Nota Salvata' : 'Nota Rimossa',
+          description: cleanNote
+            ? `Nota aggiornata per la commessa ${targetJob.ordinePF || targetJob.id}.`
+            : `Nota rimossa dalla commessa ${targetJob.ordinePF || targetJob.id}.`,
+        });
+      } catch (err: any) {
+        mutateJobs(
+          (prev) =>
+            prev.map((j) => (j.id === targetJob.id ? { ...j, note: previousNote } : j)),
+          { revalidate: false, patchedJobId: targetJob.id, patch: { note: previousNote } }
+        );
+        toast({
+          variant: 'destructive',
+          title: 'Errore Salvataggio Nota',
+          description: err?.message || 'Impossibile salvare la nota commessa.',
+        });
+      }
+    },
+    [mutateJobs, toast]
   );
 
   useEffect(() => {
@@ -6057,6 +6179,7 @@ export default function ProgrammazioneClientPage({
                         onDeleteJob={handleDeleteJob}
                         onOpenContoLavoroModal={handleOpenContoLavoroModal}
                         onOpenArticleQuickEdit={handleOpenArticleQuickEdit}
+                        onOpenNoteModal={handleOpenNoteModal}
                       />
                     );
                   })
@@ -6398,6 +6521,19 @@ export default function ProgrammazioneClientPage({
           onConfirmStart={async (targetJob, chosenOdl) => {
             return await executeStartProduction(targetJob, chosenOdl);
           }}
+        />
+
+        {/* =========================================================================
+            10. MODALE NOTA RAPIDA COMMESSA DA TASTO DESTRO (FASE 93)
+        ========================================================================== */}
+        <EditJobNoteDialog
+          isOpen={isNoteDialogOpen}
+          onClose={() => {
+            setIsNoteDialogOpen(false);
+            setJobForNote(null);
+          }}
+          job={jobForNote}
+          onSave={handleSaveJobNote}
         />
       </div>
     </TooltipProvider>

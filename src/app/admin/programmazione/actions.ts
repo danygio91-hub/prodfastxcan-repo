@@ -705,6 +705,44 @@ export async function updateJobStatus(jobId: string, newStatus: string): Promise
 }
 
 /**
+ * FASE 93: Aggiornamento Nota Rapida della Commessa
+ */
+export async function updateJobNote(
+    jobId: string,
+    note: string
+): Promise<{ success: boolean; message: string; note?: string }> {
+    try {
+        const cleanId = (jobId || '').trim();
+        if (!cleanId) {
+            return { success: false, message: "ID commessa mancante." };
+        }
+        const cleanNote = (note || '').trim();
+        const { jobRef, jobSnap } = await getJobOrderRefAndSnap(adminDb, cleanId);
+
+        if (!jobSnap.exists) {
+            return { success: false, message: "Commessa non trovata su Firestore." };
+        }
+
+        await jobRef.update({
+            note: cleanNote,
+            updatedAt: admin.firestore.Timestamp.now(),
+        });
+
+        return {
+            success: true,
+            message: cleanNote ? "Nota commessa salvata con successo." : "Nota commessa rimossa.",
+            note: cleanNote,
+        };
+    } catch (error: any) {
+        console.error("Errore in updateJobNote:", error);
+        return {
+            success: false,
+            message: error?.message || "Errore durante il salvataggio della nota commessa.",
+        };
+    }
+}
+
+/**
  * Aggiornamento Data Consegna Finale (on blur / Enter)
  */
 export async function updateJobDeliveryDate(

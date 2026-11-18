@@ -90,3 +90,4 @@ describe('FASE 92: Reparto MAG, Esclusione Aggregato TUTTI e Propagazione Baseli
     expect(resolveBucketWithBaseline(stored, baseline, 2026, 45)).toEqual(stored);
   });
 });
+

@@ -157,3 +157,4 @@ export function filterJobsForCapacityMetrics(
     (AGGREGATE_PRODUCTION_DEPTS as readonly string[]).includes(getJobDepartmentGroup(job))
   );
 }
+
