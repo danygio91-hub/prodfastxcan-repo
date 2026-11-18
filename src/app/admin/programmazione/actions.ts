@@ -46,17 +46,31 @@ import type { JobOrder, JobPhase, Department, RawMaterial, PurchaseOrder, Articl
 import type { GlobalSettings } from '@/lib/settings-types';
 
 /**
- * FASE 96: Helper di Idratazione SSoT Magazzino Aggregata e Parallela.
+ * FASE 96 & FASE 97-TER: Helper di Idratazione SSoT Magazzino Aggregata e Parallela + Raccolta Scarichi Attivi.
  * Esegue il fetch di `materialWithdrawals` in modo aggregato e parallelo (Promise.all su chunk <= 30)
- * per tutti i materiali coinvolti, evitando query N+1 uno ad uno, e applica `hydrateMaterialWithWithdrawals`.
+ * sia per `materialId` sia per `materialCode`, filtra `status !== 'cancelled'`, applica `hydrateMaterialWithWithdrawals`
+ * e restituisce sia i materiali idratati sia i `materialWithdrawals` validi per l'override MRP.
  */
-async function hydrateMaterialsSSoTInParallel(rawMaterials: RawMaterial[]): Promise<RawMaterial[]> {
-    if (!rawMaterials || rawMaterials.length === 0) return [];
+async function hydrateMaterialsAndCollectWithdrawalsInParallel(
+    rawMaterials: RawMaterial[],
+    extraMaterialCodes: string[] = []
+): Promise<{
+    hydratedMaterials: RawMaterial[];
+    materialWithdrawals: MaterialWithdrawal[];
+}> {
+    if ((!rawMaterials || rawMaterials.length === 0) && extraMaterialCodes.length === 0) {
+        return { hydratedMaterials: [], materialWithdrawals: [] };
+    }
 
     const uniqueMaterialIds = Array.from(
-        new Set(rawMaterials.map((m) => (m?.id || '').trim()).filter(Boolean))
+        new Set((rawMaterials || []).map((m) => (m?.id || '').trim()).filter(Boolean))
     );
-    if (uniqueMaterialIds.length === 0) return rawMaterials;
+    const uniqueMaterialCodes = Array.from(
+        new Set([
+            ...(rawMaterials || []).map((m) => (m?.code || '').trim().toUpperCase()),
+            ...(extraMaterialCodes || []).map((c) => (c || '').trim().toUpperCase()),
+        ].filter(Boolean))
+    );
 
     const CHUNK_SIZE = 30;
     const idChunks: string[][] = [];
@@ -64,36 +78,90 @@ async function hydrateMaterialsSSoTInParallel(rawMaterials: RawMaterial[]): Prom
         idChunks.push(uniqueMaterialIds.slice(i, i + CHUNK_SIZE));
     }
 
-    const withdrawalSnaps = await Promise.all(
-        idChunks.map((chunk) =>
-            adminDb.collection('materialWithdrawals').where('materialId', 'in', chunk).get()
-        )
-    );
-
-    const withdrawalsByMaterialId = new Map<string, MaterialWithdrawal[]>();
-    for (const snap of withdrawalSnaps) {
-        snap.forEach((docSnap) => {
-            const w = {
-                id: docSnap.id,
-                ...convertTimestampsToDates(docSnap.data()),
-            } as MaterialWithdrawal;
-            if (!w.materialId) return;
-            const list = withdrawalsByMaterialId.get(w.materialId);
-            if (list) {
-                list.push(w);
-            } else {
-                withdrawalsByMaterialId.set(w.materialId, [w]);
-            }
-        });
+    const codeChunks: string[][] = [];
+    for (let i = 0; i < uniqueMaterialCodes.length; i += CHUNK_SIZE) {
+        codeChunks.push(uniqueMaterialCodes.slice(i, i + CHUNK_SIZE));
     }
 
-    return rawMaterials.map((rawMat) => {
+    const [byIdSnaps, byCodeSnaps] = await Promise.all([
+        idChunks.length > 0
+            ? Promise.all(
+                idChunks.map((chunk) =>
+                    adminDb.collection('materialWithdrawals').where('materialId', 'in', chunk).get()
+                )
+            )
+            : Promise.resolve([]),
+        codeChunks.length > 0
+            ? Promise.all(
+                codeChunks.map((chunk) =>
+                    adminDb.collection('materialWithdrawals').where('materialCode', 'in', chunk).get()
+                )
+            )
+            : Promise.resolve([]),
+    ]);
+
+    const seenDocIds = new Set<string>();
+    const validWithdrawals: MaterialWithdrawal[] = [];
+    const withdrawalsByMaterialId = new Map<string, MaterialWithdrawal[]>();
+    const withdrawalsByMaterialCode = new Map<string, MaterialWithdrawal[]>();
+
+    const registerSnapDoc = (docSnap: FirebaseFirestore.QueryDocumentSnapshot) => {
+        if (seenDocIds.has(docSnap.id)) return;
+        seenDocIds.add(docSnap.id);
+
+        const rawData = docSnap.data();
+        if (String(rawData?.status || '').toLowerCase().trim() === 'cancelled') return;
+
+        const w = serializeForClient({
+            id: docSnap.id,
+            ...convertTimestampsToDates(rawData),
+        }) as MaterialWithdrawal;
+
+        validWithdrawals.push(w);
+
+        const mId = (w.materialId || '').trim();
+        if (mId) {
+            const list = withdrawalsByMaterialId.get(mId);
+            if (list) list.push(w);
+            else withdrawalsByMaterialId.set(mId, [w]);
+        }
+
+        const mCode = (w.materialCode || '').trim().toUpperCase();
+        if (mCode) {
+            const list = withdrawalsByMaterialCode.get(mCode);
+            if (list) list.push(w);
+            else withdrawalsByMaterialCode.set(mCode, [w]);
+        }
+    };
+
+    for (const snap of byIdSnaps) {
+        snap.forEach(registerSnapDoc);
+    }
+    for (const snap of byCodeSnaps) {
+        snap.forEach(registerSnapDoc);
+    }
+
+    const hydratedMaterials = (rawMaterials || []).map((rawMat) => {
         if (!rawMat?.id || !Array.isArray(rawMat.batches) || rawMat.batches.length === 0) {
             return rawMat;
         }
-        const matWithdrawals = withdrawalsByMaterialId.get(rawMat.id) || [];
-        return hydrateMaterialWithWithdrawals(rawMat, matWithdrawals);
+        const byId = withdrawalsByMaterialId.get(rawMat.id) || [];
+        const byCode = rawMat.code ? withdrawalsByMaterialCode.get(rawMat.code.trim().toUpperCase()) || [] : [];
+        const mergedMap = new Map<string, MaterialWithdrawal>();
+        byId.forEach((w) => mergedMap.set(w.id, w));
+        byCode.forEach((w) => mergedMap.set(w.id, w));
+        return hydrateMaterialWithWithdrawals(rawMat, Array.from(mergedMap.values()));
     });
+
+    return {
+        hydratedMaterials,
+        materialWithdrawals: validWithdrawals,
+    };
+}
+
+async function hydrateMaterialsSSoTInParallel(rawMaterials: RawMaterial[]): Promise<RawMaterial[]> {
+    const { hydratedMaterials } = await hydrateMaterialsAndCollectWithdrawalsInParallel(rawMaterials);
+    return hydratedMaterials;
 }
 
 export async function getJobOrders(): Promise<JobOrder[]> {
@@ -144,6 +212,7 @@ export async function getTargetedMRPData(
     purchaseOrders: PurchaseOrder[];
     articles: Article[];
     globalSettings: GlobalSettings | null;
+    materialWithdrawals: MaterialWithdrawal[];
 }> {
     try {
         const uniqueMatCodes = new Set<string>(
@@ -228,8 +297,12 @@ export async function getTargetedMRPData(
             });
         }
 
-        // 3. FASE 96: Idratazione SSoT Magazzino aggregata e parallela per i materiali estratti
-        const rawMaterials = await hydrateMaterialsSSoTInParallel(Array.from(rawMaterialsById.values()));
+        // 3. FASE 96 & FASE 97-TER: Idratazione SSoT Magazzino aggregata e parallela + raccolta materialWithdrawals validi
+        const { hydratedMaterials: rawMaterials, materialWithdrawals } =
+            await hydrateMaterialsAndCollectWithdrawalsInParallel(
+                Array.from(rawMaterialsById.values()),
+                finalMatCodes
+            );
         const purchaseOrders = Array.from(purchaseOrdersById.values());
 
         let globalSettings: GlobalSettings | null = null;
@@ -237,16 +310,16 @@ export async function getTargetedMRPData(
             globalSettings = convertTimestampsToDates(settingsSnap.data()) as GlobalSettings;
         }
 
-        return { rawMaterials, purchaseOrders, articles, globalSettings };
+        return { rawMaterials, purchaseOrders, articles, globalSettings, materialWithdrawals };
     } catch (error) {
         console.error("Errore durante getTargetedMRPData:", error);
-        return { rawMaterials: [], purchaseOrders: [], articles: [], globalSettings: null };
+        return { rawMaterials: [], purchaseOrders: [], articles: [], globalSettings: null, materialWithdrawals: [] };
     }
 }
 
 /**
- * FASE 37: Server Action per forzare la rilettura completa dello stock,
- * degli ordini fornitore e ricalcolare lo stato MRP per tutte le commesse attive.
+ * FASE 37 & FASE 97-TER: Server Action per forzare la rilettura completa dello stock,
+ * dei prelievi materiali, degli ordini fornitore e ricalcolare lo stato MRP per tutte le commesse attive.
  */
 export async function forceRecalculateMRPAction(): Promise<{
     success: boolean;
@@ -255,6 +328,7 @@ export async function forceRecalculateMRPAction(): Promise<{
     purchaseOrders: PurchaseOrder[];
     articles: Article[];
     globalSettings: GlobalSettings | null;
+    materialWithdrawals: MaterialWithdrawal[];
     message: string;
 }> {
     try {
@@ -277,7 +351,7 @@ export async function forceRecalculateMRPAction(): Promise<{
             }
         });
 
-        // 3. Esegui la rilettura mirata e profonda di articoli, stock materie prime e PO fornitori
+        // 3. Esegui la rilettura mirata e profonda di articoli, stock materie prime, prelievi e PO fornitori
         const mrpData = await getTargetedMRPData(Array.from(matCodes), Array.from(artCodes));
 
         return {
@@ -287,6 +361,7 @@ export async function forceRecalculateMRPAction(): Promise<{
             purchaseOrders: mrpData.purchaseOrders,
             articles: mrpData.articles,
             globalSettings: mrpData.globalSettings,
+            materialWithdrawals: mrpData.materialWithdrawals,
             message: `Ricalcolo completato: verificate ${jobs.length} commesse con ${mrpData.rawMaterials.length} materie prime e ${mrpData.purchaseOrders.length} ordini fornitore.`,
         };
     } catch (error: any) {
@@ -298,6 +373,7 @@ export async function forceRecalculateMRPAction(): Promise<{
             purchaseOrders: [],
             articles: [],
             globalSettings: null,
+            materialWithdrawals: [],
             message: error?.message || "Errore durante il ricalcolo forzato dell'MRP.",
         };
     }

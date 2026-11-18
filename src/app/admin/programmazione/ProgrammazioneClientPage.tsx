@@ -106,11 +106,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 import { parseRobustDate, cn } from '@/lib/utils';
-import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobPhase, WorkPhaseTemplate } from '@/types';
+import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobPhase, WorkPhaseTemplate, MaterialWithdrawal } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
-import { calculateMRPTimelines, type MRPTimelineEntry, classifyGlobalMRPAlarms, isBOMItemPhaseCompleted } from '@/lib/mrp-utils';
+import {
+  calculateMRPTimelines,
+  type MRPTimelineEntry,
+  classifyGlobalMRPAlarms,
+  isBOMItemPhaseCompleted,
+  buildJobComponentWithdrawalIndex,
+  getJobComponentWithdrawnQty,
+} from '@/lib/mrp-utils';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
-import { syncJobBOMItems } from '@/lib/inventory-utils';
+import { syncJobBOMItems, calculateBOMRequirement } from '@/lib/inventory-utils';
 import { quickArticleCache } from '@/lib/quick-article-cache';
 import {
   withNetworkRetry,
@@ -2776,6 +2783,14 @@ export default function ProgrammazioneClientPage({
         }
       });
 
+      // FASE 97-TER: Svuota e ripopola la cache degli scarichi materiali attivi (status !== 'cancelled')
+      withdrawalsCacheRef.current.clear();
+      (result.materialWithdrawals || []).forEach((w) => {
+        if (w && w.id && String(w.status || '').toLowerCase() !== 'cancelled') {
+          withdrawalsCacheRef.current.set(w.id, w);
+        }
+      });
+
       // Aggiorna gli articoli
       if (result.articles && result.articles.length > 0) {
         setArticles(result.articles);
@@ -3042,6 +3057,7 @@ export default function ProgrammazioneClientPage({
   // =========================================================================
   const materialsCacheRef = useRef<Map<string, RawMaterial>>(new Map());
   const poCacheRef = useRef<Map<string, PurchaseOrder[]>>(new Map());
+  const withdrawalsCacheRef = useRef<Map<string, MaterialWithdrawal>>(new Map());
   const articlesCacheRef = useRef<Map<string, Article>>(new Map());
   const globalSettingsRef = useRef<GlobalSettings | null>(globalSettings);
 
@@ -3104,7 +3120,7 @@ export default function ProgrammazioneClientPage({
     withSilentNetworkRetry(
       'getTargetedMRPData',
       () => getTargetedMRPData(missingMaterials, missingArticles),
-      { rawMaterials: [], purchaseOrders: [], articles: [], globalSettings: null },
+      { rawMaterials: [], purchaseOrders: [], articles: [], globalSettings: null, materialWithdrawals: [] },
       swrRetryConfig
     )
       .then(({ ok, data }) => {
@@ -3120,6 +3136,12 @@ export default function ProgrammazioneClientPage({
             const list = poCacheRef.current.get(code) || [];
             list.push(po);
             poCacheRef.current.set(code, list);
+          }
+        });
+
+        (data.materialWithdrawals || []).forEach((w) => {
+          if (w && w.id && String(w.status || '').toLowerCase() !== 'cancelled') {
+            withdrawalsCacheRef.current.set(w.id, w);
           }
         });
 
@@ -3141,6 +3163,13 @@ export default function ProgrammazioneClientPage({
       isCancelled = true;
     };
   }, [globalMaterialCodes, globalArticleCodes]);
+
+  // FASE 97-TER: Pre-indicizzazione O(1) in memoria di tutti i materialWithdrawals attivi per coppia (Commessa, Componente)
+  const withdrawalIndex = useMemo(() => {
+    const cachedWithdrawals = Array.from(withdrawalsCacheRef.current.values());
+    const cachedMaterials = Array.from(materialsCacheRef.current.values());
+    return buildJobComponentWithdrawalIndex(cachedWithdrawals, cachedMaterials);
+  }, [mrpCacheVersion]);
 
   const mrpTimelines = useMemo(() => {
     if (activeGlobalJobs.length === 0) {
@@ -3177,9 +3206,10 @@ export default function ProgrammazioneClientPage({
       [],
       cachedArticles,
       globalSettingsRef.current,
-      activeSessions
+      activeSessions,
+      withdrawalIndex
     );
-  }, [activeGlobalJobs, mrpCacheVersion, activeSessions]);
+  }, [activeGlobalJobs, mrpCacheVersion, activeSessions, withdrawalIndex]);
 
   // SSoT: Classificazione centralizzata universale allarmi MRP per Programmazione Commesse
   const classifiedMRPAlarms = useMemo(() => {
@@ -3248,13 +3278,14 @@ export default function ProgrammazioneClientPage({
     const extMaterials: string[] = (job.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim());
     const isExternalized = (code: string) => extMaterials.includes((code || '').toUpperCase().trim());
 
-    // FASE 94: Precedenza assoluta allo stato della fase produttiva associata al componente.
-    // Se la fase correlata (es. "Taglio Treccia/Corda") è status === 'completed', il componente
-    // viene forzato a "Prelevato" PRIMA di controllare sessioni attive o giacenze magazzino.
+    // FASE 94 & FASE 97-TER: Precedenza assoluta allo stato della fase produttiva associata al componente
+    // e agli scarichi diretti a magazzino (manuali/storici) registrati in materialWithdrawals.
     const withdrawnItems: typeof bom = [];
     const pendingItems: typeof bom = [];
     const externalizedItems: typeof bom = [];
     const phaseCompletedPhaseByCode = new Map<string, string>();
+    const directWithdrawnByCode = new Set<string>();
+    const remainingWithdrawnByCode = new Map<string, number>();
 
     bom.forEach((item) => {
       const compCode = (item.component || '').trim().toUpperCase();
@@ -3272,17 +3303,55 @@ export default function ProgrammazioneClientPage({
         if (phaseCheck.completed && phaseCheck.phaseName) {
           phaseCompletedPhaseByCode.set(compCode, phaseCheck.phaseName);
         }
-      } else {
-        pendingItems.push(item);
+        return;
       }
+
+      // FASE 97-TER: Controllo saturazione tramite scarichi storici / manuali a magazzino (lookup O(1))
+      if (compCode) {
+        if (!remainingWithdrawnByCode.has(compCode)) {
+          remainingWithdrawnByCode.set(
+            compCode,
+            getJobComponentWithdrawnQty(job, compCode, withdrawalIndex)
+          );
+        }
+        const remWithdrawn = remainingWithdrawnByCode.get(compCode) || 0;
+        if (remWithdrawn > 0.0001) {
+          const currentSettings = globalSettingsRef.current || globalSettings;
+          const config = (currentSettings?.rawMaterialTypes || []).find((t) => t.id === rawMat?.type) || {
+            defaultUnit: rawMat?.unitOfMeasure || item.unit || 'n',
+          };
+          const req = calculateBOMRequirement(job.qta, item, rawMat as any, config as any);
+          const reqQty =
+            item.fabbisognoTotale !== undefined && item.fabbisognoTotale !== null && Number(item.fabbisognoTotale) > 0
+              ? Number(item.fabbisognoTotale)
+              : req.totalInBaseUnits;
+
+          if (reqQty > 0 && remWithdrawn >= reqQty - 0.001) {
+            // Saturazione 100%: componente interamente coperto da scarico diretto a magazzino
+            remainingWithdrawnByCode.set(compCode, Math.max(0, remWithdrawn - reqQty));
+            directWithdrawnByCode.add(compCode);
+            withdrawnItems.push(item);
+            return;
+          } else if (reqQty > 0) {
+            // Saturazione parziale: la quota residua resta in pendingItems (già decurtata in calculateMRPTimelines)
+            remainingWithdrawnByCode.set(compCode, 0);
+          }
+        }
+      }
+
+      pendingItems.push(item);
     });
 
     const formatWithdrawnDetail = (i: (typeof bom)[number]) => {
       const compCode = (i.component || '').trim().toUpperCase();
       const completedPhaseName = phaseCompletedPhaseByCode.get(compCode);
-      return completedPhaseName
-        ? `✅ ${i.component} - Prelevato (Fase "${completedPhaseName}" completata)`
-        : `✅ ${i.component} - Prelevato`;
+      if (completedPhaseName) {
+        return `✅ ${i.component} - Prelevato (Fase "${completedPhaseName}" completata)`;
+      }
+      if (directWithdrawnByCode.has(compCode)) {
+        return `✅ ${i.component} - Prelevato (tramite scarico diretto a magazzino)`;
+      }
+      return `✅ ${i.component} - Prelevato`;
     };
 
     // Tutti i componenti già prelevati, assolti da fase completata o esternalizzati in C.to Lavoro
@@ -3488,7 +3557,7 @@ export default function ProgrammazioneClientPage({
       dotClass: 'bg-emerald-500',
       details,
     };
-  }, [mrpTimelines, isMrpLoading, activeSessions, phaseTemplates]);
+  }, [mrpTimelines, isMrpLoading, activeSessions, phaseTemplates, withdrawalIndex, globalSettings]);
 
   // =========================================================================
   // 1. INLINE EDITING: DATA CONSEGNA (GG/MM/AAAA) - SALVATAGGIO DIFFERITO (FASE 85 OPTIMISTIC MUTATE)

@@ -7,14 +7,25 @@ import {
     Tooltip, TooltipContent, TooltipProvider, TooltipTrigger 
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { JobOrder } from '@/types';
-import { MRPTimelineEntry, aggregateMRPRequirements, isBOMItemPhaseCompleted } from '@/lib/mrp-utils';
+import { JobOrder, RawMaterial, MaterialWithdrawal } from '@/types';
+import {
+    MRPTimelineEntry,
+    aggregateMRPRequirements,
+    isBOMItemPhaseCompleted,
+    getJobComponentWithdrawnQty,
+    type JobComponentWithdrawalIndex,
+} from '@/lib/mrp-utils';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { GlobalSettings } from '@/lib/settings-types';
 import { getDerivedJobStatus } from '@/lib/job-status';
 
 interface MRPSemaphoreProps {
     job: JobOrder;
     mrpTimelines: Map<string, MRPTimelineEntry[]>;
     activeSessions?: any[];
+    materialWithdrawals?: MaterialWithdrawal[] | JobComponentWithdrawalIndex;
+    rawMaterials?: RawMaterial[];
+    globalSettings?: GlobalSettings | null;
     className?: string;
     size?: 'sm' | 'md' | 'lg';
 }
@@ -23,7 +34,15 @@ interface MRPSemaphoreProps {
  * Componente SSoT per la visualizzazione dello stato MRP (Semaforo) di una commessa.
  * Unifica la logica tra Power Planning e Gestione Dati.
  */
-export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPSemaphoreProps) {
+export function MRPSemaphore({
+    job,
+    mrpTimelines,
+    materialWithdrawals,
+    rawMaterials = [],
+    globalSettings = null,
+    className,
+    size = 'md',
+}: MRPSemaphoreProps) {
     const derivedStatus = getDerivedJobStatus(job);
     const isClosed = derivedStatus === 'CHIUSO';
 
@@ -39,12 +58,63 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
             };
         }
 
-        const withdrawnItems = bom.filter(
-            i => i.status === 'withdrawn' || i.withdrawn === true || isBOMItemPhaseCompleted(job, i).completed
-        );
-        const pendingItems = bom.filter(
-            i => !(i.status === 'withdrawn' || i.withdrawn === true || isBOMItemPhaseCompleted(job, i).completed)
-        );
+        const withdrawnItems: typeof bom = [];
+        const pendingItems: typeof bom = [];
+        const directWithdrawnCodes = new Set<string>();
+        const remainingByCode = new Map<string, number>();
+
+        bom.forEach((i) => {
+            const compCode = (i.component || '').trim().toUpperCase();
+            const rawMat = rawMaterials.find((m) => (m?.code || '').trim().toUpperCase() === compCode);
+            const isPhaseOrFlagSatisfied =
+                i.status === 'withdrawn' ||
+                i.withdrawn === true ||
+                isBOMItemPhaseCompleted(job, i, rawMat).completed;
+
+            if (isPhaseOrFlagSatisfied) {
+                withdrawnItems.push(i);
+                return;
+            }
+
+            if (materialWithdrawals && compCode) {
+                if (!remainingByCode.has(compCode)) {
+                    remainingByCode.set(
+                        compCode,
+                        getJobComponentWithdrawnQty(job, compCode, materialWithdrawals, rawMaterials)
+                    );
+                }
+                const remWithdrawn = remainingByCode.get(compCode) || 0;
+                if (remWithdrawn > 0.0001) {
+                    const config = (globalSettings?.rawMaterialTypes || []).find((t) => t.id === rawMat?.type) || {
+                        defaultUnit: rawMat?.unitOfMeasure || i.unit || 'n',
+                    };
+                    const req = calculateBOMRequirement(job.qta, i, rawMat as any, config as any);
+                    const reqQty =
+                        i.fabbisognoTotale !== undefined && i.fabbisognoTotale !== null && Number(i.fabbisognoTotale) > 0
+                            ? Number(i.fabbisognoTotale)
+                            : req.totalInBaseUnits;
+
+                    if (reqQty > 0 && remWithdrawn >= reqQty - 0.001) {
+                        remainingByCode.set(compCode, Math.max(0, remWithdrawn - reqQty));
+                        directWithdrawnCodes.add(compCode);
+                        withdrawnItems.push(i);
+                        return;
+                    } else if (reqQty > 0) {
+                        remainingByCode.set(compCode, 0);
+                    }
+                }
+            }
+
+            pendingItems.push(i);
+        });
+
+        const formatWithdrawnLine = (i: (typeof bom)[number]) => {
+            const compCode = (i.component || '').trim().toUpperCase();
+            if (directWithdrawnCodes.has(compCode)) {
+                return `✅ ${i.component} - Prelevato (tramite scarico diretto a magazzino)`;
+            }
+            return `✅ ${i.component} - Prelevato`;
+        };
 
         const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
         const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) || 
@@ -66,7 +136,7 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
                     color: 'text-green-500',
                     icon: CheckCircle2,
                     label: 'MATERIALE PRELEVATO',
-                    details: withdrawnItems.map(i => `✅ ${i.component} - Prelevato`)
+                    details: withdrawnItems.map(formatWithdrawnLine)
                 };
             } else if (hasFrozenCommitment) {
                 // Se c'è una sessione attiva, NON andiamo in Audit Mode. 
@@ -79,7 +149,7 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
                     label: 'NOTE AUDIT',
                     details: [
                         'Note: Materiale non associato / prelevato.',
-                        ...withdrawnItems.map(i => `✅ ${i.component} - Prelevato`),
+                        ...withdrawnItems.map(formatWithdrawnLine),
                         ...pendingItems.map(i => `⚠️ ${i.component} - Non associato`)
                     ]
                 };
@@ -92,7 +162,7 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
                 color: 'text-green-500', 
                 icon: CheckCircle2, 
                 label: 'MATERIALE PRELEVATO', 
-                details: withdrawnItems.map(i => `✅ ${i.component} - Prelevato`) 
+                details: withdrawnItems.map(formatWithdrawnLine) 
             };
         }
 
@@ -123,7 +193,7 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
         
         const aggregatedEntries = aggregateMRPRequirements(componentEntries);
         const combinedDetails = [
-            ...withdrawnItems.map(i => `✅ ${i.component} - Prelevato`),
+            ...withdrawnItems.map(formatWithdrawnLine),
             ...aggregatedEntries.flatMap(ce => {
                 const prefix = ce.item.component;
                 return ce.entry.details.map((d: string) => {

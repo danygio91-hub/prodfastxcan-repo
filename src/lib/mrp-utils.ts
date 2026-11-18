@@ -1,5 +1,5 @@
 
-import { JobOrder, Article, RawMaterial, PurchaseOrder, ManualCommitment, WorkPhaseTemplate } from '@/types';
+import { JobOrder, Article, RawMaterial, PurchaseOrder, ManualCommitment, WorkPhaseTemplate, MaterialWithdrawal } from '@/types';
 import { getDerivedJobStatus } from './job-status';
 import { GlobalSettings } from './settings-types';
 import { calculateBOMRequirement } from './inventory-utils';
@@ -17,6 +17,216 @@ export interface MRPTimelineEntry {
     totalSimQty?: number; // SSoT: Fabbisogno Totale Simulato (Engine Source)
     totalPO?: number;     // SSoT: Totale Ordini d'Acquisto Pendenti
     isFrozen?: boolean;   // Se l'impegno è congelato da una sessione officina attiva
+}
+
+const IGNORED_WITHDRAWAL_JOB_TOKENS = new Set([
+    '',
+    'SCARICO_MANUALE',
+    'SCARICO MANUALE',
+    'SCARICO_DA_FILE',
+    'SCARICO DA FILE',
+    'N/D',
+    'N/A',
+    '---',
+    'MANUALE',
+    'NESSUNA',
+    'NONE',
+]);
+
+/**
+ * FASE 97-TER: Normalizza un identificativo commessa (ordinePF, id documento, numeroODL)
+ * producendo tutte le chiavi canoniche equivalenti (es. '788-PF.1_2026' -> '788/PF.1', '788-PF.1')
+ * senza collidere con commesse madri o split fratelli (preserva '.1', '_1', ecc.).
+ */
+export function getCanonicalJobKeys(rawValue?: string | null): string[] {
+    if (!rawValue) return [];
+    const base = String(rawValue).split('@')[0].trim().toUpperCase();
+    if (!base || IGNORED_WITHDRAWAL_JOB_TOKENS.has(base)) return [];
+
+    const keys = new Set<string>();
+    keys.add(base);
+
+    // Rimuove eventuale suffisso anno composito Firestore (es. _2026) preservando i suffissi split (.1, _1)
+    const withoutYear = base.replace(/_(19|20)\d{2}$/, '');
+    if (withoutYear && !IGNORED_WITHDRAWAL_JOB_TOKENS.has(withoutYear)) {
+        keys.add(withoutYear);
+    }
+
+    for (const candidate of Array.from(keys)) {
+        const slashForm = candidate.replace(/-/g, '/');
+        const dashForm = candidate.replace(/\//g, '-');
+        if (slashForm) keys.add(slashForm);
+        if (dashForm) keys.add(dashForm);
+    }
+
+    return Array.from(keys);
+}
+
+export function extractJobMatchKeys(job: JobOrder | null | undefined): string[] {
+    if (!job) return [];
+    const keys = new Set<string>();
+    const rawCandidates = [
+        job.id,
+        job.ordinePF,
+        (job as any).jobCode,
+        job.numeroODLInterno,
+        job.numeroODL,
+    ];
+    for (const raw of rawCandidates) {
+        for (const k of getCanonicalJobKeys(raw)) {
+            keys.add(k);
+        }
+    }
+    return Array.from(keys);
+}
+
+export function extractWithdrawalJobKeys(w: MaterialWithdrawal | null | undefined): string[] {
+    if (!w) return [];
+    const keys = new Set<string>();
+    const listCandidates: (string | undefined | null)[] = [
+        ...(Array.isArray(w.jobOrderPFs) ? w.jobOrderPFs : []),
+        ...(Array.isArray(w.jobIds) ? w.jobIds : []),
+        ...(Array.isArray(w.associatedJobIds) ? w.associatedJobIds : []),
+        (w as any).jobId,
+        (w as any).jobCode,
+        (w as any).ordinePF,
+    ];
+    for (const raw of listCandidates) {
+        for (const k of getCanonicalJobKeys(raw)) {
+            keys.add(k);
+        }
+    }
+    return Array.from(keys);
+}
+
+export function resolveWithdrawalBaseUnits(w: MaterialWithdrawal, mat?: RawMaterial): number {
+    const explicitUnits = Number(w.consumedUnits);
+    if (!isNaN(explicitUnits) && explicitUnits > 0) {
+        return explicitUnits;
+    }
+    const weight = Number(w.consumedWeight);
+    if (isNaN(weight) || weight <= 0) return 0;
+    if (!mat || mat.unitOfMeasure === 'kg') return weight;
+
+    const factor = Number(mat.rapportoKgMt || mat.conversionFactor || 0);
+    if (factor > 0) {
+        return weight / factor;
+    }
+    return weight;
+}
+
+export interface JobComponentWithdrawalIndex {
+    __isWithdrawalIndex: true;
+    /** Map<NormalizedMaterialCode, Map<CanonicalJobKey, Map<WithdrawalId, ConsumedBaseUnits>>> */
+    byMaterialAndJobKey: Map<string, Map<string, Map<string, number>>>;
+}
+
+export function isJobComponentWithdrawalIndex(
+    val: any
+): val is JobComponentWithdrawalIndex {
+    return Boolean(val && typeof val === 'object' && val.__isWithdrawalIndex === true);
+}
+
+/**
+ * FASE 97-TER: Pre-indicizza in O(W) tutti i materialWithdrawals attivi (status !== 'cancelled')
+ * per consentire il lookup O(1) per coppia (Commessa, Componente) durante il calcolo MRP e il rendering della griglia.
+ */
+export function buildJobComponentWithdrawalIndex(
+    withdrawals: MaterialWithdrawal[] = [],
+    rawMaterials: RawMaterial[] = []
+): JobComponentWithdrawalIndex {
+    const byMaterialAndJobKey = new Map<string, Map<string, Map<string, number>>>();
+    if (!Array.isArray(withdrawals) || withdrawals.length === 0) {
+        return { __isWithdrawalIndex: true, byMaterialAndJobKey };
+    }
+
+    const matById = new Map<string, RawMaterial>();
+    const matByCode = new Map<string, RawMaterial>();
+    for (const m of rawMaterials) {
+        if (!m) continue;
+        if (m.id) matById.set(m.id.trim(), m);
+        if (m.code) matByCode.set(m.code.trim().toUpperCase(), m);
+    }
+
+    for (let idx = 0; idx < withdrawals.length; idx++) {
+        const w = withdrawals[idx];
+        if (!w) continue;
+        if (String(w.status || '').toLowerCase().trim() === 'cancelled') continue;
+
+        const rawCode = (w.materialCode || '').trim().toUpperCase();
+        const rawId = (w.materialId || '').trim();
+        const mat = (rawCode ? matByCode.get(rawCode) : undefined) || (rawId ? matById.get(rawId) : undefined);
+        const matCode = rawCode || (mat?.code || '').trim().toUpperCase();
+        if (!matCode) continue;
+
+        const units = resolveWithdrawalBaseUnits(w, mat);
+        if (units <= 0) continue;
+
+        const jobKeys = extractWithdrawalJobKeys(w);
+        if (jobKeys.length === 0) continue;
+
+        const wId = w.id ? String(w.id) : `w_${idx}_${matCode}_${jobKeys[0]}`;
+
+        let jobKeyMap = byMaterialAndJobKey.get(matCode);
+        if (!jobKeyMap) {
+            jobKeyMap = new Map<string, Map<string, number>>();
+            byMaterialAndJobKey.set(matCode, jobKeyMap);
+        }
+
+        for (const jk of jobKeys) {
+            let wMap = jobKeyMap.get(jk);
+            if (!wMap) {
+                wMap = new Map<string, number>();
+                jobKeyMap.set(jk, wMap);
+            }
+            wMap.set(wId, units);
+        }
+    }
+
+    return { __isWithdrawalIndex: true, byMaterialAndJobKey };
+}
+
+/**
+ * FASE 97-TER: Restituisce in O(1) la quantità totale già scaricata a magazzino (in unità base)
+ * per una specifica coppia (Commessa, Componente BOM), deduplicando per ID documento scarico.
+ */
+export function getJobComponentWithdrawnQty(
+    job: JobOrder | null | undefined,
+    componentCode: string | null | undefined,
+    withdrawalsOrIndex?: MaterialWithdrawal[] | JobComponentWithdrawalIndex | null,
+    rawMaterials: RawMaterial[] = []
+): number {
+    if (!job || !componentCode || !withdrawalsOrIndex) return 0;
+    const compCode = componentCode.trim().toUpperCase();
+    if (!compCode) return 0;
+
+    const index = isJobComponentWithdrawalIndex(withdrawalsOrIndex)
+        ? withdrawalsOrIndex
+        : buildJobComponentWithdrawalIndex(withdrawalsOrIndex, rawMaterials);
+
+    const jobKeyMap = index.byMaterialAndJobKey.get(compCode);
+    if (!jobKeyMap) return 0;
+
+    const jobKeys = extractJobMatchKeys(job);
+    if (jobKeys.length === 0) return 0;
+
+    const matchedWithdrawals = new Map<string, number>();
+    for (const jk of jobKeys) {
+        const wMap = jobKeyMap.get(jk);
+        if (wMap) {
+            wMap.forEach((units, wId) => {
+                matchedWithdrawals.set(wId, units);
+            });
+        }
+    }
+
+    if (matchedWithdrawals.size === 0) return 0;
+
+    let totalWithdrawn = 0;
+    matchedWithdrawals.forEach((units) => {
+        totalWithdrawn += units;
+    });
+    return totalWithdrawn;
 }
 
 /**
@@ -162,10 +372,16 @@ export function calculateMRPTimelines(
     manualCommitments: ManualCommitment[],
     articles: Article[],
     globalSettings: GlobalSettings | null,
-    activeSessions: any[] = []
+    activeSessions: any[] = [],
+    materialWithdrawals?: MaterialWithdrawal[] | JobComponentWithdrawalIndex
 ): Map<string, MRPTimelineEntry[]> {
     try {
         const timelines = new Map<string, MRPTimelineEntry[]>();
+        const withdrawalIndex = materialWithdrawals
+            ? isJobComponentWithdrawalIndex(materialWithdrawals)
+                ? materialWithdrawals
+                : buildJobComponentWithdrawalIndex(materialWithdrawals, rawMaterials)
+            : null;
         
         const sessionsByMaterial = new Map<string, any[]>();
         activeSessions.forEach(s => {
@@ -295,48 +511,72 @@ export function calculateMRPTimelines(
 
                 if (!isVolatile && !isFrozen && !MRP_ACTIVE_STATUSES.includes(status)) return;
 
+                // FASE 97-TER: Calcola il totale già scaricato a magazzino per la coppia (Commessa, Componente) in O(1)
+                let remainingWithdrawnForJobMat = withdrawalIndex
+                    ? getJobComponentWithdrawnQty(job, matCode, withdrawalIndex, rawMaterials)
+                    : 0;
+
                 (job.billOfMaterials || []).forEach(item => {
                     const compCode = (item.component || '').toUpperCase().trim();
-                    const isAlreadySatisfied =
+                    if (compCode !== matCode) return;
+
+                    let isAlreadySatisfied =
                         item.status === 'withdrawn' ||
                         item.withdrawn === true ||
                         isBOMItemPhaseCompleted(job, item, mat).completed;
-                    if (!isAlreadySatisfied && compCode === matCode) {
-                        // FASE 45: Esclusione C.to Lavoro (Silenziatore Impegni per Commessa)
-                        // Se l'articolo in esame è presente nell'array externalizedMaterials di questa commessa,
-                        // la sua quantità NON viene sommata al fabbisogno: l'impegno è silenziato.
-                        const isExternalized = Array.isArray(job.externalizedMaterials) &&
-                            job.externalizedMaterials.some(m => (m || '').toUpperCase().trim() === matCode);
-                        if (isExternalized) return;
 
-                        const req = calculateBOMRequirement(job.qta, item, mat, config as any);
-                        const finalQty = (item.fabbisognoTotale !== undefined && item.fabbisognoTotale !== null) 
-                            ? Number(item.fabbisognoTotale) 
-                            : req.totalInBaseUnits;
-                        
-                        if (finalQty <= 0) return;
+                    if (isAlreadySatisfied) return;
 
-                        const demandDateRaw = job.dataFinePreparazione || job.dataConsegnaFinale;
-                        const parsedDemandDate = parseRobustDate(demandDateRaw);
-                        let demandDateObj: Date;
-                        if (parsedDemandDate) {
-                            demandDateObj = new Date(parsedDemandDate);
-                            demandDateObj.setHours(16, 0, 0, 0);
+                    // FASE 45: Esclusione C.to Lavoro (Silenziatore Impegni per Commessa)
+                    // Se l'articolo in esame è presente nell'array externalizedMaterials di questa commessa,
+                    // la sua quantità NON viene sommata al fabbisogno: l'impegno è silenziato.
+                    const isExternalized = Array.isArray(job.externalizedMaterials) &&
+                        job.externalizedMaterials.some(m => (m || '').toUpperCase().trim() === matCode);
+                    if (isExternalized) return;
+
+                    const req = calculateBOMRequirement(job.qta, item, mat, config as any);
+                    const rawRequiredQty = (item.fabbisognoTotale !== undefined && item.fabbisognoTotale !== null && Number(item.fabbisognoTotale) > 0) 
+                        ? Number(item.fabbisognoTotale) 
+                        : req.totalInBaseUnits;
+
+                    if (rawRequiredQty <= 0) return;
+
+                    let finalQty = rawRequiredQty;
+                    if (remainingWithdrawnForJobMat > 0.0001) {
+                        if (remainingWithdrawnForJobMat >= rawRequiredQty - 0.001) {
+                            // FASE 97-TER: Saturazione 100% -> Fabbisogno interamente coperto da scarico manuale/storico
+                            remainingWithdrawnForJobMat = Math.max(0, remainingWithdrawnForJobMat - rawRequiredQty);
+                            isAlreadySatisfied = true;
+                            return;
                         } else {
-                            demandDateObj = new Date();
-                            demandDateObj.setHours(16, 0, 0, 0);
+                            // FASE 97-TER: Saturazione Parziale -> Sottrae la quota già prelevata dal fabbisogno residuo
+                            finalQty = Math.max(0, rawRequiredQty - remainingWithdrawnForJobMat);
+                            remainingWithdrawnForJobMat = 0;
                         }
-
-                        demands.push({
-                            id: job.id,
-                            qty: finalQty,
-                            parsedDate: parsedDemandDate,
-                            demandDateObj,
-                            dateStr: demandDateObj.toISOString(),
-                            data: job,
-                            isFrozen
-                        });
                     }
+
+                    if (isAlreadySatisfied || finalQty <= 0.0001) return;
+
+                    const demandDateRaw = job.dataFinePreparazione || job.dataConsegnaFinale;
+                    const parsedDemandDate = parseRobustDate(demandDateRaw);
+                    let demandDateObj: Date;
+                    if (parsedDemandDate) {
+                        demandDateObj = new Date(parsedDemandDate);
+                        demandDateObj.setHours(16, 0, 0, 0);
+                    } else {
+                        demandDateObj = new Date();
+                        demandDateObj.setHours(16, 0, 0, 0);
+                    }
+
+                    demands.push({
+                        id: job.id,
+                        qty: finalQty,
+                        parsedDate: parsedDemandDate,
+                        demandDateObj,
+                        dateStr: demandDateObj.toISOString(),
+                        data: job,
+                        isFrozen
+                    });
                 });
             });
 
