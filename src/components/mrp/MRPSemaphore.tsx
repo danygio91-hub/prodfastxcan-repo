@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { JobOrder } from '@/types';
-import { MRPTimelineEntry, aggregateMRPRequirements } from '@/lib/mrp-utils';
+import { MRPTimelineEntry, aggregateMRPRequirements, isBOMItemPhaseCompleted } from '@/lib/mrp-utils';
 import { getDerivedJobStatus } from '@/lib/job-status';
 
 interface MRPSemaphoreProps {
@@ -39,8 +39,12 @@ export function MRPSemaphore({ job, mrpTimelines, className, size = 'md' }: MRPS
             };
         }
 
-        const withdrawnItems = bom.filter(i => i.status === 'withdrawn');
-        const pendingItems = bom.filter(i => i.status !== 'withdrawn');
+        const withdrawnItems = bom.filter(
+            i => i.status === 'withdrawn' || i.withdrawn === true || isBOMItemPhaseCompleted(job, i).completed
+        );
+        const pendingItems = bom.filter(
+            i => !(i.status === 'withdrawn' || i.withdrawn === true || isBOMItemPhaseCompleted(job, i).completed)
+        );
 
         const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
         const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) || 

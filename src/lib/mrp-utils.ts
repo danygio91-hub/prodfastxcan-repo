@@ -1,5 +1,5 @@
 
-import { JobOrder, Article, RawMaterial, PurchaseOrder, ManualCommitment } from '@/types';
+import { JobOrder, Article, RawMaterial, PurchaseOrder, ManualCommitment, WorkPhaseTemplate } from '@/types';
 import { getDerivedJobStatus } from './job-status';
 import { GlobalSettings } from './settings-types';
 import { calculateBOMRequirement } from './inventory-utils';
@@ -17,6 +17,138 @@ export interface MRPTimelineEntry {
     totalSimQty?: number; // SSoT: Fabbisogno Totale Simulato (Engine Source)
     totalPO?: number;     // SSoT: Totale Ordini d'Acquisto Pendenti
     isFrozen?: boolean;   // Se l'impegno è congelato da una sessione officina attiva
+}
+
+/**
+ * FASE 94: Verifica se la fase produttiva/di preparazione associata a uno specifico componente BOM
+ * (es. "Taglio Treccia/Corda" per componenti BOB/PF3V0/Treccia, "Preparazione Tubi" per TUBI,
+ * "Taglio Guaina" per GUAINA) è già stata completata (status === 'completed').
+ * Se la fase correlata è completata, il fabbisogno del componente per questa commessa è soddisfatto
+ * ("Prelevato") e ha precedenza assoluta rispetto a activeSessionId o giacenze di magazzino.
+ */
+export function isBOMItemPhaseCompleted(
+    job: JobOrder | null | undefined,
+    item: { component?: string; status?: string; withdrawn?: boolean; unit?: string; lunghezzaTaglioMm?: number | null },
+    rawMaterial?: RawMaterial,
+    phaseTemplates?: WorkPhaseTemplate[]
+): { completed: boolean; phaseName?: string } {
+    if (!job || !Array.isArray(job.phases) || job.phases.length === 0) {
+        return { completed: false };
+    }
+
+    const completedPhases = job.phases.filter(
+        (p) => p && String(p.status || '').toLowerCase().trim() === 'completed'
+    );
+    if (completedPhases.length === 0) {
+        return { completed: false };
+    }
+
+    const compCode = (item?.component || '').trim().toUpperCase();
+    if (!compCode) {
+        return { completed: false };
+    }
+
+    const rawType = (rawMaterial?.type || '').trim().toUpperCase();
+    const rawDesc = (rawMaterial?.description || '').trim().toUpperCase();
+
+    const explicitTrecciaType = ['BOB', 'PF3V0', 'TRECCIA', 'TRECCE', 'CORDA', 'CORDE', 'CAVO', 'CAVI'].includes(rawType);
+    const explicitTubiType = rawType === 'TUBI' || rawType === 'TUBO';
+    const explicitGuainaType = rawType === 'GUAINA' || rawType === 'GUAINE';
+    const explicitBarraType = rawType === 'BARRA';
+    const hasExplicitType = explicitTrecciaType || explicitTubiType || explicitGuainaType || explicitBarraType;
+
+    const isTubo =
+        explicitTubiType ||
+        (!hasExplicitType &&
+            (compCode.startsWith('TB-') ||
+                compCode.startsWith('TU-') ||
+                /\bTUB[IO]?\b|TUBI|TUBO/i.test(rawDesc) ||
+                /TUB/i.test(compCode)));
+
+    const isGuaina =
+        explicitGuainaType ||
+        (!hasExplicitType &&
+            !isTubo &&
+            (compCode.startsWith('GU-') ||
+                compCode.startsWith('GUA-') ||
+                /GUAIN|TERMOREST/i.test(rawDesc) ||
+                /GUAIN|TERMOREST/i.test(compCode)));
+
+    const isBarra =
+        explicitBarraType ||
+        (!hasExplicitType && !isTubo && !isGuaina && (/BARR/i.test(rawDesc) || /BARR/i.test(compCode)));
+
+    const isTrecciaOrBobina =
+        explicitTrecciaType ||
+        explicitBarraType ||
+        (!hasExplicitType &&
+            !isTubo &&
+            !isGuaina &&
+            (compCode.startsWith('TR-') ||
+                compCode.startsWith('CR-') ||
+                /TRECC|CORD|CAV|BOB|TREFOL/i.test(rawDesc) ||
+                /TRECC|CORD|CAV|BOB|TREFOL/i.test(compCode) ||
+                item.unit === 'mt' ||
+                item.unit === 'kg' ||
+                Boolean(item.lunghezzaTaglioMm) ||
+                /^\d+X/i.test(compCode)));
+
+    for (const phase of completedPhases) {
+        const phaseName = (phase.name || '').trim();
+        const phaseNameUpper = phaseName.toUpperCase();
+
+        // 1. Match diretto tramite materialConsumptions registrati sulla fase
+        if (
+            Array.isArray(phase.materialConsumptions) &&
+            phase.materialConsumptions.some((c) => (c?.materialCode || '').trim().toUpperCase() === compCode)
+        ) {
+            return { completed: true, phaseName };
+        }
+
+        // 2. Match tramite allowedMaterialTypes sulla fase o sul template corrispondente
+        let allowedTypes = phase.allowedMaterialTypes;
+        if ((!allowedTypes || allowedTypes.length === 0) && Array.isArray(phaseTemplates)) {
+            const matchedTemplate = phaseTemplates.find(
+                (t) => t.id === phase.id || (t.name || '').trim().toUpperCase() === phaseNameUpper
+            );
+            allowedTypes = matchedTemplate?.allowedMaterialTypes;
+        }
+        if (rawType && Array.isArray(allowedTypes) && allowedTypes.length > 0) {
+            if (allowedTypes.some((t) => (t || '').trim().toUpperCase() === rawType)) {
+                return { completed: true, phaseName };
+            }
+        }
+
+        // 3. Match semantico di fase per famiglia componente (es. "Taglio Treccia/Corda", "Preparazione Tubi", "Taglio Guaina")
+        const isTrecciaPhase =
+            phaseNameUpper.includes('TRECC') ||
+            phaseNameUpper.includes('CORD') ||
+            phase.id === 'phase-template-1';
+        if (isTrecciaPhase && isTrecciaOrBobina) {
+            return { completed: true, phaseName };
+        }
+
+        const isTubiPhase =
+            phaseNameUpper.includes('TUB') ||
+            phase.id === 'phase-template-7';
+        if (isTubiPhase && isTubo) {
+            return { completed: true, phaseName };
+        }
+
+        const isGuainaPhase =
+            phaseNameUpper.includes('GUAIN') ||
+            phase.id === 'phase-template-6';
+        if (isGuainaPhase && isGuaina) {
+            return { completed: true, phaseName };
+        }
+
+        const isBarraPhase = phaseNameUpper.includes('BARR');
+        if (isBarraPhase && isBarra) {
+            return { completed: true, phaseName };
+        }
+    }
+
+    return { completed: false };
 }
 
 /**
@@ -165,7 +297,11 @@ export function calculateMRPTimelines(
 
                 (job.billOfMaterials || []).forEach(item => {
                     const compCode = (item.component || '').toUpperCase().trim();
-                    if (item.status !== 'withdrawn' && compCode === matCode) {
+                    const isAlreadySatisfied =
+                        item.status === 'withdrawn' ||
+                        item.withdrawn === true ||
+                        isBOMItemPhaseCompleted(job, item, mat).completed;
+                    if (!isAlreadySatisfied && compCode === matCode) {
                         // FASE 45: Esclusione C.to Lavoro (Silenziatore Impegni per Commessa)
                         // Se l'articolo in esame è presente nell'array externalizedMaterials di questa commessa,
                         // la sua quantità NON viene sommata al fabbisogno: l'impegno è silenziato.

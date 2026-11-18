@@ -108,7 +108,7 @@ import { useToast } from '@/hooks/use-toast';
 import { parseRobustDate, cn } from '@/lib/utils';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobPhase, WorkPhaseTemplate } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
-import { calculateMRPTimelines, type MRPTimelineEntry, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
+import { calculateMRPTimelines, type MRPTimelineEntry, classifyGlobalMRPAlarms, isBOMItemPhaseCompleted } from '@/lib/mrp-utils';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
 import { syncJobBOMItems } from '@/lib/inventory-utils';
 import { quickArticleCache } from '@/lib/quick-article-cache';
@@ -3242,33 +3242,68 @@ export default function ProgrammazioneClientPage({
     const extMaterials: string[] = (job.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim());
     const isExternalized = (code: string) => extMaterials.includes((code || '').toUpperCase().trim());
 
-    const pendingItems = bom.filter((i) => i.status !== 'withdrawn' && !isExternalized(i.component));
-    const withdrawnItems = bom.filter((i) => i.status === 'withdrawn');
-    const externalizedItems = bom.filter((i) => isExternalized(i.component));
+    // FASE 94: Precedenza assoluta allo stato della fase produttiva associata al componente.
+    // Se la fase correlata (es. "Taglio Treccia/Corda") è status === 'completed', il componente
+    // viene forzato a "Prelevato" PRIMA di controllare sessioni attive o giacenze magazzino.
+    const withdrawnItems: typeof bom = [];
+    const pendingItems: typeof bom = [];
+    const externalizedItems: typeof bom = [];
+    const phaseCompletedPhaseByCode = new Map<string, string>();
 
-    // Tutti i componenti già prelevati o esternalizzati in C.to Lavoro
+    bom.forEach((item) => {
+      const compCode = (item.component || '').trim().toUpperCase();
+      if (isExternalized(compCode)) {
+        externalizedItems.push(item);
+        return;
+      }
+
+      const rawMat = materialsCacheRef.current.get(compCode);
+      const phaseCheck = isBOMItemPhaseCompleted(job, item, rawMat, phaseTemplates);
+      const isSatisfied = item.status === 'withdrawn' || item.withdrawn === true || phaseCheck.completed;
+
+      if (isSatisfied) {
+        withdrawnItems.push(item);
+        if (phaseCheck.completed && phaseCheck.phaseName) {
+          phaseCompletedPhaseByCode.set(compCode, phaseCheck.phaseName);
+        }
+      } else {
+        pendingItems.push(item);
+      }
+    });
+
+    const formatWithdrawnDetail = (i: (typeof bom)[number]) => {
+      const compCode = (i.component || '').trim().toUpperCase();
+      const completedPhaseName = phaseCompletedPhaseByCode.get(compCode);
+      return completedPhaseName
+        ? `✅ ${i.component} - Prelevato (Fase "${completedPhaseName}" completata)`
+        : `✅ ${i.component} - Prelevato`;
+    };
+
+    // Tutti i componenti già prelevati, assolti da fase completata o esternalizzati in C.to Lavoro
     if (pendingItems.length === 0) {
       const isAllExternalized = externalizedItems.length > 0 && withdrawnItems.length === 0;
       return {
         state: 'GREEN',
-        label: isAllExternalized ? 'C.to Lavoro' : 'Prelevato',
+        label: isAllExternalized ? 'C.to Lavoro' : 'Pronto',
         badgeClass: isAllExternalized
           ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30 font-semibold'
-          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-semibold',
         dotClass: isAllExternalized ? 'bg-purple-500' : 'bg-emerald-500',
         details: [
-          ...withdrawnItems.map((i) => `✅ ${i.component} - Materiale già prelevato`),
+          ...withdrawnItems.map(formatWithdrawnDetail),
           ...externalizedItems.map((i) => `🚚 ${i.component} - Inviato a terzista (C.to Lavoro)`),
         ],
       };
     }
 
-    // Raccogli entry MRP
+    // Raccogli entry MRP solo per i componenti effettivamente ancora pendenti
     const entries: { component: string; entry?: MRPTimelineEntry }[] = [];
     let hasMissingData = false;
+    const pendingCodesSet = new Set<string>();
 
     pendingItems.forEach((item) => {
       const matCode = (item.component || '').trim().toUpperCase();
+      pendingCodesSet.add(matCode);
       const timeline = mrpTimelines.get(matCode) || [];
       const entry = timeline.find((e) => e.jobId === job.id);
       if (entry) {
@@ -3278,8 +3313,8 @@ export default function ProgrammazioneClientPage({
       }
     });
 
-    // FASE 67: SHORT-CIRCUIT AVANZAMENTO PREPARAZIONE E SESSIONI ATTIVE
-    // Se la preparazione è terminata (o la produzione è già avanzata), bypassa il blocco "In Verifica".
+    // FASE 67 & FASE 94: SHORT-CIRCUIT AVANZAMENTO PREPARAZIONE E SESSIONI ATTIVE
+    // Controlla sessioni aperte SOLO per i componenti la cui fase non è ancora completata (pendingCodesSet).
     const derivedStatus = getDerivedJobStatus(job);
     const PREP_FINISHED_STATUSES = ['PRONTO_PROD', 'IN_PRODUZIONE', 'FINE_PRODUZIONE', 'QLTY_PACK', 'CHIUSO'];
     const isPrepFinished = PREP_FINISHED_STATUSES.includes(derivedStatus) ||
@@ -3288,6 +3323,10 @@ export default function ProgrammazioneClientPage({
     if (isPrepFinished) {
       const hasJobActiveSession = activeSessions.some((s) => {
         if (s.status !== 'open') return false;
+        const sessMatCode = (s.materialCode || '').trim().toUpperCase();
+        if (sessMatCode && !pendingCodesSet.has(sessMatCode)) {
+          return false;
+        }
         const ids = s.linkedJobOrderIds || [];
         const pfs = s.linkedJobOrderPFs || [];
         return (
@@ -3305,7 +3344,7 @@ export default function ProgrammazioneClientPage({
           dotClass: 'bg-blue-500 animate-ping',
           details: [
             '⏳ Materiale in lavorazione, in attesa di pesata finale.',
-            ...withdrawnItems.map((i) => `✅ ${i.component} - Prelevato`),
+            ...withdrawnItems.map(formatWithdrawnDetail),
             ...pendingItems.map((i) => `🧵 ${i.component} - In lavorazione in sessione attiva`),
           ],
         };
@@ -3313,12 +3352,12 @@ export default function ProgrammazioneClientPage({
 
       return {
         state: 'READY',
-        label: 'Prelevato',
+        label: 'Pronto',
         badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-semibold',
         dotClass: 'bg-emerald-500',
         details: [
           '✅ Preparazione completata / Materiale già prelevato.',
-          ...withdrawnItems.map((i) => `✅ ${i.component} - Prelevato`),
+          ...withdrawnItems.map(formatWithdrawnDetail),
           ...pendingItems.map((i) => `⚡ ${i.component} - Assolto in preparazione`),
         ],
       };
@@ -3348,7 +3387,7 @@ export default function ProgrammazioneClientPage({
     let hasOrderedInTime = false;
 
     const details: string[] = [
-      ...withdrawnItems.map((i) => `✅ ${i.component} - Prelevato`),
+      ...withdrawnItems.map(formatWithdrawnDetail),
       ...externalizedItems.map((i) => `🚚 ${i.component} - Inviato a terzista (C.to Lavoro)`),
       ...entries.map((e) => {
         if (!e.entry) return `📦 ${e.component}: Verifica disponibilità`;
@@ -3443,7 +3482,7 @@ export default function ProgrammazioneClientPage({
       dotClass: 'bg-emerald-500',
       details,
     };
-  }, [mrpTimelines, isMrpLoading, activeSessions]);
+  }, [mrpTimelines, isMrpLoading, activeSessions, phaseTemplates]);
 
   // =========================================================================
   // 1. INLINE EDITING: DATA CONSEGNA (GG/MM/AAAA) - SALVATAGGIO DIFFERITO (FASE 85 OPTIMISTIC MUTATE)
