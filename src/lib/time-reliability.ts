@@ -25,11 +25,14 @@ export function calculateJobHours(job: JobOrder, article?: Article): number {
     : 0;
 
   const totalMinsPerPiece = safeJobMinutes > 0 ? safeJobMinutes : safeArtMinutes;
-  const qta = typeof job.qta === 'number' && !isNaN(job.qta) && job.qta > 0 ? job.qta : 0;
+  const rawQta = Number(job.qta ?? (job as any).qty ?? job.qtaRichiesta ?? 0);
+  const qta = !isNaN(rawQta) && rawQta > 0 ? rawQta : 0;
 
   if (totalMinsPerPiece > 0 && qta > 0) {
-    const hours = Math.round(((totalMinsPerPiece * qta) / 60) * 10) / 10;
-    return isNaN(hours) ? 0 : hours;
+    const rawHours = (totalMinsPerPiece * qta) / 60;
+    const hours = Math.round(rawHours * 10) / 10;
+    if (isNaN(hours)) return 0;
+    return rawHours > 0 ? Math.max(0.1, hours) : 0;
   }
 
   // FALLBACK: La somma delle singole fasi (job.phases) interviene SOLO se expectedMinutesDefault è vuoto o 0
@@ -41,13 +44,16 @@ export function calculateJobHours(job: JobOrder, article?: Article): number {
       return acc + (perPiece * qta);
     }, 0);
     if (totalMinutes > 0) {
-      const hours = Math.round((totalMinutes / 60) * 10) / 10;
-      return isNaN(hours) ? 0 : hours;
+      const rawHours = totalMinutes / 60;
+      const hours = Math.round(rawHours * 10) / 10;
+      if (isNaN(hours)) return 0;
+      return rawHours > 0 ? Math.max(0.1, hours) : 0;
     }
   }
 
-  if (typeof job.orePreviste === 'number' && !isNaN(job.orePreviste) && job.orePreviste > 0) {
-    return Math.round(job.orePreviste * 10) / 10;
+  const explicitHours = Number(job.orePreviste ?? (job as any).expectedHours ?? 0);
+  if (!isNaN(explicitHours) && explicitHours > 0) {
+    return Math.max(0.1, Math.round(explicitHours * 10) / 10);
   }
 
   return 0;

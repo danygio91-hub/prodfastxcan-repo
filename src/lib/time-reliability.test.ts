@@ -144,6 +144,22 @@ describe('FASE 69: getTimeReliabilityStatus & calculateJobHours', () => {
       expect(missingMeta.colorClass).toBe('text-red-500');
       expect(missingMeta.title).toBe('Tempi mancanti in anagrafica');
     });
+
+    it('FASE 95: non arrotonda a 0.0h commesse con piccole quantità (es. REINTEGRO.NC qta=2 con 1.2 min/pz)', () => {
+      const reintegroJob: JobOrder = {
+        ...baseJob,
+        ordinePF: 'REINTEGRO.NC',
+        details: 'FG000063',
+        qta: 2,
+        expectedMinutesDefault: 1.2,
+        phases: [
+          { id: '1', name: 'Taglio', sequence: 1, status: 'pending', materialReady: true, workPeriods: [], materialConsumptions: [], departmentCodes: [], expectedMinutesPerPiece: 1.2 },
+        ],
+      };
+
+      expect(calculateJobHours(reintegroJob)).toBe(0.1);
+      expect(getTimeReliabilityStatus(reintegroJob)).toBe('COMPLETE');
+    });
   });
 });
 

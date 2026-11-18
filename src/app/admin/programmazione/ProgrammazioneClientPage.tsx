@@ -2033,7 +2033,7 @@ export default function ProgrammazioneClientPage({
       });
     }
 
-    // 2. FASE 90: Optimistic Mutate SWR-style SOLO sulle righe delle commesse PIANIFICATA interessate (NO router.refresh)
+    // 2. FASE 90 & FASE 95: Optimistic Mutate SWR-style su tutte le commesse non concluse associate all'articolo
     const targetCode = (updatedArticle.code || '').trim().toUpperCase();
     const targetId = (updatedArticle.id || '').trim().toUpperCase();
     const cachedRawMaterials = Array.from(materialsCacheRef.current.values());
@@ -2041,11 +2041,21 @@ export default function ProgrammazioneClientPage({
     mutateJobs(
       (prevJobs) =>
         prevJobs.map((j) => {
-          const jobArt = ((j as any).articolo || j.details || (j as any).articleCode || '').trim().toUpperCase();
-          const isMatchingArticle = (targetCode && jobArt === targetCode) || (targetId && jobArt === targetId);
+          const jobArtCandidates = [
+            (j as any).articleCode,
+            j.details,
+            (j as any).articolo,
+            (j as any).articleId,
+          ]
+            .map((v) => String(v || '').trim().toUpperCase())
+            .filter(Boolean);
+
+          const isMatchingArticle = jobArtCandidates.some(
+            (candidate) => (targetCode && candidate === targetCode) || (targetId && candidate === targetId)
+          );
           if (!isMatchingArticle) return j;
 
-          // Ciclo Congelato: non toccare commesse già avviate (DA_INIZIARE, IN_PREP, IN_PRODUZIONE, ecc.)
+          // FASE 95: Esclude solo le commesse concluse
           if (!isJobEligibleForArticleSync(j)) {
             return j;
           }
@@ -2056,9 +2066,6 @@ export default function ProgrammazioneClientPage({
             workCycles,
             phaseTemplates,
           });
-
-          const hadEmptyPhasesNowFilled =
-            syncResult.phases.length > 0 && (!j.phases || j.phases.length === 0);
 
           let nextBOM = j.billOfMaterials;
           if (Array.isArray(updatedArticle.billOfMaterials) && globalSettings) {
@@ -2080,13 +2087,12 @@ export default function ProgrammazioneClientPage({
 
           const patch: Partial<JobOrder> = {
             billOfMaterials: nextBOM,
+            phases: syncResult.phases,
+            workCycleId: syncResult.workCycleId,
+            expectedMinutesDefault: syncResult.expectedMinutesDefault,
+            orePreviste: syncResult.orePreviste,
+            ...( { expectedHours: syncResult.expectedHours } as any ),
           };
-
-          if (syncResult.changed || hadEmptyPhasesNowFilled) {
-            patch.phases = syncResult.phases;
-            patch.workCycleId = syncResult.workCycleId;
-            patch.expectedMinutesDefault = syncResult.expectedMinutesDefault;
-          }
 
           const existingShield = optimisticPatchesRef.current.get(j.id)?.patch || {};
           optimisticPatchesRef.current.set(j.id, {

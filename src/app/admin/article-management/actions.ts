@@ -16,25 +16,35 @@ export type { ArticleMasterData };
 
 async function fetchJobDocsByArticleKeys(articleId: string, articleCode: string): Promise<admin.firestore.QueryDocumentSnapshot[]> {
     const cleanCode = (articleCode || articleId || '').toString().trim();
+    const cleanId = (articleId || articleCode || '').toString().trim();
+    const upperCode = cleanCode.toUpperCase();
+    const lowerCode = cleanCode.toLowerCase();
+
     const searchKeys = Array.from(new Set([
-        articleId.trim(),
+        cleanId,
+        cleanId.toUpperCase(),
         cleanCode,
-        cleanCode.toUpperCase(),
-        cleanCode.toLowerCase(),
-    ].filter(Boolean)));
+        upperCode,
+        lowerCode,
+        `${upperCode} `,
+        ` ${upperCode}`,
+    ].filter(Boolean))).slice(0, 30);
 
     if (searchKeys.length === 0) return [];
 
-    const [snapByDetails, snapByArticleCode, snapByArticolo] = await Promise.all([
-        adminDb.collection('jobOrders').where('details', 'in', searchKeys).get(),
+    // FASE 95: Query allargata su articleCode, details, articolo e articleId per catturare anche commesse manuali (es. REINTEGRO.NC)
+    const [snapByArticleCode, snapByDetails, snapByArticolo, snapByArticleId] = await Promise.all([
         adminDb.collection('jobOrders').where('articleCode', 'in', searchKeys).get(),
+        adminDb.collection('jobOrders').where('details', 'in', searchKeys).get(),
         adminDb.collection('jobOrders').where('articolo', 'in', searchKeys).get(),
+        adminDb.collection('jobOrders').where('articleId', 'in', searchKeys).get(),
     ]);
 
     const docsMap = new Map<string, admin.firestore.QueryDocumentSnapshot>();
-    snapByDetails.docs.forEach(d => docsMap.set(d.id, d));
     snapByArticleCode.docs.forEach(d => docsMap.set(d.id, d));
+    snapByDetails.docs.forEach(d => docsMap.set(d.id, d));
     snapByArticolo.docs.forEach(d => docsMap.set(d.id, d));
+    snapByArticleId.docs.forEach(d => docsMap.set(d.id, d));
     return Array.from(docsMap.values());
 }
 
@@ -238,12 +248,16 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
                                 workCycles,
                                 phaseTemplates,
                             });
-                            if (cycleSync.changed) {
-                                updatePayload.phases = cycleSync.phases;
-                                updatePayload.workCycleId = cycleSync.workCycleId;
-                                updatePayload.expectedMinutesDefault = cycleSync.expectedMinutesDefault;
-                            }
+                            updatePayload.phases = cycleSync.phases;
+                            updatePayload.workCycleId = cycleSync.workCycleId;
+                            updatePayload.expectedMinutesDefault = cycleSync.expectedMinutesDefault;
+                            updatePayload.orePreviste = cycleSync.orePreviste;
+                            updatePayload.expectedHours = cycleSync.expectedHours;
                         }
+
+                        updatePayload.articleCode = docId;
+                        updatePayload.details = docId;
+                        updatePayload.articolo = docId;
 
                         batch.update(doc.ref, updatePayload);
                     });
@@ -541,8 +555,8 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
         let syncedCount = 0;
         let skippedFrozenCount = 0;
 
-        // --- CONDITIONAL SYNC ACTION: Regola "Ciclo Congelato" (FASE 72) ---
-        // Aggiorna array phases, workCycleId e tempi previsti SOLO alle commesse in stato PIANIFICATA.
+        // --- FASE 95: PROPAGAZIONE GLOBALE TEMPI/CICLI SU TUTTE LE COMMESSE ATTIVE ---
+        // Esclude solo le commesse "Conclusa" e inietta con Hard-Override l'intero array fasi e il ricalcolo ore.
         try {
             const [articleDoc, phaseTemplates, workCycles] = await Promise.all([
                 adminDb.collection('articles').doc(articleId).get(),
@@ -550,7 +564,7 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
                 getWorkCycles(),
             ]);
             const articleDocData = articleDoc.data() || {};
-            const articleCode = (data.code || articleDocData.code || articleId || '').toString().trim();
+            const articleCode = (data.code || articleDocData.code || articleId || '').toString().trim().toUpperCase();
             const mergedArticle: Partial<Article> = {
                 ...articleDocData,
                 ...data,
@@ -561,22 +575,27 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
             const allJobDocs = await fetchJobDocsByArticleKeys(articleId, articleCode);
 
             if (allJobDocs.length > 0) {
-                const chunks: admin.firestore.QueryDocumentSnapshot[] = [...allJobDocs];
+                const eligibleDocs: admin.firestore.QueryDocumentSnapshot[] = [];
 
-                while (chunks.length > 0) {
+                allJobDocs.forEach((doc) => {
+                    const job = doc.data() as JobOrder;
+                    if (!isJobEligibleForArticleSync(job)) {
+                        skippedFrozenCount++;
+                        return;
+                    }
+                    eligibleDocs.push(doc);
+                });
+
+                // FASE 95 (3): Partizionamento in chunk da max 450 operazioni e commit parallelo con Promise.all
+                const BATCH_CHUNK_SIZE = 450;
+                const commitPromises: Promise<admin.firestore.WriteResult[]>[] = [];
+
+                for (let i = 0; i < eligibleDocs.length; i += BATCH_CHUNK_SIZE) {
+                    const currentChunk = eligibleDocs.slice(i, i + BATCH_CHUNK_SIZE);
                     const batch = adminDb.batch();
-                    const currentChunk = chunks.splice(0, 450);
-                    let hasUpdates = false;
 
-                    currentChunk.forEach(doc => {
+                    currentChunk.forEach((doc) => {
                         const job = doc.data() as JobOrder;
-
-                        // Regola Ciclo Congelato: salta DA_INIZIARE, IN_PREP, IN_PRODUZIONE e successivi
-                        if (!isJobEligibleForArticleSync(job)) {
-                            skippedFrozenCount++;
-                            return;
-                        }
-
                         const syncResult = computeArticleCycleSyncForJob({
                             job,
                             article: mergedArticle,
@@ -584,25 +603,27 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
                             phaseTemplates,
                         });
 
-                        const hadEmptyPhasesNowFilled =
-                            syncResult.phases.length > 0 && (!job.phases || job.phases.length === 0);
+                        const updatePayload: Record<string, any> = {
+                            phases: syncResult.phases,
+                            workCycleId: syncResult.workCycleId,
+                            expectedMinutesDefault: syncResult.expectedMinutesDefault,
+                            orePreviste: syncResult.orePreviste,
+                            expectedHours: syncResult.expectedHours,
+                            articleCode,
+                            details: articleCode,
+                            articolo: articleCode,
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        };
 
-                        if (syncResult.changed || hadEmptyPhasesNowFilled) {
-                            const updatePayload: Record<string, any> = {
-                                phases: syncResult.phases,
-                                workCycleId: syncResult.workCycleId,
-                                expectedMinutesDefault: syncResult.expectedMinutesDefault,
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                            };
-                            batch.update(doc.ref, updatePayload);
-                            hasUpdates = true;
-                            syncedCount++;
-                        }
+                        batch.update(doc.ref, updatePayload);
+                        syncedCount++;
                     });
 
-                    if (hasUpdates) {
-                        await batch.commit();
-                    }
+                    commitPromises.push(batch.commit());
+                }
+
+                if (commitPromises.length > 0) {
+                    await Promise.all(commitPromises);
                 }
             }
         } catch (syncErr) {
@@ -612,11 +633,11 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
         // FASE 90: Rimossi revalidatePath massivi che bloccavano la coda Server Actions sul client.
 
         const freezeSuffix = skippedFrozenCount > 0
-            ? ` (${skippedFrozenCount} commesse già avviate mantenute congelate)`
+            ? ` (${skippedFrozenCount} commesse concluse escluse)`
             : '';
         return {
             success: true,
-            message: `Standard Tempi e Cicli aggiornati. ${syncedCount > 0 ? `${syncedCount} commesse pianificate sincronizzate` : 'Commesse pianificate sincronizzate'} con successo.${freezeSuffix}`,
+            message: `Standard Tempi e Cicli aggiornati. ${syncedCount > 0 ? `${syncedCount} commesse attive sincronizzate` : 'Commesse attive sincronizzate'} con successo.${freezeSuffix}`,
             syncedCount,
             skippedFrozenCount,
         };

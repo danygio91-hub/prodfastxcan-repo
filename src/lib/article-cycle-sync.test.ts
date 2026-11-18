@@ -61,69 +61,41 @@ const cycles: WorkCycle[] = [
   },
 ];
 
-describe('FASE 72: Sync Cicli su Commesse Pianificate & Regola Ciclo Congelato', () => {
-  describe('isJobEligibleForArticleSync (Regola Ciclo Congelato)', () => {
-    it('consente la sincronizzazione per tutte le varianti di stato PIANIFICATA non ancora avviate', () => {
+describe('FASE 95: Propagazione Globale Tempi/Cicli su Commesse Attive', () => {
+  describe('isJobEligibleForArticleSync', () => {
+    it('include commesse Pianificate, Avviate e In Produzione (anche con odlCreationDate o fasi attive)', () => {
       expect(isJobEligibleForArticleSync(makeJob({ status: 'Pianificata' }))).toBe(true);
       expect(isJobEligibleForArticleSync(makeJob({ status: 'PIANIFICATA' }))).toBe(true);
-      expect(isJobEligibleForArticleSync(makeJob({ status: 'PIANIFICATO' }))).toBe(true);
-      expect(isJobEligibleForArticleSync(makeJob({ status: 'PIANIFICATE' }))).toBe(true);
-      expect(isJobEligibleForArticleSync(makeJob({ status: 'planned' }))).toBe(true);
-      expect(isJobEligibleForArticleSync(makeJob({ status: 'IN_ATTESA' }))).toBe(true);
-      expect(isJobEligibleForArticleSync(makeJob({ status: 'IN_PIANIFICAZIONE' }))).toBe(true);
+      expect(isJobEligibleForArticleSync(makeJob({ status: 'DA_INIZIARE', odlCreationDate: '2026-11-11T10:00:00Z' }))).toBe(true);
+      expect(isJobEligibleForArticleSync(makeJob({ status: 'IN_PREPARAZIONE' }))).toBe(true);
+      expect(isJobEligibleForArticleSync(makeJob({ status: 'PRONTO_PROD' }))).toBe(true);
+      expect(isJobEligibleForArticleSync(makeJob({ status: 'IN_PRODUZIONE' }))).toBe(true);
+      expect(isJobEligibleForArticleSync(makeJob({ status: 'In Produzione' }))).toBe(true);
     });
 
-    it('blocca rigorosamente DA_INIZIARE, IN_PREP, IN_PRODUZIONE e stati successivi', () => {
-      const blockedStatuses = [
-        'DA_INIZIARE',
-        'IN_PREP',
-        'IN_PREPARAZIONE',
-        'PRONTO_PROD',
-        'IN_PRODUZIONE',
-        'IN_PROGRESS',
+    it('esclude solo le commesse Concluse, Spedite o Chiuse', () => {
+      const concludedStatuses = [
         'FINE_PRODUZIONE',
-        'QLTY_PACK',
         'SPEDITO',
         'SPEDITA',
         'SHIPPED',
         'CHIUSO',
+        'CLOSED',
         'COMPLETATO',
+        'COMPLETATO PROD.',
         'completed',
+        'CONCLUSA',
       ];
 
-      for (const status of blockedStatuses) {
+      for (const status of concludedStatuses) {
         expect(isJobEligibleForArticleSync(makeJob({ status })), `stato ${status}`).toBe(false);
       }
-    });
 
-    it('blocca la sincronizzazione se esiste odlCreationDate, packingListId o fasi già lavorate', () => {
       expect(
-        isJobEligibleForArticleSync(makeJob({ status: 'PIANIFICATA', odlCreationDate: '2026-11-11T10:00:00Z' }))
+        isJobEligibleForArticleSync(makeJob({ status: 'IN_PRODUZIONE', forcedCompletion: true }))
       ).toBe(false);
       expect(
-        isJobEligibleForArticleSync(makeJob({ status: 'PIANIFICATA', packingListId: 'PL-11112026-001' }))
-      ).toBe(false);
-      expect(
-        isJobEligibleForArticleSync(makeJob({ status: 'PIANIFICATA', forcedCompletion: true }))
-      ).toBe(false);
-      expect(
-        isJobEligibleForArticleSync(
-          makeJob({
-            status: 'PIANIFICATA',
-            phases: [
-              {
-                id: 'tpl-prep',
-                name: 'Taglio Prep',
-                status: 'in-progress',
-                materialReady: true,
-                workPeriods: [{ start: '2026-11-11T08:00:00Z', end: null, operatorId: 'op1' }],
-                sequence: 1,
-                materialConsumptions: [],
-                departmentCodes: ['CP'],
-              },
-            ],
-          })
-        )
+        isJobEligibleForArticleSync(makeJob({ status: 'IN_PRODUZIONE', overallEndTime: '2026-11-18T10:00:00Z' }))
       ).toBe(false);
     });
   });

@@ -1,38 +1,9 @@
 import type { Article, ArticlePhaseTime, JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate } from '@/types';
 
-const PLANNED_SYNC_STATUSES = new Set([
-  'PIANIFICATA',
-  'PIANIFICATO',
-  'PIANIFICATE',
-  'PLANNED',
-  'IN_ATTESA',
-  'IN_PIANIFICAZIONE',
-  'IN PIANIFICAZIONE',
-  'PENDING',
-]);
-
-const FROZEN_OR_STARTED_STATUSES = new Set([
-  'DA_INIZIARE',
-  'IN_PREP',
-  'IN PREP',
-  'IN_PREPARAZIONE',
-  'IN PREPARAZIONE',
-  'PRONTO',
-  'PRONTO_PROD',
-  'PRONTO PROD',
-  'PRONTO PROD.',
-  'PRONTO PER PRODUZIONE',
-  'IN_PRODUZIONE',
-  'IN PRODUZIONE',
-  'IN_PROGRESS',
-  'IN-PROGRESS',
-  'PRODUCTION',
-  'ACTIVE',
-  'ATTIVO',
+const CONCLUDED_OR_CLOSED_STATUSES = new Set([
   'FINE_PRODUZIONE',
   'FINE PRODUZIONE',
   'FINE PROD.',
-  'QLTY_PACK',
   'COMPLETED',
   'COMPLETATO',
   'COMPLETATA',
@@ -44,51 +15,32 @@ const FROZEN_OR_STARTED_STATUSES = new Set([
   'CHIUSO',
   'CHIUSA',
   'CLOSED',
+  'CONCLUSA',
+  'CONCLUSO',
+  'CONCLUSE',
   'ANNULLATO',
   'ANNULLATA',
   'CANCELLED',
 ]);
 
 /**
- * FASE 72 — Regola del "Ciclo Congelato".
- * Consente la sincronizzazione di fasi, ciclo di lavorazione, tempi e distinta
- * ESCLUSIVAMENTE alle commesse in stato backlog pianificato (PIANIFICATA e alias equivalenti
- * non ancora avviati in ODL/produzione).
- *
- * Blocca rigorosamente DA_INIZIARE, IN_PREP, IN_PREPARAZIONE, PRONTO_PROD,
- * IN_PRODUZIONE, FINE_PRODUZIONE, QLTY_PACK, SPEDITO, CHIUSO o qualunque commessa
- * con ODL avviato (`odlCreationDate`) o fasi già movimentate.
+ * FASE 95 — Propagazione Globale Tempi/Cicli su tutte le Commesse Attive.
+ * Esclude SOLO le commesse con stato "Conclusa" (Completate, Spedite, Chiuse, Annullate).
+ * Tutte le altre commesse ("Pianificate", "Avviate", "In Produzione", incluse commesse manuali
+ * come REINTEGRO.NC) DEVONO essere incluse nella sincronizzazione.
  */
 export function isJobEligibleForArticleSync(job: Partial<JobOrder> | null | undefined): boolean {
   if (!job) return false;
 
   if (
-    job.odlCreationDate ||
-    job.overallStartTime ||
     job.overallEndTime ||
-    job.packingListId ||
     job.forcedCompletion === true
   ) {
     return false;
   }
 
-  const phases = Array.isArray(job.phases) ? job.phases : [];
-  const hasTouchedPhases = phases.some(
-    (p) =>
-      (p.status && p.status !== 'pending') ||
-      (Array.isArray(p.workPeriods) && p.workPeriods.length > 0) ||
-      (Array.isArray(p.materialConsumptions) && p.materialConsumptions.length > 0)
-  );
-  if (hasTouchedPhases) {
-    return false;
-  }
-
   const rawStatus = (job.status || '').toUpperCase().trim();
-  if (FROZEN_OR_STARTED_STATUSES.has(rawStatus)) {
-    return false;
-  }
-
-  if (rawStatus !== '' && !PLANNED_SYNC_STATUSES.has(rawStatus)) {
+  if (CONCLUDED_OR_CLOSED_STATUSES.has(rawStatus)) {
     return false;
   }
 
@@ -102,16 +54,18 @@ export function createJobPhaseFromTemplate(
     theoreticalWeight?: number;
     expectedMinutesPerPiece?: number;
     materialReady?: boolean;
+    existingPhase?: JobPhase;
   }
 ): JobPhase {
+  const existing = options?.existingPhase;
   return {
     id: template.id,
     name: template.name,
-    status: 'pending',
+    status: existing?.status || 'pending',
     materialReady: Boolean(
-      options?.materialReady || template.isIndependent || template.type === 'preparation'
+      options?.materialReady ?? existing?.materialReady ?? (template.isIndependent || template.type === 'preparation')
     ),
-    workPeriods: [],
+    workPeriods: Array.isArray(existing?.workPeriods) ? existing!.workPeriods : [],
     sequence,
     type: template.type || 'production',
     tracksTime: template.tracksTime !== false,
@@ -121,8 +75,8 @@ export function createJobPhaseFromTemplate(
     allowedMaterialTypes: Array.isArray(template.allowedMaterialTypes)
       ? template.allowedMaterialTypes
       : [],
-    materialConsumptions: [],
-    qualityResult: null,
+    materialConsumptions: Array.isArray(existing?.materialConsumptions) ? existing!.materialConsumptions : [],
+    qualityResult: existing?.qualityResult ?? null,
     departmentCodes: Array.isArray(template.departmentCodes) ? template.departmentCodes : [],
     isIndependent: Boolean(template.isIndependent),
     theoreticalWeight:
@@ -174,12 +128,15 @@ export interface ArticleCycleSyncResult {
   phases: JobPhase[];
   workCycleId: string;
   expectedMinutesDefault: number;
+  expectedHours: number;
+  orePreviste: number;
   changed: boolean;
 }
 
 /**
- * Calcola le fasi, il workCycleId e il tempo previsto aggiornati per una commessa
- * pianificata a partire dalla configurazione salvata in Anagrafica Articolo.
+ * FASE 95: Calcola con Hard-Override l'intero array delle fasi, il workCycleId,
+ * expectedMinutesDefault e le ore previste (expectedHours / orePreviste) basandosi su job.qta
+ * e sulla somma dei tempi del nuovo ciclo dell'articolo master.
  */
 export function computeArticleCycleSyncForJob({
   job,
@@ -206,12 +163,6 @@ export function computeArticleCycleSyncForJob({
     ? article.expectedMinutesSecondary
     : article.expectedMinutesDefault;
   const parsedExpectedTotal = parseMinutesValue(rawExpectedTotal);
-  const resolvedExpectedDefault =
-    parsedExpectedTotal !== null
-      ? parsedExpectedTotal
-      : typeof job.expectedMinutesDefault === 'number' && Number.isFinite(job.expectedMinutesDefault)
-        ? job.expectedMinutesDefault
-        : 0;
 
   const templatesById = new Map(phaseTemplates.map((t) => [t.id, t]));
   const templatesByNameUpper = new Map(
@@ -261,6 +212,7 @@ export function computeArticleCycleSyncForJob({
           theoreticalWeight: selectedCycle.phaseWeights?.[idx] ?? 1,
           expectedMinutesPerPiece: resolvePhaseExpectedMinutes(tpl, existing),
           materialReady: existing?.materialReady,
+          existingPhase: existing,
         });
       })
       .filter((p): p is JobPhase => p !== null);
@@ -285,6 +237,7 @@ export function computeArticleCycleSyncForJob({
           theoreticalWeight: existing?.theoreticalWeight ?? 1,
           expectedMinutesPerPiece: resolvePhaseExpectedMinutes(tpl, existing),
           materialReady: existing?.materialReady,
+          existingPhase: existing,
         });
       });
     } else if (existingPhases.length > 0) {
@@ -301,22 +254,34 @@ export function computeArticleCycleSyncForJob({
     });
   }
 
-  const prevCycleNormalized = jobCycleId || '';
-  const prevExpected =
-    typeof job.expectedMinutesDefault === 'number' && Number.isFinite(job.expectedMinutesDefault)
-      ? job.expectedMinutesDefault
-      : 0;
+  // FASE 95: Somma dei tempi per pezzo del nuovo ciclo
+  const sumCycleMinutes = nextPhases.reduce(
+    (acc, p) => acc + (typeof p.expectedMinutesPerPiece === 'number' && !isNaN(p.expectedMinutesPerPiece) ? p.expectedMinutesPerPiece : 0),
+    0
+  );
+  const roundedSumCycleMinutes = Math.round(sumCycleMinutes * 1000) / 1000;
 
-  const changed =
-    prevCycleNormalized !== resolvedWorkCycleId ||
-    prevExpected !== resolvedExpectedDefault ||
-    !phasesAreEquivalent(existingPhases, nextPhases);
+  const resolvedExpectedDefault =
+    parsedExpectedTotal !== null && parsedExpectedTotal > 0
+      ? parsedExpectedTotal
+      : roundedSumCycleMinutes > 0
+        ? roundedSumCycleMinutes
+        : typeof job.expectedMinutesDefault === 'number' && Number.isFinite(job.expectedMinutesDefault)
+          ? job.expectedMinutesDefault
+          : 0;
+
+  const qty = Number(job.qta ?? (job as any).qty ?? job.qtaRichiesta ?? 0);
+  const totalCycleMinutes = resolvedExpectedDefault > 0 ? resolvedExpectedDefault : roundedSumCycleMinutes;
+  const rawHours = qty > 0 && totalCycleMinutes > 0 ? (qty * totalCycleMinutes) / 60 : 0;
+  const expectedHours = rawHours > 0 ? Math.max(0.1, Math.round(rawHours * 100) / 100) : 0;
 
   return {
     phases: nextPhases,
     workCycleId: resolvedWorkCycleId,
     expectedMinutesDefault: resolvedExpectedDefault,
-    changed,
+    expectedHours,
+    orePreviste: expectedHours,
+    changed: true,
   };
 }
 
