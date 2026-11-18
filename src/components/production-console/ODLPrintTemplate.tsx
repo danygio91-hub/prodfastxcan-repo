@@ -19,9 +19,21 @@ interface ODLPrintTemplateProps {
   contoLavoroMap?: Record<string, string[]>;
   materialsByCode?: Record<string, RawMaterial>;
   articlesByCode?: Record<string, Article>;
+  /** FASE 96: Permette il rendering simultaneo in batch dentro un unico container #odl-pdf-pages */
+  omitRootId?: boolean;
 }
 
-export default function ODLPrintTemplate({ 
+const MemoizedQRCode = React.memo(function MemoizedQRCode({
+  value,
+  size,
+}: {
+  value: string;
+  size: number;
+}) {
+  return <QRCode value={value} size={size} />;
+});
+
+function ODLPrintTemplate({ 
   job, 
   article, 
   materials, 
@@ -33,17 +45,25 @@ export default function ODLPrintTemplate({
   contoLavoroMap,
   materialsByCode,
   articlesByCode,
+  omitRootId = false,
 }: ODLPrintTemplateProps) {
   const jobArticleKey = ((job as any).articolo || job.details || (job as any).articleCode || '').trim().toUpperCase();
   const resolvedArticle = article || (jobArticleKey && articlesByCode ? articlesByCode[jobArticleKey] || null : null);
 
-  // FASE 88: Costruzione dizionari/mappe in memoria per lookup O(1)
-  const materialsMap = new Map<string, RawMaterial>();
-  for (const m of materials) {
-    if (m?.code) {
-      materialsMap.set(m.code.toUpperCase().trim(), m);
+  // FASE 88 & FASE 96: Costruzione dizionari/mappe in memoria solo se materialsByCode non è già fornito in O(1)
+  const materialsMap = React.useMemo(() => {
+    const map = new Map<string, RawMaterial>();
+    if (materialsByCode) return map;
+    for (const m of materials) {
+      if (m?.code) {
+        map.set(m.code.toUpperCase().trim(), m);
+      }
+      if (m?.id) {
+        map.set(m.id.toUpperCase().trim(), m);
+      }
     }
-  }
+    return map;
+  }, [materials, materialsByCode]);
 
   const jobContoLavoroList =
     contoLavoroMap?.[job.id] ??
@@ -51,63 +71,86 @@ export default function ODLPrintTemplate({
     job.externalizedMaterials ??
     [];
 
-  const contoLavoroSet = new Set<string>(
-    jobContoLavoroList.map((m: string) => (m || '').toUpperCase().trim()).filter(Boolean)
+  const contoLavoroSet = React.useMemo(
+    () =>
+      new Set<string>(
+        jobContoLavoroList.map((m: string) => (m || '').toUpperCase().trim()).filter(Boolean)
+      ),
+    [jobContoLavoroList]
   );
 
   // Pre-indicizza le note della BOM Articolo in O(1) per evitare .find() nidificati (N*M)
-  const articleBomNotesByKey = new Map<string, string>();
-  const articleBomNotesByComp = new Map<string, string>();
-  if (resolvedArticle?.billOfMaterials) {
-    for (const aItem of resolvedArticle.billOfMaterials) {
-      const compKey = (aItem.component || '').toUpperCase().trim();
-      const cutKey = aItem.lunghezzaTaglioMm || 0;
-      const cleanNote = (aItem.note || '').trim();
-      if (compKey && cleanNote) {
-        articleBomNotesByKey.set(`${compKey}__${cutKey}`, cleanNote);
-        if (!articleBomNotesByComp.has(compKey)) {
-          articleBomNotesByComp.set(compKey, cleanNote);
+  const articleBomNotesByKey = React.useMemo(() => {
+    const byKey = new Map<string, string>();
+    if (resolvedArticle?.billOfMaterials) {
+      for (const aItem of resolvedArticle.billOfMaterials) {
+        const compKey = (aItem.component || '').toUpperCase().trim();
+        const cutKey = aItem.lunghezzaTaglioMm || 0;
+        const cleanNote = (aItem.note || '').trim();
+        if (compKey && cleanNote) {
+          byKey.set(`${compKey}__${cutKey}`, cleanNote);
         }
       }
     }
-  }
+    return byKey;
+  }, [resolvedArticle?.billOfMaterials]);
 
   // Pre-indicizza i tipi di materia prima in O(1)
-  const rawMaterialTypesMap = new Map<string, any>();
-  if (globalSettings?.rawMaterialTypes) {
-    for (const t of globalSettings.rawMaterialTypes) {
-      if (t?.id) {
-        rawMaterialTypesMap.set(t.id, t);
+  const rawMaterialTypesMap = React.useMemo(() => {
+    const map = new Map<string, any>();
+    if (globalSettings?.rawMaterialTypes) {
+      for (const t of globalSettings.rawMaterialTypes) {
+        if (t?.id) {
+          map.set(t.id, t);
+        }
       }
     }
-  }
+    return map;
+  }, [globalSettings?.rawMaterialTypes]);
 
-  const sourceBom =
-    job.billOfMaterials && job.billOfMaterials.length > 0
-      ? job.billOfMaterials
-      : (resolvedArticle?.billOfMaterials || []).map((b) => ({
-          ...b,
-          status: 'pending' as const,
-          isFromTemplate: true,
-        }));
+  const sourceBom = React.useMemo(
+    () =>
+      job.billOfMaterials && job.billOfMaterials.length > 0
+        ? job.billOfMaterials
+        : (resolvedArticle?.billOfMaterials || []).map((b) => ({
+            ...b,
+            status: 'pending' as const,
+            isFromTemplate: true,
+          })),
+    [job.billOfMaterials, resolvedArticle?.billOfMaterials]
+  );
 
-  const allItems = sourceBom.map(item => {
-    const compUpper = (item.component || '').toUpperCase().trim();
-    const mat = materialsByCode?.[compUpper] ?? materialsMap.get(compUpper);
-    const type = mat?.type?.toUpperCase() || 'TRECCIA';
-    const isExternalized = Boolean(
-      contoLavoroMap?.[job.id]?.includes(compUpper) || contoLavoroSet.has(compUpper)
-    );
-    
-    // FALLBACK LOGIC O(1): Se la riga commessa non ha nota, recupera in O(1) dalla mappa BOM articolo
-    let finalNote = (item.note || '').trim();
-    if (!finalNote) {
-      const cutKey = item.lunghezzaTaglioMm || 0;
-      finalNote = articleBomNotesByKey.get(`${compUpper}__${cutKey}`) || '';
-    }
+  const allItems = React.useMemo(
+    () =>
+      sourceBom.map((item) => {
+        const compUpper = (item.component || '').toUpperCase().trim();
+        const mat = materialsByCode?.[compUpper] ?? materialsMap.get(compUpper);
+        const type = mat?.type?.toUpperCase() || 'TRECCIA';
+        const isExternalized = Boolean(
+          contoLavoroMap?.[job.id]?.includes(compUpper) || contoLavoroSet.has(compUpper)
+        );
 
-    return { ...item, note: finalNote, type, mat, isExternalized };
-  });
+        // FALLBACK LOGIC O(1): Se la riga commessa non ha nota, recupera in O(1) dalla mappa BOM articolo
+        let finalNote = (item.note || '').trim();
+        if (!finalNote) {
+          const cutKey = item.lunghezzaTaglioMm || 0;
+          finalNote = articleBomNotesByKey.get(`${compUpper}__${cutKey}`) || '';
+        }
+
+        return { ...item, note: finalNote, type, mat, isExternalized };
+      }),
+    [sourceBom, materialsByCode, materialsMap, contoLavoroMap, job.id, contoLavoroSet, articleBomNotesByKey]
+  );
+
+  const qrValue = React.useMemo(
+    () =>
+      (qrRule || "{ordinePF}@{details}@{qta}")
+        .replace('{ordinePF}', job.ordinePF || '')
+        .replace('{details}', job.details || '')
+        .replace('{qta}', String(job.qta || ''))
+        .replace('{numeroODLInterno}', job.numeroODLInterno || ''),
+    [qrRule, job.ordinePF, job.details, job.qta, job.numeroODLInterno]
+  );
 
   const trecciaItems = allItems.filter(i => ['BOB', 'PF3V0', 'BARRA', 'TRECCIA'].includes(i.type));
   const tubiItems = allItems.filter(i => i.type === 'TUBI');
@@ -257,7 +300,7 @@ export default function ODLPrintTemplate({
                     <tbody>
                         <tr>
                             <td style={{ ...styles.cell, borderBottom: 0, padding: '1mm' }}>
-                                {logoSrc && <img src={logoSrc} alt="Logo" style={{ height: '8mm', objectFit: 'contain' }} />}
+                                {logoSrc && <img src={logoSrc} alt="Logo" decoding="async" loading="eager" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ height: '8mm', objectFit: 'contain' }} />}
                             </td>
                             <td style={{ ...styles.cell, borderBottom: 0, backgroundColor: config.colors.primary, color: 'white', fontWeight: 'bold', fontSize: '10pt' }}>
                                 SCHEDA DI LAVORAZIONE - CONTINUAZIONE
@@ -302,7 +345,7 @@ export default function ODLPrintTemplate({
                                 <tr>
                                     <td style={{ ...styles.cell, borderLeft: 0, borderTop: 0, borderBottom: 0, backgroundColor: config.header.logoBg || 'white' }}>
                                         <div style={styles.qrWrapper}>
-                                            {logoSrc && <img src={logoSrc} alt="Logo" style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />}
+                                            {logoSrc && <img src={logoSrc} alt="Logo" decoding="async" loading="eager" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />}
                                         </div>
                                     </td>
                                     <td style={{ ...styles.title, border: 0, borderLeft: `1px solid ${config.colors.border}`, backgroundColor: config.header.titleBg || config.colors.primary, height: config.header.titleHeight || '12mm' }}>
@@ -359,13 +402,7 @@ export default function ODLPrintTemplate({
                                 CODICE COMMESSA
                             </div>
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1mm' }}>
-                                <QRCode value={
-                                  (qrRule || "{ordinePF}@{details}@{qta}")
-                                  .replace('{ordinePF}', job.ordinePF || '')
-                                  .replace('{details}', job.details || '')
-                                  .replace('{qta}', String(job.qta || ''))
-                                  .replace('{numeroODLInterno}', job.numeroODLInterno || '')
-                                } size={config.header.qrSize || 65} />
+                                <MemoizedQRCode value={qrValue} size={config.header.qrSize || 65} />
                             </div>
                         </div>
                     </td>
@@ -499,6 +536,17 @@ export default function ODLPrintTemplate({
                 src={technicalDrawingUrl}
                 alt="Disegno Tecnico"
                 crossOrigin="anonymous"
+                decoding="async"
+                loading="eager"
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (img.getAttribute('crossorigin')) {
+                    img.removeAttribute('crossorigin');
+                    img.src = technicalDrawingUrl;
+                  } else {
+                    img.style.display = 'none';
+                  }
+                }}
                 style={{
                   maxWidth: '100%',
                   maxHeight: '100%',
@@ -555,6 +603,17 @@ export default function ODLPrintTemplate({
               src={technicalDrawingUrl}
               alt="Disegno Tecnico"
               crossOrigin="anonymous"
+              decoding="async"
+              loading="eager"
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (img.getAttribute('crossorigin')) {
+                  img.removeAttribute('crossorigin');
+                  img.src = technicalDrawingUrl;
+                } else {
+                  img.style.display = 'none';
+                }
+              }}
               style={{
                 maxWidth: '100%',
                 maxHeight: '100%',
@@ -895,7 +954,7 @@ export default function ODLPrintTemplate({
   }
 
   return (
-    <div id="odl-pdf-pages" style={{ width: '297mm' }}>
+    <div id={omitRootId ? undefined : "odl-pdf-pages"} style={{ width: '297mm' }}>
       {pages.map((pageBlocks, idx) => {
         const isFirstPageOfDoc = idx === 0;
         const isLastPageOfDoc = idx === pages.length - 1;
@@ -960,3 +1019,5 @@ export default function ODLPrintTemplate({
     </div>
   );
 }
+
+export default React.memo(ODLPrintTemplate);

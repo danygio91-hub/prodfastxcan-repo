@@ -581,7 +581,8 @@ export default function DataManagementClientPage({
 
   const generateSinglePdf = async (
     job: JobOrder,
-    precomputedContoLavoroMap?: Record<string, string[]>
+    precomputedContoLavoroMap?: Record<string, string[]>,
+    skipMarkPrinted?: boolean
   ) => {
     setIsDownloadingPdf(job.id);
     try {
@@ -593,26 +594,29 @@ export default function DataManagementClientPage({
       setPdfData({
         job,
         article,
-        materials: rawMaterials,
+        materials: [],
         contoLavoroMap,
         materialsByCode: materialsByCodeMap,
         articlesByCode: articlesByCodeMap,
         printDate: new Date(),
       });
-      await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 300)));
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
       const container = document.getElementById('odl-pdf-pages');
       if (!container) throw new Error("Template non trovato.");
       const pageElements = container.querySelectorAll('.odl-page');
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
       for (let i = 0; i < pageElements.length; i++) {
+        if (i > 0) await new Promise<void>((r) => setTimeout(r, 0));
         const page = pageElements[i] as HTMLElement;
-        const canvas = await html2canvas(page, { scale: 3, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-        const imgData = canvas.toDataURL('image/png', 1.0);
+        const canvas = await html2canvas(page, { scale: 2, useCORS: true, imageTimeout: 2500, logging: false, backgroundColor: '#ffffff' });
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
         if (i > 0) pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
+        pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
       }
       pdf.save(`ODL_${job.ordinePF.replace(/\//g, '_')}.pdf`);
-      await markJobAsPrinted(job.id);
+      if (!skipMarkPrinted) {
+        await markJobAsPrinted(job.id);
+      }
     } catch (error) { 
       toast({ variant: "destructive", title: `Errore Download ${job.ordinePF}` }); 
     } finally { 
@@ -639,8 +643,10 @@ export default function DataManagementClientPage({
     });
     
     for (const job of jobsToDownload) {
-      await generateSinglePdf(job, batchContoLavoroMap);
+      await generateSinglePdf(job, batchContoLavoroMap, true);
     }
+
+    await Promise.all(jobsToDownload.map((job) => markJobAsPrinted(job.id)));
     
     setIsDownloadingPdf(null);
     setIsProcessingBatch(false);

@@ -1746,7 +1746,7 @@ export default function ProgrammazioneClientPage({
 
   const [odlConfig] = useState<ODLConfig>(initialOdlConfig || DEFAULT_ODL_CONFIG);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
-  const [pdfData, setPdfData] = useState<{
+  const [pdfData, setPdfData] = useState<Array<{
     job: JobOrder;
     article: Article | null;
     materials: RawMaterial[];
@@ -1754,7 +1754,7 @@ export default function ProgrammazioneClientPage({
     contoLavoroMap?: Record<string, string[]>;
     materialsByCode?: Record<string, RawMaterial>;
     articlesByCode?: Record<string, Article>;
-  } | null>(null);
+  }> | null>(null);
 
   const qrRule = globalSettings?.jobOrderQrCodeRule || (globalSettings as any)?.qrCodeRule || "{ordinePF}@{details}@{qta}";
 
@@ -4077,10 +4077,11 @@ export default function ProgrammazioneClientPage({
     };
 
     try {
+      // FASE 96: Invia SOLO gli articoli e i materiali effettivamente mancanti dalle cache in memoria
       serverBulkData = await getOdlPrintData(
         jobIds,
-        Array.from(allArticleCodesSet),
-        missingMaterialCodes.length > 0 ? Array.from(allMaterialCodesSet) : []
+        missingArticleCodes,
+        missingMaterialCodes
       );
 
       // Idrata le cache locali in memoria
@@ -4095,19 +4096,33 @@ export default function ProgrammazioneClientPage({
       console.warn("Avviso bulk pre-fetch stampa ODL (uso fallback cache in memoria):", e);
     }
 
-    // 3. Costruisci Dizionari O(1) completi unendo cache locale + risposta bulk server
+    // 3. Costruisci Dizionari O(1) completi unendo cache locale + risposta bulk server (deduplicati in memoria)
     const articlesByCode: Record<string, Article> = { ...serverBulkData.articlesByCode };
     allArticleCodesSet.forEach((code) => {
       if (!articlesByCode[code]) {
         const localArt = articleMap.get(code) || articlesCacheRef.current.get(code);
-        if (localArt) articlesByCode[code] = localArt;
+        if (localArt) {
+          articlesByCode[code] = localArt;
+          if (localArt.code) articlesByCode[localArt.code.trim().toUpperCase()] = localArt;
+          if (localArt.id) articlesByCode[localArt.id.trim().toUpperCase()] = localArt;
+        }
       }
     });
 
+    // Raccogli tutti i codici componente anche dalle BOM degli articoli risolti
+    Object.values(articlesByCode).forEach((art) => {
+      (art?.billOfMaterials || []).forEach((b) => {
+        if (b?.component) allMaterialCodesSet.add(b.component.trim().toUpperCase());
+      });
+    });
+
     const materialsByCode: Record<string, RawMaterial> = { ...serverBulkData.materialsByCode };
-    materialsCacheRef.current.forEach((mat, code) => {
+    allMaterialCodesSet.forEach((code) => {
       if (!materialsByCode[code]) {
-        materialsByCode[code] = mat;
+        const cachedMat = materialsCacheRef.current.get(code);
+        if (cachedMat) {
+          materialsByCode[code] = cachedMat;
+        }
       }
     });
 
@@ -4132,8 +4147,6 @@ export default function ProgrammazioneClientPage({
         contoLavoroMap[localJob.ordinePF] = finalExt;
       }
     });
-
-    const materialsList = Object.values(materialsByCode);
 
     // 4. Risoluzione sincrona in memoria O(1) per ogni commessa selezionata
     return targetJobs.map((localJob) => {
@@ -4167,6 +4180,18 @@ export default function ProgrammazioneClientPage({
         }));
       }
 
+      // FASE 96: Passa solo i materiali pertinenti alla BOM della commessa invece dell'intera cache globale
+      const jobMaterials: RawMaterial[] = [];
+      const seenJobMatCodes = new Set<string>();
+      bomItems.forEach((b) => {
+        const compCode = (b?.component || '').trim().toUpperCase();
+        if (compCode && !seenJobMatCodes.has(compCode)) {
+          seenJobMatCodes.add(compCode);
+          const mat = materialsByCode[compCode];
+          if (mat) jobMaterials.push(mat);
+        }
+      });
+
       let jobPhases = mergedJob.phases || [];
       if ((!jobPhases || jobPhases.length === 0) && (mergedJob.workCycleId || article?.workCycleId)) {
         const cycleId = mergedJob.workCycleId || article?.workCycleId;
@@ -4189,7 +4214,7 @@ export default function ProgrammazioneClientPage({
       return {
         enrichedJob,
         article,
-        materials: materialsList,
+        materials: jobMaterials,
         contoLavoroMap,
         materialsByCode,
         articlesByCode,
@@ -4198,13 +4223,44 @@ export default function ProgrammazioneClientPage({
     });
   }, [articleMap, workCycles]);
 
+  // FASE 96: Helper non bloccante per attendere il paint DOM e il decode asincrono delle immagini nel container ODL
+  const waitForOdlDomAndImagesReady = useCallback(async () => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+    const container = document.getElementById('odl-pdf-pages');
+    if (!container) return null;
+
+    const images = Array.from(container.querySelectorAll('img'));
+    if (images.length > 0) {
+      await Promise.race([
+        Promise.all(
+          images.map((img) => {
+            if (img.complete) return Promise.resolve();
+            if (typeof img.decode === 'function') {
+              return img.decode().catch(() => {});
+            }
+            return new Promise<void>((res) => {
+              img.addEventListener('load', () => res(), { once: true });
+              img.addEventListener('error', () => res(), { once: true });
+            });
+          })
+        ),
+        new Promise<void>((res) => setTimeout(res, 600)),
+      ]);
+    }
+    return container;
+  }, []);
+
   // FASE 33 & FASE 88: Helper per singola commessa basato sul motore Bulk O(1)
   const prepareJobForPrint = useCallback(async (job: JobOrder) => {
     const [singlePrepared] = await prepareBulkJobsForPrint([job]);
     return singlePrepared;
   }, [prepareBulkJobsForPrint]);
 
-  // 1. FASE 33 & FASE 88: Stampa Massiva ODL con Bulk Pre-fetching Parallelo e Lookup O(1)
+  // 1. FASE 33, FASE 88 & FASE 96: Stampa Massiva ODL con Batch Mount Singolo, Pre-fetching Parallelo e Lookup O(1)
   const handleBulkPrintODL = async () => {
     if (selectedJobIds.length === 0) return;
 
@@ -4231,9 +4287,32 @@ export default function ProgrammazioneClientPage({
         description: `Pre-caricamento massivo parallelo per ${selectedJobs.length} commesse...`,
       });
 
-      // FASE 88: Esegui un UNICO Bulk Pre-fetch parallelo PRIMA del ciclo di rendering PDF
-      // Zero chiamate di rete (N+1) all'interno del ciclo for!
+      // FASE 88 & FASE 96: Esegui un UNICO Bulk Pre-fetch parallelo deduplicato PRIMA del rendering PDF
       const preparedJobsBatch = await prepareBulkJobsForPrint(selectedJobs);
+      const printTimestamp = new Date();
+
+      // FASE 96: Monta TUTTI i template ODL in un UNICO aggiornamento di stato React (1 solo re-render invece di N!)
+      setPdfData(
+        preparedJobsBatch.map((item) => ({
+          job: item.enrichedJob,
+          article: item.article,
+          materials: item.materials,
+          contoLavoroMap: item.contoLavoroMap,
+          materialsByCode: item.materialsByCode,
+          articlesByCode: item.articlesByCode,
+          printDate: printTimestamp,
+        }))
+      );
+
+      const container = await waitForOdlDomAndImagesReady();
+      if (!container) {
+        throw new Error("Template di stampa ODL non trovato nel DOM.");
+      }
+
+      const pageElements = container.querySelectorAll('.odl-page');
+      if (pageElements.length === 0) {
+        throw new Error("Nessuna pagina ODL generata per le commesse selezionate.");
+      }
 
       const pdf = new jsPDF({
         orientation: 'landscape',
@@ -4244,58 +4323,25 @@ export default function ProgrammazioneClientPage({
 
       let totalPagesAdded = 0;
 
-      for (let i = 0; i < preparedJobsBatch.length; i++) {
-        const {
-          enrichedJob,
-          article,
-          materials,
-          contoLavoroMap,
-          materialsByCode,
-          articlesByCode,
-        } = preparedJobsBatch[i];
-
-        setPdfData({
-          job: enrichedJob,
-          article,
-          materials,
-          contoLavoroMap,
-          materialsByCode,
-          articlesByCode,
-          printDate: new Date(),
+      for (let pIdx = 0; pIdx < pageElements.length; pIdx++) {
+        // Cede il controllo al browser tra una pagina e l'altra per non congelare il main thread
+        if (pIdx > 0) {
+          await new Promise<void>((r) => setTimeout(r, 0));
+        }
+        const page = pageElements[pIdx] as HTMLElement;
+        const canvas = await html2canvas(page, {
+          scale: 2,
+          useCORS: true,
+          imageTimeout: 2500,
+          logging: false,
+          backgroundColor: '#ffffff'
         });
-
-        // Attesa minima di paint sincrono del DOM (nessun fetch nel template)
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => {
-            setTimeout(resolve, 250);
-          });
-        });
-
-        const container = document.getElementById('odl-pdf-pages');
-        if (!container) {
-          throw new Error("Template di stampa ODL non trovato nel DOM.");
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        if (totalPagesAdded > 0) {
+          pdf.addPage();
         }
-
-        const pageElements = container.querySelectorAll('.odl-page');
-        if (pageElements.length === 0) {
-          throw new Error(`Nessuna pagina ODL generata per la commessa ${enrichedJob.ordinePF}.`);
-        }
-
-        for (let pIdx = 0; pIdx < pageElements.length; pIdx++) {
-          const page = pageElements[pIdx] as HTMLElement;
-          const canvas = await html2canvas(page, {
-            scale: 2.5,
-            useCORS: true,
-            logging: false,
-            backgroundColor: '#ffffff'
-          });
-          const imgData = canvas.toDataURL('image/png', 1.0);
-          if (totalPagesAdded > 0) {
-            pdf.addPage();
-          }
-          pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
-          totalPagesAdded++;
-        }
+        pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
+        totalPagesAdded++;
       }
 
       if (totalPagesAdded > 0) {
@@ -4668,24 +4714,19 @@ export default function ProgrammazioneClientPage({
       // =========================================================================
       // PASSO 1 (Azione Fisica): Monta il template e forza download PDF
       // =========================================================================
-      setPdfData({
-        job: enrichedJob,
-        article,
-        materials,
-        contoLavoroMap,
-        materialsByCode,
-        articlesByCode,
-        printDate: new Date(),
-      });
+      setPdfData([
+        {
+          job: enrichedJob,
+          article,
+          materials,
+          contoLavoroMap,
+          materialsByCode,
+          articlesByCode,
+          printDate: new Date(),
+        },
+      ]);
 
-      // Attesa rendering sincrono del template nascosto nel DOM
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          setTimeout(resolve, 300);
-        });
-      });
-
-      const container = document.getElementById('odl-pdf-pages');
+      const container = await waitForOdlDomAndImagesReady();
       if (!container) {
         throw new Error("Template di stampa ODL non trovato nel DOM.");
       }
@@ -4703,16 +4744,20 @@ export default function ProgrammazioneClientPage({
       });
 
       for (let i = 0; i < pageElements.length; i++) {
+        if (i > 0) {
+          await new Promise<void>((r) => setTimeout(r, 0));
+        }
         const page = pageElements[i] as HTMLElement;
         const canvas = await html2canvas(page, {
-          scale: 3,
+          scale: 2,
           useCORS: true,
+          imageTimeout: 2500,
           logging: false,
           backgroundColor: '#ffffff'
         });
-        const imgData = canvas.toDataURL('image/png', 1.0);
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
         if (i > 0) pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
+        pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
       }
 
       const cleanOdl = currentOdl.replace(/\//g, '_');
@@ -4754,7 +4799,7 @@ export default function ProgrammazioneClientPage({
       setPdfData(null);
       setIsDownloadingPdf(null);
     }
-  }, [prepareJobForPrint, toast, isDownloadingPdf]);
+  }, [prepareJobForPrint, waitForOdlDomAndImagesReady, toast, isDownloadingPdf]);
 
   // Settimane per il dropdown rapido (Standard ISO 8601 - Generate dinamicamente da tutte le commesse)
   const weekOptions = useMemo(() => {
@@ -6464,23 +6509,27 @@ export default function ProgrammazioneClientPage({
         />
 
         {/* =========================================================================
-            4. TEMPLATE PDF NASCOSTO PER STAMPA ODL (FASE 9)
+            4. TEMPLATE PDF NASCOSTO PER STAMPA ODL (FASE 9 & FASE 96 BATCH RENDER)
         ========================================================================== */}
-        {pdfData && (
-          <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}>
-            <ODLPrintTemplate
-              job={pdfData.job}
-              article={pdfData.article}
-              materials={pdfData.materials}
-              printDate={pdfData.printDate}
-              config={odlConfig}
-              qrRule={qrRule}
-              globalSettings={globalSettingsRef.current || globalSettings}
-              departments={departments}
-              contoLavoroMap={pdfData.contoLavoroMap}
-              materialsByCode={pdfData.materialsByCode}
-              articlesByCode={pdfData.articlesByCode}
-            />
+        {pdfData && pdfData.length > 0 && (
+          <div id="odl-pdf-pages" style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1, width: '297mm' }}>
+            {pdfData.map((item, idx) => (
+              <ODLPrintTemplate
+                key={item.job.id || idx}
+                job={item.job}
+                article={item.article}
+                materials={item.materials}
+                printDate={item.printDate}
+                config={odlConfig}
+                qrRule={qrRule}
+                globalSettings={globalSettingsRef.current || globalSettings}
+                departments={departments}
+                contoLavoroMap={item.contoLavoroMap}
+                materialsByCode={item.materialsByCode}
+                articlesByCode={item.articlesByCode}
+                omitRootId={true}
+              />
+            ))}
           </div>
         )}
 

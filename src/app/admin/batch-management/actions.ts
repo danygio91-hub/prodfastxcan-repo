@@ -108,17 +108,24 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
 
     const materialIds = materials.map(m => m.id);
     
-    // Fetch withdrawals ONLY for the materials we are about to display
+    // Fetch withdrawals ONLY for the materials we are about to display (in parallel chunks)
     const withdrawalsByMaterial: Record<string, MaterialWithdrawal[]> = {};
+    const materialIdChunks: string[][] = [];
     for (let i = 0; i < materialIds.length; i += 30) {
-        const chunk = materialIds.slice(i, i + 30);
-        const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "in", chunk).get();
+        materialIdChunks.push(materialIds.slice(i, i + 30));
+    }
+    const withdrawalSnapshots = await Promise.all(
+        materialIdChunks.map(chunk =>
+            adminDb.collection("materialWithdrawals").where("materialId", "in", chunk).get()
+        )
+    );
+    withdrawalSnapshots.forEach(wSnap => {
         wSnap.forEach(d => {
             const w = { id: d.id, ...convertTimestampsToDates(d.data()) } as MaterialWithdrawal;
             if (!withdrawalsByMaterial[w.materialId]) withdrawalsByMaterial[w.materialId] = [];
             withdrawalsByMaterial[w.materialId].push(w);
         });
-    }
+    });
 
     const allGroupedBatches: GroupedBatches[] = [];
 
