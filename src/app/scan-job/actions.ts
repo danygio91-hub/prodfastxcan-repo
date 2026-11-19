@@ -433,6 +433,73 @@ export async function updateWorkGroup(group: WorkGroup, opId: string) {
     } catch (e) { return { success: false, message: "Errore." }; }
 }
 
+/**
+ * FASE 99-BIS: Fase di SOLA LETTURA per l'evasione impegni BOM in transazione.
+ * Esegue tutte le transaction.get sulle commesse PRIMA di qualsiasi scrittura e calcola in memoria
+ * le BOM aggiornate (match per codice materiale e/o per tipo). Le scritture vanno applicate
+ * dal chiamante alla fine della transazione tramite applyJobBOMResolutionWrites.
+ */
+type JobBOMResolutionWrite = { jobRef: admin.firestore.DocumentReference; billOfMaterials: JobBillOfMaterialsItem[] };
+
+async function collectJobBOMResolutionWrites(
+    jobIds: string[],
+    materialCode: string,
+    materialTypesToExtinguish: string[],
+    transaction: admin.firestore.Transaction
+): Promise<JobBOMResolutionWrite[]> {
+    const uniqueIds = Array.from(new Set((jobIds || []).filter(Boolean)));
+    if (uniqueIds.length === 0) return [];
+
+    const targetCode = (materialCode || '').trim().toUpperCase();
+    const typesToMatch = (materialTypesToExtinguish || []).map(t => (t || '').toUpperCase()).filter(Boolean);
+
+    // Query non transazionale (non conta come lettura della transazione)
+    const typeMap = new Map<string, string>();
+    if (typesToMatch.length > 0) {
+        const materialsSnap = await adminDb.collection('rawMaterials').get();
+        materialsSnap.docs.forEach(d => {
+            const m = d.data();
+            if (m.code && m.type) typeMap.set(String(m.code).toUpperCase(), String(m.type).toUpperCase());
+        });
+    }
+
+    // TUTTE le letture transazionali delle commesse prima di qualsiasi scrittura
+    const lookups = [];
+    for (const rawId of uniqueIds) {
+        lookups.push(await getJobOrderRefAndSnap(rawId, transaction));
+    }
+
+    const writesByPath = new Map<string, JobBOMResolutionWrite>();
+    for (const { jobRef, jobSnap } of lookups) {
+        if (!jobSnap.exists || writesByPath.has(jobRef.path)) continue;
+        const jobData = jobSnap.data() as JobOrder;
+        if (!jobData.billOfMaterials || jobData.billOfMaterials.length === 0) continue;
+
+        let modified = false;
+        const updatedBOM = jobData.billOfMaterials.map(item => {
+            const compCode = (item.component || '').trim().toUpperCase();
+            const alreadyWithdrawn = item.status === 'withdrawn' && item.withdrawn;
+            if (alreadyWithdrawn) return item;
+            const codeMatch = !!targetCode && compCode === targetCode;
+            const compType = typeMap.get(compCode);
+            const typeMatch = !!compType && typesToMatch.includes(compType);
+            if (codeMatch || typeMatch) {
+                modified = true;
+                return { ...item, status: 'withdrawn' as const, withdrawn: true };
+            }
+            return item;
+        });
+
+        if (modified) writesByPath.set(jobRef.path, { jobRef, billOfMaterials: updatedBOM });
+    }
+
+    return Array.from(writesByPath.values());
+}
+
+function applyJobBOMResolutionWrites(writes: JobBOMResolutionWrite[], transaction: admin.firestore.Transaction) {
+    writes.forEach(w => transaction.update(w.jobRef, { billOfMaterials: w.billOfMaterials }));
+}
+
 export async function resolveJobBOMCommitmentsByType(
     jobIds: string[],
     materialTypesToExtinguish: string[],
@@ -1399,6 +1466,17 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 { id: withdrawalRef.id, ...newWithdrawalDoc }
             );
 
+            // FASE 99-BIS: letture commesse (evasione impegni BOM) PRIMA di qualsiasi scrittura
+            const bomWrites = session.associatedJobs.length > 0
+                ? await collectJobBOMResolutionWrites(
+                    session.associatedJobs.map(j => j.jobId),
+                    session.materialCode,
+                    [material.type],
+                    transaction
+                )
+                : [];
+
+            // --- WRITES (solo da qui in poi) ---
             transaction.update(materialRef, {
                 batches: postState.syncedBatches,
                 stock: postState.currentStockUnits,
@@ -1406,13 +1484,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 currentWeightKg: postState.currentWeightKg,
             });
             transaction.set(withdrawalRef, newWithdrawalDoc);
-
-            // ADDED: DUAL-DYNAMIC A (SESSION EXTINGUISHMENT)
-            if (session.associatedJobs.length > 0) {
-                const jobIds = session.associatedJobs.map(j => j.jobId);
-                await resolveJobBOMCommitmentByMaterialCode(jobIds, session.materialCode, transaction);
-                await resolveJobBOMCommitmentsByType(jobIds, [material.type], transaction);
-            }
+            applyJobBOMResolutionWrites(bomWrites, transaction);
         });
         
         revalidatePath('/scan-job');
@@ -1518,6 +1590,15 @@ export async function logTubiGuainaWithdrawal(
             );
             hydratedAfter = postState.hydratedAfter;
 
+            // --- EVASIONE IMPEGNATO (Floor Truth) ---
+            // FASE 99-BIS: letture commesse PRIMA di qualsiasi scrittura
+            let finalJobIds = [sid];
+            if (isGroup && gSnap && gSnap.exists) {
+                finalJobIds = (gSnap.data() as any).jobOrderIds || [];
+            }
+            const bomWrites = await collectJobBOMResolutionWrites(finalJobIds, material.code, [material.type], t);
+
+            // --- WRITES (solo da qui in poi) ---
             t.update(mRef, {
                 batches: postState.syncedBatches,
                 stock: postState.currentStockUnits,
@@ -1525,15 +1606,7 @@ export async function logTubiGuainaWithdrawal(
                 currentWeightKg: postState.currentWeightKg,
             });
             t.set(wRef, newWithdrawalDoc);
-
-            // --- EVASIONE IMPEGNATO (Floor Truth) ---
-            let finalJobIds = [sid];
-            if (isGroup && gSnap && gSnap.exists) {
-                finalJobIds = (gSnap.data() as any).jobOrderIds || [];
-            }
-            
-            await resolveJobBOMCommitmentByMaterialCode(finalJobIds, material.code, t);
-            await resolveJobBOMCommitmentsByType(finalJobIds, [material.type], t);
+            applyJobBOMResolutionWrites(bomWrites, t);
         });
         
         revalidatePath('/scan-job');
