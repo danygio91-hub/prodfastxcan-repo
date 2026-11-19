@@ -13,7 +13,10 @@ import {
 
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord, JobBillOfMaterialsItem } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
-import { calculateInventoryMovement } from '@/lib/inventory-utils';
+import {
+    prepareWithdrawalMovement,
+    finalizePostWithdrawalMaterialState,
+} from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -1334,7 +1337,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             const materialRef = adminDb.collection('rawMaterials').doc(session.materialId);
             const [matSnap, withdrawalsSnap] = await Promise.all([
                 transaction.get(materialRef),
-                adminDb.collection('materialWithdrawals').where('materialId', '==', session.materialId).get()
+                transaction.get(adminDb.collection('materialWithdrawals').where('materialId', '==', session.materialId))
             ]);
             
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
@@ -1349,11 +1352,10 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 if (!residual || residual.matchingBatches.length === 0) {
                     throw new Error("Lotto non trovato durante il saldo finale.");
                 }
-                // FASE 89: Usa il residuo vivo totale idratato SSoT del lotto padre (non solo il primo sub-batch)
-                consumedWeight = Math.max(0, residual.availableWeightKg);
-            } else {
+            } else if (!isFinished) {
                 consumedWeight = session.grossOpeningWeight - closingGrossWeight;
-                if (consumedWeight < -0.001) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
+                if (consumedWeight < -0.01) throw new Error("Il peso di chiusura non può essere superiore a quello di apertura.");
+                consumedWeight = Math.max(0, consumedWeight);
             }
 
             const globalSettings = await getGlobalSettings();
@@ -1364,35 +1366,19 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 hasConversion: false
             } as any;
 
-            const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+            const { unitsToChange, weightToChange, updatedBatches, usedLotto } = prepareWithdrawalMovement({
                 material,
                 config,
-                consumedWeight, 
-                'kg',
-                false,
-                session.lotto as string | undefined,
-                withdrawals
-            );
-
-            let finalBatches = updatedBatches;
-            if (isFinished && usedLotto) {
-                const targetNorm = normStockLot(usedLotto);
-                finalBatches = updatedBatches.map(b =>
-                    normStockLot(b.lotto) === targetNorm ? { ...b, isExhausted: true, activeSessionId: null } : b
-                );
-            }
-            
-            transaction.update(materialRef, { batches: finalBatches });
-
-            // ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
-            transaction.update(materialRef, {
-                stock: admin.firestore.FieldValue.increment(-unitsToChange),
-                currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
-                currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
+                withdrawals,
+                quantity: consumedWeight,
+                inputUom: 'kg',
+                lotto: session.lotto as string | undefined,
+                isFinished,
+                clearActiveSession: isFinished,
             });
 
             const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
-            transaction.set(withdrawalRef, {
+            const newWithdrawalDoc = {
                 jobIds: session.associatedJobs.map(j => j.jobId),
                 jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF),
                 materialId: session.materialId,
@@ -1404,7 +1390,22 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 lotto: usedLotto,
                 isFinal: isFinished, // Flag informativo
                 source: 'production'
+            };
+
+            const postState = finalizePostWithdrawalMaterialState(
+                material,
+                updatedBatches,
+                withdrawals,
+                { id: withdrawalRef.id, ...newWithdrawalDoc }
+            );
+
+            transaction.update(materialRef, {
+                batches: postState.syncedBatches,
+                stock: postState.currentStockUnits,
+                currentStockUnits: postState.currentStockUnits,
+                currentWeightKg: postState.currentWeightKg,
             });
+            transaction.set(withdrawalRef, newWithdrawalDoc);
 
             // ADDED: DUAL-DYNAMIC A (SESSION EXTINGUISHMENT)
             if (session.associatedJobs.length > 0) {
@@ -1448,9 +1449,13 @@ export async function logTubiGuainaWithdrawal(
 
         await adminDb.runTransaction(async (t) => {
             const mRef = adminDb.collection("rawMaterials").doc(materialId as string);
-            const [mSnap, wSnap] = await Promise.all([
+            const sid = (jobId as string);
+            const isGroup = sid.startsWith('group-');
+
+            const [mSnap, wSnap, gSnap] = await Promise.all([
                 t.get(mRef),
-                adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get()
+                t.get(adminDb.collection("materialWithdrawals").where("materialId", "==", materialId)),
+                isGroup ? t.get(adminDb.collection('workGroups').doc(sid)) : Promise.resolve(null),
             ]);
             
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
@@ -1466,53 +1471,31 @@ export async function logTubiGuainaWithdrawal(
             } as any;
 
             const hydratedPre = hydrateMaterialWithWithdrawals(material, withdrawals);
-            const targetLottoStr = lotto ? String(lotto) : '';
+            const targetLottoStr = lotto ? String(lotto).trim() : '';
             const residual = targetLottoStr ? getLotResidualSummary(hydratedPre, targetLottoStr) : null;
             const canonicalLotto = residual?.matchingBatches[0]?.lotto || (targetLottoStr || undefined);
 
-            let qtyToUse = Number(quantity);
-            let unitToUse = unit as any;
+            const qtyToUse = Number(quantity || 0);
+            const unitToUse = (unit || material.unitOfMeasure) as any;
             
             if (!isFinished && qtyToUse <= 0) {
                 throw new Error("La quantità prelevata deve essere maggiore di zero.");
             }
-            
-            if (isFinished && targetLottoStr) {
-                // FASE 80: Usa il residuo vivo idratato (currentQuantity) del lotto, MAI netQuantity iniziale!
-                qtyToUse = Math.max(0, residual?.availableUnits ?? 0);
-                unitToUse = material.unitOfMeasure;
-            }
 
-            const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+            // FASE 99: In modalità isFinished = true, prepareWithdrawalMovement ignora quantità client arrotondate
+            // e calcola l'azzeramento SSoT esatto (residual.availableUnits / residual.availableWeightKg).
+            const { unitsToChange, weightToChange, updatedBatches, usedLotto } = prepareWithdrawalMovement({
                 material,
                 config,
-                qtyToUse,
-                unitToUse,
-                false,
-                canonicalLotto,
-                withdrawals
-            );
-
-            let finalBatches = updatedBatches;
-            if (isFinished && usedLotto) {
-                const targetNorm = normStockLot(usedLotto);
-                finalBatches = updatedBatches.map((b) =>
-                    normStockLot(b.lotto) === targetNorm ? { ...b, isExhausted: true } : b
-                );
-            }
-
-            if (isFinished && finalBatches.length > 0) {
-                t.update(mRef, { batches: finalBatches });
-            }
-
-            // ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
-            t.update(mRef, {
-                stock: admin.firestore.FieldValue.increment(-unitsToChange),
-                currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
-                currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
+                withdrawals,
+                quantity: qtyToUse,
+                inputUom: unitToUse,
+                lotto: canonicalLotto,
+                isFinished,
             });
 
             const nowTs = admin.firestore.Timestamp.now();
+            const wRef = adminDb.collection("materialWithdrawals").doc();
             const newWithdrawalDoc = {
                 jobIds: [jobId],
                 jobOrderPFs: [jobOrderPF],
@@ -1526,37 +1509,31 @@ export async function logTubiGuainaWithdrawal(
                 isFinal: isFinished,
                 source: 'production'
             };
-            const wRef = adminDb.collection("materialWithdrawals").doc();
+
+            const postState = finalizePostWithdrawalMaterialState(
+                material,
+                updatedBatches,
+                withdrawals,
+                { id: wRef.id, ...newWithdrawalDoc }
+            );
+            hydratedAfter = postState.hydratedAfter;
+
+            t.update(mRef, {
+                batches: postState.syncedBatches,
+                stock: postState.currentStockUnits,
+                currentStockUnits: postState.currentStockUnits,
+                currentWeightKg: postState.currentWeightKg,
+            });
             t.set(wRef, newWithdrawalDoc);
 
             // --- EVASIONE IMPEGNATO (Floor Truth) ---
-            const sid = (jobId as string);
-            const isGroup = sid.startsWith('group-');
             let finalJobIds = [sid];
-            
-            if (isGroup) {
-                const gSnap = await t.get(adminDb.collection('workGroups').doc(sid));
-                if (gSnap.exists) {
-                    finalJobIds = (gSnap.data() as any).jobOrderIds || [];
-                }
+            if (isGroup && gSnap && gSnap.exists) {
+                finalJobIds = (gSnap.data() as any).jobOrderIds || [];
             }
             
             await resolveJobBOMCommitmentByMaterialCode(finalJobIds, material.code, t);
             await resolveJobBOMCommitmentsByType(finalJobIds, [material.type], t);
-
-            // Re-idratazione SSoT post-scarico per risposta immediata alla UI
-            const postMaterialRaw: RawMaterial = {
-                ...material,
-                batches: finalBatches,
-                stock: Math.max(0, (material.stock || 0) - unitsToChange),
-                currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange),
-                currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
-            };
-            const postWithdrawals = [
-                ...withdrawals,
-                { id: wRef.id, ...newWithdrawalDoc, withdrawalDate: new Date() },
-            ];
-            hydratedAfter = hydrateMaterialWithWithdrawals(postMaterialRaw, postWithdrawals as any);
         });
         
         revalidatePath('/scan-job');

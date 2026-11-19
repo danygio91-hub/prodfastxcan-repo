@@ -5,7 +5,10 @@ import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { IndependentMaterialSession, RawMaterial } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
-import { calculateInventoryMovement } from '@/lib/inventory-utils';
+import {
+    prepareWithdrawalMovement,
+    finalizePostWithdrawalMaterialState,
+} from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
 import {
     hydrateMaterialWithWithdrawals,
@@ -207,8 +210,7 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 if (!residual || residual.matchingBatches.length === 0) {
                     throw new Error("Lotto non trovato durante il saldo finale.");
                 }
-                consumedWeight = currentRealNet; // Tutto il residuo vivo del lotto viene consumato
-            } else {
+            } else if (!isFinished) {
                 // SSoT VALIDATION: Compare input Gross vs Real-time Calculated Gross
                 consumedWeight = currentRealGross - closingGrossWeight;
                 
@@ -216,6 +218,7 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 if (consumedWeight < -0.01) {
                     throw new Error(`Il peso di chiusura (${closingGrossWeight}) non può essere superiore al Lordo Atteso (${currentRealGross.toFixed(3)}).`);
                 }
+                consumedWeight = Math.max(0, consumedWeight);
             }
 
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
@@ -225,51 +228,54 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 hasConversion: false
             } as any;
 
-            let { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+            const { unitsToChange, weightToChange, updatedBatches, usedLotto } = prepareWithdrawalMovement({
                 material,
                 config,
-                consumedWeight, 
-                'kg',
-                false,
-                session.lotto || undefined,
-                withdrawals
+                withdrawals,
+                quantity: consumedWeight,
+                inputUom: 'kg',
+                lotto: session.lotto || undefined,
+                isFinished,
+                clearActiveSession: true,
+            });
+
+            // Create withdrawal record
+            const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
+            const jobPFs = jobSnaps.filter(s => s.exists).map(s => (s.data() as any).ordinePF || s.id);
+            const newWithdrawalDoc = {
+                associatedJobIds: jobIds, 
+                jobIds: jobIds, 
+                jobOrderPFs: jobPFs, 
+                materialId: session.materialId,
+                materialCode: session.materialCode,
+                consumedWeight: weightToChange,
+                consumedUnits: unitsToChange,
+                operatorId: session.operatorId,
+                operatorName: session.operatorName,
+                withdrawalDate: admin.firestore.Timestamp.now(),
+                lotto: usedLotto,
+                isFinal: isFinished,
+                sessionId: sessionId,
+                source: 'session'
+            };
+
+            const postState = finalizePostWithdrawalMaterialState(
+                material,
+                updatedBatches,
+                withdrawals,
+                { id: withdrawalRef.id, ...newWithdrawalDoc }
             );
 
             // 3. START WRITES - NO READS ALLOWED AFTER THIS
-            const matUpdates: any = {
-                stock: admin.firestore.FieldValue.increment(-unitsToChange),
-                currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
-                currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
-            };
-
-            // UNLOCK LOGIC (FASE 89: Rimuove activeSessionId su tutti i sub-batch del lotto normalizzato)
-            if (session.lotto) {
-                const targetNorm = normStockLot(session.lotto);
-                let found = false;
-                updatedBatches = updatedBatches.map(b => {
-                    if (normStockLot(b.lotto) === targetNorm) {
-                        found = true;
-                        const updated = { ...b, activeSessionId: null };
-                        if (isFinished) {
-                            updated.isExhausted = true;
-                        }
-                        return updated;
-                    }
-                    return b;
-                });
-                
-                if (found) {
-                    matUpdates.batches = updatedBatches;
-                }
-            } else {
-                // If no specific lot but we have updatedBatches (FIFO), we should still pass them if we made any changes
-                matUpdates.batches = updatedBatches;
-            }
-            
-            transaction.update(materialRef, matUpdates);
+            transaction.update(materialRef, {
+                batches: postState.syncedBatches,
+                stock: postState.currentStockUnits,
+                currentStockUnits: postState.currentStockUnits,
+                currentWeightKg: postState.currentWeightKg,
+            });
 
             // Update Job Orders using pre-fetched snapshots
-            jobSnaps.forEach((jSnap, idx) => {
+            jobSnaps.forEach((jSnap) => {
                 if (jSnap.exists) {
                     const jData = jSnap.data() as any;
                     let modified = false;
@@ -287,27 +293,7 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
                 }
             });
 
-            // Create withdrawal record
-            const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
-            // Map snapshots back to PFs for the report
-            const jobPFs = jobSnaps.filter(s => s.exists).map(s => (s.data() as any).ordinePF || s.id);
-
-            transaction.set(withdrawalRef, {
-                associatedJobIds: jobIds, 
-                jobIds: jobIds, 
-                jobOrderPFs: jobPFs, 
-                materialId: session.materialId,
-                materialCode: session.materialCode,
-                consumedWeight: weightToChange,
-                consumedUnits: unitsToChange,
-                operatorId: session.operatorId,
-                operatorName: session.operatorName,
-                withdrawalDate: admin.firestore.Timestamp.now(),
-                lotto: usedLotto,
-                isFinal: isFinished,
-                sessionId: sessionId,
-                source: 'session'
-            });
+            transaction.set(withdrawalRef, newWithdrawalDoc);
 
             transaction.update(sessionRef, { status: 'closed' });
         });

@@ -72,10 +72,12 @@ export function hydrateMaterialWithWithdrawals(material: RawMaterial, withdrawal
     });
 
     // 4. Final consistency check: Recalculate total currentStockUnits
+    // Mantiene il valore SSoT esatto (3 decimali) senza Math.round prematuri su 'n',
+    // evitando discrepanze in UI (es. 106 vs 105) e falsi sovra-scarichi su residui decimali.
     const finalTotal = (hydratedMaterial.batches || [])
         .reduce((sum, b) => sum + (b.currentQuantity || 0), 0);
 
-    hydratedMaterial.currentStockUnits = hydratedMaterial.unitOfMeasure === 'n' ? Math.round(finalTotal) : Number(finalTotal.toFixed(3));
+    hydratedMaterial.currentStockUnits = finalTotal <= 0.001 ? 0 : Number(finalTotal.toFixed(3));
 
     // Calculate totalWeightKg based on currentStockUnits and conversion factors
     if (hydratedMaterial.unitOfMeasure === 'kg') {
@@ -86,6 +88,22 @@ export function hydrateMaterialWithWithdrawals(material: RawMaterial, withdrawal
     }
 
     return hydratedMaterial;
+}
+
+/**
+ * Restituisce il totale giacenza SSoT derivato dai batch idratati (se presenti),
+ * garantendo coerenza assoluta tra il box TOTALE MAGAZZINO e IN USO (LOTTO).
+ */
+export function getHydratedTotalStockUnits(material?: RawMaterial | null): number {
+    if (!material) return 0;
+    const batches = Array.isArray(material.batches) ? material.batches : [];
+    const hasHydratedBatches = batches.some((b) => b && b.currentQuantity !== undefined);
+    if (hasHydratedBatches) {
+        const total = batches.reduce((sum, b) => sum + (!b.isExhausted ? (b.currentQuantity || 0) : 0), 0);
+        return total <= 0.001 ? 0 : Number(total.toFixed(3));
+    }
+    const raw = Number(material.currentStockUnits ?? 0);
+    return Number.isFinite(raw) ? Math.max(0, Number(raw.toFixed(3))) : 0;
 }
 
 /**
@@ -242,9 +260,11 @@ export function previewWithdrawalImpact(params: WithdrawalPreviewParams): Withdr
         rapportoKgMt,
     } = params;
 
-    const uom = (unitOfMeasure || 'kg').toLowerCase();
+    const uom = (unitOfMeasure || 'kg').trim().toLowerCase();
     const safeAvailable = Math.max(0, Number(availableUnits) || 0);
-    const formatVal = (v: number) => (uom === 'n' ? Math.round(v) : Number(v.toFixed(3)));
+    const floorUnits = (v: number) => Math.floor(Number((v >= 0 ? v + 1e-6 : v).toFixed(4)));
+    // Coerente con formatDisplayStock: per 'n' la disponibilità e i display usano floor (105.728 -> 105)
+    const formatAvailableVal = (v: number) => (uom === 'n' ? floorUnits(v) : Number(v.toFixed(3)));
 
     const isEmpty =
         rawInput === undefined ||
@@ -255,9 +275,9 @@ export function previewWithdrawalImpact(params: WithdrawalPreviewParams): Withdr
     if (isEmpty) {
         return {
             hasInput: false,
-            currentAvailableUnits: formatVal(safeAvailable),
+            currentAvailableUnits: formatAvailableVal(safeAvailable),
             withdrawalUnits: 0,
-            estimatedRemainingUnits: formatVal(safeAvailable),
+            estimatedRemainingUnits: formatAvailableVal(safeAvailable),
             netOnScaleUnits: 0,
             isOverdraw: false,
             isZeroOrNegativeScaleDelta: false,
@@ -270,9 +290,9 @@ export function previewWithdrawalImpact(params: WithdrawalPreviewParams): Withdr
     if (numericInput < 0) {
         return {
             hasInput: true,
-            currentAvailableUnits: formatVal(safeAvailable),
+            currentAvailableUnits: formatAvailableVal(safeAvailable),
             withdrawalUnits: 0,
-            estimatedRemainingUnits: formatVal(safeAvailable),
+            estimatedRemainingUnits: formatAvailableVal(safeAvailable),
             netOnScaleUnits: 0,
             isOverdraw: true,
             isZeroOrNegativeScaleDelta: true,
@@ -281,13 +301,14 @@ export function previewWithdrawalImpact(params: WithdrawalPreviewParams): Withdr
     }
 
     if (!isScaleMode) {
-        const withdrawalUnits = formatVal(numericInput);
+        const withdrawalUnits = uom === 'n' ? Math.round(numericInput) : Number(numericInput.toFixed(3));
         const isOverdraw = withdrawalUnits > safeAvailable + 0.001;
-        const estimatedRemainingUnits = formatVal(Math.max(0, safeAvailable - withdrawalUnits));
+        const rawRemaining = Math.max(0, safeAvailable - withdrawalUnits);
+        const estimatedRemainingUnits = formatAvailableVal(rawRemaining);
 
         return {
             hasInput: true,
-            currentAvailableUnits: formatVal(safeAvailable),
+            currentAvailableUnits: formatAvailableVal(safeAvailable),
             withdrawalUnits,
             estimatedRemainingUnits,
             netOnScaleUnits: estimatedRemainingUnits,
@@ -301,16 +322,22 @@ export function previewWithdrawalImpact(params: WithdrawalPreviewParams): Withdr
     const netWeightKg = Math.max(0, numericInput - (Number(tareKg) || 0));
     const factor = (uom === 'mt' ? rapportoKgMt : conversionFactor) || 1;
     const rawOnScaleUnits = uom === 'kg' ? netWeightKg : factor > 0 ? netWeightKg / factor : netWeightKg;
-    const netOnScaleUnits = formatVal(rawOnScaleUnits);
+    const roundedOnScale = uom === 'n' ? Math.round(rawOnScaleUnits) : Number(rawOnScaleUnits.toFixed(3));
+    // Tolleranza float / arrotondamento bilancia (<= 0.01 su continuo, o <= 0.5 su pezzo intero se il valore grezzo è entro il residuo)
+    const overScale = roundedOnScale - safeAvailable;
+    const netOnScaleUnits =
+        overScale > 0 && ((uom === 'n' && overScale <= 0.5 && rawOnScaleUnits <= safeAvailable + 0.01) || (uom !== 'n' && overScale <= 0.01))
+            ? formatAvailableVal(safeAvailable)
+            : roundedOnScale;
 
-    const isOverdraw = netOnScaleUnits > safeAvailable + 0.001;
+    const isOverdraw = netOnScaleUnits > safeAvailable + 0.01;
     const rawWithdrawn = Math.max(0, safeAvailable - netOnScaleUnits);
-    const withdrawalUnits = isOverdraw ? 0 : formatVal(rawWithdrawn);
+    const withdrawalUnits = isOverdraw ? 0 : (uom === 'n' ? Math.round(rawWithdrawn) : Number(rawWithdrawn.toFixed(3)));
     const isZeroOrNegativeScaleDelta = !isOverdraw && withdrawalUnits <= 0.001;
 
     return {
         hasInput: true,
-        currentAvailableUnits: formatVal(safeAvailable),
+        currentAvailableUnits: formatAvailableVal(safeAvailable),
         withdrawalUnits,
         estimatedRemainingUnits: netOnScaleUnits,
         netOnScaleUnits,

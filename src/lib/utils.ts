@@ -62,23 +62,28 @@ export function serializeForClient<T>(obj: T): T {
 
 
 export function formatDisplayStock(value: number | null | undefined, unit: string): string {
-  if (value === null || value === undefined) return '0.00';
+  const uom = (unit || '').trim().toLowerCase();
+  if (value === null || value === undefined) return uom === 'n' ? '0' : '0.00';
 
-  if (unit === 'n') {
-    return String(Math.floor(value));
-  }
-  
-  if (isNaN(value)) {
-    return '0.00';
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return uom === 'n' ? '0' : '0.00';
   }
 
-  if (unit === 'mt') {
-    const rounded = Math.floor(value * 20) / 20;
-    return rounded.toFixed(2);
+  // Normalizzazione anti-rumore IEEE 754 (es. 9.999999 -> 10, mantenendo 105.728 -> 105 per difetto)
+  const cleanNum = Math.abs(num) <= 0.001 ? 0 : Number(num.toFixed(4));
+
+  if (uom === 'n') {
+    return String(cleanNum < 0 ? Math.ceil(cleanNum - 1e-9) : Math.floor(cleanNum + 1e-9));
   }
-  
-  const rounded = Math.floor(value * 100) / 100;
-  return rounded.toFixed(2);
+
+  if (uom === 'mt') {
+    const absRounded = Math.floor((Math.abs(cleanNum) + 1e-9) * 20) / 20;
+    return (cleanNum < 0 ? -absRounded : absRounded).toFixed(2);
+  }
+
+  const absRounded = Math.floor((Math.abs(cleanNum) + 1e-9) * 100) / 100;
+  return (cleanNum < 0 ? -absRounded : absRounded).toFixed(2);
 }
 
 // calculateCommitmentQty removed - use calculateBOMRequirement from @/lib/inventory-utils

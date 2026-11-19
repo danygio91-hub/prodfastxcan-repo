@@ -7,8 +7,11 @@ import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 
 import { getGlobalSettings } from '@/lib/settings-actions';
-import { calculateInventoryMovement } from '@/lib/inventory-utils';
-import { hydrateMaterialWithWithdrawals, getLotResidualSummary, normStockLot } from '@/lib/stock-logic';
+import {
+  prepareWithdrawalMovement,
+  finalizePostWithdrawalMaterialState,
+} from '@/lib/inventory-utils';
+import { hydrateMaterialWithWithdrawals, getLotResidualSummary } from '@/lib/stock-logic';
 import { convertTimestampsToDates } from '@/lib/utils';
 
 const manualWithdrawalSchema = z.object({
@@ -16,7 +19,10 @@ const manualWithdrawalSchema = z.object({
   operatorId: z.string(),
   operatorName: z.string(),
   lotto: z.string().optional(),
-  quantity: z.coerce.number().min(0), // Can be 0 if isFinished is true
+  quantity: z.preprocess(
+    (val) => (val === undefined || val === null || val === '' || Number.isNaN(Number(val)) ? 0 : val),
+    z.coerce.number().min(0)
+  ), // Can be 0 / omitted if isFinished is true
   unit: z.enum(['n', 'mt', 'kg']),
   notes: z.string().optional(),
   jobOrderPFs: z.array(z.string()).optional(),
@@ -43,25 +49,18 @@ export async function logManualWithdrawal(
         const materialRef = adminDb.collection("rawMaterials").doc(materialId);
         const [materialDoc, withdrawalsSnap] = await Promise.all([
             transaction.get(materialRef),
-            adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get()
+            transaction.get(adminDb.collection("materialWithdrawals").where("materialId", "==", materialId))
         ]);
         
         if (!materialDoc.exists) throw new Error("Materiale non trovato.");
         const material = { id: materialDoc.id, ...convertTimestampsToDates(materialDoc.data()) } as RawMaterial;
         const withdrawals = withdrawalsSnap.docs.map(d => ({ id: d.id, ...convertTimestampsToDates(d.data()) }));
         
-        // FASE 80: Idratazione SSoT prima del calcolo isFinished per leggere sempre currentQuantity residuo reale
+        // FASE 99: Calcolo SSoT diretto in transazione; se isFinished = true, scarica esattamente residual.availableUnits / availableWeightKg ignorando arrotondamenti client.
+        const targetLottoStr = lotto ? String(lotto).trim() : '';
         const hydratedPre = hydrateMaterialWithWithdrawals(material, withdrawals as any);
-        const targetLottoStr = lotto ? String(lotto) : '';
         const residual = targetLottoStr ? getLotResidualSummary(hydratedPre, targetLottoStr) : null;
         const canonicalLotto = residual?.matchingBatches[0]?.lotto || (targetLottoStr || undefined);
-
-        let qtyToUse = quantity;
-        let unitToUse = unit;
-        if (isFinished && targetLottoStr) {
-            qtyToUse = Math.max(0, residual?.availableUnits ?? 0);
-            unitToUse = material.unitOfMeasure;
-        }
 
         const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
             id: material.type,
@@ -70,38 +69,18 @@ export async function logManualWithdrawal(
             hasConversion: false
         } as any;
 
-        const { unitsToChange, weightToChange, updatedBatches, usedLotto } = calculateInventoryMovement(
+        const { unitsToChange, weightToChange, updatedBatches, usedLotto } = prepareWithdrawalMovement({
             material,
             config,
-            qtyToUse,
-            unitToUse as any,
-            false, 
-            canonicalLotto,
-            withdrawals
-        );
-
-        let finalBatches = updatedBatches;
-        const updates: any = {};
-        if (isFinished && usedLotto) {
-            const targetNorm = normStockLot(usedLotto);
-            finalBatches = updatedBatches.map((b) =>
-                normStockLot(b.lotto) === targetNorm ? { ...b, isExhausted: true } : b
-            );
-            updates.batches = finalBatches;
-        }
-        
-        if (Object.keys(updates).length > 0) {
-            transaction.update(materialRef, updates);
-        }
-
-        // ATOMIC STOCK UPDATE (MANDATORY ARCHITECTURE)
-        transaction.update(materialRef, {
-            stock: admin.firestore.FieldValue.increment(-unitsToChange),
-            currentStockUnits: admin.firestore.FieldValue.increment(-unitsToChange),
-            currentWeightKg: admin.firestore.FieldValue.increment(-weightToChange)
+            withdrawals,
+            quantity,
+            inputUom: unit as any,
+            lotto: canonicalLotto,
+            isFinished: Boolean(isFinished),
         });
         
         const nowTs = admin.firestore.Timestamp.now();
+        const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
         const newWithdrawalDoc = {
             jobIds: [],
             jobOrderPFs: (jobOrderPFs && jobOrderPFs.length > 0) ? jobOrderPFs : ['SCARICO_MANUALE'],
@@ -114,24 +93,25 @@ export async function logManualWithdrawal(
             withdrawalDate: nowTs,
             notes: notes || null,
             lotto: usedLotto,
-            isFinal: isFinished,
+            isFinal: Boolean(isFinished),
             source: 'manual'
         };
-        const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
-        transaction.set(withdrawalRef, newWithdrawalDoc);
 
-        const postMaterialRaw: RawMaterial = {
-            ...material,
-            batches: finalBatches,
-            stock: Math.max(0, (material.stock || 0) - unitsToChange),
-            currentStockUnits: Math.max(0, (material.currentStockUnits || 0) - unitsToChange),
-            currentWeightKg: Math.max(0, (material.currentWeightKg || 0) - weightToChange),
-        };
-        const postWithdrawals = [
-            ...withdrawals,
-            { id: withdrawalRef.id, ...newWithdrawalDoc, withdrawalDate: new Date() },
-        ];
-        hydratedAfter = hydrateMaterialWithWithdrawals(postMaterialRaw, postWithdrawals as any);
+        const postState = finalizePostWithdrawalMaterialState(
+            material,
+            updatedBatches,
+            withdrawals,
+            { id: withdrawalRef.id, ...newWithdrawalDoc }
+        );
+        hydratedAfter = postState.hydratedAfter;
+
+        transaction.update(materialRef, {
+            batches: postState.syncedBatches,
+            stock: postState.currentStockUnits,
+            currentStockUnits: postState.currentStockUnits,
+            currentWeightKg: postState.currentWeightKg,
+        });
+        transaction.set(withdrawalRef, newWithdrawalDoc);
     });
 
     const serializedHydrated = hydratedAfter ? JSON.parse(JSON.stringify(hydratedAfter)) : undefined;

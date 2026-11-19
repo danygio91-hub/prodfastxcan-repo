@@ -12,7 +12,7 @@ import { useCameraStream } from '@/hooks/use-camera-stream';
 import type { JobOrder, JobPhase, RawMaterial, ActiveMaterialSessionData, RawMaterialType, Packaging, MaterialConsumption, IndependentMaterialSession } from '@/types';
 import { findLastWeightForLotto, logTubiGuainaWithdrawal, getRawMaterialByCode, markPhaseMaterialReady } from './actions';
 import { getPackagingItems } from '../inventory/actions';
-import { extractHydratedLots, normStockLot, previewWithdrawalImpact } from '@/lib/stock-logic';
+import { extractHydratedLots, getHydratedTotalStockUnits, normStockLot, previewWithdrawalImpact } from '@/lib/stock-logic';
 import { WithdrawalLivePreviewCard } from '@/components/operator/WithdrawalLivePreviewCard';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -138,6 +138,10 @@ export default function MaterialAssociationDialog({
     return extractHydratedLots(selectedMaterial);
   }, [selectedMaterial]);
 
+  const totalStockUnitsDisplay = useMemo(() => {
+    return getHydratedTotalStockUnits(selectedMaterial);
+  }, [selectedMaterial]);
+
   const withdrawalPreview = useMemo(() => {
     if (!selectedMaterial || !lotAvailability || isBobina) return null;
     return previewWithdrawalImpact({
@@ -156,12 +160,15 @@ export default function MaterialAssociationDialog({
     if (!isKgMode && lotAvailability && !isBobina) {
         const currentQty = form.getValues('quantityToWithdraw');
         if (!currentQty) {
-            // Suggest MIN(LotAvailable, BOMRequirement)
+            // Suggest MIN(LotAvailable, BOMRequirement), rispettando floor per unità intere 'n' (mai 106 su 105.728)
             const suggest = bomRequirement > 0 ? Math.min(lotAvailability.available, bomRequirement) : lotAvailability.available;
-            form.setValue('quantityToWithdraw', Number(suggest.toFixed(3)));
+            const safeSuggest = selectedMaterial?.unitOfMeasure?.toLowerCase() === 'n'
+                ? Math.floor(Number((suggest + 1e-6).toFixed(4)))
+                : Number(suggest.toFixed(3));
+            form.setValue('quantityToWithdraw', safeSuggest > 0 ? safeSuggest : undefined);
         }
     }
-  }, [lotAvailability, bomRequirement, isKgMode, isBobina, form]);
+  }, [lotAvailability, bomRequirement, isKgMode, isBobina, selectedMaterial?.unitOfMeasure, form]);
 
   const handleScanTrigger = (type: ScanType) => {
     setScanType(type);
@@ -306,7 +313,7 @@ export default function MaterialAssociationDialog({
       formData.append('jobId', job.id);
       formData.append('jobOrderPF', job.ordinePF);
       formData.append('phaseId', phase.id);
-      formData.append('quantity', String(isFinished ? (lotAvailability?.available || finalQty) : finalQty));
+      formData.append('quantity', String(isFinished ? 0 : finalQty));
       formData.append('unit', finalUnit);
       formData.append('lotto', values.lotto || '');
       
@@ -387,7 +394,7 @@ export default function MaterialAssociationDialog({
                             <div className="p-2 rounded-lg bg-background border flex flex-col items-center justify-center text-center shadow-sm">
                                 <Label className="text-[8px] uppercase font-black text-muted-foreground mb-1">Totale Magazzino</Label>
                                 <p className="text-sm font-black text-primary leading-tight">
-                                    {formatDisplayStock(selectedMaterial.currentStockUnits, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
+                                    {formatDisplayStock(totalStockUnitsDisplay, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
                                 </p>
                                 <p className="text-[9px] font-bold text-muted-foreground">
                                     ({formatDisplayStock(selectedMaterial.currentWeightKg, 'kg')} KG)

@@ -1,6 +1,14 @@
 
-import { RawMaterial, RawMaterialBatch, UnitOfMeasure } from '@/types';
+import { RawMaterial, RawMaterialBatch, MaterialWithdrawal, UnitOfMeasure } from '@/types';
 import { RawMaterialTypeConfig } from './settings-types';
+import { getLotResidualSummary, hydrateMaterialWithWithdrawals, normStockLot } from './stock-logic';
+
+export const STOCK_FLOAT_EPSILON = 0.01;
+export const INTEGER_ROUNDING_TOLERANCE = 0.5;
+
+export interface InventoryMovementOptions {
+  isExhaustion?: boolean;
+}
 
 export interface InventoryMovementResult {
   unitsToChange: number; // In Base UOM
@@ -19,6 +27,7 @@ export interface InventoryMovementResult {
  * @param isAddition True for Carico, False for Scarico
  * @param specificLotto Optional lot for targeted movement
  * @param withdrawals ALL current withdrawals for this material (for Live Aggregation check)
+ * @param options Optional behavior flags (e.g. isExhaustion for "Materiale Finito")
  */
 export function calculateInventoryMovement(
   material: RawMaterial,
@@ -27,10 +36,12 @@ export function calculateInventoryMovement(
   inputUom: UnitOfMeasure,
   isAddition: boolean,
   specificLotto?: string | null,
-  withdrawals: any[] = []
+  withdrawals: any[] = [],
+  options?: InventoryMovementOptions
 ): InventoryMovementResult {
   const baseUom = (config?.defaultUnit || material.unitOfMeasure) as UnitOfMeasure;
   const factor = getConversionFactor(material, config);
+  const isExhaustion = Boolean(options?.isExhaustion);
   
   let unitsToChange = 0;
   let weightToChange = 0;
@@ -60,7 +71,7 @@ export function calculateInventoryMovement(
 
   // HARDENING: ENFORCE INTEGRITY AND REMOVE FLOATING POINT NOISE
   if (baseUom === 'n') {
-    // TASSATIVO: Pezzi sempre interi
+    // TASSATIVO: Pezzi sempre interi nei carichi/scarichi standard
     unitsToChange = Math.round(unitsToChangeRaw);
   } else {
     // Normalizzazione millesimale per MT e altri
@@ -70,53 +81,84 @@ export function calculateInventoryMovement(
   // Pesi sempre normalizzati a 3 decimali
   weightToChange = Number(weightToChangeRaw.toFixed(3));
 
-  const batches = [...(material.batches || [])];
+  const batches = (material.batches || []).map((b) => ({ ...b }));
   let usedLotto: string | null = specificLotto || null;
-
-  // Helper for Live Aggregation availability per lot
-  const getLotAvailable = (lotto: string, initialQty: number) => {
-    const withdrawn = withdrawals
-      .filter(w => w.lotto === lotto && w.status !== 'cancelled')
-      .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
-    return Math.max(0, initialQty - withdrawn);
-  };
 
   if (isAddition) {
     if (specificLotto) {
-      const idx = batches.findIndex(b => b.lotto === specificLotto);
+      const targetNorm = normStockLot(specificLotto);
+      const idx = batches.findIndex((b) => normStockLot(b.lotto) === targetNorm);
       if (idx !== -1) {
         batches[idx].netQuantity = Number(((batches[idx].netQuantity || 0) + unitsToChange).toFixed(3));
         batches[idx].grossWeight = Number(((batches[idx].grossWeight || 0) + weightToChange).toFixed(3));
         if (batches[idx].netQuantity > 0.001) batches[idx].isExhausted = false;
       }
     }
-    } else {
+  } else {
     // SUBTRACTION (Withdrawal/Scarico) - IMMUTABLE LOG: STOP DEDUCTING FROM BATCHES IN DB
-    if (specificLotto) {
-      const idx = batches.findIndex(b => b.lotto === specificLotto);
-      if (idx === -1) throw new Error(`Lotto "${specificLotto}" non trovato.`);
-      
-      // SSoT VALIDATION: Calculate live residual availability instead of using the original load
-      const liveAvailableUnits = getLotAvailable(specificLotto, batches[idx].netQuantity || 0);
+    const hydrated = hydrateMaterialWithWithdrawals(material, withdrawals as MaterialWithdrawal[]);
 
-      // HARD BLOCK: Se lo scarico eccede la giacenza VIVA, la riga fallisce.
-      if (liveAvailableUnits < unitsToChange - 0.001) {
-          throw new Error(`Giacenza insufficiente sul lotto ${specificLotto}. Richiesti: ${Number(unitsToChange.toFixed(3))}, Disponibili: ${Number(liveAvailableUnits.toFixed(3))}`);
+    if (specificLotto) {
+      const residual = getLotResidualSummary(hydrated, specificLotto);
+      if (residual.matchingBatches.length === 0) {
+        throw new Error(`Lotto "${specificLotto}" non trovato.`);
       }
 
-      // IMPORTANTE: NON modifichiamo più netQuantity e grossWeight qui.
-      // Il record della transazione 'Scarico' nella collezione withdrawals 
-      // è ciò che sottrae stock tramite la logica SSoT.
+      const canonicalLotto = residual.activeBatch?.lotto || residual.matchingBatches[0]?.lotto || specificLotto;
+      const liveAvailableUnits = Math.max(0, residual.availableUnits);
+      const liveAvailableWeightKg = Math.max(0, residual.availableWeightKg);
+      usedLotto = canonicalLotto;
 
-      usedLotto = specificLotto;
+      if (isExhaustion) {
+        // FASE 99: Zero-Out Esatto SSoT ("Materiale Finito")
+        // Ignora qualsiasi quantità arrotondata lato client e scarica esattamente il residuo reale del lotto.
+        unitsToChange = Number(liveAvailableUnits.toFixed(3));
+        weightToChange = liveAvailableWeightKg > 0
+          ? Number(liveAvailableWeightKg.toFixed(3))
+          : Number((unitsToChange * (baseUom === 'kg' ? 1 : factor)).toFixed(3));
+
+        const targetNorm = normStockLot(canonicalLotto);
+        for (let i = 0; i < batches.length; i++) {
+          if (normStockLot(batches[i].lotto) === targetNorm) {
+            batches[i].isExhausted = true;
+          }
+        }
+      } else if (unitsToChange > liveAvailableUnits) {
+        const diff = unitsToChange - liveAvailableUnits;
+        const withinFloatTolerance = diff <= STOCK_FLOAT_EPSILON;
+        const withinIntegerRoundingTolerance = baseUom === 'n' && diff <= INTEGER_ROUNDING_TOLERANCE;
+
+        if (withinFloatTolerance || withinIntegerRoundingTolerance) {
+          // FASE 99: Clamping tollerante sul residuo reale per assorbire rumore float o arrotondamenti interi (es. 106 vs 105.728)
+          unitsToChange = Number(liveAvailableUnits.toFixed(3));
+          weightToChange =
+            baseUom === 'kg'
+              ? unitsToChange
+              : liveAvailableWeightKg > 0
+                ? Math.min(weightToChange, Number(liveAvailableWeightKg.toFixed(3)))
+                : Number((unitsToChange * factor).toFixed(3));
+        } else {
+          throw new Error(`Giacenza insufficiente sul lotto ${canonicalLotto}. Richiesti: ${Number(unitsToChange.toFixed(3))}, Disponibili: ${Number(liveAvailableUnits.toFixed(3))}`);
+        }
+      }
     } else {
       // FIFO Withdrawal detection for reporting used lot
-      const validBatches = batches
-        .filter(b => !b.isExhausted && (b.netQuantity || 0) > 0.001)
+      const validBatches = (hydrated.batches || [])
+        .filter((b) => !b.isExhausted && (b.currentQuantity ?? b.netQuantity ?? 0) > 0.001)
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
       if (validBatches.length > 0) {
-          usedLotto = validBatches[0].lotto as string;
+        usedLotto = validBatches[0].lotto as string;
+      }
+
+      if (isExhaustion) {
+        const totalAvail = Math.max(0, Number((hydrated.currentStockUnits || 0).toFixed(3)));
+        if (unitsToChange <= 0 || unitsToChange > totalAvail) {
+          unitsToChange = totalAvail;
+          weightToChange = baseUom === 'kg'
+            ? unitsToChange
+            : Math.max(0, Number((hydrated.currentWeightKg || unitsToChange * factor).toFixed(3)));
+        }
       }
     }
   }
@@ -124,8 +166,115 @@ export function calculateInventoryMovement(
   return {
     unitsToChange,
     weightToChange,
-    updatedBatches: batches, // batches now mutated with new balances
+    updatedBatches: batches,
     usedLotto
+  };
+}
+
+export interface ExecuteLotWithdrawalParams {
+  material: RawMaterial;
+  config: Partial<RawMaterialTypeConfig> & { defaultUnit: string };
+  withdrawals: any[];
+  quantity: number;
+  inputUom: UnitOfMeasure;
+  lotto?: string | null;
+  isFinished?: boolean;
+  clearActiveSession?: boolean;
+}
+
+/**
+ * Helper SSoT centralizzato per scarichi normali e azzeramenti "Materiale Finito".
+ * In modalità `isFinished`, ignora quantità client arrotondate e azzera esattamente il residuo SSoT del lotto.
+ */
+export function prepareWithdrawalMovement(params: ExecuteLotWithdrawalParams): InventoryMovementResult {
+  const {
+    material,
+    config,
+    withdrawals,
+    quantity,
+    inputUom,
+    lotto,
+    isFinished = false,
+    clearActiveSession = false,
+  } = params;
+
+  const movement = calculateInventoryMovement(
+    material,
+    config,
+    isFinished ? 0 : quantity,
+    isFinished ? ((config?.defaultUnit || material.unitOfMeasure) as UnitOfMeasure) : inputUom,
+    false,
+    lotto,
+    withdrawals,
+    { isExhaustion: isFinished }
+  );
+
+  let updatedBatches = movement.updatedBatches;
+  if (movement.usedLotto && (isFinished || clearActiveSession)) {
+    const targetNorm = normStockLot(movement.usedLotto);
+    updatedBatches = updatedBatches.map((b) =>
+      normStockLot(b.lotto) === targetNorm
+        ? {
+            ...b,
+            ...(isFinished ? { isExhausted: true } : {}),
+            ...(clearActiveSession ? { activeSessionId: null } : {}),
+          }
+        : b
+    );
+  }
+
+  return {
+    ...movement,
+    updatedBatches,
+  };
+}
+
+/**
+ * Re-idrata il materiale post-scarico nello stesso perimetro transazionale
+ * garantendo che `currentStockUnits`, `currentWeightKg` e flag `isExhausted`
+ * risultino esattamente allineati (0 assoluto su Materiale Finito).
+ */
+export function finalizePostWithdrawalMaterialState(
+  material: RawMaterial,
+  updatedBatches: RawMaterialBatch[],
+  previousWithdrawals: any[],
+  newWithdrawalRecord: Record<string, any>
+): {
+  hydratedAfter: RawMaterial;
+  syncedBatches: RawMaterialBatch[];
+  currentStockUnits: number;
+  currentWeightKg: number;
+} {
+  const postWithdrawals = [
+    ...previousWithdrawals,
+    { ...newWithdrawalRecord, withdrawalDate: new Date() },
+  ];
+  const hydratedAfter = hydrateMaterialWithWithdrawals(
+    { ...material, batches: updatedBatches },
+    postWithdrawals as MaterialWithdrawal[]
+  );
+  const hydratedById = new Map((hydratedAfter.batches || []).map((b) => [b.id, b]));
+  const syncedBatches = updatedBatches.map((b) => {
+    const hb = hydratedById.get(b.id);
+    return {
+      ...b,
+      isExhausted: Boolean(b.isExhausted || hb?.isExhausted),
+    };
+  });
+
+  const syncedHydrated: RawMaterial = {
+    ...hydratedAfter,
+    batches: (hydratedAfter.batches || []).map((b) => ({
+      ...b,
+      isExhausted: Boolean(b.isExhausted || updatedBatches.find((ub) => ub.id === b.id)?.isExhausted),
+    })),
+  };
+
+  return {
+    hydratedAfter: syncedHydrated,
+    syncedBatches,
+    currentStockUnits: syncedHydrated.currentStockUnits,
+    currentWeightKg: syncedHydrated.currentWeightKg,
   };
 }
 

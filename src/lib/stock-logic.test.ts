@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractHydratedLots,
+  getHydratedTotalStockUnits,
   getLotResidualSummary,
   hydrateMaterialWithWithdrawals,
   normStockLot,
@@ -265,5 +266,49 @@ describe('FASE 80: SSoT Stock Logic & Operator Alignment', () => {
     expect(summary.activeBatch?.id).toBe('b-return');
     expect(summary.activeBatch?.tareWeight).toBe(12);
     expect(summary.activeBatch?.packagingId).toBe('pkg-new');
+  });
+
+  it('FASE 99: preserves exact decimal SSoT (105.728) for uom="n" without Math.round(106) and aligns preview', () => {
+    const raw = makeMaterial({
+      id: 'mat-n',
+      code: '45X1.5L33SN',
+      unitOfMeasure: 'n',
+      conversionFactor: 0.05,
+      currentStockUnits: 106, // stale rounded value persisted on document
+      batches: [
+        {
+          id: 'b-t10',
+          lotto: 'T0010-25',
+          ddt: 'DDT-10',
+          date: '2025-11-10T00:00:00.000Z',
+          grossWeight: 10,
+          tareWeight: 0,
+          netQuantity: 200,
+          currentQuantity: 200,
+          isExhausted: false,
+        },
+      ],
+    });
+
+    const hydrated = hydrateMaterialWithWithdrawals(raw, [
+      makeWithdrawal('T0010-25', 94.272, 'completed', 'w-frac'),
+    ]);
+    const lots = extractHydratedLots(hydrated);
+
+    expect(lots).toHaveLength(1);
+    expect(lots[0].available).toBe(105.728);
+    expect(hydrated.currentStockUnits).toBe(105.728);
+    expect(getHydratedTotalStockUnits(hydrated)).toBe(105.728);
+    expect(getHydratedTotalStockUnits(raw)).toBe(200); // uses unexhausted hydrated batch when available
+
+    const preview = previewWithdrawalImpact({
+      availableUnits: lots[0].available,
+      rawInput: 105,
+      isScaleMode: false,
+      unitOfMeasure: 'n',
+    });
+    expect(preview.currentAvailableUnits).toBe(105);
+    expect(preview.isOverdraw).toBe(false);
+    expect(preview.estimatedRemainingUnits).toBe(0);
   });
 });

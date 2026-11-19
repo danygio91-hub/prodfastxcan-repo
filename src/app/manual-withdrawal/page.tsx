@@ -21,7 +21,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { logManualWithdrawal } from './actions';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { closeMaterialSessionAndUpdateStock, getRawMaterialByCode, findLastWeightForLotto, getLotInfoForMaterial } from '@/app/scan-job/actions';
-import { extractHydratedLots, normStockLot, previewWithdrawalImpact, type HydratedLotInfo as LotInfo } from '@/lib/stock-logic';
+import { extractHydratedLots, getHydratedTotalStockUnits, normStockLot, previewWithdrawalImpact, type HydratedLotInfo as LotInfo } from '@/lib/stock-logic';
 import { WithdrawalLivePreviewCard } from '@/components/operator/WithdrawalLivePreviewCard';
 import type { RawMaterial, ActiveMaterialSessionData } from '@/types';
 
@@ -125,6 +125,8 @@ export default function ManualWithdrawalPage() {
   const hasScaleInput = quantityValue !== undefined && quantityValue !== null && String(quantityValue).trim() !== '';
   const effectiveNet = hasScaleInput ? calculatedNet : (lotAvailability?.available || 0);
   const expectedGross = effectiveNet + tareWeight;
+
+  const totalStockUnitsDisplay = useMemo(() => getHydratedTotalStockUnits(scannedMaterial), [scannedMaterial]);
 
   const withdrawalPreview = useMemo(() => {
     if (!scannedMaterial || !lotAvailability || useSession) return null;
@@ -285,14 +287,14 @@ export default function ManualWithdrawalPage() {
     let finalQty = values.quantity || 0;
     let finalUnit = scannedMaterial.unitOfMeasure;
 
-    if (isKgMode && lotAvailability) {
+    if (!isFinished && isKgMode && lotAvailability) {
       // In SCALE mode, withdrawalPreview computes delta between current availability and remaining scale net.
       const consumed = withdrawalPreview ? withdrawalPreview.withdrawalUnits : Math.max(0, lotAvailability.available - effectiveNet);
 
       finalQty = consumed;
       finalUnit = scannedMaterial.unitOfMeasure; // USE BASE UOM (n, mt), NOT kg
       
-      if (consumed <= 0.001 && !isFinished) {
+      if (consumed <= 0.001) {
           toast({ 
               variant: 'destructive', 
               title: "Nessun prelievo rilevato", 
@@ -305,7 +307,7 @@ export default function ManualWithdrawalPage() {
 
     const result = await logManualWithdrawal({
       ...values,
-      quantity: finalQty,
+      quantity: isFinished ? 0 : finalQty,
       operatorId: operator.id,
       operatorName: operator.nome,
       unit: finalUnit as any,
@@ -527,7 +529,7 @@ export default function ManualWithdrawalPage() {
                           <div className="p-3 rounded-2xl bg-background border-2 border-primary/5 flex flex-col items-center justify-center text-center shadow-sm">
                             <Label className="text-[8px] uppercase font-black text-muted-foreground mb-1">Totale Magazzino</Label>
                             <p className="text-lg font-black text-primary leading-tight">
-                              {formatDisplayStock(scannedMaterial.currentStockUnits, scannedMaterial.unitOfMeasure)} <span className="text-[10px] opacity-70">{scannedMaterial.unitOfMeasure.toUpperCase()}</span>
+                              {formatDisplayStock(totalStockUnitsDisplay, scannedMaterial.unitOfMeasure)} <span className="text-[10px] opacity-70">{scannedMaterial.unitOfMeasure.toUpperCase()}</span>
                             </p>
                             <p className="text-[9px] font-bold text-muted-foreground mt-1">
                               ({formatDisplayStock(scannedMaterial.currentWeightKg, 'kg')} KG)
