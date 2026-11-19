@@ -16,10 +16,16 @@ import {
     ensureOdlNumeratorInitialized,
     markJobAsPrinted as markJobAsPrintedSSoT
 } from '@/app/admin/data-management/actions';
-import { parseStandardOdl } from '@/lib/odl-numerator';
+import { parseStandardOdl, getCleanOdlValue, getJobCleanOdl } from '@/lib/odl-numerator';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { getJobDisplayStatus, rollbackLastCompletedPhase, type JobDisplayStatus } from '@/lib/job-status';
+import {
+    getJobDisplayStatus,
+    rollbackLastCompletedPhase,
+    isPlannedStatusValue,
+    evaluateJobStartEligibility,
+    type JobDisplayStatus,
+} from '@/lib/job-status';
 import { convertTimestampsToDates, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId, serializeForClient } from '@/lib/utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
@@ -573,15 +579,21 @@ export async function startJobProduction(
     manualOdlNumberStr?: string
 ): Promise<{ success: boolean; message: string; error?: string; job?: Partial<JobOrder>; nextOdl?: string }> {
     try {
-        if (manualOdlNumberStr && manualOdlNumberStr.trim()) {
-            const uniqueCheck = await checkUniqueODL(manualOdlNumberStr.trim(), jobId);
-            if (!uniqueCheck.isUnique) {
-                const dupErr = "Attenzione: il numero ODL inserito è già in uso su un'altra commessa.";
-                return { success: false, error: dupErr, message: dupErr };
+        const cleanInputOdl = getCleanOdlValue(manualOdlNumberStr);
+        if (cleanInputOdl) {
+            const { jobSnap } = await getJobOrderRefAndSnap(adminDb, jobId);
+            const existingOnJob = jobSnap.exists ? getJobCleanOdl(jobSnap.data() as JobOrder) : '';
+            // FASE 98-BIS: Non bloccare con checkUniqueODL se si sta mantenendo lo stesso ODL già assegnato sulla commessa
+            if (!existingOnJob || cleanInputOdl !== existingOnJob) {
+                const uniqueCheck = await checkUniqueODL(cleanInputOdl, jobSnap.exists ? jobSnap.id : jobId);
+                if (!uniqueCheck.isUnique) {
+                    const dupErr = uniqueCheck.message || "Attenzione: il numero ODL inserito è già in uso su un'altra commessa.";
+                    return { success: false, error: dupErr, message: dupErr };
+                }
             }
         }
 
-        const res = await createODL(jobId, manualOdlNumberStr);
+        const res = await createODL(jobId, cleanInputOdl || undefined);
         if (!res.success) {
             return {
                 success: false,
@@ -590,11 +602,11 @@ export async function startJobProduction(
             };
         }
 
-        const [jobSnap, nextOdl] = await Promise.all([
-            adminDb.collection("jobOrders").doc(jobId).get(),
+        const [{ jobSnap }, nextOdl] = await Promise.all([
+            getJobOrderRefAndSnap(adminDb, jobId),
             getNextOdlNumber(),
         ]);
-        const updatedData = jobSnap.data() as JobOrder | undefined;
+        const updatedData = jobSnap.exists ? (jobSnap.data() as JobOrder) : undefined;
 
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
@@ -605,8 +617,8 @@ export async function startJobProduction(
             nextOdl,
             job: updatedData ? {
                 status: updatedData.status,
-                numeroODL: updatedData.numeroODL || updatedData.numeroODLInterno,
-                numeroODLInterno: updatedData.numeroODLInterno,
+                numeroODL: updatedData.numeroODLInterno || updatedData.numeroODL,
+                numeroODLInterno: updatedData.numeroODLInterno || updatedData.numeroODL,
                 odlCreationDate: updatedData.odlCreationDate ? new Date().toISOString() : undefined,
                 odlCounter: updatedData.odlCounter,
             } : undefined
@@ -688,19 +700,12 @@ export async function updateJobExecutionStatus(
             const isBacklogPlanned =
                 !hasAnyPhaseInProgress &&
                 (!hasAnyPhaseCompleted || isUnstartedSplitChild) &&
-                (!currentStatusLower || [
-                    'pending',
-                    'planned', 
-                    'in_attesa', 
-                    'in pianificazione', 
-                    'in_pianificazione', 
-                    'pianificata', 
-                    'pianificato'
-                ].includes(currentStatusLower));
+                isPlannedStatusValue(currentStatusLower);
 
             if (isBacklogPlanned) {
-                // Avvia tramite createODL (genera ODL e verifica distinte)
-                const res = await createODL(jobId);
+                // Avvia tramite createODL (mantiene eventuale ODL già presente o genera nuovo progressivo)
+                const existingOdl = getJobCleanOdl(job);
+                const res = await createODL(jobId, existingOdl || undefined);
                 if (!res.success) {
                     return { success: false, message: res.message };
                 }
@@ -712,7 +717,7 @@ export async function updateJobExecutionStatus(
                 return { 
                     success: true, 
                     message: res.message, 
-                    odlNumber: refreshedData?.numeroODL || refreshedData?.numeroODLInterno || undefined,
+                    odlNumber: refreshedData?.numeroODLInterno || refreshedData?.numeroODL || undefined,
                     nextOdl,
                     updatedPhases: refreshedData?.phases ? serializeForClient(refreshedData.phases) : undefined,
                     updatedStatus: refreshedData?.status || 'DA_INIZIARE'
@@ -1542,36 +1547,43 @@ export async function bulkStartProductionAndPrint(
             };
         }
 
-        // FASE 96: Fetch primario di tutte le commesse selezionate rigorosamente in parallelo
-        const docSnaps = await Promise.all(
-            cleanIds.map((id) => adminDb.collection("jobOrders").doc(id).get())
+        // FASE 96 & FASE 98: Fetch primario in parallelo con fallback sicuro su slash/id composito
+        const lookups = await Promise.all(
+            cleanIds.map((id) => getJobOrderRefAndSnap(adminDb, id))
         );
 
         const printedJobIdsToUpdate: string[] = [];
 
         for (let idx = 0; idx < cleanIds.length; idx++) {
-            const id = cleanIds[idx];
-            const docSnap = docSnaps[idx];
-            if (!docSnap?.exists) continue;
-            const job = docSnap.data() as JobOrder;
+            const rawId = cleanIds[idx];
+            const { jobRef, jobSnap } = lookups[idx];
+            if (!jobSnap?.exists) {
+                skippedOther.push({ ordinePF: rawId, reason: `${rawId}: commessa non trovata` });
+                continue;
+            }
+            const id = jobRef.id;
+            const job = { ...convertTimestampsToDates(jobSnap.data()), id } as JobOrder;
             const jobLabel = job.ordinePF || id;
 
-            if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
+            const displayStatus = getJobDisplayStatus(job);
+            if (displayStatus === 'Completato Prod.' || displayStatus === 'Spedito') {
+                skippedOther.push({
+                    ordinePF: jobLabel,
+                    reason: `${jobLabel}: già conclusa (${displayStatus})`,
+                });
+                continue;
+            }
+
+            if (!job.dataConsegnaFinale || !String(job.dataConsegnaFinale).trim()) {
                 skippedNoDate.push(jobLabel);
                 continue;
             }
 
-            if (!Array.isArray(job.phases) || job.phases.length === 0) {
-                skippedNoCycle.push(jobLabel);
-                continue;
-            }
+            const existingOdl = getJobCleanOdl(job);
+            let odlNum = existingOdl;
 
-            const currentStatusLower = (job.status || '').toLowerCase().trim();
-            const isAlreadyStarted = ['da_iniziare', 'in_preparazione', 'pronto_prod', 'in_produzione', 'fine_produzione', 'qlty_pack', 'chiuso', 'in produzione', 'completato prod.', 'spedito'].includes(currentStatusLower);
-
-            let odlNum = job.numeroODLInterno || job.numeroODL;
-            if (!isAlreadyStarted) {
-                const res = await createODL(id);
+            if (displayStatus !== 'In Produzione' || isPlannedStatusValue(job.status)) {
+                const res = await createODL(id, existingOdl || undefined);
                 if (res.success) {
                     // FASE 96: Usa direttamente res.odlNumber senza eseguire una seconda query .get() ridondante
                     odlNum = res.odlNumber || odlNum;
@@ -1583,7 +1595,7 @@ export async function bulkStartProductionAndPrint(
                     } else if (msgLower.includes('data')) {
                         skippedNoDate.push(jobLabel);
                     } else {
-                        skippedOther.push({ ordinePF: jobLabel, reason: res.message });
+                        skippedOther.push({ ordinePF: jobLabel, reason: `${jobLabel}: ${res.message}` });
                     }
                     continue;
                 }
@@ -1691,59 +1703,59 @@ export async function bulkStartProduction(
             };
         }
 
-        // FASE 96: Fetch primario di tutte le commesse selezionate rigorosamente in parallelo
-        const docSnaps = await Promise.all(
-            cleanIds.map((id) => adminDb.collection("jobOrders").doc(id).get())
+        // FASE 96 & FASE 98: Fetch primario di tutte le commesse selezionate rigorosamente in parallelo
+        const lookups = await Promise.all(
+            cleanIds.map((id) => getJobOrderRefAndSnap(adminDb, id))
         );
 
         for (let idx = 0; idx < cleanIds.length; idx++) {
-            const id = cleanIds[idx];
-            const docSnap = docSnaps[idx];
-            if (!docSnap?.exists) continue;
-            const job = docSnap.data() as JobOrder;
+            const rawId = cleanIds[idx];
+            const { jobRef, jobSnap } = lookups[idx];
+            if (!jobSnap?.exists) {
+                skippedOther.push({ ordinePF: rawId, reason: `${rawId}: commessa non trovata` });
+                continue;
+            }
+            const id = jobRef.id;
+            const job = { ...convertTimestampsToDates(jobSnap.data()), id } as JobOrder;
             const jobLabel = job.ordinePF || id;
 
-            if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
-                skippedNoDate.push(jobLabel);
-                continue;
-            }
-
-            if (!Array.isArray(job.phases) || job.phases.length === 0) {
-                skippedNoCycle.push(jobLabel);
-                continue;
-            }
-
-            const currentStatusLower = (job.status || '').toLowerCase().trim();
-            const isAlreadyStarted = ['da_iniziare', 'in_preparazione', 'pronto_prod', 'in_produzione', 'fine_produzione', 'qlty_pack', 'chiuso', 'in produzione', 'completato prod.', 'spedito'].includes(currentStatusLower);
-
-            let odlNum = job.numeroODLInterno || job.numeroODL;
-            if (!isAlreadyStarted) {
-                const res = await createODL(id);
-                if (res.success) {
-                    // FASE 96: Usa direttamente res.odlNumber senza eseguire una seconda query .get() ridondante
-                    odlNum = res.odlNumber || odlNum;
-                    startedJobs.push({
-                        id,
-                        ordinePF: jobLabel,
-                        numeroODLInterno: odlNum || undefined
-                    });
+            // Controllo preliminare stato e data consegna tramite helper SSoT (FASE 98)
+            const preCheck = evaluateJobStartEligibility(job, { hasArticleWorkCycle: true });
+            if (!preCheck.eligible) {
+                if (preCheck.skipCategory === 'no_date') {
+                    skippedNoDate.push(jobLabel);
+                } else if (preCheck.skipCategory === 'no_cycle') {
+                    skippedNoCycle.push(jobLabel);
                 } else {
-                    console.warn(`Impossibile avviare commessa ${id}:`, res.message);
-                    const msgLower = (res.message || '').toLowerCase();
-                    if (msgLower.includes('ciclo')) {
-                        skippedNoCycle.push(jobLabel);
-                    } else if (msgLower.includes('data')) {
-                        skippedNoDate.push(jobLabel);
-                    } else {
-                        skippedOther.push({ ordinePF: jobLabel, reason: res.message });
-                    }
+                    skippedOther.push({
+                        ordinePF: jobLabel,
+                        reason: `${jobLabel}: ${preCheck.reason || `stato "${job.status}"`}`,
+                    });
                 }
-            } else {
+                continue;
+            }
+
+            // FASE 98-BIS: Mantiene l'ODL già assegnato senza consumare numeratore;
+            // genera un nuovo progressivo solo per commesse prive di ODL (N/D o vuoto).
+            const existingOdl = getJobCleanOdl(job);
+            const res = await createODL(id, existingOdl || undefined);
+            if (res.success) {
+                const odlNum = res.odlNumber || existingOdl || undefined;
                 startedJobs.push({
                     id,
                     ordinePF: jobLabel,
-                    numeroODLInterno: odlNum || undefined
+                    numeroODLInterno: odlNum,
                 });
+            } else {
+                console.warn(`Impossibile avviare commessa ${id}:`, res.message);
+                const msgLower = (res.message || '').toLowerCase();
+                if (msgLower.includes('ciclo')) {
+                    skippedNoCycle.push(jobLabel);
+                } else if (msgLower.includes('data')) {
+                    skippedNoDate.push(jobLabel);
+                } else {
+                    skippedOther.push({ ordinePF: jobLabel, reason: `${jobLabel}: ${res.message}` });
+                }
             }
         }
 

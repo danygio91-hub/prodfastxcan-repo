@@ -44,7 +44,22 @@ describe('FASE 81: Feedback Errore Avvio Massivo Commesse', () => {
         });
 
         expect(res.success).toBe(false);
-        expect(res.error).toBe('Impossibile avviare le commesse selezionate: 2 senza ciclo di lavorazione, 1 prive di data di consegna, 1 non avviabili.');
+        expect(res.error).toBe('Impossibile avviare le commesse selezionate: 2 senza ciclo di lavorazione, 1 prive di data di consegna, 1 scartate (Stato non valido).');
+    });
+
+    it('mostra le motivazioni reali di scarto senza usare la formula generica "non avviabili"', () => {
+        const res = formatBulkStartFeedback({
+            startedCount: 0,
+            skippedNoCycleCount: 0,
+            skippedNoDateCount: 0,
+            skippedOtherReasons: ['869/PF.1: già In Produzione', '869/PF.2: già Completato Prod.'],
+        });
+
+        expect(res.success).toBe(false);
+        expect(res.error).toBe(
+            'Impossibile avviare le commesse selezionate: 869/PF.1: già In Produzione; 869/PF.2: già Completato Prod..'
+        );
+        expect(res.error).not.toContain('non avviabili');
     });
 
     it('restituisce warning/messaggio dettagliato quando avvia alcune commesse ma ne salta altre senza ciclo', () => {

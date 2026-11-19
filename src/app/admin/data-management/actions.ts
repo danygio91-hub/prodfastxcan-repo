@@ -6,16 +6,18 @@ import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment, Client, BillOfMaterialsItem } from '@/types';
 import { convertTimestampsToDates, normalizeDateStr, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId, parseSafeDecimal, serializeForClient } from '@/lib/utils';
 import { getISOWeek, getISOWeekYear } from 'date-fns';
-import { fetchInChunks, checkJobOrderExists } from '@/lib/firestore-utils';
+import { fetchInChunks, checkJobOrderExists, getJobOrderRefAndSnap } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
-import { getJobDisplayStatus } from '@/lib/job-status';
+import { getJobDisplayStatus, evaluateJobStartEligibility } from '@/lib/job-status';
 import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
 import {
     parseStandardOdl,
     formatStandardOdl,
     extractMaxStandardOdl,
     computeNextStandardOdl,
+    getCleanOdlValue,
+    getJobCleanOdl,
 } from '@/lib/odl-numerator';
 
 export async function checkJobExists(ordinePF: string, annoCompetenza?: number) {
@@ -814,14 +816,70 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
   try {
     await ensureOdlNumeratorInitialized();
 
-    const jobRef = adminDb.collection("jobOrders").doc(jobId);
+    const { jobRef, jobSnap: initialSnap } = await getJobOrderRefAndSnap(adminDb, jobId);
+    if (!initialSnap.exists) {
+      throw new Error("Commessa non trovata.");
+    }
+
+    const initialJob = { ...convertTimestampsToDates(initialSnap.data()), id: initialSnap.id } as JobOrder;
+    const resolvedDocId = jobRef.id;
+
+    // Eventuale fallback BOM / Ciclo dall'Anagrafica Articolo se la commessa ha fasi o BOM vuote
+    let fallbackPhases: JobPhase[] | undefined;
+    let fallbackBOM: JobBillOfMaterialsItem[] | undefined;
+    const needsPhases = !Array.isArray(initialJob.phases) || initialJob.phases.length === 0;
+    const needsBOM = !Array.isArray(initialJob.billOfMaterials) || initialJob.billOfMaterials.length === 0;
+
+    if (needsPhases || needsBOM) {
+      const artCode = String((initialJob as any).articolo || initialJob.details || (initialJob as any).articleCode || '')
+        .trim()
+        .toUpperCase();
+      let articleData: Article | null = null;
+      if (artCode) {
+        const directArtSnap = await adminDb.collection('articles').doc(artCode).get();
+        if (directArtSnap.exists) {
+          articleData = directArtSnap.data() as Article;
+        } else {
+          const byCodeSnap = await adminDb.collection('articles').where('code', '==', artCode).limit(1).get();
+          if (!byCodeSnap.empty) {
+            articleData = byCodeSnap.docs[0].data() as Article;
+          }
+        }
+      }
+
+      const targetCycleId = (initialJob.workCycleId || articleData?.workCycleId || '').trim();
+      if (needsPhases && targetCycleId) {
+        const hydratedPhases = await createPhasesFromCycle(targetCycleId);
+        if (hydratedPhases.length > 0) {
+          const expectedMins = Number(initialJob.expectedMinutesDefault || articleData?.expectedMinutesDefault || 0);
+          fallbackPhases = expectedMins > 0
+            ? distributeTheoreticalTimes(
+                expectedMins,
+                hydratedPhases,
+                articleData?.historicalTimes?.averagePhaseTimes || [],
+                Number(initialJob.qta || 1)
+              )
+            : hydratedPhases;
+        }
+      }
+
+      if (needsBOM && articleData?.billOfMaterials && articleData.billOfMaterials.length > 0) {
+        fallbackBOM = articleData.billOfMaterials.map((item) => ({
+          ...item,
+          component: String(item.component || '').trim().toUpperCase(),
+          status: 'pending' as const,
+          isFromTemplate: true,
+        }));
+      }
+    }
+
     const numeratorsRef = adminDb.collection("settings").doc("numerators");
     const now = new Date();
     const year = now.getFullYear();
     const shortYear = year.toString().slice(-2);
     const shortYearNum = parseInt(shortYear, 10);
     const counterRef = adminDb.collection("counters").doc(`odl_${year}`);
-    
+
     const result = await adminDb.runTransaction(async (t) => {
       const [snap, numeratorsSnap, counterSnap] = await Promise.all([
         t.get(jobRef),
@@ -829,26 +887,29 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
         t.get(counterRef),
       ]);
       if (!snap.exists) throw new Error("Commessa non trovata.");
-      
-      const job = snap.data() as JobOrder;
-      
-      // Accettiamo i vecchi stati per compatibilità ma puntiamo a quelli nuovi
-      const validBacklogStatuses = [
-        'planned', 
-        'IN_ATTESA', 
-        'In Pianificazione', 
-        'IN_PIANIFICAZIONE',
-        'Pianificata',
-        'pianificata',
-        'PIANIFICATA'
-      ];
-      
-      if (!validBacklogStatuses.includes(job.status)) {
-          throw new Error(`Stato non valido per l'avvio (stato attuale: ${job.status}).`);
+
+      const jobRaw = snap.data() as JobOrder;
+      const effectiveJob: JobOrder = {
+        ...jobRaw,
+        id: snap.id,
+        phases: Array.isArray(jobRaw.phases) && jobRaw.phases.length > 0 ? jobRaw.phases : (fallbackPhases || []),
+        billOfMaterials:
+          Array.isArray(jobRaw.billOfMaterials) && jobRaw.billOfMaterials.length > 0
+            ? jobRaw.billOfMaterials
+            : (fallbackBOM || []),
+      };
+
+      // FASE 98: Validazione unificata SSoT indipendente da case/traduzione status, MRP o BOM vuota
+      const eligibility = evaluateJobStartEligibility(effectiveJob);
+      if (!eligibility.eligible) {
+        if (eligibility.skipCategory === 'no_cycle') {
+          throw new Error("Nessun ciclo di lavorazione presente.");
+        }
+        if (eligibility.skipCategory === 'no_date') {
+          throw new Error("Data di consegna mancante.");
+        }
+        throw new Error(`Impossibile avviare la commessa (${eligibility.reason || `stato attuale: ${jobRaw.status}`}).`);
       }
-      
-      if (!job.billOfMaterials || job.billOfMaterials.length === 0) throw new Error("Distinta Base vuota.");
-      if (!job.phases || job.phases.length === 0) throw new Error("Nessun ciclo di lavorazione presente.");
 
       const numData = numeratorsSnap.exists ? numeratorsSnap.data() : null;
       const currentLastOdl = numData && typeof numData.lastOdlNumber === 'number' && !isNaN(numData.lastOdlNumber)
@@ -858,58 +919,65 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
         ? numData.lastOdlYear
         : shortYearNum;
 
-      const cleanExisting = (raw?: string | null) => {
-        if (!raw) return '';
-        const tr = String(raw).trim();
-        if (['N/D', 'N/A', 'MANUALE', '---'].includes(tr)) return '';
-        return tr;
-      };
-
-      const explicitInput = cleanExisting(manualOdlNumberStr);
-      const existingOnJob = cleanExisting(job.numeroODL) || cleanExisting(job.numeroODLInterno);
+      // FASE 98-BIS: Allineamento campo ODL (priorità identica alla tabella: numeroODLInterno -> numeroODL -> odlNumber -> odl)
+      const explicitInput = getCleanOdlValue(manualOdlNumberStr);
+      const existingOnJob = getJobCleanOdl(effectiveJob);
 
       let chosenOdl: string;
-      if (explicitInput) {
-        chosenOdl = explicitInput;
-      } else if (existingOnJob) {
+      let isPreservingExistingOdl = false;
+      if (existingOnJob && (!explicitInput || explicitInput === existingOnJob)) {
         chosenOdl = existingOnJob;
+        isPreservingExistingOdl = true;
+      } else if (explicitInput) {
+        chosenOdl = explicitInput;
       } else {
         // Generazione automatica dal contatore SSoT settings/numerators
         chosenOdl = computeNextStandardOdl(currentLastOdl, currentLastYear, shortYearNum).nextOdl;
       }
 
-      // FASE 84-BIS: Controllo Anti-Duplicato dentro la transazione PRIMA dell'update
-      const [dupOdlSnap, dupInternoSnap] = await Promise.all([
-        t.get(adminDb.collection("jobOrders").where("numeroODL", "==", chosenOdl)),
-        t.get(adminDb.collection("jobOrders").where("numeroODLInterno", "==", chosenOdl)),
-      ]);
-      const conflictingDoc =
-        dupOdlSnap.docs.find((d) => d.id !== jobId) ||
-        dupInternoSnap.docs.find((d) => d.id !== jobId);
+      // FASE 84-BIS & 98-BIS: Controllo Anti-Duplicato applicato quando si assegna un ODL nuovo o modificato
+      if (!isPreservingExistingOdl) {
+        const [dupOdlSnap, dupInternoSnap] = await Promise.all([
+          t.get(adminDb.collection("jobOrders").where("numeroODL", "==", chosenOdl)),
+          t.get(adminDb.collection("jobOrders").where("numeroODLInterno", "==", chosenOdl)),
+        ]);
+        const conflictingDoc =
+          dupOdlSnap.docs.find((d) => d.id !== resolvedDocId) ||
+          dupInternoSnap.docs.find((d) => d.id !== resolvedDocId);
 
-      if (conflictingDoc) {
-        throw new Error("Attenzione: il numero ODL inserito è già in uso su un'altra commessa.");
+        if (conflictingDoc) {
+          throw new Error("Attenzione: il numero ODL inserito è già in uso su un'altra commessa.");
+        }
       }
 
-      // FASE 84: Verifica se l'ODL scelto rispetta il formato standard /^(\d+)-(\d{2})$/
+      // FASE 84 & FASE 98-BIS: Se l'ODL era già assegnato sulla commessa (isPreservingExistingOdl),
+      // NON incrementare/toccare il numeratore globale settings/numerators.
       const parsedStandard = parseStandardOdl(chosenOdl);
-
+      const updatePayload: Record<string, any> = {
+        status: 'DA_INIZIARE',
+        odlCreationDate: admin.firestore.Timestamp.fromDate(now),
+        numeroODL: chosenOdl,
+        numeroODLInterno: chosenOdl,
+        updatedAt: admin.firestore.Timestamp.fromDate(now),
+      };
       if (parsedStandard) {
-        // Formato standard (es. 2622-26): aggiorna commessa E contatore settings/numerators
+        updatePayload.odlCounter = parsedStandard.progressive;
+      }
+      if ((!Array.isArray(jobRaw.phases) || jobRaw.phases.length === 0) && fallbackPhases && fallbackPhases.length > 0) {
+        updatePayload.phases = fallbackPhases;
+      }
+      if ((!Array.isArray(jobRaw.billOfMaterials) || jobRaw.billOfMaterials.length === 0) && fallbackBOM && fallbackBOM.length > 0) {
+        updatePayload.billOfMaterials = fallbackBOM;
+      }
+
+      t.update(jobRef, updatePayload);
+
+      if (!isPreservingExistingOdl && parsedStandard) {
         const progressive = parsedStandard.progressive;
         const odlYear = parsedStandard.yearTwoDigits;
         const newMaxOdl = odlYear === currentLastYear
           ? Math.max(currentLastOdl, progressive)
           : progressive;
-
-        t.update(jobRef, {
-          status: 'DA_INIZIARE',
-          odlCreationDate: admin.firestore.Timestamp.fromDate(now),
-          numeroODL: chosenOdl,
-          numeroODLInterno: chosenOdl,
-          odlCounter: progressive,
-          updatedAt: admin.firestore.Timestamp.fromDate(now),
-        });
 
         t.set(
           numeratorsRef,
@@ -928,24 +996,15 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
             { merge: true }
           );
         }
-      } else {
-        // Formato custom (es. RG.1): salva l'ODL sulla commessa ma NON toccare/incrementare settings/numerators
-        t.update(jobRef, {
-          status: 'DA_INIZIARE',
-          odlCreationDate: admin.firestore.Timestamp.fromDate(now),
-          numeroODL: chosenOdl,
-          numeroODLInterno: chosenOdl,
-          updatedAt: admin.firestore.Timestamp.fromDate(now),
-        });
       }
 
       return chosenOdl;
     });
-    
+
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/resource-planning');
-    
+
     return { success: true, message: `ODL #${result} avviato con successo.`, odlNumber: result };
   } catch (error) { 
       console.error("Error in createODL:", error);
@@ -957,6 +1016,7 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
 export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string; error?: string }> {
     let success = 0;
     const skippedNoCycle: string[] = [];
+    const skippedNoDate: string[] = [];
     const skippedOther: string[] = [];
 
     for (const id of jobIds) {
@@ -966,6 +1026,7 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
         } else {
             const msgLower = (res.message || '').toLowerCase();
             if (msgLower.includes('ciclo')) skippedNoCycle.push(id);
+            else if (msgLower.includes('data')) skippedNoDate.push(id);
             else skippedOther.push(res.message);
         }
     }
@@ -973,7 +1034,7 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
     const feedback = formatBulkStartFeedback({
         startedCount: success,
         skippedNoCycleCount: skippedNoCycle.length,
-        skippedNoDateCount: 0,
+        skippedNoDateCount: skippedNoDate.length,
         skippedOtherReasons: skippedOther,
     });
 

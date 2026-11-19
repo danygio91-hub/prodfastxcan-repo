@@ -32,6 +32,13 @@ export function formatBulkStartFeedback(params: BulkStartFeedbackParams): BulkSt
     const totalSkipped = skippedNoCycleCount + skippedNoDateCount + skippedOtherReasons.length;
     const actionLabel = actionType === 'print' ? 'Avviate e segnate come stampate' : 'Avviate in produzione';
 
+    const cleanOtherReasons = Array.from(
+        new Set(skippedOtherReasons.map((r) => String(r || '').trim()).filter(Boolean))
+    );
+    const otherSummary = cleanOtherReasons.length > 0
+        ? cleanOtherReasons.slice(0, 3).join('; ') + (cleanOtherReasons.length > 3 ? ` (+${cleanOtherReasons.length - 3} altre)` : '')
+        : `${skippedOtherReasons.length} con errore di avvio`;
+
     // 1. CASO NESSUNA COMMESSA AVVIATA (Fallimento Totale)
     if (startedCount === 0) {
         let errorMsg = "Nessuna commessa avviata.";
@@ -44,6 +51,8 @@ export function formatBulkStartFeedback(params: BulkStartFeedbackParams): BulkSt
             errorMsg = skippedNoDateCount === 1
                 ? "Impossibile avviare: la commessa selezionata è priva di data di consegna."
                 : "Impossibile avviare: le commesse selezionate sono prive di data di consegna.";
+        } else if (skippedNoCycleCount === 0 && skippedNoDateCount === 0 && skippedOtherReasons.length > 0) {
+            errorMsg = `Impossibile avviare le commesse selezionate: ${otherSummary}.`;
         } else if (totalSkipped > 0) {
             const parts: string[] = [];
             if (skippedNoCycleCount > 0) {
@@ -53,7 +62,7 @@ export function formatBulkStartFeedback(params: BulkStartFeedbackParams): BulkSt
                 parts.push(`${skippedNoDateCount} prive di data di consegna`);
             }
             if (skippedOtherReasons.length > 0) {
-                parts.push(`${skippedOtherReasons.length} non avviabili`);
+                parts.push(`${skippedOtherReasons.length} scartate (${otherSummary})`);
             }
             errorMsg = `Impossibile avviare le commesse selezionate: ${parts.join(', ')}.`;
         }
@@ -87,7 +96,7 @@ export function formatBulkStartFeedback(params: BulkStartFeedbackParams): BulkSt
     }
     if (skippedOtherReasons.length > 0) {
         skipDetails.push(
-            `${skippedOtherReasons.length} ${skippedOtherReasons.length === 1 ? 'commessa saltata' : 'commesse saltate'}`
+            `${skippedOtherReasons.length} ${skippedOtherReasons.length === 1 ? 'commessa saltata' : 'commesse saltate'} (${otherSummary})`
         );
     }
 

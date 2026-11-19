@@ -118,6 +118,8 @@ import {
 } from '@/lib/mrp-utils';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
 import { syncJobBOMItems, calculateBOMRequirement } from '@/lib/inventory-utils';
+import { getCleanOdlValue, getJobCleanOdl } from '@/lib/odl-numerator';
+import { evaluateJobStartEligibility } from '@/lib/job-status';
 import { quickArticleCache } from '@/lib/quick-article-cache';
 import {
   withNetworkRetry,
@@ -704,35 +706,28 @@ interface InlineOdlCellProps {
   onSaveOdl: (job: JobOrder, newOdl: string) => Promise<boolean | void> | void;
 }
 
-export const getCleanOdlValue = (raw: string | null | undefined): string => {
-  if (!raw) return '';
-  const trimmed = raw.trim();
-  if (trimmed === 'N/D' || trimmed === 'N/A' || trimmed === 'MANUALE' || trimmed === '---') {
-    return '';
-  }
-  return trimmed;
-};
+export { getCleanOdlValue, getJobCleanOdl };
 
 const InlineOdlCell = React.memo(function InlineOdlCell({
   job,
   onSaveOdl,
 }: InlineOdlCellProps) {
-  const currentOdl = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+  const currentOdl = getJobCleanOdl(job);
   const [localVal, setLocalVal] = useState<string>(currentOdl);
   const [isError, setIsError] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const isSubmittingRef = useRef(false);
 
   useEffect(() => {
-    setLocalVal(getCleanOdlValue(job.numeroODLInterno || job.numeroODL));
+    setLocalVal(getJobCleanOdl(job));
     setIsError(false);
-  }, [job.numeroODLInterno, job.numeroODL]);
+  }, [job]);
 
   const handleCommit = async () => {
     if (isSubmittingRef.current) return;
     const trimmed = localVal.trim();
     const cleanToSave = getCleanOdlValue(trimmed);
-    const currentClean = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+    const currentClean = getJobCleanOdl(job);
     if (cleanToSave === currentClean) {
       setLocalVal(currentClean);
       return;
@@ -774,7 +769,7 @@ const InlineOdlCell = React.memo(function InlineOdlCell({
           e.currentTarget.blur();
         } else if (e.key === 'Escape') {
           e.preventDefault();
-          setLocalVal(getCleanOdlValue(job.numeroODLInterno || job.numeroODL));
+          setLocalVal(getJobCleanOdl(job));
           setIsError(false);
           e.currentTarget.blur();
         }
@@ -1203,7 +1198,10 @@ const JobTableRow = React.memo(function JobTableRow({
   const currentStatus = normalizeJobStatus(job);
   const isPrinted = Boolean((job as any).odlPrinted || job.isPrinted);
   const isDeliveryDateMissing = !job.dataConsegnaFinale || !job.dataConsegnaFinale.trim();
-  const hasWorkCycle = Array.isArray(job.phases) && job.phases.length > 0;
+  const hasWorkCycle =
+    (Array.isArray(job.phases) && job.phases.length > 0) ||
+    Boolean(job.workCycleId && job.workCycleId.trim()) ||
+    Boolean(article?.workCycleId && article.workCycleId.trim());
   const isStartBlocked = isDeliveryDateMissing || !hasWorkCycle;
   const effectiveWeekInfo = getJobEffectiveWeek(job);
   const hasExternalized = Boolean(job.externalizedMaterials && job.externalizedMaterials.length > 0);
@@ -3682,7 +3680,7 @@ export default function ProgrammazioneClientPage({
 
   // Aggiornamento N° ODL (on blur / Enter differito con validazione unicità anti-doppione e Optimistic Mutate FASE 85)
   const handleSaveOdl = useCallback(async (job: JobOrder, draftVal: string): Promise<boolean> => {
-    const currentClean = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+    const currentClean = getJobCleanOdl(job);
     const cleanDraft = getCleanOdlValue(draftVal);
     if (cleanDraft === currentClean) return true;
 
@@ -3690,7 +3688,7 @@ export default function ProgrammazioneClientPage({
     if (cleanDraft) {
       // 1. Controllo rapido in memoria locale sulle commesse caricate
       const localConflict = jobs.find(
-        (j) => j.id !== job.id && getCleanOdlValue(j.numeroODLInterno || j.numeroODL).toLowerCase() === cleanDraft.toLowerCase()
+        (j) => j.id !== job.id && getJobCleanOdl(j).toLowerCase() === cleanDraft.toLowerCase()
       );
       if (localConflict) {
         toast({
@@ -4043,36 +4041,46 @@ export default function ProgrammazioneClientPage({
   }, [toast, mutateJobs]);
 
   const handleStartProduction = useCallback(async (job: JobOrder) => {
-    // FASE 16: Guardrail Data Consegna Obbligatoria
-    if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Data di Consegna Mancante",
-        description: "Inserire Data di Consegna per avviare.",
-      });
+    const artKey = ((job as any).articolo || job.details || '').trim().toUpperCase();
+    const relatedArticle = artKey ? articleMap.get(artKey) : undefined;
+    const eligibility = evaluateJobStartEligibility(job, {
+      hasArticleWorkCycle: Boolean(relatedArticle?.workCycleId && relatedArticle.workCycleId.trim()),
+    });
+
+    if (!eligibility.eligible) {
+      if (eligibility.skipCategory === 'no_date') {
+        toast({
+          variant: "destructive",
+          title: "Data di Consegna Mancante",
+          description: "Inserire Data di Consegna per avviare.",
+        });
+      } else if (eligibility.skipCategory === 'no_cycle') {
+        toast({
+          variant: "destructive",
+          title: "Ciclo di Lavorazione Mancante",
+          description: "Nessun ciclo di lavorazione presente.",
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Impossibile Avviare Commessa",
+          description: `La commessa ${job.ordinePF || job.id} non può essere avviata (${eligibility.reason}).`,
+        });
+      }
       return;
     }
 
-    // FASE 72: Guardrail dinamico Ciclo di Lavorazione dallo stato fresco della riga
-    if (!Array.isArray(job.phases) || job.phases.length === 0) {
-      toast({
-        variant: "destructive",
-        title: "Ciclo di Lavorazione Mancante",
-        description: "Nessun ciclo di lavorazione presente.",
-      });
-      return;
-    }
-
-    // FASE 84: Se job.numeroODL è già valorizzato, procedi direttamente senza interruzioni;
-    // se è vuoto, intercetta il click e apri ConfirmOdlDialog con il valore proposto da getNextOdlNumber().
-    const existingOdl = getCleanOdlValue(job.numeroODL || job.numeroODLInterno);
+    // FASE 84 & FASE 98-BIS: Usa lo stesso identico helper della colonna N° ODL in tabella.
+    // Se l'ODL è già assegnato (es. 2309-26), avvia mantenendo l'ODL esistente senza incrementare il numeratore;
+    // solo se è vuoto/N/D apre ConfirmOdlDialog con la proposta dal numeratore.
+    const existingOdl = getJobCleanOdl(job);
     if (existingOdl) {
       await executeStartProduction(job, existingOdl);
     } else {
       setJobToConfirmOdl(job);
       setIsConfirmOdlModalOpen(true);
     }
-  }, [toast, executeStartProduction]);
+  }, [articleMap, toast, executeStartProduction]);
 
   // =========================================================================
   // FASE 16: GESTIONE SELEZIONE MULTIPLA E AZIONI MASSIVE (BULK ACTIONS)
@@ -4270,7 +4278,7 @@ export default function ProgrammazioneClientPage({
         }
       }
 
-      const currentOdl = getCleanOdlValue(mergedJob.numeroODLInterno || mergedJob.numeroODL);
+      const currentOdl = getJobCleanOdl(mergedJob);
       const enrichedJob: JobOrder = {
         ...mergedJob,
         numeroODL: currentOdl,
@@ -4337,7 +4345,7 @@ export default function ProgrammazioneClientPage({
     if (selectedJobs.length === 0) return;
 
     // Validazione N° ODL obbligatorio su TUTTE le commesse selezionate
-    const missingOdlJobs = selectedJobs.filter((j) => !getCleanOdlValue(j.numeroODLInterno || j.numeroODL));
+    const missingOdlJobs = selectedJobs.filter((j) => !getJobCleanOdl(j));
     if (missingOdlJobs.length > 0) {
       toast({
         variant: "destructive",
@@ -4415,7 +4423,7 @@ export default function ProgrammazioneClientPage({
 
       if (totalPagesAdded > 0) {
         if (selectedJobs.length === 1) {
-          const cleanOdl = getCleanOdlValue(selectedJobs[0].numeroODLInterno || selectedJobs[0].numeroODL).replace(/\//g, '_');
+          const cleanOdl = getJobCleanOdl(selectedJobs[0]).replace(/\//g, '_');
           const cleanPf = (selectedJobs[0].ordinePF || '').replace(/\//g, '_');
           pdf.save(`ODL_${cleanOdl}_${cleanPf}.pdf`);
         } else {
@@ -4498,7 +4506,7 @@ export default function ProgrammazioneClientPage({
         prev.map((j) => {
           if (startedIdsSet.has(j.id)) {
             const startedInfo = startedMap.get(j.id);
-            const assignedOdl = startedInfo?.numeroODLInterno || j.numeroODLInterno || j.numeroODL;
+            const assignedOdl = startedInfo?.numeroODLInterno || getJobCleanOdl(j) || j.numeroODLInterno || j.numeroODL;
             return {
               ...j,
               status: 'DA_INIZIARE',
@@ -4535,6 +4543,14 @@ export default function ProgrammazioneClientPage({
           variant: "destructive",
           title: "Data di Consegna Mancante",
           description: `${res.skippedNoDate.length} ${res.skippedNoDate.length === 1 ? 'commessa esclusa' : 'commesse escluse'} (priva di data di consegna): ${res.skippedNoDate.join(', ')}.`,
+        });
+      }
+
+      if (res.skippedOther && res.skippedOther.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Commesse Escluse dall'Avvio",
+          description: res.skippedOther.map((o) => o.reason).join('; '),
         });
       }
     } catch (e: any) {
@@ -4755,7 +4771,7 @@ export default function ProgrammazioneClientPage({
     }
 
     // Risolvi il N° ODL dal valore salvato della commessa (esclude N/D o vuoto)
-    const currentOdl = getCleanOdlValue(job.numeroODLInterno || job.numeroODL);
+    const currentOdl = getJobCleanOdl(job);
 
     if (!currentOdl) {
       toast({

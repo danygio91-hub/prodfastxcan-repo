@@ -5,6 +5,48 @@
 
 export const STANDARD_ODL_REGEX = /^(\d+)-(\d{2})$/;
 
+const ODL_PLACEHOLDERS = new Set(['', 'N/D', 'N/A', 'MANUALE', '---', 'NULL', 'UNDEFINED']);
+
+/**
+ * FASE 98-BIS: Normalizza un singolo valore grezzo ODL scartando placeholder/vuoti.
+ */
+export function getCleanOdlValue(raw: unknown): string {
+  if (raw === null || raw === undefined) return '';
+  const trimmed = String(raw).trim();
+  if (!trimmed || ODL_PLACEHOLDERS.has(trimmed.toUpperCase())) {
+    return '';
+  }
+  return trimmed;
+}
+
+/**
+ * FASE 98-BIS: Legge l'ODL valido assegnato a una commessa con la stessa priorità
+ * usata dalla colonna N° ODL in tabella (numeroODLInterno -> numeroODL -> odlNumber -> odl).
+ * Controlla ogni campo separatamente per evitare che un placeholder come 'MANUALE' o 'N/D'
+ * su numeroODL mascheri un ODL valido salvato su numeroODLInterno.
+ */
+export function getJobCleanOdl(job?: Record<string, any> | null): string {
+  if (!job) return '';
+  return (
+    getCleanOdlValue(job.numeroODLInterno) ||
+    getCleanOdlValue(job.numeroODL) ||
+    getCleanOdlValue(job.odlNumber) ||
+    getCleanOdlValue(job.odl) ||
+    ''
+  );
+}
+
+/**
+ * Estrae la radice famiglia di una commessa per distinguere split/sub-lotti dello stesso ordine
+ * (es. "869/PF.1" -> "869/PF", "860/PF.6_1" -> "860/PF.6" o "860/PF").
+ */
+export function extractOrderFamilyRoot(ordinePF?: string | null): string {
+  const clean = String(ordinePF || '').trim().toUpperCase().replace(/-/g, '/');
+  if (!clean) return '';
+  const baseNoYear = clean.replace(/_(19|20)\d{2}$/, '');
+  return baseNoYear.split(/[._]/)[0] || baseNoYear;
+}
+
 export interface ParsedStandardOdl {
   progressive: number;
   yearTwoDigits: number;

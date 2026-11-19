@@ -47,3 +47,53 @@ describe('odl-numerator (FASE 84)', () => {
   });
 });
 
+
+
+import { describe as describeOdlClean, it as itOdlClean, expect as expectOdlClean } from 'vitest';
+import { getCleanOdlValue, getJobCleanOdl } from './odl-numerator';
+
+describeOdlClean('FASE 98-BIS: getCleanOdlValue & getJobCleanOdl', () => {
+  itOdlClean('scarta i placeholder e mantiene i valori ODL validi', () => {
+    expectOdlClean(getCleanOdlValue(null)).toBe('');
+    expectOdlClean(getCleanOdlValue(undefined)).toBe('');
+    expectOdlClean(getCleanOdlValue('')).toBe('');
+    expectOdlClean(getCleanOdlValue('N/D')).toBe('');
+    expectOdlClean(getCleanOdlValue('n/a')).toBe('');
+    expectOdlClean(getCleanOdlValue('MANUALE')).toBe('');
+    expectOdlClean(getCleanOdlValue('---')).toBe('');
+    expectOdlClean(getCleanOdlValue('  2309-26  ')).toBe('2309-26');
+  });
+
+  itOdlClean('da priorita a numeroODLInterno e ignora placeholder su numeroODL', () => {
+    expectOdlClean(
+      getJobCleanOdl({
+        numeroODL: 'MANUALE',
+        numeroODLInterno: '2309-26',
+      })
+    ).toBe('2309-26');
+
+    expectOdlClean(
+      getJobCleanOdl({
+        numeroODL: 'N/D',
+        numeroODLInterno: '2309-26',
+      })
+    ).toBe('2309-26');
+  });
+
+  itOdlClean('esegue fallback sui campi successivi quando numeroODLInterno e vuoto o placeholder', () => {
+    expectOdlClean(
+      getJobCleanOdl({
+        numeroODLInterno: '---',
+        numeroODL: '2400-26',
+      })
+    ).toBe('2400-26');
+
+    expectOdlClean(
+      getJobCleanOdl({
+        numeroODLInterno: '',
+        numeroODL: 'MANUALE',
+        odlNumber: '2500-26',
+      })
+    ).toBe('2500-26');
+  });
+});

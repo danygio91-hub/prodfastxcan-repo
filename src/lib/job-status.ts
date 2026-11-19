@@ -162,6 +162,30 @@ export function isJobOverdue(item: JobOrder | WorkGroup): boolean {
  */
 export type JobDisplayStatus = 'Pianificata' | 'In Produzione' | 'Completato Prod.' | 'Spedito';
 
+export const BACKLOG_PLANNED_STATUSES = [
+    'pending',
+    'planned',
+    'in_attesa',
+    'in attesa',
+    'in pianificazione',
+    'in_pianificazione',
+    'pianificata',
+    'pianificate',
+    'pianificato',
+    'da_avviare',
+    'da avviare',
+    'waiting',
+    'backlog',
+    'prep',
+    'confirmed',
+] as const;
+
+export function isPlannedStatusValue(rawStatus?: string | null): boolean {
+    const statusLower = String(rawStatus || '').toLowerCase().trim();
+    if (!statusLower) return true;
+    return (BACKLOG_PLANNED_STATUSES as readonly string[]).includes(statusLower);
+}
+
 export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
     const statusLower = (job.status || '').toLowerCase().trim();
 
@@ -177,15 +201,7 @@ export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
     }
 
     // 2. Pianificata: stato formale di pianificazione SENZA alcuna fase attiva/completata (gestisce anche null/empty/pending)
-    const isBacklogPlanned = !statusLower || [
-        'pending',
-        'planned',
-        'in_attesa',
-        'in pianificazione',
-        'in_pianificazione',
-        'pianificata',
-        'pianificato'
-    ].includes(statusLower);
+    const isBacklogPlanned = isPlannedStatusValue(statusLower);
 
     const hasAnyPhaseInProgress = (job.phases || []).some(
         p => p.status === 'in-progress'
@@ -212,6 +228,79 @@ export function getJobDisplayStatus(job: JobOrder): JobDisplayStatus {
 
     // 4. In Produzione: ODL avviato ('DA_INIZIARE') o commessa rilasciata/in lavorazione nei reparti
     return 'In Produzione';
+}
+
+export interface JobStartEligibilityResult {
+    eligible: boolean;
+    displayStatus: JobDisplayStatus;
+    skipCategory?: 'no_date' | 'no_cycle' | 'already_started' | 'concluded';
+    reason?: string;
+}
+
+/**
+ * FASE 98: SSoT univoca per valutare l'avviabilità di una commessa in produzione (Singolo & Massivo).
+ * Qualsiasi commessa in stato Pianificata/Da Avviare (non ancora avviata e non conclusa) con data consegna
+ * e ciclo/fasi configurati è SEMPRE avviabile, indipendentemente dallo stato MRP o dalla BOM inline.
+ */
+export function evaluateJobStartEligibility(
+    job: JobOrder,
+    options?: { hasArticleWorkCycle?: boolean }
+): JobStartEligibilityResult {
+    const displayStatus = getJobDisplayStatus(job);
+    const statusLower = String(job.status || '').toLowerCase().trim();
+
+    if (displayStatus === 'Completato Prod.' || displayStatus === 'Spedito') {
+        return {
+            eligible: false,
+            displayStatus,
+            skipCategory: 'concluded',
+            reason: `già conclusa (${displayStatus})`,
+        };
+    }
+
+    const hasPreStartPauseStatus =
+        !job.odlCreationDate &&
+        !job.overallStartTime &&
+        ['manca materiale', 'sospesa', 'problema'].includes(statusLower);
+
+    const isUnstartedPlanned = displayStatus === 'Pianificata' || isPlannedStatusValue(statusLower) || hasPreStartPauseStatus;
+
+    if (!isUnstartedPlanned) {
+        return {
+            eligible: false,
+            displayStatus,
+            skipCategory: 'already_started',
+            reason: `già ${displayStatus}`,
+        };
+    }
+
+    if (!job.dataConsegnaFinale || !String(job.dataConsegnaFinale).trim()) {
+        return {
+            eligible: false,
+            displayStatus,
+            skipCategory: 'no_date',
+            reason: 'priva di data di consegna',
+        };
+    }
+
+    const hasPhases =
+        (Array.isArray(job.phases) && job.phases.length > 0) ||
+        Boolean(job.workCycleId && String(job.workCycleId).trim()) ||
+        Boolean(options?.hasArticleWorkCycle);
+
+    if (!hasPhases) {
+        return {
+            eligible: false,
+            displayStatus,
+            skipCategory: 'no_cycle',
+            reason: 'nessun ciclo di lavorazione configurato',
+        };
+    }
+
+    return {
+        eligible: true,
+        displayStatus,
+    };
 }
 
 /**

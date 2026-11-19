@@ -13,10 +13,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Play, Loader2, Hash, Sparkles, Edit3, AlertCircle } from 'lucide-react';
+import { Play, Loader2, Hash, Sparkles, Edit3, AlertCircle, Lock } from 'lucide-react';
 import type { JobOrder } from '@/types';
 import { getNextOdlNumber } from '@/app/admin/programmazione/actions';
-import { parseStandardOdl } from '@/lib/odl-numerator';
+import { parseStandardOdl, getJobCleanOdl } from '@/lib/odl-numerator';
 
 interface ConfirmOdlDialogProps {
   isOpen: boolean;
@@ -42,11 +42,22 @@ export function ConfirmOdlDialog({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const userEditedRef = useRef<boolean>(false);
 
+  const existingJobOdl = getJobCleanOdl(job);
+
   useEffect(() => {
     if (isOpen && job) {
       userEditedRef.current = false;
       setIsSubmitting(false);
       setErrorMessage(null);
+
+      // FASE 98-BIS: Se la commessa ha già un ODL valido in anagrafica/tabella,
+      // pre-compila quello esistente SENZA interrogare/proporre un nuovo progressivo.
+      if (existingJobOdl) {
+        setOdlInput(existingJobOdl);
+        setIsLoadingProposal(false);
+        return;
+      }
+
       setOdlInput(initialProposedOdl || '');
 
       let cancelled = false;
@@ -70,12 +81,13 @@ export function ConfirmOdlDialog({
         cancelled = true;
       };
     }
-  }, [isOpen, job, initialProposedOdl]);
+  }, [isOpen, job, existingJobOdl, initialProposedOdl]);
 
   if (!job) return null;
 
   const trimmedOdl = odlInput.trim();
   const parsedStandard = parseStandardOdl(trimmedOdl);
+  const isPreservingAssignedOdl = Boolean(existingJobOdl && trimmedOdl === existingJobOdl);
   const isValidInput = trimmedOdl.length > 0;
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -184,7 +196,14 @@ export function ConfirmOdlDialog({
 
             {trimmedOdl && !errorMessage && (
               <div className="flex items-center gap-1.5 text-[11px] pt-0.5">
-                {parsedStandard ? (
+                {isPreservingAssignedOdl ? (
+                  <span className="inline-flex items-center gap-1 text-blue-400">
+                    <Lock className="h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      ODL già assegnato (<strong>{existingJobOdl}</strong>) — verrà mantenuto invariato e il numeratore non verrà incrementato.
+                    </span>
+                  </span>
+                ) : parsedStandard ? (
                   <span className="inline-flex items-center gap-1 text-emerald-400">
                     <Sparkles className="h-3.5 w-3.5 shrink-0" />
                     <span>
