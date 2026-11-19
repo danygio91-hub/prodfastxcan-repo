@@ -219,16 +219,21 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
                 updates.status = 'production';
             }
 
-            transaction.update(itemRef, updates);
-
-            // Se è un gruppo, propaghiamo alle commesse figlie
+            const resolvedFastForwardChildRefs: admin.firestore.DocumentReference[] = [];
             if (isGroup) {
                 for (const childId of (data.jobOrderIds || [])) {
                     const lookup = await getJobOrderRefAndSnap(childId, transaction);
                     if (lookup.jobSnap.exists) {
-                        transaction.update(lookup.jobRef, updates);
+                        resolvedFastForwardChildRefs.push(lookup.jobRef);
                     }
                 }
+            }
+
+            transaction.update(itemRef, updates);
+
+            // Se è un gruppo, propaghiamo alle commesse figlie
+            for (const childRef of resolvedFastForwardChildRefs) {
+                transaction.update(childRef, updates);
             }
 
             for (const kickedOpId of Array.from(operatorIdsToPulse)) {
@@ -507,6 +512,12 @@ export async function resolveJobBOMCommitmentsByType(
 ) {
     if (!jobIds || !jobIds.length || !materialTypesToExtinguish || !materialTypesToExtinguish.length) return;
 
+    if (transaction) {
+        const writes = await collectJobBOMResolutionWrites(jobIds, '', materialTypesToExtinguish, transaction);
+        applyJobBOMResolutionWrites(writes, transaction);
+        return;
+    }
+
     // 1. Pre-mappa i tipi di materiale per evitare lookup ripetuti se possibile
     // Recuperiamo le anagrafiche materiali coinvolte
     const materialsSnap = await adminDb.collection('rawMaterials').get();
@@ -545,11 +556,7 @@ export async function resolveJobBOMCommitmentsByType(
         });
 
         if (modified) {
-            if (transaction) {
-                transaction.update(jobRef, { billOfMaterials: updatedBOM });
-            } else {
-                await jobRef.update({ billOfMaterials: updatedBOM });
-            }
+            await jobRef.update({ billOfMaterials: updatedBOM });
         }
     }
 }
@@ -564,10 +571,17 @@ export async function resolveJobBOMCommitmentByMaterialCode(
     transaction?: admin.firestore.Transaction
 ) {
     if (!jobIds || !jobIds.length || !materialCode) return;
+
+    if (transaction) {
+        const writes = await collectJobBOMResolutionWrites(jobIds, materialCode, [], transaction);
+        applyJobBOMResolutionWrites(writes, transaction);
+        return;
+    }
+
     const targetCode = materialCode.trim().toUpperCase();
 
     for (const rawId of jobIds) {
-        const lookup = await getJobOrderRefAndSnap(rawId, transaction);
+        const lookup = await getJobOrderRefAndSnap(rawId);
         const jobRef = lookup.jobRef;
         const snap = lookup.jobSnap;
         if (!snap.exists) continue;
@@ -585,11 +599,7 @@ export async function resolveJobBOMCommitmentByMaterialCode(
         });
 
         if (modified) {
-            if (transaction) {
-                transaction.update(jobRef, { billOfMaterials: updatedBOM });
-            } else {
-                await jobRef.update({ billOfMaterials: updatedBOM });
-            }
+            await jobRef.update({ billOfMaterials: updatedBOM });
         }
     }
 }
@@ -953,15 +963,17 @@ export async function handlePhaseScanResult(
                 }
                 
                 // If no one else is active, mark phase as completed
+                let bomWrites: JobBOMResolutionWrite[] = [];
                 if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
                     phs[idx].status = 'completed';
 
                     // ADDED: DUAL-DYNAMIC B (PHASE EXTINGUISHMENT)
+                    // FASE 99-BIS: sola lettura delle commesse (collectJobBOMResolutionWrites) prima delle scritture finali
                     if (phs[idx].type === 'preparation' && phs[idx].allowedMaterialTypes && phs[idx].allowedMaterialTypes.length > 0) {
                         const typesToExtinguish = phs[idx].allowedMaterialTypes.filter((t: string) => !['BOB', 'PF3V0'].includes(t.toUpperCase()));
                         if (typesToExtinguish.length > 0) {
                             const jobIds = isGroup ? (data.jobOrderIds || []) : [jobId];
-                            await resolveJobBOMCommitmentsByType(jobIds, typesToExtinguish, transaction);
+                            bomWrites = await collectJobBOMResolutionWrites(jobIds, '', typesToExtinguish, transaction);
                         }
                     }
                 }
@@ -1046,6 +1058,9 @@ export async function handlePhaseScanResult(
                         }
                     }
                 }
+
+                // --- WRITES (solo dopo tutte le letture transazionali) ---
+                applyJobBOMResolutionWrites(bomWrites, transaction);
 
                 for (const pkgOp of resolvedPackagingOps) {
                     transaction.update(pkgOp.ref, pkgOp.updates);
