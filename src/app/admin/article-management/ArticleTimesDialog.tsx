@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -17,14 +17,21 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Timer, RefreshCcw, Save, Loader2, Copy, CheckCircle2, Calculator } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { Article, WorkPhaseTemplate, ArticlePhaseTime, WorkCycle } from '@/types';
+import type { Article, Department, WorkPhaseTemplate, ArticlePhaseTime, WorkCycle } from '@/types';
 import { saveArticleStandardTimes, refreshArticleHistoricalTimes } from './actions';
 import { getWorkCycles } from '../work-cycle-management/actions';
+import { getDepartments } from '../department-management/actions';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+    NO_DEPARTMENT_VALUE,
+    buildDepartmentOptions,
+    getArticleDefaultDepartment,
+    normalizeDepartmentCode,
+} from '@/lib/department-utils';
 
 interface ArticleTimesDialogProps {
     isOpen: boolean;
@@ -32,6 +39,7 @@ interface ArticleTimesDialogProps {
     article: Article | null;
     phaseTemplates: WorkPhaseTemplate[];
     workCycles?: WorkCycle[];
+    departments?: Department[];
     embedded?: boolean;
 }
 
@@ -60,19 +68,27 @@ function applyCyclePhases(
     return newPhaseTimes;
 }
 
-export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates, embedded = false, workCycles: initialWorkCycles }: ArticleTimesDialogProps) {
+export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemplates, embedded = false, workCycles: initialWorkCycles, departments: initialDepartments }: ArticleTimesDialogProps) {
     const { toast } = useToast();
     const [isPending, setIsPending] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
     const [workCycles, setWorkCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
+    const [availableDepartments, setAvailableDepartments] = useState<Department[]>(initialDepartments || []);
+    const deptTouchedRef = useRef(false);
 
     const [activeView, setActiveView] = useState<'default' | 'secondary'>('default');
     const [primaryCycleId, setPrimaryCycleId] = useState<string>('manual');
     const [secondaryCycleId, setSecondaryCycleId] = useState<string>('manual');
+    const [defaultDepartmentId, setDefaultDepartmentId] = useState<string>('');
     const [expectedTotalDefault, setExpectedTotalDefault] = useState<number | string>("");
     const [expectedTotalSecondary, setExpectedTotalSecondary] = useState<number | string>("");
     const [localPhaseTimesDefault, setLocalPhaseTimesDefault] = useState<Record<string, ArticlePhaseTime>>({});
     const [localPhaseTimesSecondary, setLocalPhaseTimesSecondary] = useState<Record<string, ArticlePhaseTime>>({});
+
+    const departmentOptions = useMemo(
+        () => buildDepartmentOptions(availableDepartments),
+        [availableDepartments]
+    );
 
     const articleIdentity = article?.id || article?.code || '';
 
@@ -81,13 +97,40 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         setIsPending(false);
         setIsUpdating(false);
         setActiveView('default');
+        deptTouchedRef.current = false;
         setPrimaryCycleId(article?.workCycleId || 'manual');
         setSecondaryCycleId(article?.secondaryWorkCycleId || 'manual');
+        setDefaultDepartmentId(getArticleDefaultDepartment(article, availableDepartments));
         setExpectedTotalDefault(article?.expectedMinutesDefault || "");
         setExpectedTotalSecondary(article?.expectedMinutesSecondary || "");
         setLocalPhaseTimesDefault({});
         setLocalPhaseTimesSecondary({});
     }, [articleIdentity]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        let isCancelled = false;
+        if (initialDepartments && initialDepartments.length > 0) {
+            setAvailableDepartments(initialDepartments);
+            if (!deptTouchedRef.current) {
+                setDefaultDepartmentId(getArticleDefaultDepartment(article, initialDepartments));
+            }
+        } else {
+            getDepartments()
+                .then((depts) => {
+                    if (isCancelled) return;
+                    setAvailableDepartments(depts);
+                    if (!deptTouchedRef.current) {
+                        setDefaultDepartmentId(getArticleDefaultDepartment(article, depts));
+                    }
+                })
+                .catch(() => {});
+        }
+        return () => {
+            isCancelled = true;
+        };
+    }, [isOpen, article, initialDepartments]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -364,8 +407,12 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
 
         const defVal = parseTotal(expectedTotalDefault);
         const secVal = parseTotal(expectedTotalSecondary);
+        const normalizedDept = normalizeDepartmentCode(defaultDepartmentId, availableDepartments);
 
         const data: Partial<Article> = {
+            defaultDepartmentId: normalizedDept || null,
+            defaultDepartmentCode: normalizedDept || null,
+            department: normalizedDept || '',
             workCycleId: primaryCycleId,
             secondaryWorkCycleId: secondaryCycleId,
             expectedMinutesDefault: defVal > 0 
@@ -423,6 +470,28 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                     <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                         <Card className="lg:col-span-4 bg-muted/20 border-primary/20">
                             <CardContent className="p-4 space-y-4">
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold uppercase text-muted-foreground">Reparto di Appartenenza (Predefinito)</Label>
+                                    <Select
+                                        value={defaultDepartmentId || NO_DEPARTMENT_VALUE}
+                                        onValueChange={(val) => {
+                                            deptTouchedRef.current = true;
+                                            setDefaultDepartmentId(val === NO_DEPARTMENT_VALUE ? '' : val);
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-full h-9 text-xs">
+                                            <SelectValue placeholder="Seleziona reparto predefinito..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value={NO_DEPARTMENT_VALUE}>Nessuno (usa fallback)</SelectItem>
+                                            {departmentOptions.map((dept) => (
+                                                <SelectItem key={dept.value} value={dept.value}>
+                                                    {dept.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                                 <div className="space-y-2">
                                     <Label className="text-xs font-bold uppercase text-muted-foreground">Ciclo Applicato</Label>
                                     <Select onValueChange={(v) => handleCycleChange(v, activeView)} value={activeView === 'default' ? primaryCycleId : secondaryCycleId}>

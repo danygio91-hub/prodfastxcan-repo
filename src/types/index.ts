@@ -279,6 +279,8 @@ export interface Article {
   code: string;
   description?: string;
   department?: string;
+  defaultDepartmentId?: string | null;
+  defaultDepartmentCode?: string | null;
   billOfMaterials: BillOfMaterialsItem[];
   phaseTimes?: Record<string, ArticlePhaseTime>;
   phaseTimesSecondary?: Record<string, ArticlePhaseTime>;

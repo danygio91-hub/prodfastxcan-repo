@@ -20,6 +20,7 @@ import { format } from 'date-fns';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
 import { updateJobOrder } from '@/app/admin/data-management/actions';
 import { parseRobustDate, normalizeDateStr, parseSafeDecimal } from '@/lib/utils';
+import { buildDepartmentOptions, normalizeDepartmentCode } from '@/lib/department-utils';
 import { useRouter } from 'next/navigation';
 
 interface EditStandardJobModalProps {
@@ -49,6 +50,8 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
   const [selectedDept, setSelectedDept] = useState('');
   const [expectedMinutes, setExpectedMinutes] = useState('0');
 
+  const departmentOptions = React.useMemo(() => buildDepartmentOptions(departments), [departments]);
+
   useEffect(() => {
     if (job && isOpen) {
       setCliente(job.cliente || '');
@@ -59,7 +62,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       setDataPrep(normalizeDateStr(job.dataFinePreparazione) || job.dataFinePreparazione || '');
       setSelectedCycleId(job.workCycleId || '');
       
-      const deptCode = departments.find(d => d.name === job.department || d.code === job.department)?.code || job.department || '';
+      const deptCode = normalizeDepartmentCode(job.department, departments) || job.department || '';
       setSelectedDept(deptCode);
       
       setExpectedMinutes(job.expectedMinutesDefault !== undefined && job.expectedMinutesDefault !== null ? String(job.expectedMinutesDefault) : '0');
@@ -68,7 +71,8 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
 
   const handleSave = async () => {
     if (!job) return;
-    if (!cliente.trim() || !ordinePF.trim() || !qta || !selectedCycleId) {
+    const effectiveCycleId = selectedCycleId || job.workCycleId || '';
+    if (!cliente.trim() || !ordinePF.trim() || !qta || (!effectiveCycleId && job.workCycleId)) {
       toast({ variant: "destructive", title: "Dati mancanti", description: "Compila tutti i campi obbligatori." });
       return;
     }
@@ -78,6 +82,7 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
     const normalizedConsegna = normalizeDateStr(dataConsegna) || '';
     const parsedQta = parseSafeDecimal(qta, 1);
     const parsedExpectedMinutes = parseSafeDecimal(expectedMinutes, 0);
+    const normalizedDept = normalizeDepartmentCode(selectedDept, departments) || selectedDept;
 
     // Snapshot commessa precedente per rollback in caso di errore
     const previousJob: JobOrder = { ...job };
@@ -88,8 +93,8 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
       cliente: cliente.trim(),
       ordinePF: ordinePF.trim(),
       qta: parsedQta,
-      department: selectedDept,
-      workCycleId: selectedCycleId,
+      department: normalizedDept,
+      workCycleId: effectiveCycleId,
       dataFinePreparazione: normalizedPrep,
       dataConsegnaFinale: normalizedConsegna,
       details: details.trim().toUpperCase() || job.details,
@@ -107,8 +112,8 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
         cliente: cliente.trim(),
         ordinePF: ordinePF.trim(),
         qta: parsedQta,
-        department: selectedDept,
-        workCycleId: selectedCycleId,
+        department: normalizedDept,
+        workCycleId: effectiveCycleId,
         dataFinePreparazione: normalizedPrep,
         dataConsegnaFinale: normalizedConsegna,
         expectedMinutes: parsedExpectedMinutes,
@@ -234,8 +239,8 @@ export function EditStandardJobModal({ isOpen, onClose, job, workCycles, departm
               <Select onValueChange={setSelectedDept} value={selectedDept}>
                 <SelectTrigger className="bg-slate-800 border-slate-700 h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {departments.map(d => (
-                    <SelectItem key={d.id} value={d.code}>{d.name}</SelectItem>
+                  {departmentOptions.map(d => (
+                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

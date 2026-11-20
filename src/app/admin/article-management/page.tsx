@@ -2,6 +2,7 @@
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { getArticles } from './actions';
+import { getDepartments } from '../department-management/actions';
 import { getRawMaterials } from '../raw-material-management/actions';
 import ArticleManagementClientPage from './ArticleManagementClientPage';
 import { Suspense } from 'react';
@@ -17,7 +18,10 @@ export default async function ArticleManagementPage({ searchParams }: PageProps)
   const rawSearch = searchParams?.search || searchParams?.q || searchParams?.code;
   const initialSearch = typeof rawSearch === 'string' ? rawSearch.trim() : undefined;
 
-  const initialArticles = await getArticles(initialSearch);
+  const [initialArticles, initialDepartments] = await Promise.all([
+    getArticles(initialSearch),
+    getDepartments().catch(() => []),
+  ]);
 
   return (
     <AdminAuthGuard>
@@ -28,7 +32,10 @@ export default async function ArticleManagementPage({ searchParams }: PageProps)
             <p className="ml-4 text-muted-foreground">Caricamento articoli...</p>
           </div>
         }>
-          <ArticleManagementClientPage initialArticles={initialArticles} />
+          <ArticleManagementClientPage
+            initialArticles={initialArticles}
+            initialDepartments={initialDepartments}
+          />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

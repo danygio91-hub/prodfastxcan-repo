@@ -292,7 +292,7 @@ export function ExcelImportModal({
                     <code className="text-primary font-semibold">Qta</code> (&gt; 0) |{' '}
                     <code className="text-primary font-semibold">Cliente</code> (obbligatorio) |{' '}
                     <code className="text-primary font-semibold">Data Consegna</code> (GG/MM/AAAA) |{' '}
-                    <code className="text-muted-foreground">Reparto</code> (opzionale) |{' '}
+                    <code className="text-muted-foreground">Reparto</code> (opzionale — eredita da anagrafica articolo se omesso) |{' '}
                     <code className="text-muted-foreground">Ciclo</code> (opzionale) |{' '}
                     <code className="text-muted-foreground">N° ODL</code> (opzionale)
                   </p>

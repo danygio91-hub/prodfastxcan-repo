@@ -49,6 +49,7 @@ import {
 export type { DayCapacityConfigData };
 import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
 import { bumpMrpSyncVersion, readMrpSyncMeta, DEFAULT_MRP_SYNC_META, type MrpSyncMeta } from '@/lib/mrp-sync';
+import { resolveDepartmentForNewJob } from '@/lib/department-utils';
 import type { JobOrder, JobPhase, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem, MaterialWithdrawal } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
@@ -1072,14 +1073,21 @@ export async function saveQuickJobOrder(data: {
         let phases: any[] = [];
         let jobBOM: JobBillOfMaterialsItem[] = [];
         let workCycleId = '';
-        let targetDept = department || 'CP';
+        let targetDept = resolveDepartmentForNewJob({
+            explicitDepartment: department,
+            fallback: 'CP',
+        });
         let expectedMinutesDefault = 0;
 
         const artSnap = await adminDb.collection("articles").doc(articleCode.toUpperCase().trim()).get();
         if (artSnap.exists) {
             const artData = artSnap.data() as Article;
             workCycleId = artData.workCycleId || '';
-            if ((artData as any).department) targetDept = (artData as any).department;
+            targetDept = resolveDepartmentForNewJob({
+                explicitDepartment: department,
+                article: artData,
+                fallback: 'CP',
+            });
             expectedMinutesDefault = artData.expectedMinutesDefault || 0;
 
             // 1. Eredita Ciclo e Fasi con ripartizione tempi teorici
@@ -1348,7 +1356,11 @@ export async function saveManualMultiJobOrders(items: {
             const qtaNum = Number(row.qta) || 1;
 
             const workCycleId = artData.workCycleId || '';
-            const targetDept = row.department || (artData as any).department || 'CP';
+            const targetDept = resolveDepartmentForNewJob({
+                explicitDepartment: row.department,
+                article: artData,
+                fallback: 'CP',
+            });
             const expectedMinutesDefault = artData.expectedMinutesDefault || 0;
 
             // Ciclo e fasi: Regola di Tolleranza (Verde/Warning) - non blocca
@@ -2359,7 +2371,7 @@ export async function searchArticlesAction(searchTerm: string): Promise<Article[
         if (!rawTerm || rawTerm.length < 2) {
             // Se il termine è troppo breve, restituisce i primi 30 articoli
             const snap = await adminDb.collection("articles")
-                .select("code", "description", "department", "billOfMaterials", "workCycleId", "expectedMinutesDefault")
+                .select("code", "description", "department", "defaultDepartmentId", "defaultDepartmentCode", "billOfMaterials", "workCycleId", "expectedMinutesDefault")
                 .limit(30)
                 .get();
 
@@ -2369,6 +2381,9 @@ export async function searchArticlesAction(searchTerm: string): Promise<Article[
                     ...convertTimestampsToDates(data),
                     id: doc.id,
                     code: String(data.code || doc.id).trim(),
+                    defaultDepartmentId: data.defaultDepartmentId ?? data.defaultDepartmentCode ?? data.department ?? null,
+                    defaultDepartmentCode: data.defaultDepartmentCode ?? data.defaultDepartmentId ?? data.department ?? null,
+                    department: data.defaultDepartmentId || data.defaultDepartmentCode || data.department || data.reparto || '',
                 } as Article;
             });
             return JSON.parse(JSON.stringify(articles));
@@ -2381,12 +2396,15 @@ export async function searchArticlesAction(searchTerm: string): Promise<Article[
             if (!resultsMap.has(doc.id)) {
                 const data = doc.data();
                 if (data) {
+                    const resolvedDefaultDept = data.defaultDepartmentId ?? data.defaultDepartmentCode ?? data.department ?? data.reparto ?? null;
                     resultsMap.set(doc.id, {
                         ...convertTimestampsToDates(data),
                         id: doc.id,
                         code: String(data.code || data.codice || doc.id).trim(),
                         description: data.description || data.descrizione || '',
-                        department: data.department || data.reparto || '',
+                        defaultDepartmentId: resolvedDefaultDept,
+                        defaultDepartmentCode: data.defaultDepartmentCode ?? resolvedDefaultDept,
+                        department: resolvedDefaultDept || '',
                         billOfMaterials: data.billOfMaterials || data.distintaBase || [],
                         workCycleId: data.workCycleId || data.cicloLavorazioneId || undefined,
                         expectedMinutesDefault: Number(data.expectedMinutesDefault) || 0,

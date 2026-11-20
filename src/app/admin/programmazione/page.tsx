@@ -30,6 +30,8 @@ export default async function ProgrammazionePage() {
       "secondaryWorkCycleId",
       "description",
       "department",
+      "defaultDepartmentId",
+      "defaultDepartmentCode",
       "billOfMaterials",
       "expectedMinutesDefault",
       "expectedMinutesSecondary",

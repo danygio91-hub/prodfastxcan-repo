@@ -218,6 +218,36 @@ describe('FASE 95: Propagazione Globale Tempi/Cicli su Commesse Attive', () => {
       expect(res.phases[0].id).toBe('tpl-prod');
       expect(res.phases[0].expectedMinutesPerPiece).toBe(6.0);
     });
+
+    it('FASE 101: preserva il reparto esistente sulla commessa anche quando l\'articolo ha un defaultDepartmentId diverso', () => {
+      const jobWithManualDeptOverride = makeJob({
+        id: 'job-override-dept',
+        department: 'BF',
+        status: 'Pianificata',
+        workCycleId: 'cyc-cp-std',
+        phases: [],
+      });
+
+      const articleWithDefaultDept: Partial<Article> = {
+        id: 'ART-100',
+        code: 'ART-100',
+        defaultDepartmentId: 'CG',
+        defaultDepartmentCode: 'CG',
+        department: 'CG',
+        workCycleId: 'cyc-cp-std',
+        expectedMinutesDefault: 4.5,
+      };
+
+      const res = computeArticleCycleSyncForJob({
+        job: jobWithManualDeptOverride,
+        article: articleWithDefaultDept,
+        workCycles: cycles,
+        phaseTemplates: templates,
+      });
+
+      expect('department' in res).toBe(false);
+      expect(jobWithManualDeptOverride.department).toBe('BF');
+    });
   });
 });
 

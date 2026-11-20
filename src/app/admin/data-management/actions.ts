@@ -13,6 +13,11 @@ import { getJobDisplayStatus, evaluateJobStartEligibility } from '@/lib/job-stat
 import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
 import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import {
+    getArticleDefaultDepartment,
+    normalizeDepartmentCode,
+    resolveDepartmentForNewJob,
+} from '@/lib/department-utils';
+import {
     parseStandardOdl,
     formatStandardOdl,
     extractMaxStandardOdl,
@@ -295,7 +300,11 @@ export async function saveManualJobOrder(data: any) {
         phases: phases,
         dataConsegnaFinale: finalDeliveryDate,
         dataFinePreparazione: normalizeDateStr(dataFinePreparazione) || '',
-        department: department || "N/D",
+        department: resolveDepartmentForNewJob({
+            explicitDepartment: department,
+            article: articleData,
+            fallback: 'N/D',
+        }),
         workCycleId: workCycleId || '',
         expectedMinutesDefault: articleData.expectedMinutesDefault || 0,
         isoWeek,
@@ -427,6 +436,8 @@ export async function processAndValidateImport(data: any[]): Promise<{
         for (const row of data) {
             if (!row || typeof row !== 'object') continue;
 
+            const rawDepartmentVal = String(getVal(row, ['Reparto', 'department', 'Reparto Predefinito']) || '').trim();
+            const hasExplicitDepartment = rawDepartmentVal !== '' && rawDepartmentVal.toUpperCase() !== 'N/D';
             const mappedRow = {
                 ordinePF: String(getVal(row, ['Ordine PF', 'ordinePF']) || '').trim(),
                 details: String(getVal(row, ['Codice', 'details']) || '').trim(),
@@ -436,7 +447,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 numeroODLInternoImport: String(getVal(row, ['N° ODL', 'numeroODLInternoImport']) || '').trim(),
                 dataConsegnaFinale: normalizeDateStr(getVal(row, ['Data Consegna', 'Data Consegna Finale', 'dataConsegnaFinale'])),
                 dataFinePreparazione: normalizeDateStr(getVal(row, ['Data Fine Prep', 'Data Fine Preparazione', 'dataFinePreparazione'])),
-                department: String(getVal(row, ['Reparto', 'department']) || 'N/D').trim(),
+                department: hasExplicitDepartment ? rawDepartmentVal : 'N/D',
                 workCycleName: String(getVal(row, ['Ciclo', 'workCycleName']) || '').trim()
             };
 
@@ -464,13 +475,15 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 continue;
             }
 
-            // 5. Validità Reparto
-            if (mappedRow.department && mappedRow.department !== 'N/D') {
+            // 5. Validità Reparto (se esplicitato nell'Excel)
+            let normalizedExplicitDept = '';
+            if (hasExplicitDepartment) {
                 const deptIdent = mappedRow.department.toUpperCase().trim();
                 if (!allowedDeptIdentifiers.has(deptIdent)) {
                     blockedJobs.push({ row, reason: `Reparto "${mappedRow.department}" non valido per nuove commesse.` });
                     continue;
                 }
+                normalizedExplicitDept = normalizeDepartmentCode(mappedRow.department, allowedDepts);
             }
             
             // 6. Check Esistenza Articolo in Anagrafica
@@ -481,6 +494,14 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 blockedJobs.push({ row, reason: `Articolo "${articleCode}" non trovato in Anagrafica Articoli.` }); 
                 continue; 
             }
+
+            // FASE 101: Se l'Excel non specifica un reparto, eredita il reparto predefinito dell'articolo se presente
+            const resolvedDepartment = resolveDepartmentForNewJob({
+                explicitDepartment: normalizedExplicitDept || undefined,
+                article: articleData,
+                departments: allowedDepts,
+                fallback: 'N/D',
+            });
             
             // FASE 31: Calcolo Anno di Competenza ed estrazione chiave composita
             const annoCompetenza = extractAnnoCompetenza(mappedRow.dataConsegnaFinale);
@@ -611,7 +632,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 phases: phases, 
                 dataConsegnaFinale: mappedRow.dataConsegnaFinale, 
                 dataFinePreparazione: mappedRow.dataFinePreparazione, 
-                department: mappedRow.department, 
+                department: resolvedDepartment, 
                 workCycleId: workCycleId,
                 expectedMinutesDefault: articleData.expectedMinutesDefault || 0,
                 isoWeek,
@@ -1178,6 +1199,38 @@ export async function checkArticleExists(code: string): Promise<boolean> {
     return doc.exists;
 }
 
+export async function getArticlePreviewByCode(code: string): Promise<{
+    exists: boolean;
+    article: {
+        id: string;
+        code: string;
+        defaultDepartmentId?: string | null;
+        defaultDepartmentCode?: string | null;
+        department?: string;
+        workCycleId?: string;
+    } | null;
+}> {
+    const upper = (code || '').toUpperCase().trim();
+    if (!upper) return { exists: false, article: null };
+
+    const snap = await adminDb.collection('articles').doc(upper).get();
+    if (!snap.exists) {
+        return { exists: false, article: null };
+    }
+    const data = snap.data() || {};
+    return {
+        exists: true,
+        article: {
+            id: snap.id,
+            code: String(data.code || snap.id).trim(),
+            defaultDepartmentId: data.defaultDepartmentId ?? data.defaultDepartmentCode ?? data.department ?? null,
+            defaultDepartmentCode: data.defaultDepartmentCode ?? data.defaultDepartmentId ?? data.department ?? null,
+            department: getArticleDefaultDepartment(data as Partial<Article>) || data.department || '',
+            workCycleId: data.workCycleId || '',
+        },
+    };
+}
+
 export async function updateJobOrder(jobId: string, data: {
     cliente: string;
     ordinePF: string;
@@ -1218,11 +1271,12 @@ export async function updateJobOrder(jobId: string, data: {
         const parsedExpectedMinutes = data.expectedMinutes !== undefined ? parseSafeDecimal(data.expectedMinutes, 0) : undefined;
 
         // Logic: Only update phases if the work cycle has changed
+        const normalizedDept = normalizeDepartmentCode(data.department) || (data.department || '').trim();
         const updatePayload: any = {
             cliente: (data.cliente || '').trim(),
             ordinePF: (data.ordinePF || '').trim(),
             qta: parsedQta,
-            department: data.department || '',
+            department: normalizedDept,
             dataFinePreparazione: normalizedPrep,
             dataConsegnaFinale: normalizedDelivery,
             updatedAt: admin.firestore.Timestamp.now()
@@ -1584,7 +1638,11 @@ export async function saveSmartJobOrder(data: {
             cliente: cliente,
             qta: qta,
             details: articleCode.toUpperCase().trim(),
-            department: department || phases[0]?.departmentCodes[0] || "PRODUZIONE",
+            department: resolveDepartmentForNewJob({
+                explicitDepartment: department,
+                article,
+                fallback: phases[0]?.departmentCodes[0] || "PRODUZIONE",
+            }),
             postazioneLavoro: "Da Assegnare",
             phases: phases,
             billOfMaterials: jobBOM,
@@ -2128,7 +2186,11 @@ export async function saveSmartPastedJobOrders(data: {
                 phases: phases,
                 dataConsegnaFinale: row.dataConsegnaFinale,
                 dataFinePreparazione: row.dataFinePreparazione,
-                department: row.department,
+                department: resolveDepartmentForNewJob({
+                    explicitDepartment: row.department,
+                    article: articleData,
+                    fallback: 'CP',
+                }),
                 workCycleId: workCycleId,
                 expectedMinutesDefault: articleData.expectedMinutesDefault || 0,
                 isoWeek,

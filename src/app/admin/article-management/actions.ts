@@ -12,6 +12,7 @@ import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
 import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
+import { normalizeDepartmentCode } from '@/lib/department-utils';
 import type { ArticleMasterData } from '@/lib/quick-article-cache';
 export type { ArticleMasterData };
 
@@ -60,6 +61,9 @@ const bomItemSchema = z.object({
 const articleSchema = z.object({
     id: z.string().optional(),
     code: z.string().min(3, "Il codice articolo è obbligatorio."),
+    defaultDepartmentId: z.string().nullable().optional(),
+    defaultDepartmentCode: z.string().nullable().optional(),
+    department: z.string().nullable().optional(),
     billOfMaterials: z.array(bomItemSchema).optional().default([]),
     workCycleId: z.string().optional(),
     secondaryWorkCycleId: z.string().optional(),
@@ -117,7 +121,8 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         }
 
         const {
-            code, billOfMaterials, workCycleId, secondaryWorkCycleId,
+            code, defaultDepartmentId, defaultDepartmentCode, department,
+            billOfMaterials, workCycleId, secondaryWorkCycleId,
             expectedMinutesDefault, expectedMinutesSecondary,
             technicalNotes, technicalDrawingUrl,
             packagingType, packingInstructions, unitWeightKg, packagingTareWeightKg
@@ -148,6 +153,19 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
             technicalNotes: technicalNotes ?? '',
             technicalDrawingUrl: technicalDrawingUrl ?? '',
         };
+
+        if (
+            defaultDepartmentId !== undefined ||
+            defaultDepartmentCode !== undefined ||
+            department !== undefined
+        ) {
+            const normalizedDept = normalizeDepartmentCode(
+                defaultDepartmentId ?? defaultDepartmentCode ?? department
+            );
+            articleData.defaultDepartmentId = normalizedDept || null;
+            articleData.defaultDepartmentCode = normalizedDept || null;
+            articleData.department = normalizedDept || '';
+        }
 
         if (workCycleId !== undefined) articleData.workCycleId = workCycleId;
         if (secondaryWorkCycleId !== undefined) articleData.secondaryWorkCycleId = secondaryWorkCycleId;
@@ -555,7 +573,21 @@ export async function bulkUpdateArticleSettings(updates: Partial<Article>[]) {
 
 export async function saveArticleStandardTimes(articleId: string, data: Partial<Article>) {
     try {
-        await adminDb.collection('articles').doc(articleId).set(data, { merge: true });
+        const payloadToSave: Partial<Article> = { ...data };
+        if (
+            data.defaultDepartmentId !== undefined ||
+            data.defaultDepartmentCode !== undefined ||
+            data.department !== undefined
+        ) {
+            const normalizedDept = normalizeDepartmentCode(
+                data.defaultDepartmentId ?? data.defaultDepartmentCode ?? data.department
+            );
+            payloadToSave.defaultDepartmentId = normalizedDept || null;
+            payloadToSave.defaultDepartmentCode = normalizedDept || null;
+            payloadToSave.department = normalizedDept || '';
+        }
+
+        await adminDb.collection('articles').doc(articleId).set(payloadToSave, { merge: true });
 
         let syncedCount = 0;
         let skippedFrozenCount = 0;

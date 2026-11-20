@@ -28,11 +28,18 @@ import { Separator } from '@/components/ui/separator';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
 
-import type { Article, RawMaterial, WorkCycle } from '@/types';
+import type { Article, Department, RawMaterial, WorkCycle } from '@/types';
 import { saveArticle, getWorkCycles } from './actions';
+import { getDepartments } from '../department-management/actions';
 import { getRawMaterials, getMaterialsByCodes } from '../raw-material-management/actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { GlobalSettings } from '@/lib/settings-types';
+import {
+  NO_DEPARTMENT_VALUE,
+  buildDepartmentOptions,
+  getArticleDefaultDepartment,
+  normalizeDepartmentCode,
+} from '@/lib/department-utils';
 
 const bomItemSchema = z.object({
   component: z.string().optional(),
@@ -46,6 +53,7 @@ const bomItemSchema = z.object({
 const articleSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(3, "Il codice articolo è obbligatorio."),
+  defaultDepartmentId: z.string().optional().default(''),
   billOfMaterials: z.array(bomItemSchema).optional().default([]),
   workCycleId: z.string().optional(),
   secondaryWorkCycleId: z.string().optional(),
@@ -64,6 +72,7 @@ interface ArticleFormDialogProps {
   onClose: (refresh?: boolean, updatedArticle?: Article) => void;
   article: Article | null;
   workCycles?: WorkCycle[];
+  departments?: Department[];
   globalSettings?: GlobalSettings | null;
   preloadedMaterials?: RawMaterial[];
   embedded?: boolean;
@@ -74,6 +83,7 @@ export default function ArticleFormDialog({
   onClose,
   article,
   workCycles: initialWorkCycles,
+  departments: initialDepartments,
   globalSettings: initialGlobalSettings,
   preloadedMaterials,
   embedded = false,
@@ -91,9 +101,10 @@ export default function ArticleFormDialog({
   const [isSearching, setIsSearching] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
   const [availableWorkCycles, setAvailableWorkCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
+  const [availableDepartments, setAvailableDepartments] = useState<Department[]>(initialDepartments || []);
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(initialGlobalSettings || null);
 
-  // Load initial materials, work cycles and global settings
+  // Load initial materials, work cycles, departments and global settings
   useEffect(() => {
     if (!isOpen) return;
 
@@ -101,6 +112,12 @@ export default function ArticleFormDialog({
       setAvailableWorkCycles(initialWorkCycles);
     } else {
       getWorkCycles().then(setAvailableWorkCycles);
+    }
+
+    if (initialDepartments && initialDepartments.length > 0) {
+      setAvailableDepartments(initialDepartments);
+    } else {
+      getDepartments().then(setAvailableDepartments).catch(() => {});
     }
 
     if (initialGlobalSettings) {
@@ -154,10 +171,16 @@ export default function ArticleFormDialog({
     setSearchTimeout(timeout);
   };
 
+  const departmentOptions = React.useMemo(
+    () => buildDepartmentOptions(availableDepartments),
+    [availableDepartments]
+  );
+
   const form = useForm<ArticleFormValues>({
     resolver: zodResolver(articleSchema),
     defaultValues: {
       code: '',
+      defaultDepartmentId: '',
       billOfMaterials: [],
       workCycleId: '',
       secondaryWorkCycleId: '',
@@ -191,9 +214,11 @@ export default function ArticleFormDialog({
     if (isOpen) {
       setUploadedFileName('');
       if (article) {
+        const resolvedDept = getArticleDefaultDepartment(article, availableDepartments);
         form.reset({
           id: article.id,
           code: article.code,
+          defaultDepartmentId: resolvedDept,
           billOfMaterials: article.billOfMaterials || [],
           workCycleId: article.workCycleId || '',
           secondaryWorkCycleId: article.secondaryWorkCycleId || '',
@@ -209,6 +234,7 @@ export default function ArticleFormDialog({
         form.reset({
           id: undefined,
           code: '',
+          defaultDepartmentId: '',
           billOfMaterials: defaultBOM,
           workCycleId: '',
           secondaryWorkCycleId: '',
@@ -222,6 +248,15 @@ export default function ArticleFormDialog({
       }
     }
   }, [article, form, isOpen]);
+
+  useEffect(() => {
+    if (isOpen && article && availableDepartments.length > 0 && !form.formState.dirtyFields.defaultDepartmentId) {
+      const resolvedDept = getArticleDefaultDepartment(article, availableDepartments);
+      if (resolvedDept && resolvedDept !== form.getValues('defaultDepartmentId')) {
+        form.setValue('defaultDepartmentId', resolvedDept, { shouldDirty: false });
+      }
+    }
+  }, [isOpen, article, availableDepartments, form]);
 
   const handleDrawingFileUpload = async (file: File) => {
     const allowedTypes = ['image/png', 'image/jpeg', 'application/pdf'];
@@ -344,9 +379,13 @@ export default function ArticleFormDialog({
     if (isPending) return;
     setIsPending(true);
     try {
+      const normalizedDept = normalizeDepartmentCode(data.defaultDepartmentId, availableDepartments);
       // Filter out empty rows and ensure codes are uppercase before sending to server
       const filteredData = {
         ...data,
+        defaultDepartmentId: normalizedDept || null,
+        defaultDepartmentCode: normalizedDept || null,
+        department: normalizedDept || '',
         billOfMaterials: (data.billOfMaterials || [])
           .filter(item => item.component && item.component.trim() !== '')
           .map(item => {
@@ -375,6 +414,9 @@ export default function ArticleFormDialog({
           ...(article || {} as Article),
           id: docId,
           code: docId,
+          defaultDepartmentId: normalizedDept || null,
+          defaultDepartmentCode: normalizedDept || null,
+          department: normalizedDept || '',
           billOfMaterials: (filteredData.billOfMaterials || []) as Article['billOfMaterials'],
           workCycleId: filteredData.workCycleId,
           secondaryWorkCycleId: filteredData.secondaryWorkCycleId,
@@ -422,19 +464,49 @@ export default function ArticleFormDialog({
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 flex flex-col overflow-hidden">
           <div className="p-4 border-b space-y-4">
-            <FormField
-              control={form.control}
-              name="code"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Codice Articolo</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Es. ART-00123" {...field} disabled={!!article} className="font-bold" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="code"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Codice Articolo</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Es. ART-00123" {...field} disabled={!!article} className="font-bold" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="defaultDepartmentId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Reparto di Appartenenza (Predefinito)</FormLabel>
+                    <Select
+                      onValueChange={(val) => field.onChange(val === NO_DEPARTMENT_VALUE ? '' : val)}
+                      value={field.value || NO_DEPARTMENT_VALUE}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleziona reparto predefinito..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NO_DEPARTMENT_VALUE}>Nessuno (usa fallback)</SelectItem>
+                        {departmentOptions.map((dept) => (
+                          <SelectItem key={dept.value} value={dept.value}>
+                            {dept.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 control={form.control}

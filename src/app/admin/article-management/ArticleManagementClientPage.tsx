@@ -37,21 +37,23 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import type { Article, RawMaterial, WorkPhaseTemplate } from '@/types';
+import type { Article, Department, RawMaterial, WorkPhaseTemplate } from '@/types';
 import ArticleFormDialog from './ArticleFormDialog';
 import ArticleTimesDialog from './ArticleTimesDialog';
 import { deleteArticle, validateArticlesImport, bulkSaveArticles, validateArticleSettingsImport, bulkUpdateArticleSettings, getArticles, syncAllHistoricalToTargets } from './actions';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
+import { getArticleDefaultDepartment } from '@/lib/department-utils';
 import { useDebounce } from '../../../hooks/use-debounce';
 
 
 
 interface ArticleManagementClientPageProps {
   initialArticles: Article[];
+  initialDepartments?: Department[];
 }
 
-export default function ArticleManagementClientPage({ initialArticles }: ArticleManagementClientPageProps) {
+export default function ArticleManagementClientPage({ initialArticles, initialDepartments = [] }: ArticleManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const searchParamFromUrl = searchParams.get('search') || searchParams.get('q') || searchParams.get('code') || '';
@@ -498,6 +500,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
                         />
                     </TableHead>
                     <TableHead>Codice Articolo</TableHead>
+                    <TableHead>Reparto Predefinito</TableHead>
                     <TableHead>N° Componenti</TableHead>
                     <TableHead>Ciclo Predefinito</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
@@ -505,9 +508,11 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
                 </TableHeader>
                 <TableBody>
                   {isSearching ? (
-                     <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" /></TableCell></TableRow>
+                     <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" /></TableCell></TableRow>
                   ) : articles.length > 0 ? (
-                    articles.map((article) => (
+                    articles.map((article) => {
+                      const defaultDept = getArticleDefaultDepartment(article, initialDepartments);
+                      return (
                       <TableRow key={article.code}>
                         <TableCell className="text-center">
                             <Checkbox 
@@ -524,6 +529,15 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
                               <ContextMenuItem onSelect={() => navigator.clipboard.writeText(article.code).then(() => toast({ title: "Copiato!" }))}><Copy className="mr-2 h-4 w-4" />Copia Codice</ContextMenuItem>
                             </ContextMenuContent>
                           </ContextMenu>
+                        </TableCell>
+                        <TableCell>
+                          {defaultDept ? (
+                            <Badge variant="secondary" className="font-mono text-[10px] uppercase">
+                              {defaultDept}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell>{article.billOfMaterials?.length || 0}</TableCell>
                         <TableCell>
@@ -546,9 +560,10 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
                           </AlertDialog>
                         </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   ) : (
-                    <TableRow><TableCell colSpan={4} className="h-24 text-center">Nessun articolo trovato.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="h-24 text-center">Nessun articolo trovato.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -570,6 +585,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
         isOpen={isFormOpen}
         onClose={handleFormClose}
         article={editingArticle}
+        departments={initialDepartments}
       />
 
       {editingArticle && (
@@ -579,6 +595,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
           onClose={handleTimesClose}
           article={editingArticle}
           phaseTemplates={phaseTemplates}
+          departments={initialDepartments}
         />
       )}
 

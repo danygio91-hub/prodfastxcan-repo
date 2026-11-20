@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useTransition } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useTransition } from 'react';
 import { 
   Dialog, DialogContent, DialogDescription, DialogHeader, 
   DialogTitle, DialogFooter 
@@ -25,8 +25,13 @@ import {
   getClients, 
   getWorkCycles, 
   getDepartments,
-  checkArticleExists 
+  getArticlePreviewByCode,
 } from '@/app/admin/data-management/actions';
+import {
+  buildDepartmentOptions,
+  getArticleDefaultDepartment,
+  normalizeDepartmentCode,
+} from '@/lib/department-utils';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -66,6 +71,9 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
   const [expectedMinutes, setExpectedMinutes] = useState<string>('');
   const [articleExists, setArticleExists] = useState<boolean | null>(null);
   const [isValidating, setIsValidating] = useState(false);
+  const lastAutoDeptArticleRef = useRef<string>('');
+
+  const departmentOptions = useMemo(() => buildDepartmentOptions(departments), [departments]);
 
   // Sub-UI States
   const [isBOMDialogOpen, setIsBOMDialogOpen] = useState(false);
@@ -113,7 +121,7 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
       setFieldValues(initialJob.smartCodeParams || {});
       setBom(initialJob.billOfMaterials || []);
       
-      const deptCode = departments.find(d => d.name === initialJob.department || d.code === initialJob.department)?.code || initialJob.department || '';
+      const deptCode = normalizeDepartmentCode(initialJob.department, departments) || initialJob.department || '';
       setSelectedDept(deptCode);
       
       // If we have article-level data to fetch, we could do it here.
@@ -126,17 +134,25 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
       setBom([]);
       setExpectedMinutes('');
       setArticleExists(null);
+      lastAutoDeptArticleRef.current = '';
     }
   }, [initialJob, isOpen, departments]);
 
-  // Live Validation
+  // Live Validation + Pre-compilazione Reparto Predefinito se articolo esistente
   useEffect(() => {
     if (articleCode && !articleCode.includes("??")) {
       setIsValidating(true);
       const timeout = setTimeout(async () => {
         try {
-          const exists = await checkArticleExists(articleCode);
-          setArticleExists(exists);
+          const preview = await getArticlePreviewByCode(articleCode);
+          setArticleExists(preview.exists);
+          if (!initialJob && preview.exists && preview.article) {
+            const artDept = getArticleDefaultDepartment(preview.article, departments);
+            if (artDept && lastAutoDeptArticleRef.current !== articleCode) {
+              setSelectedDept(artDept);
+              lastAutoDeptArticleRef.current = articleCode;
+            }
+          }
         } finally {
           setIsValidating(false);
         }
@@ -144,8 +160,9 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
       return () => clearTimeout(timeout);
     } else {
       setArticleExists(null);
+      lastAutoDeptArticleRef.current = '';
     }
-  }, [articleCode]);
+  }, [articleCode, initialJob, departments]);
 
   const handleSave = async () => {
     if (!clienteName.trim() || !ordinePF || !articleCode || !selectedCycleId || !qta) {
@@ -172,7 +189,7 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
         billOfMaterials: bom,
         expectedMinutes: expectedMinutes ? Number(expectedMinutes) : undefined,
         fieldValues,
-        department: selectedDept,
+        department: normalizeDepartmentCode(selectedDept, departments) || selectedDept,
         isEdit: !!initialJob
       });
 
@@ -471,8 +488,8 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
                     <SelectValue placeholder="Seleziona Reparto" />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-slate-700 text-white">
-                    {departments.filter(d => d.macroAreas?.includes('PRODUZIONE') || d.code === 'MAG').map(d => (
-                      <SelectItem key={d.id} value={d.code || d.id}>{d.name}</SelectItem>
+                    {departmentOptions.map(d => (
+                      <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

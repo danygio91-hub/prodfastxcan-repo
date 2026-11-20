@@ -6903,6 +6903,7 @@ export default function ProgrammazioneClientPage({
           }}
           articleCode={quickEditArticleCode}
           articles={articles}
+          departments={departments}
           phaseTemplates={phaseTemplates}
           workCycles={workCycles}
           globalSettings={globalSettings}

@@ -17,6 +17,11 @@ import { saveSmartPastedJobOrders } from '@/app/admin/data-management/actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import {
+  buildDepartmentOptions,
+  getArticleDefaultDepartment,
+  normalizeDepartmentCode,
+} from '@/lib/department-utils';
 
 interface SmartPasteModalProps {
   isOpen: boolean;
@@ -83,44 +88,28 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
   const { toast } = useToast();
 
   const departmentOptions = useMemo(() => {
-    // Sigle standard previste dal gestionale
-    const standardList: { value: string; label: string }[] = [
-      { value: 'CP', label: 'CP' },
-      { value: 'CG', label: 'CG' },
-      { value: 'BF', label: 'BF' },
-      { value: 'MAG', label: 'MAG' },
-    ];
-
-    const map = new Map<string, { value: string; label: string }>();
-
-    // Aggiungi dai dipartimenti ricevuti (PRODUZIONE o MAG)
-    if (departments && departments.length > 0) {
-      const filtered = departments.filter(d => 
-        d.macroAreas?.includes('PRODUZIONE') || 
-        d.code === 'MAG' || 
-        d.code === 'CP' || 
-        d.code === 'CG' || 
-        d.code === 'BF'
-      );
-      filtered.forEach(d => {
-        const sigla = getDepartmentSigla(d);
-        map.set(sigla, { value: sigla, label: sigla });
-      });
-    }
-
-    // Assicura che le 4 sigle standard siano sempre presenti
-    standardList.forEach(item => {
-      if (!map.has(item.value)) {
-        map.set(item.value, item);
-      }
-    });
-
-    return Array.from(map.values());
+    return buildDepartmentOptions(departments).map((d) => ({
+      value: d.value,
+      label: d.value,
+    }));
   }, [departments]);
 
   const defaultDept = useMemo(() => {
     return departmentOptions.find(d => d.value === 'CP')?.value || departmentOptions[0]?.value || 'CP';
   }, [departmentOptions]);
+
+  const articlesByCode = useMemo(() => {
+    const map = new Map<string, Article>();
+    (articles || []).forEach((a) => {
+      if (a.code) map.set(a.code.toUpperCase().trim(), a);
+      if (a.id) map.set(a.id.toUpperCase().trim(), a);
+    });
+    extraArticles.forEach((a) => {
+      if (a.code) map.set(a.code.toUpperCase().trim(), a);
+      if (a.id) map.set(a.id.toUpperCase().trim(), a);
+    });
+    return map;
+  }, [articles, extraArticles]);
 
   const parseEuropeanDate = (dateStr: string): string | null => {
     if (!dateStr || dateStr.trim() === '') return null;
@@ -182,6 +171,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
     });
 
     const missingCodes = [...pastedCodesSet].filter(c => !currentKnownCodes.has(c));
+    let fetchedNewArticles: Article[] = [];
     if (missingCodes.length > 0) {
         setIsValidatingArticles(true);
         try {
@@ -203,21 +193,50 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                     return null;
                 })
             );
-            const validNew = newlyFetched.filter((a): a is Article => a !== null);
-            if (validNew.length > 0) {
-                setExtraArticles(prev => [...prev, ...validNew]);
+            fetchedNewArticles = newlyFetched.filter((a): a is Article => a !== null);
+            if (fetchedNewArticles.length > 0) {
+                setExtraArticles(prev => [...prev, ...fetchedNewArticles]);
             }
         } finally {
             setIsValidatingArticles(false);
         }
     }
 
-    setRows(newRows);
+    // FASE 101: Pre-seleziona automaticamente il reparto predefinito dell'articolo (se presente),
+    // lasciando fallback invariato per articoli senza reparto predefinito.
+    const combinedArticlesMap = new Map<string, Article>(articlesByCode);
+    fetchedNewArticles.forEach((a) => {
+        if (a.code) combinedArticlesMap.set(a.code.toUpperCase().trim(), a);
+        if (a.id) combinedArticlesMap.set(a.id.toUpperCase().trim(), a);
+    });
+
+    const resolvedRows = newRows.map((row) => {
+        const matchedArt = combinedArticlesMap.get(row.articleCode.trim().toUpperCase());
+        const artDept = getArticleDefaultDepartment(matchedArt, departments);
+        if (artDept) {
+            return { ...row, department: artDept };
+        }
+        return row;
+    });
+
+    setRows(resolvedRows);
     setStep(2);
   };
 
   const updateRow = (id: string, field: keyof ParsedRow, value: any) => {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+    setRows(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const next: ParsedRow = { ...r, [field]: value };
+      if (field === 'articleCode' && typeof value === 'string') {
+        const normCode = value.replace(/[\r\n\t]/g, '').trim().toUpperCase();
+        const matchedArt = articlesByCode.get(normCode);
+        const artDept = getArticleDefaultDepartment(matchedArt, departments);
+        if (artDept) {
+          next.department = artDept;
+        }
+      }
+      return next;
+    }));
   };
 
   const deleteRow = (id: string) => {
@@ -399,7 +418,7 @@ export function SmartPasteModal({ isOpen, onClose, articles, departments, onJobs
                                         </TableCell>
                                         <TableCell>
                                             <Select 
-                                                value={getDepartmentSigla(row.department)} 
+                                                value={normalizeDepartmentCode(row.department, departments) || defaultDept} 
                                                 onValueChange={(v) => updateRow(row.id, 'department', v)}
                                             >
                                                 <SelectTrigger className="h-8 text-xs font-mono font-bold w-full">

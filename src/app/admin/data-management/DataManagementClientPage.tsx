@@ -50,6 +50,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn, formatDisplayStock, isJobReadyForProduction } from '@/lib/utils';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { getArticleDefaultDepartment } from '@/lib/department-utils';
 import { calculateMRPTimelines, MRPTimelineEntry, aggregateMRPRequirements, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
 import { GlobalSettings } from '@/lib/settings-types';
 
@@ -1392,7 +1393,10 @@ export default function DataManagementClientPage({
                   if (a.workCycleId) {
                       manualForm.setValue("workCycleId", a.workCycleId);
                   }
-                  if (!manualForm.getValues("department")) {
+                  const artDept = getArticleDefaultDepartment(a, departments);
+                  if (artDept) {
+                      manualForm.setValue("department", artDept);
+                  } else if (!manualForm.getValues("department")) {
                       const defaultDept = filteredDepartmentsForManualCreate.find(d => d.macroAreas?.includes('PRODUZIONE')) || filteredDepartmentsForManualCreate[0];
                       if (defaultDept) {
                           manualForm.setValue("department", defaultDept.code || defaultDept.id);

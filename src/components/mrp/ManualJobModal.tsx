@@ -48,6 +48,10 @@ import { useToast } from '@/hooks/use-toast';
 import type { Department, WorkCycle, Article, JobOrder } from '@/types';
 import { saveManualJobOrder } from '@/app/admin/data-management/actions';
 import { getArticles } from '@/app/admin/article-management/actions';
+import {
+  buildDepartmentOptions,
+  getArticleDefaultDepartment,
+} from '@/lib/department-utils';
 
 const manualCreateSchema = z.object({
   cliente: z.string().min(1, "Il cliente è obbligatorio."),
@@ -108,8 +112,9 @@ export function ManualJobModal({
     },
   });
 
+  const departmentOptions = buildDepartmentOptions(departments);
   const filteredDepartments = departments.filter(
-    (d) => d.macroAreas?.includes('PRODUZIONE') || d.code === 'CP' || d.code === 'CG' || d.code === 'BF'
+    (d) => d.macroAreas?.includes('PRODUZIONE') || d.code === 'CP' || d.code === 'CG' || d.code === 'BF' || d.code === 'MAG'
   );
 
   const handleSearchArticle = (term: string) => {
@@ -266,10 +271,14 @@ export function ManualJobModal({
                                   if (a.workCycleId) {
                                     form.setValue("workCycleId", a.workCycleId);
                                   }
-                                  if (!form.getValues("department")) {
-                                    const artDept = (a as any).department;
+                                  const artDept = getArticleDefaultDepartment(a, departments);
+                                  if (artDept) {
+                                    form.setValue("department", artDept, {
+                                      shouldDirty: true,
+                                      shouldValidate: true,
+                                    });
+                                  } else if (!form.getValues("department")) {
                                     const defaultDept =
-                                      filteredDepartments.find((d) => d.code === artDept || d.id === artDept) ||
                                       filteredDepartments.find((d) => d.macroAreas?.includes('PRODUZIONE')) ||
                                       filteredDepartments[0];
                                     if (defaultDept) {
@@ -365,9 +374,9 @@ export function ManualJobModal({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {filteredDepartments.map((d) => (
-                          <SelectItem key={d.id} value={d.code}>
-                            {d.name} ({d.code})
+                        {departmentOptions.map((d) => (
+                          <SelectItem key={d.value} value={d.value}>
+                            {d.label}
                           </SelectItem>
                         ))}
                       </SelectContent>

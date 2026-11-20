@@ -12,19 +12,21 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Timer, Layers, Package, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import type { Article, WorkPhaseTemplate, WorkCycle, RawMaterial } from '@/types';
+import type { Article, Department, WorkPhaseTemplate, WorkCycle, RawMaterial } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 import ArticleTimesDialog from '@/app/admin/article-management/ArticleTimesDialog';
 import ArticleFormDialog from '@/app/admin/article-management/ArticleFormDialog';
 import { getArticleMasterData } from '@/app/admin/article-management/actions';
 import { quickArticleCache, type ArticleMasterData } from '@/lib/quick-article-cache';
 import { withNetworkRetry, DEFAULT_NETWORK_RETRY_CONFIG } from '@/lib/network-resilience';
+import { getArticleDefaultDepartment } from '@/lib/department-utils';
 
 export interface QuickArticleEditDrawerProps {
   isOpen: boolean;
   onClose: (refreshed?: boolean) => void;
   articleCode: string | null;
   articles?: Article[];
+  departments?: Department[];
   phaseTemplates?: WorkPhaseTemplate[];
   workCycles?: WorkCycle[];
   globalSettings?: GlobalSettings | null;
@@ -191,6 +193,7 @@ export function QuickArticleEditDrawer({
   isOpen,
   onClose,
   articleCode,
+  departments = [],
   phaseTemplates: initialPhaseTemplates = [],
   workCycles: initialWorkCycles = [],
   globalSettings: initialGlobalSettings = null,
@@ -291,6 +294,15 @@ export function QuickArticleEditDrawer({
                   >
                     {cleanCode || 'N/D'}
                   </Badge>
+                  {currentArticle && getArticleDefaultDepartment(currentArticle, departments) && (
+                    <Badge
+                      variant="secondary"
+                      className="font-mono text-xs px-2 py-0.5"
+                      title="Reparto di appartenenza predefinito"
+                    >
+                      Rep: {getArticleDefaultDepartment(currentArticle, departments)}
+                    </Badge>
+                  )}
                 </SheetTitle>
                 <SheetDescription className="text-xs text-muted-foreground mt-1">
                   Modifica <strong>Tempi Standard</strong> e <strong>Distinta Base</strong> in sovrimpressione. I dati si riflettono istantaneamente sulle commesse collegate.
@@ -358,6 +370,7 @@ export function QuickArticleEditDrawer({
                     embedded
                     isOpen={isOpen}
                     article={currentArticle}
+                    departments={departments}
                     phaseTemplates={phaseTemplates}
                     workCycles={workCycles}
                     onClose={handleTimesSaved}
@@ -373,6 +386,7 @@ export function QuickArticleEditDrawer({
                     embedded
                     isOpen={isOpen}
                     article={currentArticle}
+                    departments={departments}
                     workCycles={workCycles}
                     globalSettings={globalSettings}
                     preloadedMaterials={preloadedMaterials}

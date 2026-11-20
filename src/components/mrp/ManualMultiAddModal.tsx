@@ -54,6 +54,10 @@ import {
 import { cn, parseRobustDate, formatToDateInputMask } from '@/lib/utils';
 import { saveManualMultiJobOrders, searchArticlesAction } from '@/app/admin/programmazione/actions';
 import type { JobOrder, Department, Article } from '@/types';
+import {
+  buildDepartmentOptions,
+  getArticleDefaultDepartment,
+} from '@/lib/department-utils';
 import { 
   type ManualMultiRow, 
   createInitialRow, 
@@ -80,7 +84,7 @@ interface ManualMultiAddModalProps {
  */
 interface ArticleSearchPopoverCellProps {
   value: string;
-  onChange: (val: string) => void;
+  onChange: (val: string, selectedArticle?: Article) => void;
   allKnownArticles: Article[];
   onArticlesDiscovered: (articles: Article[]) => void;
   isOpen: boolean;
@@ -155,7 +159,7 @@ function ArticleSearchPopoverCell({
 
   const handleSelect = (art: Article) => {
     const code = String(art.code || art.id).trim().toUpperCase();
-    onChange(code);
+    onChange(code, art);
     onOpenChange(false);
   };
 
@@ -344,10 +348,7 @@ export function ManualMultiAddModal({
 
   // Lista codici reparti validi
   const validDepartments = useMemo(() => {
-    if (departments && departments.length > 0) {
-      return departments.map((d) => d.code);
-    }
-    return ['CP', 'CG', 'BF', 'MAG'];
+    return buildDepartmentOptions(departments).map((d) => d.value);
   }, [departments]);
 
   // Validazione Live per ogni singola riga
@@ -465,17 +466,24 @@ export function ManualMultiAddModal({
     };
   }, [validationResults, rows.length]);
 
-  const updateRow = (id: string, field: keyof ManualMultiRow, value: any) => {
+  const updateRow = (
+    id: string,
+    field: keyof ManualMultiRow,
+    value: any,
+    matchedArticleOverride?: Article
+  ) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
         const updated = { ...r, [field]: value };
 
-        // Se l'utente seleziona un articolo e questo ha un reparto configurato, impostalo automaticamente
+        // FASE 101: Se l'utente seleziona o digita un articolo con reparto predefinito, pre-selezionalo automaticamente
+        // (lasciando comunque il campo liberamente modificabile dall'utente successivamente).
         if (field === 'articleCode' && typeof value === 'string') {
-          const matchedArt = articlesMap.get(value.toUpperCase().trim());
-          if (matchedArt && (matchedArt as any).department && validDepartments.includes((matchedArt as any).department)) {
-            updated.department = (matchedArt as any).department;
+          const matchedArt = matchedArticleOverride || articlesMap.get(value.toUpperCase().trim());
+          const artDept = getArticleDefaultDepartment(matchedArt, departments);
+          if (artDept && validDepartments.includes(artDept)) {
+            updated.department = artDept;
           }
         }
 
@@ -676,7 +684,7 @@ export function ManualMultiAddModal({
                       <TableCell className="px-1.5 py-1">
                         <ArticleSearchPopoverCell
                           value={row.articleCode}
-                          onChange={(val) => updateRow(row.id, 'articleCode', val)}
+                          onChange={(val, selectedArt) => updateRow(row.id, 'articleCode', val, selectedArt)}
                           allKnownArticles={allKnownArticles}
                           onArticlesDiscovered={handleArticlesDiscovered}
                           isOpen={activeArticlePopoverRowId === row.id}
