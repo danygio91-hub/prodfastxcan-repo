@@ -68,72 +68,10 @@ export async function resetAllActiveSessions(uid: string): Promise<{ success: bo
   }
 }
 
-export async function backupAllData(): Promise<{ success: boolean; message: string; data?: any; }> {
-    try {
-        const collectionsToBackup = [
-            'jobOrders',
-            'rawMaterials',
-            'operators',
-            'workPhaseTemplates',
-            'workCycles',
-            'workstations',
-            'materialWithdrawals',
-            'nonConformityReports',
-            'manualCommitments',
-            'scrapRecords',
-            'purchaseOrders',
-            'inventoryRecords',
-            'calendarExceptions',
-            'workGroups',
-            'counters',
-            'configuration',
-            'system'
-        ];
-
-        const backupData: { [key: string]: any[] } = {};
-        let totalDocs = 0;
-
-        for (const collectionName of collectionsToBackup) {
-            const snapshot = await adminDb.collection(collectionName).get();
-            backupData[collectionName] = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
-            totalDocs += snapshot.size;
-        }
-
-        return {
-            success: true,
-            message: `Backup di ${totalDocs} documenti completato.`,
-            data: backupData,
-        };
-    } catch (error) {
-        return { success: false, message: "Errore durante il backup." };
-    }
-}
-
-export async function restoreDataFromBackup(backupJson: string, uid: string): Promise<{ success: boolean; message: string; }> {
-    try {
-        await ensureAdmin(uid);
-        const backupData = JSON.parse(backupJson);
-        const collections = Object.keys(backupData);
-
-        for (const collectionName of collections) {
-            await deleteAllFromCollection(collectionName);
-            const restoreBatch = adminDb.batch();
-            const items = backupData[collectionName];
-            if (Array.isArray(items)) {
-                items.forEach(item => {
-                    const { id, ...data } = item;
-                    restoreBatch.set(adminDb.collection(collectionName).doc(id), data);
-                });
-                await restoreBatch.commit();
-            }
-        }
-
-        revalidatePath('/', 'layout');
-        return { success: true, message: `Ripristino completato con successo.` };
-    } catch (error) {
-        return { success: false, message: "Errore durante il ripristino." };
-    }
-}
+// FASE 103-BIS: Le vecchie Server Action insicure backupAllData() e restoreDataFromBackup()
+// sono state rimosse e sostituite dalle API Route autenticate:
+// - GET  /api/admin/backup
+// - POST /api/admin/restore
 
 export async function resetAllPrivacySignatures(uid: string): Promise<{ success: boolean; message: string }> {
   try {
