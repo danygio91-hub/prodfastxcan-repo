@@ -181,10 +181,14 @@ import {
 } from './actions';
 import {
   AGGREGATE_PRODUCTION_DEPTS,
+  CAPACITY_DAY_KEYS,
   aggregateCompanyCapacity,
-  filterJobsForCapacityMetrics,
+  computeDynamicViewSummary,
+  computePrimaryCapacityDashboard,
+  formatCompactHours,
   getJobDepartmentGroup,
   isCapacityPeriodAtOrAfter,
+  type CapacityDayKey,
   type MacroDepartmentCode,
 } from '@/lib/capacity-utils';
 export { getJobDepartmentGroup, type MacroDepartmentCode };
@@ -2483,6 +2487,28 @@ export default function ProgrammazioneClientPage({
   const [currentDateReference, setCurrentDateReference] = useState<Date>(new Date());
   const [showAllWeeks, setShowAllWeeks] = useState(false);
 
+  // FASE 102: Data odierna per il calcolo disponibilità residua giorno per giorno (aggiornata al cambio giorno)
+  const [todayRefDate, setTodayRefDate] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const syncTodayIfChanged = () => {
+      const now = new Date();
+      setTodayRefDate((prev) =>
+        prev.getFullYear() === now.getFullYear() &&
+        prev.getMonth() === now.getMonth() &&
+        prev.getDate() === now.getDate()
+          ? prev
+          : now
+      );
+    };
+    const handleVisibilityDayCheck = () => {
+      if (document.visibilityState === 'visible') {
+        syncTodayIfChanged();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityDayCheck);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityDayCheck);
+  }, []);
+
   // Filtro Ricerca
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -2703,14 +2729,6 @@ export default function ProgrammazioneClientPage({
       setIsPropagatingCapacity(false);
     }
   };
-
-  const availableHours = useMemo(() => {
-    const { L, M, Me, G, V, overtime } = currentCapacity;
-    const totalDailyWorkers = L + M + Me + G + V;
-    const baseHours = totalDailyWorkers * 7.6;
-    const total = baseHours + (Number(overtime) || 0);
-    return Math.round(total * 10) / 10;
-  }, [currentCapacity]);
 
   const weekInterval = useMemo(() => {
     const start = startOfISOWeek(currentDateReference);
@@ -3035,29 +3053,56 @@ export default function ProgrammazioneClientPage({
     return list;
   }, [filteredJobs, sortField, sortDirection]);
 
-  // Metriche Secchiello (FASE 92: Nel filtro TUTTI esclude MAG dal carico e saturazione globale)
-  const bucketMetrics = useMemo(() => {
-    const metricsJobs = filterJobsForCapacityMetrics(sortedAndFilteredJobs, selectedDept);
-    const totalJobs = metricsJobs.length;
-    const totalPieces = metricsJobs.reduce((acc, j) => acc + (j.qta || 0), 0);
-    const loadedHours = metricsJobs.reduce((acc, j) => {
-      const artKey = ((j as any).articolo || j.details || '').trim().toUpperCase();
-      return acc + calculateJobHours(j, articleMap.get(artKey));
-    }, 0);
-    const roundedLoadedHours = Math.round(loadedHours * 10) / 10;
-    const saturationPercent = availableHours > 0
-      ? Math.round((roundedLoadedHours / availableHours) * 100)
-      : 0;
-    const balanceHours = Math.round((availableHours - roundedLoadedHours) * 10) / 10;
+  // Helper SSoT per ore previste della singola commessa (100% tempo totale previsto)
+  const resolveJobHours = useCallback(
+    (job: JobOrder) => {
+      const artKey = ((job as any).articolo || job.details || '').trim().toUpperCase();
+      return calculateJobHours(job, articleMap.get(artKey));
+    },
+    [articleMap]
+  );
 
-    return {
-      totalJobs,
-      totalPieces,
-      loadedHours: roundedLoadedHours,
-      saturationPercent,
-      balanceHours,
-    };
-  }, [sortedAndFilteredJobs, selectedDept, availableHours, articleMap]);
+  // FASE 102 — Specchietto 1: Cruscotto Capacità Reale (Primario)
+  // Calcolato ESCLUSIVAMENTE su (Settimana selezionata + Reparto selezionato) usando SOLO commesse aperte
+  // (MAG escluso in vista TUTTI da entrambi i lati). Completamente insensibile a ricerca, filtro stato, ordinamenti e selezioni.
+  const primaryCapacity = useMemo(() => {
+    return computePrimaryCapacityDashboard({
+      allJobs: jobs,
+      selectedDept,
+      selectedYear,
+      selectedWeekNumber,
+      showAllWeeks,
+      capacitiesByBucket,
+      getJobHours: resolveJobHours,
+      getJobWeek: (job) => getJobEffectiveWeek(job, todayRefDate),
+      referenceDate: todayRefDate,
+    });
+  }, [
+    jobs,
+    selectedDept,
+    selectedYear,
+    selectedWeekNumber,
+    showAllWeeks,
+    capacitiesByBucket,
+    resolveJobHours,
+    todayRefDate,
+  ]);
+
+  // FASE 102 — Specchietto 2: Contatore Dinamico di Consultazione / Selezione (Secondario)
+  // Reagisce in tempo reale a ricerca, filtro stato, righe visibili e checkbox selezionate.
+  const selectedJobsList = useMemo(() => {
+    if (selectedJobIds.length === 0) return [];
+    const selectedSet = new Set(selectedJobIds);
+    return jobs.filter((j) => selectedSet.has(j.id));
+  }, [jobs, selectedJobIds]);
+
+  const dynamicViewSummary = useMemo(() => {
+    return computeDynamicViewSummary({
+      visibleJobs: sortedAndFilteredJobs,
+      selectedJobs: selectedJobsList,
+      getJobHours: resolveJobHours,
+    });
+  }, [sortedAndFilteredJobs, selectedJobsList, resolveJobHours]);
 
   // Conteggi per macro-reparti (Sensibili alla vista corrente)
   const deptCounts = useMemo(() => {
@@ -6097,7 +6142,7 @@ export default function ProgrammazioneClientPage({
                       Commesse
                     </span>
                     <span className="font-bold text-sm text-foreground mt-0.5 block">
-                      {bucketMetrics.totalJobs}
+                      {dynamicViewSummary.visibleCount}
                     </span>
                   </div>
                   <div className="border-l pl-4">
@@ -6105,7 +6150,7 @@ export default function ProgrammazioneClientPage({
                       Pezzi Totali
                     </span>
                     <span className="font-bold text-sm text-foreground mt-0.5 block">
-                      {bucketMetrics.totalPieces.toLocaleString('it-IT')}
+                      {dynamicViewSummary.visibleTotalPieces.toLocaleString('it-IT')}
                     </span>
                   </div>
                   <div className="border-l pl-4">
@@ -6113,7 +6158,7 @@ export default function ProgrammazioneClientPage({
                       Ore Previste
                     </span>
                     <span className="font-bold text-sm text-foreground mt-0.5 block">
-                      {bucketMetrics.loadedHours.toFixed(1)} h
+                      {dynamicViewSummary.visibleTotalHours.toFixed(1)} h
                     </span>
                   </div>
                 </div>
@@ -6231,153 +6276,334 @@ export default function ProgrammazioneClientPage({
               </div>
             </div>
 
-            {/* KPI CAPACITÀ (BOX CON BORDO DINAMICO E VISIBILITÀ) */}
-            <div className="bg-card border rounded-md px-3 py-2 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-              <div className="flex items-center gap-2 flex-wrap text-xs">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                  <CalendarCheck className="h-3.5 w-3.5 text-blue-500" />
-                  Addetti:
-                </span>
+            {/* FASE 102 — SPECCHIETTO 1: CRUSCOTTO CAPACITÀ REALE (PRIMARIO) + DISPONIBILITÀ GIORNALIERA */}
+            <div className="bg-card border rounded-md px-3 py-2 shadow-2xs flex flex-col gap-2">
+              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                    <CalendarCheck className="h-3.5 w-3.5 text-blue-500" />
+                    Addetti:
+                  </span>
 
-                {selectedDept === 'ALL' && (
-                  <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-500 border-blue-500/30 font-semibold px-1.5 py-0">
-                    Aggregato Aziendale (CP + CG + BF)
-                  </Badge>
-                )}
+                  {selectedDept === 'ALL' && (
+                    <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-500 border-blue-500/30 font-semibold px-1.5 py-0">
+                      Aggregato Aziendale (CP + CG + BF)
+                    </Badge>
+                  )}
 
-                {/* Giorni L, M, M, G, V */}
-                {(['L', 'M', 'Me', 'G', 'V'] as const).map((day) => (
+                  {/* Giorni L, M, M, G, V con evidenza giorni già trascorsi */}
+                  {CAPACITY_DAY_KEYS.map((day) => {
+                    const dayFullName: Record<CapacityDayKey, string> = {
+                      L: 'Lunedì',
+                      M: 'Martedì',
+                      Me: 'Mercoledì',
+                      G: 'Giovedì',
+                      V: 'Venerdì',
+                    };
+                    const isPastDay = !showAllWeeks && primaryCapacity.availability.pastDays[day];
+                    const isTodayDay = !showAllWeeks && primaryCapacity.availability.todayDayKey === day;
+                    const isInputDisabled = selectedDept === 'ALL' || showAllWeeks;
+                    const tooltipText = isPastDay
+                      ? `Giorno già trascorso (${dayFullName[day]}) — escluso dalla disponibilità residua${selectedDept === 'ALL' ? ' (Aggregato CP + CG + BF)' : ''}`
+                      : showAllWeeks
+                        ? 'Seleziona una singola settimana per modificare gli addetti giornalieri.'
+                        : selectedDept === 'ALL'
+                          ? `Somma addetti ${dayFullName[day]} dei reparti produttivi CP + CG + BF (Read-Only, MAG escluso). Seleziona CP, CG, BF o MAG per modificare.`
+                          : isTodayDay
+                            ? `Oggi (${dayFullName[day]}) — incluso nella disponibilità residua`
+                            : `${dayFullName[day]} — incluso nella disponibilità residua`;
+
+                    return (
+                      <div
+                        key={day}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2 py-0.5 rounded border transition-opacity",
+                          isPastDay
+                            ? "bg-muted/25 border-dashed opacity-45"
+                            : isTodayDay
+                              ? "bg-blue-500/10 border-blue-500/40 ring-1 ring-blue-500/20"
+                              : selectedDept === 'ALL' || showAllWeeks
+                                ? "bg-muted/70 opacity-85 border-dashed"
+                                : "bg-muted/40"
+                        )}
+                        title={tooltipText}
+                      >
+                        <span
+                          className={cn(
+                            "font-bold text-[10px]",
+                            isPastDay
+                              ? "text-muted-foreground line-through"
+                              : isTodayDay
+                                ? "text-blue-600 dark:text-blue-400"
+                                : "text-muted-foreground"
+                          )}
+                        >
+                          {day === 'Me' ? 'M' : day}:
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          disabled={isInputDisabled}
+                          value={currentCapacity[day]}
+                          onChange={(e) => handleCapacityChange(day, parseInt(e.target.value))}
+                          className={cn(
+                            "w-14 min-w-[3.5rem] h-6 text-center font-mono font-bold border rounded text-xs px-1 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                            isInputDisabled
+                              ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent"
+                              : isPastDay
+                                ? "bg-muted/40 text-muted-foreground border-border/60 focus:ring-1 focus:ring-primary"
+                                : "bg-background focus:ring-1 focus:ring-primary"
+                          )}
+                        />
+                      </div>
+                    );
+                  })}
+
                   <div
-                    key={day}
                     className={cn(
-                      "flex items-center gap-1.5 px-2 py-0.5 rounded border",
-                      selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
+                      "flex items-center gap-1.5 px-2 py-0.5 rounded border ml-1 transition-opacity",
+                      !showAllWeeks && primaryCapacity.availability.weekState === 'past'
+                        ? "bg-muted/25 border-dashed opacity-45"
+                        : selectedDept === 'ALL' || showAllWeeks
+                          ? "bg-muted/70 opacity-85 border-dashed"
+                          : "bg-muted/40"
                     )}
-                    title={selectedDept === 'ALL' ? `Somma addetti ${day === 'Me' ? 'Mercoledì' : day} dei reparti produttivi CP + CG + BF (Read-Only, MAG escluso). Seleziona CP, CG, BF o MAG per modificare.` : undefined}
+                    title={
+                      !showAllWeeks && primaryCapacity.availability.weekState === 'past'
+                        ? "Settimana trascorsa — esclusa dalla disponibilità residua (0.0 h)"
+                        : showAllWeeks
+                          ? "Seleziona una singola settimana per modificare gli straordinari."
+                          : selectedDept === 'ALL'
+                            ? "Somma straordinari dei reparti produttivi CP + CG + BF (Read-Only, MAG escluso)."
+                            : "Ore di straordinario aggiunte alla disponibilità residua della settimana"
+                    }
                   >
-                    <span className="font-bold text-[10px] text-muted-foreground">{day === 'Me' ? 'M' : day}:</span>
+                    <span className="font-bold text-[10px] text-muted-foreground">+ Straord:</span>
                     <input
                       type="number"
                       min={0}
-                      max={100}
-                      disabled={selectedDept === 'ALL'}
-                      value={currentCapacity[day]}
-                      onChange={(e) => handleCapacityChange(day, parseInt(e.target.value))}
+                      max={200}
+                      disabled={selectedDept === 'ALL' || showAllWeeks}
+                      value={currentCapacity.overtime}
+                      onChange={(e) => handleCapacityChange('overtime', parseFloat(e.target.value))}
                       className={cn(
                         "w-14 min-w-[3.5rem] h-6 text-center font-mono font-bold border rounded text-xs px-1 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                        selectedDept === 'ALL'
+                        selectedDept === 'ALL' || showAllWeeks
                           ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent"
                           : "bg-background focus:ring-1 focus:ring-primary"
                       )}
                     />
+                    <span className="text-[10px] text-muted-foreground font-mono">h</span>
                   </div>
-                ))}
 
+                  {selectedDept !== 'ALL' && !showAllWeeks && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isPropagatingCapacity}
+                          onClick={() => void handlePropagateCapacityForward()}
+                          className="h-7 px-2.5 text-[11px] font-semibold gap-1.5 border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/60 transition-colors shrink-0 cursor-pointer"
+                        >
+                          {isPropagatingCapacity ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <ChevronsRight className="h-3.5 w-3.5" />
+                          )}
+                          <span>Applica alle settimane successive</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs text-xs">
+                        Imposta questi addetti giornalieri come nuova baseline di reparto ({selectedDept}) dalla Settimana {selectedWeekNumber}/{selectedYear} in poi, preservando lo storico passato.
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+
+                {/* BOX KPI CAPACITÀ REALE (INSENSIBILE A RICERCA / FILTRO STATO / SELEZIONI) */}
                 <div
                   className={cn(
-                    "flex items-center gap-1.5 px-2 py-0.5 rounded border ml-1",
-                    selectedDept === 'ALL' ? "bg-muted/70 opacity-90 border-dashed" : "bg-muted/40"
+                    "rounded-md px-3.5 py-1.5 shadow-md flex items-center divide-x transition-all duration-300 shrink-0",
+                    "bg-slate-900 text-white divide-slate-700/80 border-2",
+                    primaryCapacity.showAllWeeks
+                      ? "border-slate-600 shadow-slate-900/20"
+                      : primaryCapacity.isOverloaded
+                        ? "border-red-500 shadow-red-500/20"
+                        : (primaryCapacity.saturationPercent ?? 0) > 85
+                          ? "border-amber-500 shadow-amber-500/20"
+                          : "border-emerald-500 shadow-emerald-500/20"
                   )}
-                  title={selectedDept === 'ALL' ? "Somma straordinari dei reparti produttivi CP + CG + BF (Read-Only, MAG escluso)." : undefined}
+                  title="Cruscotto Capacità Reale: calcolato esclusivamente su Settimana + Reparto selezionati usando le sole commesse aperte (insensibile a ricerca, filtro stato o selezioni)."
                 >
-                  <span className="font-bold text-[10px] text-muted-foreground">+ Straord:</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={200}
-                    disabled={selectedDept === 'ALL'}
-                    value={currentCapacity.overtime}
-                    onChange={(e) => handleCapacityChange('overtime', parseFloat(e.target.value))}
-                    className={cn(
-                      "w-14 min-w-[3.5rem] h-6 text-center font-mono font-bold border rounded text-xs px-1 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                      selectedDept === 'ALL'
-                        ? "bg-muted text-muted-foreground cursor-not-allowed border-transparent"
-                        : "bg-background focus:ring-1 focus:ring-primary"
+                  {/* 1. DISPONIBILI (Residue + riferimento intera settimana) */}
+                  <div
+                    className="pr-3 text-left"
+                    title={
+                      primaryCapacity.showAllWeeks
+                        ? "Non calcolabile su 'Tutte le Settimane': seleziona una singola settimana per confrontare il carico con la disponibilità settimanale."
+                        : primaryCapacity.availability.weekState === 'past'
+                          ? `Settimana trascorsa: disponibilità residua 0.0 h (Capacità intera settimana originaria: ${primaryCapacity.availability.fullWeekHours.toFixed(1)} h)`
+                          : primaryCapacity.availability.weekState === 'current'
+                            ? `Settimana corrente: disponibilità residua da oggi a Venerdì + straordinari = ${primaryCapacity.availability.remainingHours.toFixed(1)} h (Capacità intera settimana: ${primaryCapacity.availability.fullWeekHours.toFixed(1)} h)`
+                            : `Settimana futura: tutti i 5 giorni lavorativi (L–V) + straordinari = ${primaryCapacity.availability.fullWeekHours.toFixed(1)} h`
+                    }
+                  >
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                      Disponibili
+                    </div>
+                    <div className="text-sm font-mono font-black text-white mt-0.5 leading-tight">
+                      {primaryCapacity.showAllWeeks || primaryCapacity.availableHours === null ? (
+                        <span className="text-slate-400">—</span>
+                      ) : (
+                        <>
+                          {primaryCapacity.availableHours.toFixed(1)}{" "}
+                          <span className="text-[10px] font-normal text-slate-400">h</span>
+                        </>
+                      )}
+                    </div>
+                    {!primaryCapacity.showAllWeeks && primaryCapacity.fullWeekHours !== null && (
+                      <div className="text-[9px] font-mono text-slate-400 leading-tight mt-0.5">
+                        Sett. tot: {formatCompactHours(primaryCapacity.fullWeekHours)}
+                      </div>
                     )}
-                  />
-                  <span className="text-[10px] text-muted-foreground font-mono">h</span>
-                </div>
+                  </div>
 
-                {selectedDept !== 'ALL' && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={isPropagatingCapacity}
-                        onClick={() => void handlePropagateCapacityForward()}
-                        className="h-7 px-2.5 text-[11px] font-semibold gap-1.5 border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/60 transition-colors shrink-0 cursor-pointer"
+                  {/* 2. CARICO APERTO (Solo commesse aperte 100%, chiuse 0%) */}
+                  <div
+                    className="px-3 text-left"
+                    title={
+                      primaryCapacity.showAllWeeks
+                        ? `Carico Aperto Totale su tutte le settimane (${selectedDept === 'ALL' ? 'CP + CG + BF, MAG escluso' : selectedDept}): ${primaryCapacity.openJobsCount} commesse aperte, ${primaryCapacity.openLoadedHours.toFixed(1)} h.`
+                        : `Carico Aperto (${selectedDept === 'ALL' ? 'CP + CG + BF, MAG escluso' : selectedDept}): solo commesse aperte al 100% del tempo previsto; le commesse chiuse/spedite contribuiscono 0 h.`
+                    }
+                  >
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none flex items-center justify-between gap-1.5">
+                      <span>{primaryCapacity.showAllWeeks ? 'Carico Aperto Tot.' : 'Carico Aperto'}</span>
+                      <span className="text-[9px] text-slate-400 font-normal">({primaryCapacity.openJobsCount} com.)</span>
+                    </div>
+                    <div className="text-sm font-mono font-black text-white mt-0.5 leading-tight">
+                      {primaryCapacity.openLoadedHours.toFixed(1)}{" "}
+                      <span className="text-[10px] font-normal text-slate-400">h</span>
+                    </div>
+                    {primaryCapacity.zeroHourOpenJobsCount > 0 && (
+                      <div
+                        className="text-[9px] font-sans font-semibold text-amber-400 leading-tight mt-0.5"
+                        title={`${primaryCapacity.zeroHourOpenJobsCount} commesse aperte non hanno un tempo previsto valorizzato (0.0 h)`}
                       >
-                        {isPropagatingCapacity ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <ChevronsRight className="h-3.5 w-3.5" />
-                        )}
-                        <span>Applica alle settimane successive</span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs text-xs">
-                      Imposta questi addetti giornalieri come nuova baseline di reparto ({selectedDept}) dalla Settimana {selectedWeekNumber}/{selectedYear} in poi, preservando lo storico passato.
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
+                        ⚠ {primaryCapacity.zeroHourOpenJobsCount} a 0h
+                      </div>
+                    )}
+                  </div>
 
-              <div
-                className={cn(
-                  "rounded-md px-3.5 py-1.5 shadow-md flex items-center divide-x transition-all duration-300",
-                  "bg-slate-900 text-white divide-slate-700/80 border-2",
-                  bucketMetrics.saturationPercent > 100
-                    ? "border-red-500 shadow-red-500/20"
-                    : bucketMetrics.saturationPercent > 85
-                      ? "border-amber-500 shadow-amber-500/20"
-                      : "border-emerald-500 shadow-emerald-500/20"
-                )}
-              >
-                <div className="pr-3 text-left">
-                  <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
-                    Disponibili
+                  {/* 3. SATURAZIONE % */}
+                  <div
+                    className="px-3 text-left"
+                    title={
+                      primaryCapacity.showAllWeeks
+                        ? "Seleziona una singola settimana per calcolare la saturazione %."
+                        : primaryCapacity.saturationPercent === null && primaryCapacity.isOverloaded
+                          ? "Sforamento: carico aperto presente con 0.0 h residue disponibili."
+                          : undefined
+                    }
+                  >
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                      Saturazione
+                    </div>
+                    <div
+                      className={cn(
+                        "text-sm font-mono font-black mt-0.5 leading-tight",
+                        primaryCapacity.showAllWeeks
+                          ? "text-slate-400"
+                          : primaryCapacity.isOverloaded
+                            ? "text-red-400"
+                            : (primaryCapacity.saturationPercent ?? 0) > 85
+                              ? "text-amber-400"
+                              : "text-emerald-400"
+                      )}
+                    >
+                      {primaryCapacity.showAllWeeks
+                        ? '—'
+                        : primaryCapacity.saturationPercent !== null
+                          ? `${primaryCapacity.saturationPercent}%`
+                          : '>100%'}
+                    </div>
                   </div>
-                  <div className="text-sm font-mono font-black text-white mt-0.5">
-                    {availableHours.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">h</span>
-                  </div>
-                </div>
 
-                <div className="px-3 text-left">
-                  <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none flex items-center justify-between gap-1">
-                    <span>Caricate</span>
-                    <span className="text-[9px] text-slate-400 font-normal">({bucketMetrics.totalJobs} com.)</span>
-                  </div>
-                  <div className="text-sm font-mono font-black text-white mt-0.5">
-                    {bucketMetrics.loadedHours.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">h</span>
-                  </div>
-                </div>
-
-                <div className="px-3 text-left">
-                  <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
-                    Saturazione
-                  </div>
-                  <div className={cn(
-                    "text-sm font-mono font-black mt-0.5",
-                    bucketMetrics.saturationPercent > 100 ? "text-red-400" : bucketMetrics.saturationPercent > 85 ? "text-amber-400" : "text-emerald-400"
-                  )}>
-                    {bucketMetrics.saturationPercent}%
-                  </div>
-                </div>
-
-                <div className="pl-3 text-left">
-                  <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
-                    Bilancio
-                  </div>
-                  <div className={cn(
-                    "text-sm font-mono font-black mt-0.5",
-                    bucketMetrics.balanceHours < 0 ? "text-red-400" : "text-emerald-400"
-                  )}>
-                    {bucketMetrics.balanceHours >= 0 ? `+${bucketMetrics.balanceHours.toFixed(1)} h` : `${bucketMetrics.balanceHours.toFixed(1)} h`}
+                  {/* 4. BILANCIO */}
+                  <div className="pl-3 text-left">
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">
+                      Bilancio
+                    </div>
+                    <div
+                      className={cn(
+                        "text-sm font-mono font-black mt-0.5 leading-tight",
+                        primaryCapacity.showAllWeeks || primaryCapacity.balanceHours === null
+                          ? "text-slate-400"
+                          : primaryCapacity.balanceHours < 0
+                            ? "text-red-400"
+                            : "text-emerald-400"
+                      )}
+                    >
+                      {primaryCapacity.showAllWeeks || primaryCapacity.balanceHours === null
+                        ? '—'
+                        : primaryCapacity.balanceHours >= 0
+                          ? `+${primaryCapacity.balanceHours.toFixed(1)} h`
+                          : `${primaryCapacity.balanceHours.toFixed(1)} h`}
+                    </div>
                   </div>
                 </div>
               </div>
+
+              {/* MINI-BILANCIO SINTETICO PER REPARTO IN VISTA TUTTI (CLICCABILE: CP · CG · BF) */}
+              {selectedDept === 'ALL' && !showAllWeeks && primaryCapacity.departmentBreakdowns.length > 0 && (
+                <div className="border-t border-border/60 pt-1.5 flex items-center justify-between flex-wrap gap-2 text-[11px]">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Bilancio reparti produttivi (clicca per passare al reparto):
+                  </span>
+                  <div className="flex items-center flex-wrap gap-1.5">
+                    {primaryCapacity.departmentBreakdowns.map((item) => {
+                      const satText =
+                        item.saturationPercent !== null
+                          ? `${item.saturationPercent}%`
+                          : item.isOverloaded
+                            ? '>100%'
+                            : '0%';
+                      const balText = `${item.balanceHours >= 0 ? '+' : ''}${formatCompactHours(item.balanceHours)}`;
+                      const chipClass =
+                        item.isOverloaded || item.balanceHours < 0
+                          ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20"
+                          : (item.saturationPercent ?? 0) > 85
+                            ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20"
+                            : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20";
+
+                      return (
+                        <button
+                          key={item.dept}
+                          type="button"
+                          onClick={() => setSelectedDept(item.dept)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 px-2 py-0.5 rounded border font-mono text-[11px] font-semibold transition-colors cursor-pointer",
+                            chipClass
+                          )}
+                          title={`${item.dept}: Disponibili residue ${item.availableHours.toFixed(1)}h (Sett. tot ${formatCompactHours(item.fullWeekHours)}) · Carico aperto ${item.openLoadedHours.toFixed(1)}h (${item.openJobsCount} com.) · Clicca per aprire il tab ${item.dept}`}
+                        >
+                          <span className="font-bold">{item.dept}:</span>
+                          <span>{satText}</span>
+                          <span>({balText})</span>
+                          {item.zeroHourOpenJobsCount > 0 && (
+                            <span className="text-[10px] font-sans text-amber-600 dark:text-amber-400">
+                              ⚠ {item.zeroHourOpenJobsCount} a 0h
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -6386,8 +6612,8 @@ export default function ProgrammazioneClientPage({
             DATAGRID (STILE EXCEL): RIGA VUOTA RAPIDA + SEPARAZIONE COLONNE + INLINE EDIT
         ========================================================================== */}
         <div className="border rounded-md bg-card shadow-xs overflow-hidden">
-          <div className="bg-muted/40 px-3 py-1.5 border-b flex items-center justify-between text-xs text-muted-foreground font-medium">
-            <div className="flex items-center gap-2">
+          <div className="bg-muted/40 px-3 py-1.5 border-b flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-xs text-muted-foreground font-medium">
+            <div className="flex items-center flex-wrap gap-2">
               <span className="font-semibold text-foreground">
                 {viewMode === 'settimana'
                   ? (showAllWeeks ? 'Tutte le Settimane' : `Commesse Nel Secchiello (Sett. ${selectedWeekNumber})`)
@@ -6397,8 +6623,39 @@ export default function ProgrammazioneClientPage({
               <span>
                 Visualizzate <strong>{sortedAndFilteredJobs.length}</strong> su <strong>{jobs.length}</strong> totali
               </span>
+
+              {/* FASE 102 — SPECCHIETTO 2: CONTATORE DINAMICO DI CONSULTAZIONE / SELEZIONE */}
+              <div
+                className="inline-flex items-center flex-wrap gap-1.5 px-2 py-0.5 rounded bg-background/90 border border-border/80 text-[11px] font-mono shadow-2xs"
+                title="Contatore dinamico aggiornato in tempo reale in base a ricerca, filtro stato, righe visibili e checkbox selezionate."
+              >
+                <span className="font-sans font-semibold text-foreground">Vista/Filtro:</span>
+                <span className="font-bold text-foreground">
+                  {dynamicViewSummary.visibleCount} com. · {dynamicViewSummary.visibleTotalHours.toFixed(1)} h
+                </span>
+                <span className="text-muted-foreground/60">|</span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                  Aperte: {dynamicViewSummary.visibleOpenCount} com. ({dynamicViewSummary.visibleOpenHours.toFixed(1)} h)
+                </span>
+                {dynamicViewSummary.visibleClosedCount > 0 && (
+                  <>
+                    <span className="text-muted-foreground/60">·</span>
+                    <span className="text-slate-600 dark:text-slate-400">
+                      Chiuse/Spedite: {dynamicViewSummary.visibleClosedCount} com. ({dynamicViewSummary.visibleClosedHours.toFixed(1)} h)
+                    </span>
+                  </>
+                )}
+                {dynamicViewSummary.selectedCount > 0 && (
+                  <>
+                    <span className="text-muted-foreground/60">|</span>
+                    <span className="font-bold text-blue-600 dark:text-blue-400">
+                      Selezionate: {dynamicViewSummary.selectedCount} com. · {dynamicViewSummary.selectedTotalHours.toFixed(1)} h
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-[11px]">
+            <div className="flex items-center gap-2 text-[11px] shrink-0">
               <span className="inline-flex items-center gap-1">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block"></span> Pronto
               </span>
@@ -6618,6 +6875,17 @@ export default function ProgrammazioneClientPage({
               <span className="text-xs font-semibold text-slate-200 hidden sm:inline">
                 {selectedJobIds.length === 1 ? 'selezionata' : 'selezionate'}
               </span>
+              <Badge
+                variant="outline"
+                className="bg-blue-500/15 text-blue-300 border-blue-400/40 font-mono font-bold text-xs px-2 py-0.5"
+                title={
+                  dynamicViewSummary.selectedClosedCount > 0
+                    ? `Aperte: ${dynamicViewSummary.selectedOpenCount} com. (${dynamicViewSummary.selectedOpenHours.toFixed(1)} h) · Chiuse/Spedite: ${dynamicViewSummary.selectedClosedCount} com. (${dynamicViewSummary.selectedClosedHours.toFixed(1)} h)`
+                    : `Monte ore previsto delle ${dynamicViewSummary.selectedCount} commesse selezionate`
+                }
+              >
+                {dynamicViewSummary.selectedTotalHours.toFixed(1)} h
+              </Badge>
               <button
                 type="button"
                 onClick={() => setSelectedJobIds([])}
