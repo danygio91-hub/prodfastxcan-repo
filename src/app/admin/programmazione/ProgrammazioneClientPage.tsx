@@ -3104,6 +3104,53 @@ export default function ProgrammazioneClientPage({
     });
   }, [sortedAndFilteredJobs, selectedJobsList, resolveJobHours]);
 
+  // FASE 102-BIS: Pezzi totali selezionati + Incidenza % dinamica sulle ore disponibili della settimana
+  const selectedTotalPieces = useMemo(() => {
+    return selectedJobsList.reduce((acc, j) => acc + (Number(j.qta) || 0), 0);
+  }, [selectedJobsList]);
+
+  const hasActiveUiFilter = searchQuery.trim() !== '' || statusFilter !== 'ALL';
+
+  const dynamicIncidence = useMemo(() => {
+    const avail = primaryCapacity.availableHours;
+    if (primaryCapacity.showAllWeeks || avail === null) {
+      return {
+        percent: null as number | null,
+        mode: 'none' as 'selection' | 'filter' | 'none',
+        hours: 0,
+        isOver: false,
+      };
+    }
+
+    if (dynamicViewSummary.selectedCount > 0) {
+      const h = dynamicViewSummary.selectedTotalHours;
+      if (avail <= 0) {
+        return { percent: h > 0 ? null : 0, mode: 'selection' as const, hours: h, isOver: h > 0 };
+      }
+      return {
+        percent: Math.round((h / avail) * 100),
+        mode: 'selection' as const,
+        hours: h,
+        isOver: h > avail,
+      };
+    }
+
+    if (hasActiveUiFilter) {
+      const h = dynamicViewSummary.visibleOpenHours;
+      if (avail <= 0) {
+        return { percent: h > 0 ? null : 0, mode: 'filter' as const, hours: h, isOver: h > 0 };
+      }
+      return {
+        percent: Math.round((h / avail) * 100),
+        mode: 'filter' as const,
+        hours: h,
+        isOver: h > avail,
+      };
+    }
+
+    return { percent: null as number | null, mode: 'none' as const, hours: 0, isOver: false };
+  }, [primaryCapacity.showAllWeeks, primaryCapacity.availableHours, dynamicViewSummary, hasActiveUiFilter]);
+
   // Conteggi per macro-reparti (Sensibili alla vista corrente)
   const deptCounts = useMemo(() => {
     const counts: Record<MacroDepartmentCode, number> = { ALL: 0, CP: 0, CG: 0, BF: 0, MAG: 0 };
@@ -6557,53 +6604,192 @@ export default function ProgrammazioneClientPage({
                 </div>
               </div>
 
-              {/* MINI-BILANCIO SINTETICO PER REPARTO IN VISTA TUTTI (CLICCABILE: CP · CG · BF) */}
-              {selectedDept === 'ALL' && !showAllWeeks && primaryCapacity.departmentBreakdowns.length > 0 && (
-                <div className="border-t border-border/60 pt-1.5 flex items-center justify-between flex-wrap gap-2 text-[11px]">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Bilancio reparti produttivi (clicca per passare al reparto):
-                  </span>
-                  <div className="flex items-center flex-wrap gap-1.5">
-                    {primaryCapacity.departmentBreakdowns.map((item) => {
-                      const satText =
-                        item.saturationPercent !== null
-                          ? `${item.saturationPercent}%`
-                          : item.isOverloaded
-                            ? '>100%'
-                            : '0%';
-                      const balText = `${item.balanceHours >= 0 ? '+' : ''}${formatCompactHours(item.balanceHours)}`;
-                      const chipClass =
-                        item.isOverloaded || item.balanceHours < 0
-                          ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20"
-                          : (item.saturationPercent ?? 0) > 85
-                            ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20"
-                            : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20";
+              {/* FASE 102-BIS — SECONDA RIGA: BILANCIO REPARTI PRODUTTIVI (SX) + SPECCHIETTO DINAMICO FILTRO/SELEZIONE (DX) */}
+              <div className="border-t border-border/60 pt-2 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+                {/* Lato Sinistro: Etichetta + Pill cliccabili CP / CG / BF (in vista TUTTI) */}
+                <div className="flex items-center flex-wrap gap-2 text-[11px]">
+                  {selectedDept === 'ALL' && !showAllWeeks && primaryCapacity.departmentBreakdowns.length > 0 ? (
+                    <>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Bilancio reparti produttivi:
+                      </span>
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        {primaryCapacity.departmentBreakdowns.map((item) => {
+                          const satText =
+                            item.saturationPercent !== null
+                              ? `${item.saturationPercent}%`
+                              : item.isOverloaded
+                                ? '>100%'
+                                : '0%';
+                          const balText = `${item.balanceHours >= 0 ? '+' : ''}${formatCompactHours(item.balanceHours)}`;
+                          const chipClass =
+                            item.isOverloaded || item.balanceHours < 0
+                              ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20"
+                              : (item.saturationPercent ?? 0) > 85
+                                ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20"
+                                : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20";
 
-                      return (
-                        <button
-                          key={item.dept}
-                          type="button"
-                          onClick={() => setSelectedDept(item.dept)}
+                          return (
+                            <button
+                              key={item.dept}
+                              type="button"
+                              onClick={() => setSelectedDept(item.dept)}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 px-2 py-0.5 rounded border font-mono text-[11px] font-semibold transition-colors cursor-pointer",
+                                chipClass
+                              )}
+                              title={`${item.dept}: Disponibili residue ${item.availableHours.toFixed(1)}h (Sett. tot ${formatCompactHours(item.fullWeekHours)}) · Carico aperto ${item.openLoadedHours.toFixed(1)}h (${item.openJobsCount} com.) · Clicca per aprire il tab ${item.dept}`}
+                            >
+                              <span className="font-bold">{item.dept}:</span>
+                              <span>{satText}</span>
+                              <span>({balText})</span>
+                              {item.zeroHourOpenJobsCount > 0 && (
+                                <span className="text-[10px] font-sans text-amber-600 dark:text-amber-400">
+                                  ⚠ {item.zeroHourOpenJobsCount} a 0h
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-[10px] font-medium text-muted-foreground">
+                      {showAllWeeks
+                        ? 'Vista multi-settimana: usa lo specchietto dinamico a destra per analisi su filtri e selezioni.'
+                        : `Reparto attivo: ${selectedDept} · Specchietto dinamico di consultazione e selezione a destra.`}
+                    </span>
+                  )}
+                </div>
+
+                {/* Lato Destro: SPECCHIETTO 2 — CONTATORE DINAMICO (FILTRO / SELEZIONE) ALLINEATO SOTTO CAPACITÀ REALE */}
+                <div
+                  className={cn(
+                    "rounded-md px-3.5 py-1.5 flex items-center divide-x transition-all duration-200 shrink-0 shadow-xs",
+                    "border bg-sky-950/15 dark:bg-sky-950/35 divide-sky-500/25",
+                    dynamicViewSummary.selectedCount > 0
+                      ? "border-sky-400/70 ring-1 ring-sky-400/20"
+                      : "border-sky-500/40"
+                  )}
+                  title="Specchietto Dinamico: si aggiorna in tempo reale con ricerca testuale, filtro stato e righe selezionate, senza alterare il cruscotto Capacità Reale soprastante."
+                >
+                  {/* 1. VISTA / FILTRO */}
+                  <div className="pr-3 text-left">
+                    <div className="text-[9px] uppercase tracking-wider text-sky-700 dark:text-sky-300/80 font-semibold leading-none flex items-center gap-1">
+                      <span>Vista / Filtro</span>
+                      <span className="font-normal opacity-80">({dynamicViewSummary.visibleCount} com.)</span>
+                    </div>
+                    <div className="text-sm font-mono font-black text-foreground mt-0.5 leading-tight">
+                      {dynamicViewSummary.visibleTotalHours.toFixed(1)}{" "}
+                      <span className="text-[10px] font-normal text-muted-foreground">h</span>
+                    </div>
+                    <div className="text-[9px] font-mono text-muted-foreground leading-tight mt-0.5 whitespace-nowrap">
+                      <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                        Aperte: {dynamicViewSummary.visibleOpenCount} ({dynamicViewSummary.visibleOpenHours.toFixed(1)} h)
+                      </span>
+                      {dynamicViewSummary.visibleClosedCount > 0 && (
+                        <>
+                          {" · "}
+                          <span>
+                            Chiuse: {dynamicViewSummary.visibleClosedCount} ({dynamicViewSummary.visibleClosedHours.toFixed(1)} h)
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 2. SELEZIONATE */}
+                  <div
+                    className={cn(
+                      "px-3 text-left transition-colors",
+                      dynamicViewSummary.selectedCount > 0 && "bg-sky-500/10 dark:bg-sky-400/10 rounded-xs"
+                    )}
+                    title={
+                      dynamicViewSummary.selectedCount > 0
+                        ? `Selezionate ${dynamicViewSummary.selectedCount} commesse (${selectedTotalPieces.toLocaleString('it-IT')} pz) · Aperte: ${dynamicViewSummary.selectedOpenCount} (${dynamicViewSummary.selectedOpenHours.toFixed(1)} h)${dynamicViewSummary.selectedClosedCount > 0 ? ` · Chiuse: ${dynamicViewSummary.selectedClosedCount} (${dynamicViewSummary.selectedClosedHours.toFixed(1)} h)` : ''}`
+                        : "Spunta una o più commesse in tabella per calcolare ore e pezzi selezionati."
+                    }
+                  >
+                    <div
+                      className={cn(
+                        "text-[9px] uppercase tracking-wider font-semibold leading-none flex items-center gap-1",
+                        dynamicViewSummary.selectedCount > 0
+                          ? "text-sky-600 dark:text-sky-300"
+                          : "text-muted-foreground/80"
+                      )}
+                    >
+                      <span>Selezionate</span>
+                      <span className="font-normal opacity-80">({dynamicViewSummary.selectedCount} com.)</span>
+                    </div>
+                    {dynamicViewSummary.selectedCount > 0 ? (
+                      <>
+                        <div className="text-sm font-mono font-black text-sky-600 dark:text-sky-300 mt-0.5 leading-tight">
+                          {dynamicViewSummary.selectedTotalHours.toFixed(1)}{" "}
+                          <span className="text-[10px] font-normal text-sky-600/80 dark:text-sky-300/80">h</span>
+                        </div>
+                        <div className="text-[9px] font-mono text-sky-700/80 dark:text-sky-300/80 leading-tight mt-0.5 whitespace-nowrap">
+                          {selectedTotalPieces.toLocaleString('it-IT')} pz
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-sm font-mono font-bold text-muted-foreground/60 mt-0.5 leading-tight">
+                          0 · —
+                        </div>
+                        <div className="text-[9px] font-sans text-muted-foreground/60 leading-tight mt-0.5">
+                          Nessuna spunta
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* 3. INCIDENZA % (su Disp.) */}
+                  <div
+                    className="pl-3 text-left"
+                    title={
+                      dynamicIncidence.mode === 'selection'
+                        ? `Le ${dynamicViewSummary.selectedCount} commesse selezionate (${dynamicIncidence.hours.toFixed(1)} h) pesano per ${dynamicIncidence.percent !== null ? `${dynamicIncidence.percent}%` : '>100%'} sulle ore disponibili residue della settimana (${primaryCapacity.availableHours?.toFixed(1)} h).`
+                        : dynamicIncidence.mode === 'filter'
+                          ? `Le commesse aperte filtrate (${dynamicIncidence.hours.toFixed(1)} h) pesano per ${dynamicIncidence.percent !== null ? `${dynamicIncidence.percent}%` : '>100%'} sulle ore disponibili residue della settimana (${primaryCapacity.availableHours?.toFixed(1)} h).`
+                          : "Seleziona una o più righe o applica un filtro/ricerca per vedere l'incidenza % sulle ore disponibili."
+                    }
+                  >
+                    <div className="text-[9px] uppercase tracking-wider text-sky-700 dark:text-sky-300/80 font-semibold leading-none whitespace-nowrap">
+                      Incidenza %
+                    </div>
+                    {dynamicIncidence.mode !== 'none' ? (
+                      <>
+                        <div
                           className={cn(
-                            "inline-flex items-center gap-1.5 px-2 py-0.5 rounded border font-mono text-[11px] font-semibold transition-colors cursor-pointer",
-                            chipClass
+                            "text-sm font-mono font-black mt-0.5 leading-tight",
+                            dynamicIncidence.isOver
+                              ? "text-red-500 dark:text-red-400"
+                              : (dynamicIncidence.percent ?? 0) > 85
+                                ? "text-amber-600 dark:text-amber-400"
+                                : dynamicIncidence.mode === 'selection'
+                                  ? "text-sky-600 dark:text-sky-300"
+                                  : "text-cyan-700 dark:text-cyan-300"
                           )}
-                          title={`${item.dept}: Disponibili residue ${item.availableHours.toFixed(1)}h (Sett. tot ${formatCompactHours(item.fullWeekHours)}) · Carico aperto ${item.openLoadedHours.toFixed(1)}h (${item.openJobsCount} com.) · Clicca per aprire il tab ${item.dept}`}
                         >
-                          <span className="font-bold">{item.dept}:</span>
-                          <span>{satText}</span>
-                          <span>({balText})</span>
-                          {item.zeroHourOpenJobsCount > 0 && (
-                            <span className="text-[10px] font-sans text-amber-600 dark:text-amber-400">
-                              ⚠ {item.zeroHourOpenJobsCount} a 0h
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
+                          {dynamicIncidence.percent !== null ? `${dynamicIncidence.percent}%` : '>100%'}
+                        </div>
+                        <div className="text-[9px] font-sans text-muted-foreground leading-tight mt-0.5 whitespace-nowrap">
+                          {dynamicIncidence.mode === 'selection' ? 'sel. su disp.' : 'su disp.'}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-sm font-mono font-bold text-muted-foreground/60 mt-0.5 leading-tight">
+                          —
+                        </div>
+                        <div className="text-[9px] font-sans text-muted-foreground/60 leading-tight mt-0.5 whitespace-nowrap">
+                          su disp.
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           </div>
         )}
@@ -6612,8 +6798,8 @@ export default function ProgrammazioneClientPage({
             DATAGRID (STILE EXCEL): RIGA VUOTA RAPIDA + SEPARAZIONE COLONNE + INLINE EDIT
         ========================================================================== */}
         <div className="border rounded-md bg-card shadow-xs overflow-hidden">
-          <div className="bg-muted/40 px-3 py-1.5 border-b flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-xs text-muted-foreground font-medium">
-            <div className="flex items-center flex-wrap gap-2">
+          <div className="bg-muted/40 px-3 py-1.5 border-b flex items-center justify-between text-xs text-muted-foreground font-medium">
+            <div className="flex items-center gap-2">
               <span className="font-semibold text-foreground">
                 {viewMode === 'settimana'
                   ? (showAllWeeks ? 'Tutte le Settimane' : `Commesse Nel Secchiello (Sett. ${selectedWeekNumber})`)
@@ -6623,37 +6809,6 @@ export default function ProgrammazioneClientPage({
               <span>
                 Visualizzate <strong>{sortedAndFilteredJobs.length}</strong> su <strong>{jobs.length}</strong> totali
               </span>
-
-              {/* FASE 102 — SPECCHIETTO 2: CONTATORE DINAMICO DI CONSULTAZIONE / SELEZIONE */}
-              <div
-                className="inline-flex items-center flex-wrap gap-1.5 px-2 py-0.5 rounded bg-background/90 border border-border/80 text-[11px] font-mono shadow-2xs"
-                title="Contatore dinamico aggiornato in tempo reale in base a ricerca, filtro stato, righe visibili e checkbox selezionate."
-              >
-                <span className="font-sans font-semibold text-foreground">Vista/Filtro:</span>
-                <span className="font-bold text-foreground">
-                  {dynamicViewSummary.visibleCount} com. · {dynamicViewSummary.visibleTotalHours.toFixed(1)} h
-                </span>
-                <span className="text-muted-foreground/60">|</span>
-                <span className="text-emerald-700 dark:text-emerald-400 font-medium">
-                  Aperte: {dynamicViewSummary.visibleOpenCount} com. ({dynamicViewSummary.visibleOpenHours.toFixed(1)} h)
-                </span>
-                {dynamicViewSummary.visibleClosedCount > 0 && (
-                  <>
-                    <span className="text-muted-foreground/60">·</span>
-                    <span className="text-slate-600 dark:text-slate-400">
-                      Chiuse/Spedite: {dynamicViewSummary.visibleClosedCount} com. ({dynamicViewSummary.visibleClosedHours.toFixed(1)} h)
-                    </span>
-                  </>
-                )}
-                {dynamicViewSummary.selectedCount > 0 && (
-                  <>
-                    <span className="text-muted-foreground/60">|</span>
-                    <span className="font-bold text-blue-600 dark:text-blue-400">
-                      Selezionate: {dynamicViewSummary.selectedCount} com. · {dynamicViewSummary.selectedTotalHours.toFixed(1)} h
-                    </span>
-                  </>
-                )}
-              </div>
             </div>
             <div className="flex items-center gap-2 text-[11px] shrink-0">
               <span className="inline-flex items-center gap-1">
