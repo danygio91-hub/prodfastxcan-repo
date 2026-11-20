@@ -7,6 +7,7 @@ import * as admin from 'firebase-admin';
 import type { PurchaseOrder } from '@/types';
 import { ensureAdmin } from '@/lib/server-auth';
 import { parse, isValid } from 'date-fns';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -91,6 +92,7 @@ export async function closePurchaseOrder(id: string, uid: string): Promise<{ suc
             updatedAt: admin.firestore.Timestamp.now()
         });
 
+        await bumpMrpSyncVersion('po', 'purchase-orders:closePurchaseOrder');
         revalidatePath('/admin/purchase-orders');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Riga ordine chiusa con successo.' };
@@ -147,6 +149,7 @@ export async function savePurchaseOrder(data: {
     }
 
     await batch.commit();
+    await bumpMrpSyncVersion('po', 'purchase-orders:savePurchaseOrder');
     revalidatePath('/admin/purchase-orders');
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Ordine salvato correttamente.' };
@@ -162,6 +165,7 @@ export async function deleteOrderGroup(orderNumber: string, uid: string) {
         const batch = adminDb.batch();
         snap.docs.forEach(d => batch.delete(d.ref));
         await batch.commit();
+        await bumpMrpSyncVersion('po', 'purchase-orders:deleteOrderGroup');
         revalidatePath('/admin/purchase-orders');
         return { success: true, message: "Intero ordine eliminato." };
     } catch (e) {
@@ -173,6 +177,7 @@ export async function deletePurchaseOrder(id: string, uid: string): Promise<{ su
   await ensureAdmin(uid);
   try {
     await adminDb.collection("purchaseOrders").doc(id).delete();
+    await bumpMrpSyncVersion('po', 'purchase-orders:deletePurchaseOrder');
     revalidatePath('/admin/purchase-orders');
     return { success: true, message: 'Riga ordine eliminata.' };
   } catch (e) {
@@ -229,7 +234,10 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
         added++;
     }
 
-    if (added > 0) await batch.commit();
+    if (added > 0) {
+        await batch.commit();
+        await bumpMrpSyncVersion('po', 'purchase-orders:importPurchaseOrders');
+    }
     revalidatePath('/admin/purchase-orders');
     return { success: true, message: `Importati ${added} righe ordine fornitore.` };
 }

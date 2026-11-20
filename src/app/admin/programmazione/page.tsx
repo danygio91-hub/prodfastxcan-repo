@@ -11,6 +11,7 @@ import type { Article, WorkCycle, WorkPhaseTemplate } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
 import { getODLConfig } from '@/app/admin/settings/odl-actions';
+import { readMrpSyncMeta } from '@/lib/mrp-sync';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export default async function ProgrammazionePage() {
   const currentWeek = getISOWeek(now);
   const currentYear = getISOWeekYear(now);
 
-  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities, activeSessionsSnap, phaseTemplatesSnap, initialNextOdl] = await Promise.all([
+  const [jobs, departments, cycles, articlesSnap, settingsSnap, odlConfig, initialCapacities, activeSessionsSnap, phaseTemplatesSnap, initialNextOdl, initialMrpSyncMeta] = await Promise.all([
     getActiveJobOrders(),
     getDepartments(),
     getWorkCycles(),
@@ -43,6 +44,7 @@ export default async function ProgrammazionePage() {
     adminDb.collection("materialSessions").where("status", "==", "open").get(),
     adminDb.collection("workPhaseTemplates").get(),
     getNextOdlNumber().catch(() => ''),
+    readMrpSyncMeta(),
   ]);
 
   const phaseTemplates = phaseTemplatesSnap.docs.map(doc => ({
@@ -88,6 +90,7 @@ export default async function ProgrammazionePage() {
             initialCapacities={serializeForClient(initialCapacities)}
             initialMaterialSessions={serializeForClient(initialMaterialSessions)}
             initialNextOdl={initialNextOdl}
+            initialMrpSyncMeta={serializeForClient(initialMrpSyncMeta)}
           />
         </Suspense>
       </AppShell>

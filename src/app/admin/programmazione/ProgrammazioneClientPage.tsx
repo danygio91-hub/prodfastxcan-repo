@@ -146,6 +146,7 @@ import {
   getJobOrders,
   getActiveJobOrders,
   fetchCompletedJobOrdersAction,
+  getMrpSyncMeta,
   getTargetedMRPData,
   forceRecalculateMRPAction,
   toggleJobPrinted,
@@ -191,6 +192,17 @@ import { collection, onSnapshot, getDocs, query, where } from 'firebase/firestor
 import { db } from '@/lib/firebase';
 import { getJobDisplayStatus, getDerivedJobStatus, rollbackLastCompletedPhase, type JobDisplayStatus } from '@/lib/job-status';
 import {
+  DEFAULT_MRP_SYNC_META,
+  normalizeMrpSyncMeta,
+  evaluateMrpSyncDiff,
+  acknowledgeLocalMrpSyncMeta,
+  collectGlobalMrpCodes,
+  upsertPurchaseOrdersIntoCache,
+  hasFullStockHydration,
+  type MrpSyncMeta,
+  type MrpSyncDomain,
+} from '@/lib/mrp-sync-utils';
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -215,6 +227,7 @@ interface ProgrammazioneClientPageProps {
   initialCapacities?: Record<string, DayCapacityConfigData>;
   initialMaterialSessions?: any[];
   initialNextOdl?: string;
+  initialMrpSyncMeta?: MrpSyncMeta;
 }
 
 // 5 Macro-Gruppi Reparti (CP, CG, BF + MAG)
@@ -1725,6 +1738,7 @@ export default function ProgrammazioneClientPage({
   initialCapacities = {},
   initialMaterialSessions = [],
   initialNextOdl = '',
+  initialMrpSyncMeta = DEFAULT_MRP_SYNC_META,
 }: ProgrammazioneClientPageProps) {
   const { toast } = useToast();
   const router = useRouter();
@@ -1775,6 +1789,27 @@ export default function ProgrammazioneClientPage({
   // FASE 27: Esportazione Report Excel (Programmazione Settimanale)
   const [isExportingReport, setIsExportingReport] = useState(false);
 
+  // FASE 100-BIS: Version Token MRP (`settings/mrp_sync_meta`) - 1 sola lettura al rientro/focus con cooldown 8.5s
+  const MRP_VERSION_CHECK_COOLDOWN_MS = 8500;
+  const lastSyncedMetaRef = useRef<MrpSyncMeta>(normalizeMrpSyncMeta(initialMrpSyncMeta));
+  const lastVersionCheckAtRef = useRef<number>(0);
+  const isCheckingSyncVersionRef = useRef<boolean>(false);
+  const mrpFetchFailedRef = useRef<boolean>(false);
+  const [mrpFetchRetryNonce, setMrpFetchRetryNonce] = useState(0);
+  const refreshStockAndPoSilentlyRef = useRef<((remoteMeta?: MrpSyncMeta) => Promise<void>) | null>(null);
+
+  const acknowledgeLocalMutation = useCallback(
+    (domains: MrpSyncDomain | MrpSyncDomain[] = 'jobsBom', source?: string, delta: number = 1) => {
+      lastSyncedMetaRef.current = acknowledgeLocalMrpSyncMeta(
+        lastSyncedMetaRef.current,
+        domains,
+        source,
+        delta
+      );
+    },
+    []
+  );
+
   // FASE 17: Modale di Modifica Completa (Edit Job)
   const [isEditStandardModalOpen, setIsEditStandardModalOpen] = useState(false);
   const [jobToEdit, setJobToEdit] = useState<JobOrder | null>(null);
@@ -1793,7 +1828,8 @@ export default function ProgrammazioneClientPage({
     setJobs((prev) =>
       prev.map((j) => (j.id === oldId || j.id === updatedJob.id ? { ...j, ...updatedJob } : j))
     );
-  }, [jobToEdit]);
+    acknowledgeLocalMutation('jobsBom', 'local:handleJobUpdated');
+  }, [jobToEdit, acknowledgeLocalMutation]);
 
   // FASE 83: Modale di Split Commessa (Produzione Parziale)
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
@@ -1947,6 +1983,7 @@ export default function ProgrammazioneClientPage({
           return;
         }
 
+        acknowledgeLocalMutation('jobsBom', 'local:updateJobNote');
         toast({
           title: cleanNote ? 'Nota Salvata' : 'Nota Rimossa',
           description: cleanNote
@@ -2016,8 +2053,9 @@ export default function ProgrammazioneClientPage({
       }
       return next;
     }, { revalidate: false });
+    acknowledgeLocalMutation('jobsBom', 'local:splitJobOrder');
     setMrpCacheVersion((v) => v + 1);
-  }, [mutateJobs]);
+  }, [mutateJobs, acknowledgeLocalMutation]);
 
   const handleArticleUpdated = useCallback((updatedArticle: Article) => {
     // 1. Aggiorna cache locale degli articoli e SWR cache rapida
@@ -2113,8 +2151,9 @@ export default function ProgrammazioneClientPage({
       { revalidate: false }
     );
 
+    acknowledgeLocalMutation('jobsBom', 'local:handleArticleUpdated');
     setMrpCacheVersion((v) => v + 1);
-  }, [workCycles, phaseTemplates, globalSettings, mutateJobs]);
+  }, [workCycles, phaseTemplates, globalSettings, mutateJobs, acknowledgeLocalMutation]);
 
   // FASE 45: Modale di Gestione Conto Lavoro (C.to Lavoro)
   const [isContoLavoroModalOpen, setIsContoLavoroModalOpen] = useState(false);
@@ -2149,6 +2188,7 @@ export default function ProgrammazioneClientPage({
 
     const res = await updateExternalizedMaterials(jobId, cleanList);
     if (res.success) {
+      acknowledgeLocalMutation('jobsBom', 'local:updateExternalizedMaterials');
       toast({
         title: "C.to Lavoro Aggiornato",
         description: res.message,
@@ -2193,6 +2233,7 @@ export default function ProgrammazioneClientPage({
     try {
       const res = await muteMaterialOnJob(jobId, cleanCode);
       if (res.success) {
+        acknowledgeLocalMutation('jobsBom', 'local:muteMaterialOnJob');
         toast({
           title: "Allarme silenziato",
           description: `Allarme per ${cleanCode} silenziato su questa commessa.`
@@ -2231,7 +2272,7 @@ export default function ProgrammazioneClientPage({
         description: err?.message || "Errore imprevisto durante il silenziamento."
       });
     }
-  }, [toast]);
+  }, [toast, acknowledgeLocalMutation]);
 
   const handleUnmuteMaterial = useCallback(async (jobId: string, materialCode: string) => {
     if (!jobId || !materialCode) return;
@@ -2251,6 +2292,7 @@ export default function ProgrammazioneClientPage({
     try {
       const res = await unmuteMaterialOnJob(jobId, cleanCode);
       if (res.success) {
+        acknowledgeLocalMutation('jobsBom', 'local:unmuteMaterialOnJob');
         toast({
           title: "Allarme riattivato",
           description: `Allarme per ${cleanCode} ripristinato per questa commessa.`
@@ -2295,7 +2337,7 @@ export default function ProgrammazioneClientPage({
         description: err?.message || "Errore imprevisto durante la riattivazione."
       });
     }
-  }, [toast]);
+  }, [toast, acknowledgeLocalMutation]);
 
   // FASE 16: Selezione Multipla (Checkbox) e Azioni Massive (Bulk Actions)
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
@@ -2699,15 +2741,16 @@ export default function ProgrammazioneClientPage({
     setShowAllWeeks(false);
   };
 
-  // Refresh Commesse e Articoli (Lazy-Aware)
+  // Refresh Commesse, Articoli e controllo Version Token MRP (Lazy-Aware)
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const [updatedJobs, freshArticlesSnap] = await Promise.all([
+      const [updatedJobs, freshArticlesSnap, remoteSyncMeta] = await Promise.all([
         hasFetchedConcluse ? getJobOrders() : getActiveJobOrders(),
         getDocs(collection(db, "articles")),
+        getMrpSyncMeta().catch(() => null),
       ]);
-      setJobs(updatedJobs);
+      setJobs(applyOptimisticShield(updatedJobs));
       const freshArticles = freshArticlesSnap.docs.map((docSnap) => {
         const data = docSnap.data();
         return {
@@ -2722,6 +2765,15 @@ export default function ProgrammazioneClientPage({
           articlesCacheRef.current.set(art.code.toUpperCase().trim(), art);
         }
       });
+
+      // FASE 100-BIS: Se il Version Token MRP è avanzato (o un fetch precedente era fallito), riallinea anche l'MRP
+      const syncDiff = evaluateMrpSyncDiff(lastSyncedMetaRef.current, remoteSyncMeta);
+      if (syncDiff.needsRefresh || mrpFetchFailedRef.current) {
+        await refreshStockAndPoSilentlyRef.current?.(remoteSyncMeta || undefined);
+      } else if (remoteSyncMeta) {
+        lastSyncedMetaRef.current = normalizeMrpSyncMeta(remoteSyncMeta);
+      }
+
       toast({
         title: "Dati aggiornati",
         description: `Caricate ${updatedJobs.length} commesse e ${freshArticles.length} articoli dal database.`,
@@ -2738,13 +2790,13 @@ export default function ProgrammazioneClientPage({
     }
   };
 
-  // FASE 37 & FASE 91: Ricalcolo Completo MRP con retry silenzioso e mantenimento dati precedenti (keepPreviousData: true)
+  // FASE 37, FASE 91 & FASE 100-BIS: Ricalcolo Completo MRP con retry silenzioso e mantenimento dati precedenti (keepPreviousData: true)
   const isRecalculatingMrpRef = useRef(false);
   const handleRecalculateMRP = useCallback(async (options?: { silentBackground?: boolean }) => {
     const isSilent = options?.silentBackground === true;
     if (isRecalculatingMrpRef.current) return;
     isRecalculatingMrpRef.current = true;
-    setIsRecalculatingMrp(true);
+    if (!isSilent) setIsRecalculatingMrp(true);
     try {
       const result = await withNetworkRetry(
         () => forceRecalculateMRPAction(),
@@ -2765,21 +2817,13 @@ export default function ProgrammazioneClientPage({
       // Svuota e ripopola la cache delle materie prime con lo stock aggiornato da Firestore
       materialsCacheRef.current.clear();
       result.rawMaterials.forEach((m) => {
-        if (m.code) {
+        if (m.code && hasFullStockHydration(m)) {
           materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
         }
       });
 
-      // Svuota e ripopola la cache degli ordini fornitore
-      poCacheRef.current.clear();
-      result.purchaseOrders.forEach((po) => {
-        const code = (po.materialCode || '').trim().toUpperCase();
-        if (code) {
-          const list = poCacheRef.current.get(code) || [];
-          list.push(po);
-          poCacheRef.current.set(code, list);
-        }
-      });
+      // FASE 100-BIS: Ripopola la cache degli ordini fornitore deduplicata per po.id
+      upsertPurchaseOrdersIntoCache(poCacheRef.current, result.purchaseOrders, { replaceAll: true });
 
       // FASE 97-TER: Svuota e ripopola la cache degli scarichi materiali attivi (status !== 'cancelled')
       withdrawalsCacheRef.current.clear();
@@ -2799,9 +2843,19 @@ export default function ProgrammazioneClientPage({
         });
       }
 
+      // FASE 100-BIS: Sincronizza anche activeSessions aperte in officina/magazzino
+      if (Array.isArray(result.activeSessions)) {
+        setActiveSessions(result.activeSessions);
+      }
+
       if (result.globalSettings) {
         globalSettingsRef.current = result.globalSettings;
       }
+
+      if (result.syncMeta) {
+        lastSyncedMetaRef.current = normalizeMrpSyncMeta(result.syncMeta);
+      }
+      mrpFetchFailedRef.current = false;
 
       // Incrementa versione per forzare ricalcolo reattivo di mrpTimelines e semafori
       setMrpCacheVersion((v) => v + 1);
@@ -2825,7 +2879,7 @@ export default function ProgrammazioneClientPage({
       }
     } finally {
       isRecalculatingMrpRef.current = false;
-      setIsRecalculatingMrp(false);
+      if (!isSilent) setIsRecalculatingMrp(false);
     }
   }, [toast, swrRetryConfig, applyOptimisticShield]);
 
@@ -2847,6 +2901,13 @@ export default function ProgrammazioneClientPage({
       setMrpCacheVersion((v) => v + 1);
     }
   }, [initialArticles]);
+
+  // FASE 100-BIS: Sincronizzazione activeSessions su aggiornamento props SSR
+  useEffect(() => {
+    if (Array.isArray(initialMaterialSessions)) {
+      setActiveSessions(initialMaterialSessions);
+    }
+  }, [initialMaterialSessions]);
 
   // Ascolta l'evento di Soft Reload globale dalla Top Nav / NetworkResilienceBanner
   useEffect(() => {
@@ -3054,6 +3115,9 @@ export default function ProgrammazioneClientPage({
   // TARGETED MRP IN BACKGROUND - SCOPE GLOBALE (COMMESSE PIANIFICATE + IN PRODUZIONE)
   // =========================================================================
   const materialsCacheRef = useRef<Map<string, RawMaterial>>(new Map());
+  // FASE 100-BIS (Fix #1): Cache isolata per metadati stampa ODL (.select() parziale senza stock)
+  // NON scrivere mai proiezioni parziali di getOdlPrintData dentro materialsCacheRef!
+  const odlPrintMaterialsCacheRef = useRef<Map<string, RawMaterial>>(new Map());
   const poCacheRef = useRef<Map<string, PurchaseOrder[]>>(new Map());
   const withdrawalsCacheRef = useRef<Map<string, MaterialWithdrawal>>(new Map());
   const articlesCacheRef = useRef<Map<string, Article>>(new Map());
@@ -3076,28 +3140,180 @@ export default function ProgrammazioneClientPage({
     return jobs.filter((j) => !isJobFinished(j));
   }, [jobs]);
 
-  // Fabbisogni materiali e articoli sull'intero backlog attivo aziendale (Short-circuit rigoroso)
-  const { globalMaterialCodes, globalArticleCodes } = useMemo(() => {
-    const matSet = new Set<string>();
-    const artSet = new Set<string>();
+  // FASE 100-BIS (Fix #2): Fabbisogni materiali e articoli con risoluzione BOM da articleMap/articlesCacheRef
+  // anche per commesse prive di job.billOfMaterials inline.
+  const { globalMaterialCodes, globalArticleCodes } = useMemo(
+    () => collectGlobalMrpCodes(activeGlobalJobs, articleMap, articlesCacheRef.current, isJobFinished),
+    [activeGlobalJobs, articleMap]
+  );
 
-    activeGlobalJobs.forEach((job) => {
-      if (isJobFinished(job)) return;
-      const bom = job.billOfMaterials || [];
-      if (bom.length > 0) {
-        bom.forEach((item) => {
-          if (item.component) matSet.add(item.component.trim().toUpperCase());
-        });
-      } else if (job.details) {
-        artSet.add(job.details.trim().toUpperCase());
+  const globalMaterialCodesRef = useRef<string[]>(globalMaterialCodes);
+  const globalArticleCodesRef = useRef<string[]>(globalArticleCodes);
+  globalMaterialCodesRef.current = globalMaterialCodes;
+  globalArticleCodesRef.current = globalArticleCodes;
+
+  // FASE 100-BIS: Refresh granulare silenzioso (solo Stock, PO, Prelievi e Sessioni Aperte) senza flicker.
+  // Svuota e sostituisce le cache SOLO dopo l'arrivo della risposta (keepPreviousData: true).
+  const isRefreshingStockPoRef = useRef(false);
+  const refreshStockAndPoSilently = useCallback(
+    async (remoteMeta?: MrpSyncMeta) => {
+      if (isRefreshingStockPoRef.current || isRecalculatingMrpRef.current) return;
+      const matCodes = globalMaterialCodesRef.current;
+      const artCodes = globalArticleCodesRef.current;
+      if (matCodes.length === 0 && artCodes.length === 0) {
+        if (remoteMeta) {
+          lastSyncedMetaRef.current = normalizeMrpSyncMeta(remoteMeta);
+        }
+        return;
       }
-    });
 
-    return {
-      globalMaterialCodes: Array.from(matSet),
-      globalArticleCodes: Array.from(artSet),
+      isRefreshingStockPoRef.current = true;
+      try {
+        const { ok, data } = await withSilentNetworkRetry(
+          'getTargetedMRPData:versionSync',
+          () => getTargetedMRPData(matCodes, artCodes, { includeOpenSessions: true }),
+          {
+            rawMaterials: [],
+            purchaseOrders: [],
+            articles: [],
+            globalSettings: null,
+            materialWithdrawals: [],
+            activeSessions: undefined,
+            syncMeta: { ...DEFAULT_MRP_SYNC_META },
+          },
+          swrRetryConfig
+        );
+
+        if (!ok) {
+          mrpFetchFailedRef.current = true;
+          return;
+        }
+
+        // Swap atomico in memoria post-fetch: zero schermate vuote o flicker "In Verifica"
+        materialsCacheRef.current.clear();
+        data.rawMaterials.forEach((m) => {
+          if (m.code && hasFullStockHydration(m)) {
+            materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
+          }
+        });
+
+        upsertPurchaseOrdersIntoCache(poCacheRef.current, data.purchaseOrders, { replaceAll: true });
+
+        withdrawalsCacheRef.current.clear();
+        (data.materialWithdrawals || []).forEach((w) => {
+          if (w && w.id && String(w.status || '').toLowerCase() !== 'cancelled') {
+            withdrawalsCacheRef.current.set(w.id, w);
+          }
+        });
+
+        data.articles.forEach((a) => {
+          if (a.code) articlesCacheRef.current.set(a.code.trim().toUpperCase(), a);
+        });
+
+        if (data.globalSettings) {
+          globalSettingsRef.current = data.globalSettings;
+        }
+
+        if (Array.isArray(data.activeSessions)) {
+          setActiveSessions(data.activeSessions);
+        }
+
+        const effectiveMeta =
+          data.syncMeta && data.syncMeta.version >= (remoteMeta?.version ?? 0)
+            ? data.syncMeta
+            : remoteMeta || data.syncMeta;
+        if (effectiveMeta) {
+          lastSyncedMetaRef.current = normalizeMrpSyncMeta(effectiveMeta);
+        }
+        mrpFetchFailedRef.current = false;
+        setMrpCacheVersion((v) => v + 1);
+      } finally {
+        isRefreshingStockPoRef.current = false;
+      }
+    },
+    [swrRetryConfig]
+  );
+  refreshStockAndPoSilentlyRef.current = refreshStockAndPoSilently;
+
+  // FASE 100-BIS: Verifica intelligente Version Token (`settings/mrp_sync_meta`) -> 1 sola lettura Firestore!
+  const checkAndSyncMrpVersion = useCallback(
+    async (options?: { force?: boolean; silentBackground?: boolean }) => {
+      const nowMs = Date.now();
+      if (!options?.force && nowMs - lastVersionCheckAtRef.current < MRP_VERSION_CHECK_COOLDOWN_MS) {
+        return;
+      }
+      if (isCheckingSyncVersionRef.current || isRecalculatingMrpRef.current || isRefreshingStockPoRef.current) {
+        return;
+      }
+
+      isCheckingSyncVersionRef.current = true;
+      lastVersionCheckAtRef.current = nowMs;
+      try {
+        const { ok, data: remoteMeta } = await withSilentNetworkRetry(
+          'getMrpSyncMeta',
+          () => getMrpSyncMeta(),
+          null as MrpSyncMeta | null,
+          { ...swrRetryConfig, errorRetryCount: 1 }
+        );
+
+        if (!ok || !remoteMeta) {
+          return;
+        }
+
+        const diff = evaluateMrpSyncDiff(lastSyncedMetaRef.current, remoteMeta);
+        if (!diff.needsRefresh) {
+          // Versione invariata -> 0 query MRP. Riprova solo se un fetch precedente era fallito in rete.
+          if (mrpFetchFailedRef.current) {
+            setMrpFetchRetryNonce((n) => n + 1);
+          }
+          return;
+        }
+
+        if (diff.scope === 'stock_po') {
+          await refreshStockAndPoSilently(remoteMeta);
+        } else {
+          await handleRecalculateMRP({ silentBackground: options?.silentBackground ?? true });
+        }
+      } finally {
+        isCheckingSyncVersionRef.current = false;
+      }
+    },
+    [swrRetryConfig, refreshStockAndPoSilently, handleRecalculateMRP]
+  );
+
+  // FASE 100-BIS: Controllo leggero (1 read, cooldown 8.5s) al rientro su finestra/tab
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void checkAndSyncMrpVersion({ silentBackground: true });
+      }
     };
-  }, [activeGlobalJobs]);
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void checkAndSyncMrpVersion({ silentBackground: true });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [checkAndSyncMrpVersion]);
+
+  // FASE 100-BIS: Se in navigazione soft arrivano nuove props SSR con Version Token avanzato, riallinea l'MRP
+  useEffect(() => {
+    if (!initialMrpSyncMeta) return;
+    const diff = evaluateMrpSyncDiff(lastSyncedMetaRef.current, initialMrpSyncMeta);
+    if (diff.needsRefresh) {
+      if (diff.scope === 'stock_po') {
+        void refreshStockAndPoSilently(initialMrpSyncMeta);
+      } else {
+        lastSyncedMetaRef.current = normalizeMrpSyncMeta(initialMrpSyncMeta);
+        void refreshStockAndPoSilently(initialMrpSyncMeta);
+      }
+    }
+  }, [initialMrpSyncMeta, refreshStockAndPoSilently]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -3118,24 +3334,32 @@ export default function ProgrammazioneClientPage({
     withSilentNetworkRetry(
       'getTargetedMRPData',
       () => getTargetedMRPData(missingMaterials, missingArticles),
-      { rawMaterials: [], purchaseOrders: [], articles: [], globalSettings: null, materialWithdrawals: [] },
+      {
+        rawMaterials: [],
+        purchaseOrders: [],
+        articles: [],
+        globalSettings: null,
+        materialWithdrawals: [],
+        syncMeta: { ...DEFAULT_MRP_SYNC_META },
+      },
       swrRetryConfig
     )
       .then(({ ok, data }) => {
-        if (isCancelled || !ok) return;
+        if (isCancelled) return;
+        if (!ok) {
+          // FASE 100-BIS: Segna il fallimento così i codici mancanti verranno ritentati al giro successivo
+          mrpFetchFailedRef.current = true;
+          return;
+        }
 
         data.rawMaterials.forEach((m) => {
-          if (m.code) materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
-        });
-
-        data.purchaseOrders.forEach((po) => {
-          const code = (po.materialCode || '').trim().toUpperCase();
-          if (code) {
-            const list = poCacheRef.current.get(code) || [];
-            list.push(po);
-            poCacheRef.current.set(code, list);
+          if (m.code && hasFullStockHydration(m)) {
+            materialsCacheRef.current.set(m.code.trim().toUpperCase(), m);
           }
         });
+
+        // FASE 100-BIS: Deduplicazione PO per po.id
+        upsertPurchaseOrdersIntoCache(poCacheRef.current, data.purchaseOrders);
 
         (data.materialWithdrawals || []).forEach((w) => {
           if (w && w.id && String(w.status || '').toLowerCase() !== 'cancelled') {
@@ -3151,6 +3375,11 @@ export default function ProgrammazioneClientPage({
           globalSettingsRef.current = data.globalSettings;
         }
 
+        if (data.syncMeta && data.syncMeta.version > lastSyncedMetaRef.current.version) {
+          lastSyncedMetaRef.current = normalizeMrpSyncMeta(data.syncMeta);
+        }
+        mrpFetchFailedRef.current = false;
+
         setMrpCacheVersion((v) => v + 1);
       })
       .finally(() => {
@@ -3160,7 +3389,7 @@ export default function ProgrammazioneClientPage({
     return () => {
       isCancelled = true;
     };
-  }, [globalMaterialCodes, globalArticleCodes]);
+  }, [globalMaterialCodes, globalArticleCodes, mrpFetchRetryNonce, swrRetryConfig]);
 
   // FASE 97-TER: Pre-indicizzazione O(1) in memoria di tutti i materialWithdrawals attivi per coppia (Commessa, Componente)
   const withdrawalIndex = useMemo(() => {
@@ -3586,6 +3815,7 @@ export default function ProgrammazioneClientPage({
               ),
             { revalidate: false, patchedJobId: job.id, patch: { ...emptyPatch, ...(res.updatedFields || {}) } }
           );
+          acknowledgeLocalMutation('jobsBom', 'local:updateJobDeliveryDate');
           toast({
             title: "Data Consegna Rimossa",
             description: `Commessa ${job.ordinePF}: data di consegna azzerata.`,
@@ -3650,6 +3880,7 @@ export default function ProgrammazioneClientPage({
             currentJobs.map((j) => (j.id === job.id ? { ...j, ...confirmedPatch } : j)),
           { revalidate: false, patchedJobId: job.id, patch: confirmedPatch }
         );
+        acknowledgeLocalMutation('jobsBom', 'local:updateJobDeliveryDate');
         toast({
           title: "Data Consegna Salvata",
           description: `Commessa ${job.ordinePF}: consegna aggiornata al ${format(parsed, 'dd/MM/yyyy')}.`,
@@ -3743,6 +3974,7 @@ export default function ProgrammazioneClientPage({
             currentJobs.map((j) => (j.id === job.id ? { ...j, ...odlPatch } : j)),
           { revalidate: false, patchedJobId: job.id, patch: odlPatch }
         );
+        acknowledgeLocalMutation('jobsBom', 'local:updateJobOdlNumber');
         toast({
           title: "N° ODL Aggiornato",
           description: cleanDraft
@@ -3911,6 +4143,7 @@ export default function ProgrammazioneClientPage({
           currentJobs.map((j) => (j.id === job.id ? { ...j, ...confirmedStatusPatch } : j)),
         { revalidate: false, patchedJobId: job.id, patch: confirmedStatusPatch }
       );
+      acknowledgeLocalMutation('jobsBom', 'local:updateJobExecutionStatus');
 
       toast({
         title: newStatus === 'Pianificata' ? "Commessa Ripristinata" : "Stato Commessa Modificato",
@@ -3970,6 +4203,7 @@ export default function ProgrammazioneClientPage({
           description: res.message || "Impossibile eliminare la commessa su Firestore.",
         });
       } else {
+        acknowledgeLocalMutation('jobsBom', 'local:deleteJobOrder');
         toast({
           title: "Commessa eliminata",
           description: `La commessa ${job.ordinePF || ''} è stata eliminata definitivamente.`,
@@ -4028,6 +4262,7 @@ export default function ProgrammazioneClientPage({
           currentJobs.map((j) => (j.id === job.id ? { ...j, ...startPatch } : j)),
         { revalidate: false, patchedJobId: job.id, patch: startPatch }
       );
+      acknowledgeLocalMutation('jobsBom', 'local:startJobProduction');
       return { ok: true };
     } catch (e: any) {
       const errText = e?.message || "Errore sconosciuto";
@@ -4038,7 +4273,7 @@ export default function ProgrammazioneClientPage({
       });
       return { ok: false, error: errText };
     }
-  }, [toast, mutateJobs]);
+  }, [toast, mutateJobs, acknowledgeLocalMutation]);
 
   const handleStartProduction = useCallback(async (job: JobOrder) => {
     const artKey = ((job as any).articolo || job.details || '').trim().toUpperCase();
@@ -4142,7 +4377,7 @@ export default function ProgrammazioneClientPage({
       (code) => !articleMap.has(code) && !articlesCacheRef.current.has(code)
     );
     const missingMaterialCodes = Array.from(allMaterialCodesSet).filter(
-      (code) => !materialsCacheRef.current.has(code)
+      (code) => !materialsCacheRef.current.has(code) && !odlPrintMaterialsCacheRef.current.has(code)
     );
 
     // 2. Singola chiamata Bulk Pre-fetch parallela su Server Action (zero query N+1 nel loop)
@@ -4154,20 +4389,20 @@ export default function ProgrammazioneClientPage({
     };
 
     try {
-      // FASE 96: Invia SOLO gli articoli e i materiali effettivamente mancanti dalle cache in memoria
+      // FASE 96 & FASE 100-BIS: Invia SOLO gli articoli e i materiali effettivamente mancanti dalle cache in memoria
       serverBulkData = await getOdlPrintData(
         jobIds,
         missingArticleCodes,
         missingMaterialCodes
       );
 
-      // Idrata le cache locali in memoria
+      // Idrata la cache articoli e la cache ISOLATA per la stampa ODL (MAI materialsCacheRef: getOdlPrintData omette le giacenze SSoT!)
       Object.values(serverBulkData.articlesByCode).forEach((art) => {
         if (art?.code) articlesCacheRef.current.set(art.code.trim().toUpperCase(), art);
         if (art?.id) articlesCacheRef.current.set(art.id.trim().toUpperCase(), art);
       });
       Object.values(serverBulkData.materialsByCode).forEach((mat) => {
-        if (mat?.code) materialsCacheRef.current.set(mat.code.trim().toUpperCase(), mat);
+        if (mat?.code) odlPrintMaterialsCacheRef.current.set(mat.code.trim().toUpperCase(), mat);
       });
     } catch (e) {
       console.warn("Avviso bulk pre-fetch stampa ODL (uso fallback cache in memoria):", e);
@@ -4196,7 +4431,7 @@ export default function ProgrammazioneClientPage({
     const materialsByCode: Record<string, RawMaterial> = { ...serverBulkData.materialsByCode };
     allMaterialCodesSet.forEach((code) => {
       if (!materialsByCode[code]) {
-        const cachedMat = materialsCacheRef.current.get(code);
+        const cachedMat = materialsCacheRef.current.get(code) || odlPrintMaterialsCacheRef.current.get(code);
         if (cachedMat) {
           materialsByCode[code] = cachedMat;
         }
@@ -4520,6 +4755,7 @@ export default function ProgrammazioneClientPage({
 
       // Deseleziona le commesse avviate con successo
       setSelectedJobIds((prev) => prev.filter((id) => !startedIdsSet.has(id)));
+      acknowledgeLocalMutation('jobsBom', 'local:bulkStartProduction', res.startedJobs.length);
 
       const hasSkipped = (res.skippedNoCycle && res.skippedNoCycle.length > 0) || 
                          (res.skippedNoDate && res.skippedNoDate.length > 0) ||
@@ -4623,6 +4859,7 @@ export default function ProgrammazioneClientPage({
         })
       );
 
+      acknowledgeLocalMutation('jobsBom', 'local:bulkUpdateJobDeliveryDate');
       toast({
         title: "Data Consegna Aggiornata",
         description: `Data impostata al ${format(parsedDate, 'dd/MM/yyyy')} su ${res.updatedCount} commesse.`,
@@ -4676,6 +4913,7 @@ export default function ProgrammazioneClientPage({
         })
       );
 
+      acknowledgeLocalMutation('jobsBom', 'local:bulkShipJobs');
       toast({
         title: "Spedizione Massiva Completata",
         description: res.message,
@@ -4738,6 +4976,7 @@ export default function ProgrammazioneClientPage({
           description: res.message || "Impossibile eliminare le commesse selezionate.",
         });
       } else {
+        acknowledgeLocalMutation('jobsBom', 'local:bulkDeleteJobOrders');
         toast({
           title: "Eliminazione completata",
           description: res.message,
@@ -4909,6 +5148,7 @@ export default function ProgrammazioneClientPage({
       try {
         const res = await updateJobAssignedWeek(job.id, null, null, null, 'unassigned');
         if (res.success) {
+          acknowledgeLocalMutation('jobsBom', 'local:updateJobAssignedWeek');
           toast({
             title: "Settimana Rimossa",
             description: `Commessa ${job.ordinePF} non assegnata a nessun secchiello.`,
@@ -4964,7 +5204,9 @@ export default function ProgrammazioneClientPage({
         opt.year,
         targetWeekStr
       );
-      if (!res.success) {
+      if (res.success) {
+        acknowledgeLocalMutation('jobsBom', 'local:updateJobAssignedWeek');
+      } else {
         mutateJobs(
           (currentJobs) => currentJobs.map((j) => (j.id === job.id ? prevJob : j)),
           { revalidate: false, clearPatchId: job.id }
@@ -4977,7 +5219,7 @@ export default function ProgrammazioneClientPage({
       );
       console.error("Errore salvataggio riassegnazione settimana:", e);
     }
-  }, [weekOptions, toast, mutateJobs]);
+  }, [weekOptions, toast, mutateJobs, acknowledgeLocalMutation]);
 
   return (
     <TooltipProvider delayDuration={150}>

@@ -10,6 +10,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 
 function convertTimestamps(obj: any): any {
     if (obj instanceof Date) return obj.toISOString();
@@ -118,6 +119,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             });
             transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() });
         });
+        await bumpMrpSyncVersion('stock', 'inventory-management:approveInventoryRecord');
         revalidatePath('/admin/inventory-management');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: `Approvata.` };
@@ -179,6 +181,7 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
         }
         transaction.update(adminDb.collection('inventoryRecords').doc(id), { status: 'pending', approvedBy: admin.firestore.FieldValue.delete(), approvedAt: admin.firestore.FieldValue.delete() });
     });
+    await bumpMrpSyncVersion('stock', 'inventory-management:revertInventoryRecordStatus');
     revalidatePath('/admin/inventory-management');
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Annullata.' };

@@ -7,6 +7,7 @@ import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging, Pur
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
@@ -166,6 +167,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           };
       });
       
+      await bumpMrpSyncVersion(purchaseOrderId ? ['stock', 'po'] : 'stock', 'material-loading:addBatchToRawMaterial');
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/admin/batch-management');
       revalidatePath('/admin/purchase-orders');

@@ -18,6 +18,7 @@ import {
     finalizePostWithdrawalMaterialState,
 } from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { ensureAdmin } from '@/lib/server-auth';
 import { getOverallStatus } from '@/lib/types';
@@ -245,6 +246,7 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
             }
         });
 
+        await bumpMrpSyncVersion('jobsBom', 'scan-job:fastForwardProductionPhases');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         await pulseOperatorsForJob(jobId);
@@ -1182,6 +1184,7 @@ export async function handlePhaseScanResult(
             }
         }
 
+        await bumpMrpSyncVersion(isCompletion ? ['stock', 'jobsBom'] : 'jobsBom', 'scan-job:handlePhaseScanResult');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         revalidatePath('/admin/programmazione');
@@ -1294,6 +1297,7 @@ export async function handlePhasePause(
             }
         });
 
+        await bumpMrpSyncVersion('jobsBom', 'scan-job:handlePhasePause');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         return { success: true };
@@ -1346,6 +1350,7 @@ export async function markPhaseMaterialReady(jobId: string, phaseId: string, mat
             }
         });
         
+        await bumpMrpSyncVersion('stock', 'scan-job:markPhaseMaterialReady');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         return { success: true };
@@ -1399,6 +1404,7 @@ export async function forceResetStuckMaterialSession(jobId: string, materialCode
             }
         });
         
+        await bumpMrpSyncVersion('stock', 'scan-job:forceResetStuckMaterialSession');
         revalidatePath('/admin/production-console');
         return { success: true };
     } catch (error) {
@@ -1502,6 +1508,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             applyJobBOMResolutionWrites(bomWrites, transaction);
         });
         
+        await bumpMrpSyncVersion('stock', 'scan-job:closeMaterialSessionAndUpdateStock');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         return { success: true, message: isFinished ? "Materiale segnato come esaurito e magazzino azzerato." : "Sessione chiusa e magazzino aggiornato." };
@@ -1624,6 +1631,7 @@ export async function logTubiGuainaWithdrawal(
             applyJobBOMResolutionWrites(bomWrites, t);
         });
         
+        await bumpMrpSyncVersion('stock', 'scan-job:logTubiGuainaWithdrawal');
         revalidatePath('/scan-job');
         revalidatePath('/manual-withdrawal');
         revalidatePath('/material-check');

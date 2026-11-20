@@ -48,6 +48,7 @@ import {
 } from '@/lib/capacity-utils';
 export type { DayCapacityConfigData };
 import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
+import { bumpMrpSyncVersion, readMrpSyncMeta, DEFAULT_MRP_SYNC_META, type MrpSyncMeta } from '@/lib/mrp-sync';
 import type { JobOrder, JobPhase, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobBillOfMaterialsItem, MaterialWithdrawal } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 
@@ -206,19 +207,30 @@ export async function checkJobExists(ordinePF: string, annoCompetenza?: number) 
 }
 
 /**
+ * FASE 100-BIS: Server Action leggerissima per leggere il Version Token MRP
+ * (`settings/mrp_sync_meta`) con 1 singola lettura Firestore.
+ */
+export async function getMrpSyncMeta(): Promise<MrpSyncMeta> {
+    return serializeForClient(await readMrpSyncMeta());
+}
+
+/**
  * Targeted Fetching MRP:
  * Scarica SOLO le giacenze e i Purchase Orders per i materiali effettivamente
  * necessari alle commesse attualmente visualizzate nella griglia.
  */
 export async function getTargetedMRPData(
     materialCodes: string[],
-    articleCodes: string[] = []
+    articleCodes: string[] = [],
+    options?: { includeOpenSessions?: boolean }
 ): Promise<{
     rawMaterials: RawMaterial[];
     purchaseOrders: PurchaseOrder[];
     articles: Article[];
     globalSettings: GlobalSettings | null;
     materialWithdrawals: MaterialWithdrawal[];
+    activeSessions?: any[];
+    syncMeta: MrpSyncMeta;
 }> {
     try {
         const uniqueMatCodes = new Set<string>(
@@ -265,8 +277,8 @@ export async function getTargetedMRPData(
             matChunks.push(finalMatCodes.slice(i, i + chunkSize));
         }
 
-        // 2. Fetch mirato RawMaterials, PurchaseOrders e GlobalSettings rigorosamente in parallelo
-        const [matSnaps, poSnaps, settingsSnap] = await Promise.all([
+        // 2. Fetch mirato RawMaterials, PurchaseOrders, GlobalSettings, Version Token e (opz.) Sessioni aperte in parallelo
+        const [matSnaps, poSnaps, settingsSnap, openSessionsSnap, syncMeta] = await Promise.all([
             matChunks.length > 0
                 ? Promise.all(
                     matChunks.map(chunk =>
@@ -285,6 +297,10 @@ export async function getTargetedMRPData(
                 console.warn("Impossibile caricare impostazioni globali in getTargetedMRPData:", e);
                 return null;
             }),
+            options?.includeOpenSessions
+                ? adminDb.collection("materialSessions").where("status", "==", "open").get().catch(() => null)
+                : Promise.resolve(null),
+            readMrpSyncMeta(),
         ]);
 
         for (const matSnap of matSnaps) {
@@ -316,16 +332,37 @@ export async function getTargetedMRPData(
             globalSettings = convertTimestampsToDates(settingsSnap.data()) as GlobalSettings;
         }
 
-        return { rawMaterials, purchaseOrders, articles, globalSettings, materialWithdrawals };
+        const activeSessions = openSessionsSnap
+            ? openSessionsSnap.docs.map((doc) =>
+                serializeForClient({ id: doc.id, ...convertTimestampsToDates(doc.data()) })
+            )
+            : undefined;
+
+        return {
+            rawMaterials,
+            purchaseOrders,
+            articles,
+            globalSettings,
+            materialWithdrawals,
+            ...(activeSessions !== undefined ? { activeSessions } : {}),
+            syncMeta,
+        };
     } catch (error) {
         console.error("Errore durante getTargetedMRPData:", error);
-        return { rawMaterials: [], purchaseOrders: [], articles: [], globalSettings: null, materialWithdrawals: [] };
+        return {
+            rawMaterials: [],
+            purchaseOrders: [],
+            articles: [],
+            globalSettings: null,
+            materialWithdrawals: [],
+            syncMeta: { ...DEFAULT_MRP_SYNC_META },
+        };
     }
 }
 
 /**
- * FASE 37 & FASE 97-TER: Server Action per forzare la rilettura completa dello stock,
- * dei prelievi materiali, degli ordini fornitore e ricalcolare lo stato MRP per tutte le commesse attive.
+ * FASE 37, FASE 97-TER & FASE 100-BIS: Server Action per forzare la rilettura completa dello stock,
+ * dei prelievi materiali, degli ordini fornitore, delle sessioni aperte e ricalcolare lo stato MRP.
  */
 export async function forceRecalculateMRPAction(): Promise<{
     success: boolean;
@@ -335,6 +372,8 @@ export async function forceRecalculateMRPAction(): Promise<{
     articles: Article[];
     globalSettings: GlobalSettings | null;
     materialWithdrawals: MaterialWithdrawal[];
+    activeSessions: any[];
+    syncMeta: MrpSyncMeta;
     message: string;
 }> {
     try {
@@ -357,8 +396,10 @@ export async function forceRecalculateMRPAction(): Promise<{
             }
         });
 
-        // 3. Esegui la rilettura mirata e profonda di articoli, stock materie prime, prelievi e PO fornitori
-        const mrpData = await getTargetedMRPData(Array.from(matCodes), Array.from(artCodes));
+        // 3. Esegui la rilettura mirata e profonda di articoli, stock materie prime, prelievi, PO fornitori e sessioni aperte
+        const mrpData = await getTargetedMRPData(Array.from(matCodes), Array.from(artCodes), {
+            includeOpenSessions: true,
+        });
 
         return {
             success: true,
@@ -368,6 +409,8 @@ export async function forceRecalculateMRPAction(): Promise<{
             articles: mrpData.articles,
             globalSettings: mrpData.globalSettings,
             materialWithdrawals: mrpData.materialWithdrawals,
+            activeSessions: mrpData.activeSessions || [],
+            syncMeta: mrpData.syncMeta,
             message: `Ricalcolo completato: verificate ${jobs.length} commesse con ${mrpData.rawMaterials.length} materie prime e ${mrpData.purchaseOrders.length} ordini fornitore.`,
         };
     } catch (error: any) {
@@ -380,6 +423,8 @@ export async function forceRecalculateMRPAction(): Promise<{
             articles: [],
             globalSettings: null,
             materialWithdrawals: [],
+            activeSessions: [],
+            syncMeta: { ...DEFAULT_MRP_SYNC_META },
             message: error?.message || "Errore durante il ricalcolo forzato dell'MRP.",
         };
     }
@@ -558,6 +603,7 @@ export async function updateJobOdlNumber(jobId: string, newOdl: string): Promise
             });
         }
 
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobOdlNumber');
         const nextOdl = await getNextOdlNumber();
         return { success: true, message: 'N° ODL aggiornato con successo.', nextOdl };
     } catch (error) {
@@ -682,6 +728,7 @@ export async function updateJobExecutionStatus(
             });
 
             await batch.commit();
+            await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobExecutionStatus:Pianificata');
             revalidatePath('/admin/data-management');
             revalidatePath('/admin/production-console');
             return {
@@ -738,6 +785,7 @@ export async function updateJobExecutionStatus(
                     updatedAt: admin.firestore.Timestamp.now()
                 });
                 await batch.commit();
+                await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobExecutionStatus:InProduzione');
                 revalidatePath('/admin/data-management');
                 revalidatePath('/admin/production-console');
                 return {
@@ -783,6 +831,7 @@ export async function updateJobExecutionStatus(
             });
 
             await batch.commit();
+            await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobExecutionStatus:Completato');
             revalidatePath('/admin/production-console');
             return {
                 success: true,
@@ -827,6 +876,7 @@ export async function updateJobExecutionStatus(
             });
 
             await batch.commit();
+            await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobExecutionStatus:Spedito');
             revalidatePath('/admin/production-console');
             revalidatePath('/operator/packing');
             return {
@@ -857,6 +907,7 @@ export async function updateJobStatus(jobId: string, newStatus: string): Promise
             status: newStatus,
             updatedAt: admin.firestore.Timestamp.now(),
         });
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobStatus');
         return { success: true, message: `Stato aggiornato a ${newStatus}.` };
     } catch (error) {
         return { success: false, message: "Errore durante l'aggiornamento dello stato." };
@@ -886,6 +937,7 @@ export async function updateJobNote(
             note: cleanNote,
             updatedAt: admin.firestore.Timestamp.now(),
         });
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobNote');
 
         return {
             success: true,
@@ -932,6 +984,7 @@ export async function updateJobDeliveryDate(
         if (targetWeek !== null) updatePayload.targetWeek = targetWeek;
 
         await adminDb.collection("jobOrders").doc(jobId).update(updatePayload);
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobDeliveryDate');
         return {
             success: true,
             message: 'Data di consegna aggiornata con successo.',
@@ -969,6 +1022,7 @@ export async function updateJobAssignedWeek(
             updatedAt: nowIso,
         };
         await adminDb.collection("jobOrders").doc(jobId).update(payload);
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:updateJobAssignedWeek');
         return {
             success: true,
             message: 'Settimana aggiornata con successo.',
@@ -1137,6 +1191,7 @@ export async function saveQuickJobOrder(data: {
         };
 
         await docRef.set(newJob);
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:saveQuickJobOrder');
         return { success: true, message: `Commessa ${ordinePF} creata con successo.`, job: newJob as JobOrder };
     } catch (e: any) {
         console.error("Errore saveQuickJobOrder:", e);
@@ -1415,6 +1470,7 @@ export async function saveManualMultiJobOrders(items: {
             batch.set(ref, sanitizeFirestoreData(firestorePayload));
         });
         await batch.commit();
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:saveManualMultiJobOrders');
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
@@ -1471,6 +1527,7 @@ export async function bulkUpdateJobDeliveryDate(
         }
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:bulkUpdateJobDeliveryDate');
         revalidatePath('/admin/data-management');
         return { success: true, message: `Data consegna aggiornata su ${jobIds.length} commesse.`, updatedCount: jobIds.length };
     } catch (error: any) {
@@ -1504,6 +1561,7 @@ export async function bulkShipJobs(
         }
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:bulkShipJobs');
         revalidatePath('/admin/production-console');
         revalidatePath('/operator/packing');
         return { success: true, message: `${jobIds.length} commesse contrassegnate come SPEDITE.`, count: jobIds.length };
@@ -2193,6 +2251,7 @@ export async function deleteJobOrder(
         }
 
         await docRef.delete();
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:deleteJobOrder');
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
         revalidatePath('/admin/data-management');
@@ -2264,6 +2323,7 @@ export async function bulkDeleteJobOrders(
         }
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:bulkDeleteJobOrders');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/production-console');
 
@@ -2409,6 +2469,7 @@ export async function muteMaterialOnJob(jobId: string, materialCode: string): Pr
         });
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:muteMaterialOnJob');
         revalidatePath('/admin/data-management');
         return { success: true, message: `Materiale ${cleanCode} silenziato con successo per la commessa.` };
     } catch (error: any) {
@@ -2438,6 +2499,7 @@ export async function unmuteMaterialOnJob(jobId: string, materialCode: string): 
         });
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:unmuteMaterialOnJob');
         revalidatePath('/admin/data-management');
         return { success: true, message: `Materiale ${cleanCode} riattivato con successo per la commessa.` };
     } catch (error: any) {
@@ -2476,6 +2538,7 @@ export async function toggleExternalizedMaterial(
         });
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:toggleExternalizedMaterial');
         revalidatePath('/admin/data-management');
         return { 
             success: true, 
@@ -2516,6 +2579,7 @@ export async function updateExternalizedMaterials(
         });
 
         // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
+        await bumpMrpSyncVersion('jobsBom', 'programmazione:updateExternalizedMaterials');
         revalidatePath('/admin/data-management');
         return { 
             success: true, 
@@ -2686,6 +2750,7 @@ export async function splitJobOrder(
 
         if (txResult.success) {
             // FASE 91: Evita RSC revalidation massiva di /admin/programmazione dentro la Server Action
+            await bumpMrpSyncVersion('jobsBom', 'programmazione:splitJobOrder');
             revalidatePath('/admin/data-management');
             revalidatePath('/admin/production-console');
         }

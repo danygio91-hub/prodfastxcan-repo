@@ -7,6 +7,7 @@ import type { RawMaterial, RawMaterialBatch, Packaging, Operator } from '@/types
 import { ensureAdmin } from '@/lib/server-auth';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 
 export async function getPackagingItems(): Promise<Packaging[]> {
   const snapshot = await adminDb.collection('packaging').orderBy("name").get();
@@ -145,6 +146,9 @@ export async function importCaricoFromFile(
     }
   }
 
+  if (successCount > 0) {
+    await bumpMrpSyncVersion('stock', 'material-import:importCaricoFromFile');
+  }
   revalidatePath('/admin/raw-material-management');
   return { success: failedRows.length === 0, message: `Importazione completata. ${successCount} lotti caricati.`, failedRows };
 }
@@ -244,6 +248,9 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
     }
   }
 
+  if (successCount > 0) {
+    await bumpMrpSyncVersion('stock', 'material-import:importScaricoFromFile');
+  }
   revalidatePath('/admin/raw-material-management');
   revalidatePath('/admin/reports');
   return { success: failedRows.length === 0, message: `Operazione terminata. ${successCount} scarichi registrati correttamente.`, failedRows };

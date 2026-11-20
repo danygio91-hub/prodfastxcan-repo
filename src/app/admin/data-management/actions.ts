@@ -11,6 +11,7 @@ import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
 import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
 import { getJobDisplayStatus, evaluateJobStartEligibility } from '@/lib/job-status';
 import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import {
     parseStandardOdl,
     formatStandardOdl,
@@ -306,6 +307,7 @@ export async function saveManualJobOrder(data: any) {
 
     try {
         await docRef.set(JSON.parse(JSON.stringify(newJob)));
+        await bumpMrpSyncVersion('jobsBom', 'data-management:saveManualJobOrder');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');
@@ -644,6 +646,7 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
         batch.set(adminDb.collection("jobOrders").doc(j.id), sanitizeFirestoreData(j), { merge: true });
     });
     await batch.commit();
+    await bumpMrpSyncVersion('jobsBom', 'data-management:commitImportedJobOrders');
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/resource-planning');
@@ -683,6 +686,7 @@ export async function syncJobOrderDates(itemId: string, newDate: string, field: 
             }
         });
 
+        await bumpMrpSyncVersion('jobsBom', 'data-management:syncJobOrderDates');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');
@@ -1001,6 +1005,7 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
       return chosenOdl;
     });
 
+    await bumpMrpSyncVersion('jobsBom', 'data-management:createODL');
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/resource-planning');
@@ -1085,6 +1090,7 @@ export async function cancelODL(jobId: string) {
         });
 
         await batch.commit();
+        await bumpMrpSyncVersion('jobsBom', 'data-management:cancelODL');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/programmazione');
         revalidatePath('/admin/production-console');
@@ -1100,6 +1106,7 @@ export async function deleteSelectedJobOrders(ids: string[]) {
   const batch = adminDb.batch();
   ids.forEach(id => batch.delete(adminDb.collection("jobOrders").doc(id)));
   await batch.commit();
+  await bumpMrpSyncVersion('jobsBom', 'data-management:deleteSelectedJobOrders');
   revalidatePath('/admin/data-management');
   return { success: true, message: 'Eliminate.' };
 }
@@ -1108,6 +1115,7 @@ export async function updateJobOrderCycle(jobId: string, cycleId: string) {
     const phases = await createPhasesFromCycle(cycleId);
     const sanitizedPayload = sanitizeFirestoreData({ workCycleId: cycleId, phases });
     await adminDb.collection("jobOrders").doc(jobId).update(sanitizedPayload);
+    await bumpMrpSyncVersion('jobsBom', 'data-management:updateJobOrderCycle');
     revalidatePath('/admin/data-management');
     return { success: true, message: 'Ciclo aggiornato.' };
 }
@@ -1408,6 +1416,7 @@ export async function updateJobOrder(jobId: string, data: {
         await batch.commit();
         console.log(`[UPDATE_JOB] Saved Job ${newJobId}. Phase[0] expectedMins/pc: ${sanitizedPayload.phases?.[0]?.expectedMinutesPerPiece}`);
 
+        await bumpMrpSyncVersion('jobsBom', 'data-management:updateJobOrder');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/programmazione');
         revalidatePath('/admin/production-console');
@@ -1596,6 +1605,7 @@ export async function saveSmartJobOrder(data: {
         await jobRef.set(finalJobData);
         console.log(`[SAVE_SMART] Saved Job ${ordinePF}. Phase[0] expectedMins/pc: ${finalJobData.phases?.[0]?.expectedMinutesPerPiece}`);
 
+        await bumpMrpSyncVersion('jobsBom', 'data-management:saveSmartJobOrder');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');
@@ -2133,6 +2143,7 @@ export async function saveSmartPastedJobOrders(data: {
         newJobs.forEach(j => batch.set(adminDb.collection("jobOrders").doc(j.id), JSON.parse(JSON.stringify(j))));
         await batch.commit();
 
+        await bumpMrpSyncVersion('jobsBom', 'data-management:saveSmartPastedJobOrders');
         revalidatePath('/admin/data-management');
         revalidatePath('/admin/resource-planning');
         revalidatePath('/admin/production-console');

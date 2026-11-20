@@ -11,6 +11,7 @@ import { getGlobalSettings } from '@/lib/settings-actions';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import type { ArticleMasterData } from '@/lib/quick-article-cache';
 export type { ArticleMasterData };
 
@@ -272,6 +273,7 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         }
         // -------------------------------
         // FASE 90: Rimossi revalidatePath massivi che causavano freeze della coda Server Actions sul client.
+        await bumpMrpSyncVersion('jobsBom', 'article-management:saveArticle');
 
         return { success: true, message: 'Articolo salvato e impegni commesse sincronizzati.' };
     } catch (error: any) {
@@ -295,6 +297,7 @@ export async function refreshArticleHistoricalTimes(articleCode: string) {
 
 export async function deleteArticle(id: string): Promise<{ success: boolean; message: string; }> {
     await adminDb.collection("articles").doc(id).delete();
+    await bumpMrpSyncVersion('jobsBom', 'article-management:deleteArticle');
     revalidatePath('/admin/article-management');
     return { success: true, message: 'Articolo eliminato.' };
 }
@@ -402,6 +405,7 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
     }
 
     await batch.commit();
+    await bumpMrpSyncVersion('jobsBom', 'article-management:bulkSaveArticles');
     revalidatePath('/admin/article-management');
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/resource-planning');
@@ -543,6 +547,7 @@ export async function bulkUpdateArticleSettings(updates: Partial<Article>[]) {
         }
     });
     await batch.commit();
+    await bumpMrpSyncVersion('jobsBom', 'article-management:bulkUpdateArticleSettings');
     revalidatePath('/admin/article-management');
     revalidatePath('/admin/data-management');
     return { success: true, message: `${updates.length} articoli aggiornati.` };
@@ -631,6 +636,7 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
         }
         // ------------------------------------------------
         // FASE 90: Rimossi revalidatePath massivi che bloccavano la coda Server Actions sul client.
+        await bumpMrpSyncVersion('jobsBom', 'article-management:saveArticleStandardTimes');
 
         const freezeSuffix = skippedFrozenCount > 0
             ? ` (${skippedFrozenCount} commesse concluse escluse)`
@@ -794,6 +800,10 @@ export async function syncAllHistoricalToTargets(): Promise<{ success: boolean; 
 
         if (batchCount > 0) {
             await currentBatch.commit();
+        }
+
+        if (totalUpdated > 0) {
+            await bumpMrpSyncVersion('jobsBom', 'article-management:syncAllHistoricalToTargets');
         }
 
         revalidatePath('/admin/article-management');

@@ -10,6 +10,7 @@ import {
     finalizePostWithdrawalMaterialState,
 } from '@/lib/inventory-utils';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import {
     hydrateMaterialWithWithdrawals,
     getLotResidualSummary,
@@ -106,6 +107,7 @@ export async function startIndependentSession(data: Omit<IndependentMaterialSess
             transaction.set(adminDb.collection('materialSessions').doc(sessionId), session);
         });
 
+        await bumpMrpSyncVersion('stock', 'material-sessions:startIndependentSession');
         revalidatePath('/scan-job');
         revalidatePath('/manual-withdrawal');
         revalidatePath('/admin/production-console');
@@ -153,6 +155,7 @@ export async function addJobsToSession(sessionId: string, jobIdsOrPFs: string[])
                 linkedJobOrderPFs: newPFs
             });
         });
+        await bumpMrpSyncVersion('stock', 'material-sessions:addJobsToSession');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         return { success: true };
@@ -298,6 +301,7 @@ export async function closeIndependentSession(sessionId: string, closingGrossWei
             transaction.update(sessionRef, { status: 'closed' });
         });
 
+        await bumpMrpSyncVersion('stock', 'material-sessions:closeIndependentSession');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         revalidatePath('/admin/reports'); // Revalidate reports as per requirement 3
@@ -336,6 +340,7 @@ export async function abortMaterialSession(sessionId: string, materialId: string
             transaction.delete(sessionRef);
         });
         
+        await bumpMrpSyncVersion('stock', 'material-sessions:abortMaterialSession');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         return { success: true, message: "Sessione annullata e lotto sbloccato con successo." };

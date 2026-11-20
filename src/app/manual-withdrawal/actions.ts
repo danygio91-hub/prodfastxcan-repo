@@ -13,6 +13,7 @@ import {
 } from '@/lib/inventory-utils';
 import { hydrateMaterialWithWithdrawals, getLotResidualSummary } from '@/lib/stock-logic';
 import { convertTimestampsToDates } from '@/lib/utils';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 
 const manualWithdrawalSchema = z.object({
   materialId: z.string(),
@@ -116,6 +117,7 @@ export async function logManualWithdrawal(
 
     const serializedHydrated = hydratedAfter ? JSON.parse(JSON.stringify(hydratedAfter)) : undefined;
 
+    await bumpMrpSyncVersion('stock', 'manual-withdrawal:logManualWithdrawal');
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/reports');
     revalidatePath('/manual-withdrawal');

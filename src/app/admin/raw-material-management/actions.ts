@@ -24,6 +24,7 @@ import { calculateBOMRequirement, calculateInventoryMovement } from '@/lib/inven
 import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { fetchInChunks } from '@/lib/firestore-utils';
 import { getDerivedJobStatus } from '@/lib/job-status';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 
 export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -113,6 +114,7 @@ export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise
         for (const mid of uniqueMaterialIds) { await recalculateMaterialStock(mid); }
         // -----------------------------
 
+        await bumpMrpSyncVersion('stock', 'raw-material-management:bulkUpdateRawMaterials');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: `Importati/Aggiornati ${items.length} elementi.` };
     } catch (error) {
@@ -200,6 +202,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
         const newRef = adminDb.collection("rawMaterials").doc();
         await newRef.set({ ...dataToSave, id: newRef.id, currentStockUnits: 0, currentWeightKg: 0, batches: [] });
     }
+    await bumpMrpSyncVersion('stock', 'raw-material-management:saveRawMaterial');
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Materia prima salvata.' };
 }
@@ -296,6 +299,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 withdrawals
             });
         });
+        await bumpMrpSyncVersion('stock', 'raw-material-management:updateBatchInRawMaterial');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto aggiornato con successo.' };
     } catch (e) { 
@@ -372,6 +376,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
                 withdrawals
             });
         });
+        await bumpMrpSyncVersion('stock', 'raw-material-management:addBatchToRawMaterial');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto caricato a magazzino.' };
     } catch (e) {
@@ -435,6 +440,7 @@ export async function returnMaterialToBatch(formData: FormData): Promise<{ succe
         });
 
         
+        await bumpMrpSyncVersion('stock', 'raw-material-management:returnMaterialToBatch');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Reso registrato sul lotto originale.' };
     } catch (error) { 
@@ -483,6 +489,7 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             });
         });
 
+        await bumpMrpSyncVersion('stock', 'raw-material-management:deleteBatchFromRawMaterial');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto eliminato.' };
     } catch (e) { return { success: false, message: "Errore." }; }
@@ -490,6 +497,7 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
 
 export async function deleteRawMaterial(id: string): Promise<{ success: boolean; message: string }> {
     await adminDb.collection("rawMaterials").doc(id).delete();
+    await bumpMrpSyncVersion('stock', 'raw-material-management:deleteRawMaterial');
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Materia prima eliminata.' };
 }
@@ -507,6 +515,7 @@ export async function healAllMaterialsStock(): Promise<{ success: boolean; messa
             if (count % 10 === 0) console.log(`Processed ${count}/${snapshot.size}...`);
         }
         
+        await bumpMrpSyncVersion('stock', 'raw-material-management:healAllMaterialsStock');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: `Sincronizzazione completata per ${count} materiali.` };
     } catch (e) {
@@ -901,6 +910,7 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
             }
             t.delete(ref);
         });
+        await bumpMrpSyncVersion('stock', 'raw-material-management:deleteSingleWithdrawalAndRestoreStock');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Stornato.' };
     } catch (e) { return { success: false, message: "Errore." }; }
@@ -975,6 +985,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
             }
         });
 
+        await bumpMrpSyncVersion('stock', 'raw-material-management:declareCommitmentFulfillment');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: "Evasione registrata." };
     } catch (e) { return { success: false, message: "Errore." }; }
@@ -1021,6 +1032,7 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
             }
         });
 
+        await bumpMrpSyncVersion('stock', 'raw-material-management:revertManualCommitmentFulfillment');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: "Annullato." };
     } catch (e) { return { success: false, message: "Errore." }; }
@@ -1029,12 +1041,14 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
 export async function saveManualCommitment(data: any, uid: string) {
     await ensureAdmin(uid);
     await adminDb.collection("manualCommitments").doc().set({ ...data, status: 'pending', createdAt: admin.firestore.Timestamp.now(), deliveryDate: data.deliveryDate.toISOString() });
+    await bumpMrpSyncVersion('stock', 'raw-material-management:saveManualCommitment');
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Creato.' };
 }
 
 export async function deleteManualCommitment(id: string) {
     await adminDb.collection("manualCommitments").doc(id).delete();
+    await bumpMrpSyncVersion('stock', 'raw-material-management:deleteManualCommitment');
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Eliminato.' };
 }
@@ -1046,6 +1060,7 @@ export async function importManualCommitments(data: any[], uid: string) {
         batch.set(adminDb.collection("manualCommitments").doc(), { jobOrderCode: String(r.Commessa || "").trim(), articleCode: String(r["Codice Articolo"] || "").trim(), quantity: Number(r.Quantita || 0), deliveryDate: r["Data Consegna"] ? new Date(r["Data Consegna"]).toISOString() : new Date().toISOString(), status: 'pending', createdAt: admin.firestore.Timestamp.now() });
     });
     await batch.commit();
+    await bumpMrpSyncVersion('stock', 'raw-material-management:importManualCommitments');
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Importati.' };
 }
@@ -1202,6 +1217,7 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
             });
         });
 
+        await bumpMrpSyncVersion('stock', 'raw-material-management:adjustRawMaterialStock');
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Stock rettificato con logica Capped FIFO/LIFO.' };
     } catch (e) {

@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
 import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
 import { recalculateMaterialStock } from '@/lib/stock-sync';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import {
   VIRTUAL_SESSION_2025_ID,
   VIRTUAL_SESSION_FREE_2026_ID,
@@ -579,6 +580,7 @@ export async function approveLedgerInventoryRecord(
       }
     });
 
+    await bumpMrpSyncVersion('stock', 'inventory-ledger:approveLedgerInventoryRecord');
     revalidatePath('/admin/inventory-ledger');
     revalidatePath('/admin/inventory-management');
     revalidatePath('/admin/raw-material-management');
@@ -782,6 +784,9 @@ export async function writeOffUnscannedLots(
       }
     }
 
+    if (zeroedCount > 0) {
+      await bumpMrpSyncVersion('stock', 'inventory-ledger:writeOffUnscannedLots');
+    }
     revalidatePath('/admin/inventory-ledger');
     revalidatePath('/admin/inventory-management');
     revalidatePath('/admin/raw-material-management');
@@ -914,6 +919,7 @@ export async function revertLedgerInventoryRecord(
       });
     });
 
+    await bumpMrpSyncVersion('stock', 'inventory-ledger:revertLedgerInventoryRecord');
     revalidatePath('/admin/inventory-ledger');
     revalidatePath('/admin/inventory-management');
     revalidatePath('/admin/raw-material-management');
