@@ -383,6 +383,7 @@ export function calculateBOMRequirement(
 /**
  * Helper to synchronize a JobOrder's BOM with the Article's BOM.
  * recalculates explicit fields (fabbisognoTotale, pesoStimato).
+ * FASE 105-BIS: Supporta più righe con lo stesso codice componente e lunghezze di taglio diverse.
  */
 export function syncJobBOMItems(
     jobQta: number,
@@ -394,70 +395,128 @@ export function syncJobBOMItems(
     const safeArticleBOM = Array.isArray(articleBOM) ? articleBOM : [];
     const safeCurrentBOM = Array.isArray(currentBOM) ? currentBOM : [];
     const updatedBOM: any[] = [];
-    const articleBOMMap = new Map(safeArticleBOM.map(item => [item.component?.toUpperCase() || "UNKNOWN", item]));
-    const currentBOMMap = new Map(safeCurrentBOM.map(item => [item.component?.toUpperCase() || "UNKNOWN", item]));
 
-    // 1. Update/Add items from Article BOM
-    safeArticleBOM.forEach(artItem => {
-        const compCode = artItem.component?.toUpperCase() || "UNKNOWN";
-        const existingItem = currentBOMMap.get(compCode);
-        
+    const normalizeCutKey = (val: unknown): string => {
+        if (val === null || val === undefined || val === '' || val === 0) return 'NO_CUT';
+        const num = Number(val);
+        return Number.isFinite(num) && num > 0 ? String(num) : 'NO_CUT';
+    };
+
+    const articleComponentSet = new Set(
+        safeArticleBOM.map((item) => (item?.component || '').toUpperCase().trim()).filter(Boolean)
+    );
+
+    // Indicizza le righe correnti per chiave composita (componente + taglio + indice occorrenza)
+    // e mantiene code per componente per il fallback quando il taglio di una riga esistente viene modificato
+    const currentByCompositeKey = new Map<string, any>();
+    const currentByCompCounts = new Map<string, number>();
+    const currentBucketsByComp = new Map<string, any[]>();
+
+    safeCurrentBOM.forEach((item) => {
+        const compCode = (item?.component || '').toUpperCase().trim() || 'UNKNOWN';
+        const cutKey = normalizeCutKey(item?.lunghezzaTaglioMm);
+        const basePair = `${compCode}__${cutKey}`;
+        const occIdx = currentByCompCounts.get(basePair) || 0;
+        currentByCompCounts.set(basePair, occIdx + 1);
+        currentByCompositeKey.set(`${basePair}__${occIdx}`, item);
+
+        const bucket = currentBucketsByComp.get(compCode) || [];
+        bucket.push(item);
+        currentBucketsByComp.set(compCode, bucket);
+    });
+
+    const consumedCurrentItems = new Set<any>();
+    const articlePairCounts = new Map<string, number>();
+
+    // 1. Update/Add items from Article BOM (o ricalcola currentBOM se articleBOM è vuota)
+    const sourceTemplateBOM = safeArticleBOM.length > 0 ? safeArticleBOM : safeCurrentBOM;
+
+    sourceTemplateBOM.forEach((artItem) => {
+        const compCode = (artItem?.component || '').toUpperCase().trim() || 'UNKNOWN';
+        const cutKey = normalizeCutKey(artItem?.lunghezzaTaglioMm);
+        const basePair = `${compCode}__${cutKey}`;
+        const occIdx = articlePairCounts.get(basePair) || 0;
+        articlePairCounts.set(basePair, occIdx + 1);
+
+        let existingItem = currentByCompositeKey.get(`${basePair}__${occIdx}`);
+        if (!existingItem || consumedCurrentItems.has(existingItem)) {
+            const candidates = currentBucketsByComp.get(compCode) || [];
+            existingItem = candidates.find((c) => !consumedCurrentItems.has(c));
+        }
+        if (existingItem) {
+            consumedCurrentItems.add(existingItem);
+        }
+
         // Recalculate explicit fields
-        const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
-        const typeConfig = material ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
+        const material = rawMaterials.find((m) => m.code.toUpperCase() === compCode);
+        const typeConfig =
+            material && globalSettings?.rawMaterialTypes
+                ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type)
+                : null;
         const requiresCut = typeConfig?.requiresCutLength !== false;
+        const resolvedUnit = (material?.unitOfMeasure as any) || artItem.unit || 'n';
 
         const req = calculateBOMRequirement(
             jobQta,
-            { 
-                quantity: artItem.quantity, 
-                lunghezzaTaglioMm: requiresCut ? artItem.lunghezzaTaglioMm : undefined, 
-                unit: artItem.unit 
+            {
+                quantity: artItem.quantity,
+                lunghezzaTaglioMm: requiresCut ? artItem.lunghezzaTaglioMm : undefined,
+                unit: resolvedUnit,
             },
-            material || { unitOfMeasure: artItem.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
-            typeConfig || { defaultUnit: artItem.unit }
+            material || ({ unitOfMeasure: resolvedUnit, conversionFactor: 1, rapportoKgMt: 0 } as any),
+            typeConfig || { defaultUnit: resolvedUnit }
         );
 
-        let newItem: any = {
+        const newItem: any = {
             ...artItem,
-            isFromTemplate: true,
-            status: existingItem?.status || 'pending',
+            component: compCode,
+            unit: resolvedUnit,
+            isFromTemplate: safeArticleBOM.length > 0 ? true : (artItem.isFromTemplate ?? true),
+            status: existingItem?.status || artItem?.status || 'pending',
             lunghezzaTaglioMm: requiresCut ? (artItem.lunghezzaTaglioMm ?? null) : null,
             fabbisognoTotale: req.totalInBaseUnits,
-            pesoStimato: req.weightKg
+            pesoStimato: req.weightKg,
         };
 
         updatedBOM.push(newItem);
     });
 
     // 2. Preserve manually added items that are NOT in the article BOM
-    safeCurrentBOM.forEach(item => {
-        if (!item.isFromTemplate && !articleBOMMap.has(item.component?.toUpperCase() || "")) {
-            const compCode = item.component?.toUpperCase() || "UNKNOWN";
-            const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
-            const typeConfig = material ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
-            const requiresCut = typeConfig?.requiresCutLength !== false;
+    if (safeArticleBOM.length > 0) {
+        safeCurrentBOM.forEach((item) => {
+            const compCode = (item?.component || '').toUpperCase().trim() || 'UNKNOWN';
+            if (!item.isFromTemplate && !articleComponentSet.has(compCode) && !consumedCurrentItems.has(item)) {
+                const material = rawMaterials.find((m) => m.code.toUpperCase() === compCode);
+                const typeConfig =
+                    material && globalSettings?.rawMaterialTypes
+                        ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type)
+                        : null;
+                const requiresCut = typeConfig?.requiresCutLength !== false;
+                const resolvedUnit = (material?.unitOfMeasure as any) || item.unit || 'n';
 
-            const req = calculateBOMRequirement(
-                jobQta,
-                { 
-                    quantity: item.quantity, 
-                    lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
-                    unit: item.unit 
-                },
-                material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
-                typeConfig || { defaultUnit: item.unit }
-            );
-            
-            let preservedItem = { 
-                ...item,
-                lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? null) : null,
-                fabbisognoTotale: req.totalInBaseUnits,
-                pesoStimato: req.weightKg
-            };
-            updatedBOM.push(preservedItem);
-        }
-    });
+                const req = calculateBOMRequirement(
+                    jobQta,
+                    {
+                        quantity: item.quantity,
+                        lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined,
+                        unit: resolvedUnit,
+                    },
+                    material || ({ unitOfMeasure: resolvedUnit, conversionFactor: 1, rapportoKgMt: 0 } as any),
+                    typeConfig || { defaultUnit: resolvedUnit }
+                );
+
+                const preservedItem = {
+                    ...item,
+                    component: compCode,
+                    unit: resolvedUnit,
+                    lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? null) : null,
+                    fabbisognoTotale: req.totalInBaseUnits,
+                    pesoStimato: req.weightKg,
+                };
+                updatedBOM.push(preservedItem);
+            }
+        });
+    }
 
     return updatedBOM;
 }

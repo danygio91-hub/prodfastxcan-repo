@@ -106,6 +106,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 import { parseRobustDate, cn } from '@/lib/utils';
+import { mergeServerAndLocalJobForOdlPrint } from '@/lib/bom-import-utils';
 import type { JobOrder, Department, RawMaterial, PurchaseOrder, Article, WorkCycle, JobPhase, WorkPhaseTemplate, MaterialWithdrawal } from '@/types';
 import type { GlobalSettings } from '@/lib/settings-types';
 import {
@@ -3361,6 +3362,10 @@ export default function ProgrammazioneClientPage({
           return;
         }
 
+        if (diff.scope === 'full') {
+          quickArticleCache.syncJobsBomVersion(remoteMeta.jobsBomVersion);
+        }
+
         if (diff.scope === 'stock_po') {
           await refreshStockAndPoSilently(remoteMeta);
         } else {
@@ -3398,6 +3403,9 @@ export default function ProgrammazioneClientPage({
     if (!initialMrpSyncMeta) return;
     const diff = evaluateMrpSyncDiff(lastSyncedMetaRef.current, initialMrpSyncMeta);
     if (diff.needsRefresh) {
+      if (diff.scope === 'full') {
+        quickArticleCache.syncJobsBomVersion(initialMrpSyncMeta.jobsBomVersion);
+      }
       if (diff.scope === 'stock_po') {
         void refreshStockAndPoSilently(initialMrpSyncMeta);
       } else {
@@ -4465,9 +4473,7 @@ export default function ProgrammazioneClientPage({
       });
     });
 
-    const missingArticleCodes = Array.from(allArticleCodesSet).filter(
-      (code) => !articleMap.has(code) && !articlesCacheRef.current.has(code)
-    );
+    const requestedArticleCodes = Array.from(allArticleCodesSet);
     const missingMaterialCodes = Array.from(allMaterialCodesSet).filter(
       (code) => !materialsCacheRef.current.has(code) && !odlPrintMaterialsCacheRef.current.has(code)
     );
@@ -4481,10 +4487,10 @@ export default function ProgrammazioneClientPage({
     };
 
     try {
-      // FASE 96 & FASE 100-BIS: Invia SOLO gli articoli e i materiali effettivamente mancanti dalle cache in memoria
+      // FASE 105-BIS: Richiede sempre gli articoli coinvolti nella stampa (deduplicati lato server con memo cache invalidabile)
       serverBulkData = await getOdlPrintData(
         jobIds,
-        missingArticleCodes,
+        requestedArticleCodes,
         missingMaterialCodes
       );
 
@@ -4555,20 +4561,11 @@ export default function ProgrammazioneClientPage({
     // 4. Risoluzione sincrona in memoria O(1) per ogni commessa selezionata
     return targetJobs.map((localJob) => {
       const serverJob = serverBulkData.jobsById[localJob.id];
-      const mergedJob: JobOrder = serverJob
-        ? {
-            ...serverJob,
-            ...localJob,
-            externalizedMaterials: contoLavoroMap[localJob.id] || localJob.externalizedMaterials || [],
-            billOfMaterials:
-              localJob.billOfMaterials && localJob.billOfMaterials.length > 0
-                ? localJob.billOfMaterials
-                : serverJob.billOfMaterials || [],
-          }
-        : {
-            ...localJob,
-            externalizedMaterials: contoLavoroMap[localJob.id] || localJob.externalizedMaterials || [],
-          };
+      const mergedJob: JobOrder = mergeServerAndLocalJobForOdlPrint(
+        localJob,
+        serverJob,
+        contoLavoroMap[localJob.id] || localJob.externalizedMaterials || []
+      );
 
       const articleCode = ((mergedJob as any).articolo || mergedJob.details || (mergedJob as any).articleCode || '')
         .trim()

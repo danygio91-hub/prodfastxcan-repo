@@ -2790,6 +2790,18 @@ const odlArticleMemoCache = new Map<string, { article: Article; expiresAt: numbe
 const odlMaterialMemoCache = new Map<string, { material: RawMaterial; expiresAt: number }>();
 
 /**
+ * FASE 105-BIS: Invalida la cache server-side di breve durata degli articoli usata da `getOdlPrintData`,
+ * così una stampa ODL immediatamente successiva al salvataggio BOM legge sempre la nuova distinta.
+ */
+export async function invalidateOdlArticleMemoCache(articleCode?: string): Promise<void> {
+    if (articleCode) {
+        odlArticleMemoCache.delete(articleCode.trim().toUpperCase());
+    } else {
+        odlArticleMemoCache.clear();
+    }
+}
+
+/**
  * FASE 88 & FASE 96: Bulk Pre-fetcher Parallelo, Deduplicazione Anagrafiche/BOM In-Memory e Costruzione Dizionari O(1) per Stampa ODL.
  * Elimina completamente query sequenziali (waterfall) e fetch ridondanti:
  * 1. Esegue in parallelo (Promise.all) le query primarie per le commesse selezionate, gli articoli unici già noti e i materiali già noti.

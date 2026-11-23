@@ -44,6 +44,7 @@ import { deleteArticle, validateArticlesImport, bulkSaveArticles, validateArticl
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 import { getArticleDefaultDepartment } from '@/lib/department-utils';
+import { parseExcelBomRows } from '@/lib/bom-import-utils';
 import { useDebounce } from '../../../hooks/use-debounce';
 
 
@@ -251,6 +252,7 @@ export default function ArticleManagementClientPage({ initialArticles, initialDe
         flatBOM.push({
           "Articolo Padre": article.code,
           "Componente": item.component,
+          "Unità di Misura": item.unit || "",
           "Q.tà per Pz": item.quantity,
           "L. Taglio (mm)": item.lunghezzaTaglioMm || "",
           "Note": item.note || ""
@@ -283,34 +285,8 @@ export default function ArticleManagementClientPage({ initialArticles, initialDe
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const json: any[] = XLSX.utils.sheet_to_json(worksheet);
 
-      const articlesMap: { [code: string]: Omit<Article, 'id'> } = {};
-
-      for (const row of json) {
-        const articleCode = String(row['Codice Articolo'] || row['codice articolo'] || '').trim();
-        const component = String(row['Componente'] || row['componente'] || '').trim();
-        const quantity = Number(row['Quantità per Pz'] || row['Quantità'] || row['quantità'] || 0);
-
-        if (!articleCode || !component) continue;
-
-        if (!articlesMap[articleCode]) {
-          articlesMap[articleCode] = { code: articleCode, billOfMaterials: [] };
-        }
-
-        const unit = String(row['Unità di Misura'] || row['unità di misura'] || 'n').toLowerCase();
-        const lunghezzaTaglio = row['Lunghezza Taglio (mm)'] || row['lunghezza taglio (mm)'] || row['Numero/Misura'];
-
-        const bomItem: any = { component: component.split(' ')[0], unit, quantity: quantity };
-
-        if (lunghezzaTaglio) {
-          const parsedLength = parseFloat(String(lunghezzaTaglio));
-          if (!isNaN(parsedLength) && parsedLength > 0) bomItem.lunghezzaTaglioMm = parsedLength;
-          else if (typeof lunghezzaTaglio === 'string' && lunghezzaTaglio.trim() !== '') bomItem.note = String(lunghezzaTaglio);
-        }
-
-        articlesMap[articleCode].billOfMaterials.push(bomItem);
-      }
-
-      const report = await validateArticlesImport(Object.values(articlesMap));
+      const parsedArticles = parseExcelBomRows(json);
+      const report = await validateArticlesImport(parsedArticles);
       setImportReport(report);
 
     } catch (error) {

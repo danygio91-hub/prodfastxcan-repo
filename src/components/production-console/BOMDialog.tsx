@@ -88,16 +88,20 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
 
   const combinedBOM = useMemo(() => {
     const bom = job?.billOfMaterials || [];
-    const bomMap = new Map<string, JobBillOfMaterialsItem>();
-
-    bom.forEach(item => {
-      bomMap.set(item.component, { ...item, isFromTemplate: true });
-    });
+    // FASE 105-BIS: Preserva tutte le righe della BOM (anche componenti ripetuti con lunghezze di taglio diverse)
+    const rows: JobBillOfMaterialsItem[] = bom.map((item) => ({
+      ...item,
+      isFromTemplate: true,
+    }));
+    const templateComponentSet = new Set(
+      bom.map((item) => (item.component || '').trim().toUpperCase()).filter(Boolean)
+    );
 
     withdrawnByComponent.forEach((data, materialCode) => {
-      const material = materialsMap.get(materialCode);
-      if (!bomMap.has(materialCode) && (data.units > 0 || data.hasActiveSession)) {
-        bomMap.set(materialCode, {
+      const normCode = (materialCode || '').trim().toUpperCase();
+      const material = materialsMap.get(materialCode) || materialsMap.get(normCode);
+      if (!templateComponentSet.has(normCode) && (data.units > 0 || data.hasActiveSession)) {
+        rows.push({
           component: materialCode,
           quantity: data.units,
           unit: material?.unitOfMeasure || 'n',
@@ -107,7 +111,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
       }
     });
 
-    return Array.from(bomMap.values());
+    return rows;
   }, [job?.billOfMaterials, materialsMap, withdrawnByComponent]);
 
   if (!job) return null;

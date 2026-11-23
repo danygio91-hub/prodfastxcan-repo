@@ -245,17 +245,27 @@ export function QuickArticleEditDrawer({
     [mutateArticle, initialWorkCycles, initialPhaseTemplates, initialGlobalSettings, onArticleUpdated]
   );
 
-  // FASE 90 (2): Salvataggio Distinta Base (BOM) con Optimistic Mutate locale (NO router.refresh)
+  // FASE 90 (2) & FASE 105-BIS: Salvataggio Distinta Base (BOM) con Optimistic Mutate locale e verifica materiali
   const handleBOMSaved = useCallback(
-    (refresh?: boolean, updatedArticle?: Article) => {
+    (refresh?: boolean, updatedArticle?: Article, resolvedMaterials?: RawMaterial[]) => {
       if (updatedArticle) {
-        mutateArticle((prev) => ({
-          article: updatedArticle,
-          workCycles: prev?.workCycles?.length ? prev.workCycles : initialWorkCycles,
-          phaseTemplates: prev?.phaseTemplates?.length ? prev.phaseTemplates : initialPhaseTemplates,
-          globalSettings: prev?.globalSettings ?? initialGlobalSettings,
-          materials: prev?.materials || [],
-        }));
+        mutateArticle((prev) => {
+          const prevMats = prev?.materials || [];
+          const mergedMatsMap = new Map<string, RawMaterial>();
+          prevMats.forEach((m) => {
+            if (m?.code) mergedMatsMap.set(m.code.trim().toUpperCase(), m);
+          });
+          (resolvedMaterials || []).forEach((m) => {
+            if (m?.code) mergedMatsMap.set(m.code.trim().toUpperCase(), m);
+          });
+          return {
+            article: updatedArticle,
+            workCycles: prev?.workCycles?.length ? prev.workCycles : initialWorkCycles,
+            phaseTemplates: prev?.phaseTemplates?.length ? prev.phaseTemplates : initialPhaseTemplates,
+            globalSettings: prev?.globalSettings ?? initialGlobalSettings,
+            materials: Array.from(mergedMatsMap.values()),
+          };
+        });
         setHasSavedAny(true);
         onArticleUpdated?.(updatedArticle);
       } else if (refresh) {

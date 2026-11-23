@@ -1208,6 +1208,8 @@ export async function getArticlePreviewByCode(code: string): Promise<{
         defaultDepartmentCode?: string | null;
         department?: string;
         workCycleId?: string;
+        billOfMaterials?: BillOfMaterialsItem[];
+        expectedMinutesDefault?: number;
     } | null;
 }> {
     const upper = (code || '').toUpperCase().trim();
@@ -1227,6 +1229,8 @@ export async function getArticlePreviewByCode(code: string): Promise<{
             defaultDepartmentCode: data.defaultDepartmentCode ?? data.defaultDepartmentId ?? data.department ?? null,
             department: getArticleDefaultDepartment(data as Partial<Article>) || data.department || '',
             workCycleId: data.workCycleId || '',
+            billOfMaterials: Array.isArray(data.billOfMaterials) ? data.billOfMaterials : [],
+            expectedMinutesDefault: typeof data.expectedMinutesDefault === 'number' ? data.expectedMinutesDefault : undefined,
         },
     };
 }
@@ -1333,16 +1337,28 @@ export async function updateJobOrder(jobId: string, data: {
             const articleSnapForBOM = await articleRefForBOM.get();
             if (articleSnapForBOM.exists) {
                 articleForBOM = articleSnapForBOM.data() as Article;
+            } else {
+                const fallbackArtSnap = await adminDb
+                    .collection("articles")
+                    .where("code", "==", targetArtCodeForBOM)
+                    .limit(1)
+                    .get();
+                if (!fallbackArtSnap.empty) {
+                    articleForBOM = fallbackArtSnap.docs[0].data() as Article;
+                }
             }
         }
 
+        const hasArticleBOM = Boolean(articleForBOM?.billOfMaterials && articleForBOM.billOfMaterials.length > 0);
         const baseBOM = isArticleChanged
-            ? (articleForBOM?.billOfMaterials || [])
-            : (job.billOfMaterials || articleForBOM?.billOfMaterials || []);
+            ? (hasArticleBOM ? articleForBOM!.billOfMaterials : (job.billOfMaterials || []))
+            : (job.billOfMaterials && job.billOfMaterials.length > 0 ? job.billOfMaterials : (articleForBOM?.billOfMaterials || []));
+
+        const templateBOMForSync = hasArticleBOM ? articleForBOM!.billOfMaterials : baseBOM;
 
         const compCodes = Array.from(new Set([
             ...baseBOM.map((item: any) => item?.component?.toUpperCase()?.trim()),
-            ...(articleForBOM?.billOfMaterials || []).map((item: any) => item?.component?.toUpperCase()?.trim())
+            ...templateBOMForSync.map((item: any) => item?.component?.toUpperCase()?.trim())
         ].filter(Boolean)));
 
         const rawMaterials = compCodes.length > 0 ? await fetchInChunks<RawMaterial>(
@@ -1351,11 +1367,11 @@ export async function updateJobOrder(jobId: string, data: {
             compCodes
         ) : [];
 
-        if (baseBOM.length > 0 || (articleForBOM?.billOfMaterials && articleForBOM.billOfMaterials.length > 0)) {
+        if (baseBOM.length > 0 || templateBOMForSync.length > 0) {
             updatePayload.billOfMaterials = syncJobBOMItems(
                 Number(updatePayload.qta),
                 baseBOM,
-                articleForBOM?.billOfMaterials || [],
+                templateBOMForSync,
                 rawMaterials,
                 globalSettings
             );
@@ -1511,8 +1527,9 @@ export async function saveSmartJobOrder(data: {
     fieldValues?: Record<string, string>;
     department?: string;
     isEdit?: boolean;
+    overwriteExistingArticleBom?: boolean;
 }) {
-    const { cliente, ordinePF, articleCode, description, dataConsegnaFinale, dataFinePreparazione, workCycleId, qta, billOfMaterials, expectedMinutes, fieldValues, department, isEdit } = data;
+    const { cliente, ordinePF, articleCode, description, dataConsegnaFinale, dataFinePreparazione, workCycleId, qta, billOfMaterials, expectedMinutes, fieldValues, department, isEdit, overwriteExistingArticleBom } = data;
     
     try {
         const finalDeliveryDate = normalizeDateStr(dataConsegnaFinale) || '';
@@ -1562,25 +1579,41 @@ export async function saveSmartJobOrder(data: {
             };
         });
 
-        const articleData: Partial<Article> = {
-            id: articleCode.toUpperCase().trim(),
-            code: articleCode.toUpperCase().trim(),
-            workCycleId: workCycleId,
-            billOfMaterials: billOfMaterials || [],
-            expectedMinutesDefault: expectedMinutes,
-            phaseTimes: phaseTimes,
-        };
+        const effectiveBomForJob: BillOfMaterialsItem[] =
+            billOfMaterials && billOfMaterials.length > 0
+                ? billOfMaterials
+                : (article?.billOfMaterials || []);
 
         if (!articleSnap.exists) {
-            await articleRef.set(articleData);
+            const newArticleData: Partial<Article> = {
+                id: articleCode.toUpperCase().trim(),
+                code: articleCode.toUpperCase().trim(),
+                workCycleId: workCycleId,
+                billOfMaterials: effectiveBomForJob,
+                expectedMinutesDefault: expectedMinutes,
+                phaseTimes: phaseTimes,
+            };
+            await articleRef.set(newArticleData);
         } else {
-            await articleRef.update(articleData);
+            // FASE 105-BIS: Non sovrascrivere MAI billOfMaterials di un articolo esistente da Commessa Rapida
+            // a meno che non sia richiesto esplicitamente con una distinta non vuota
+            const existingArticleUpdate: Record<string, any> = {
+                id: articleCode.toUpperCase().trim(),
+                code: articleCode.toUpperCase().trim(),
+                workCycleId: workCycleId,
+                expectedMinutesDefault: expectedMinutes,
+                phaseTimes: phaseTimes,
+            };
+            if (overwriteExistingArticleBom === true && Array.isArray(billOfMaterials) && billOfMaterials.length > 0) {
+                existingArticleUpdate.billOfMaterials = billOfMaterials;
+            }
+            await articleRef.update(existingArticleUpdate);
         }
 
         const globalSettingsSnap = await adminDb.collection("settings").doc("global").get();
         const globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
 
-        const compCodes = (billOfMaterials || []).map(item => item.component.toUpperCase().trim());
+        const compCodes = effectiveBomForJob.map(item => item.component.toUpperCase().trim());
         const rawMaterials = compCodes.length > 0 ? await fetchInChunks<RawMaterial>(
             adminDb.collection("rawMaterials"),
             "code",
@@ -1588,7 +1621,7 @@ export async function saveSmartJobOrder(data: {
         ) : [];
 
         // Map BillOfMaterialsItem to JobBillOfMaterialsItem for the JobOrder snapshot
-        const jobBOM: JobBillOfMaterialsItem[] = (billOfMaterials || []).map(item => {
+        const jobBOM: JobBillOfMaterialsItem[] = effectiveBomForJob.map(item => {
             const compCode = item.component.toUpperCase().trim();
             const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
             const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;

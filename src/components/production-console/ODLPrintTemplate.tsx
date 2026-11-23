@@ -125,7 +125,17 @@ function ODLPrintTemplate({
       sourceBom.map((item) => {
         const compUpper = (item.component || '').toUpperCase().trim();
         const mat = materialsByCode?.[compUpper] ?? materialsMap.get(compUpper);
-        const type = mat?.type?.toUpperCase() || 'TRECCIA';
+        // FASE 105-BIS: Nessun fallback cieco a 'TRECCIA' se l'anagrafica materiale manca
+        const rawType = mat?.type?.toUpperCase()?.trim();
+        const type = rawType
+          ? rawType
+          : compUpper.startsWith('GU')
+            ? 'GUAINA'
+            : compUpper.startsWith('TU')
+              ? 'TUBI'
+              : item.lunghezzaTaglioMm && Number(item.lunghezzaTaglioMm) > 0
+                ? 'TRECCIA'
+                : 'ALTRO';
         const isExternalized = Boolean(
           contoLavoroMap?.[job.id]?.includes(compUpper) || contoLavoroSet.has(compUpper)
         );

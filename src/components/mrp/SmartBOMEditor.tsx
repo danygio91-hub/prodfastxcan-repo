@@ -21,6 +21,16 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
   const [suggestions, setSuggestions] = useState<RawMaterial[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [materialCache, setMaterialCache] = useState<Record<string, RawMaterial>>({});
+  const rowIdsRef = useRef<string[]>([]);
+  const nextRowIdCounterRef = useRef<number>(1);
+
+  // Garantisce una key React stabile per ogni riga BOM anche in caso di eliminazione di righe intermedie
+  while (rowIdsRef.current.length < bom.length) {
+    rowIdsRef.current.push(`smart-bom-row-${nextRowIdCounterRef.current++}`);
+  }
+  if (rowIdsRef.current.length > bom.length) {
+    rowIdsRef.current.length = bom.length;
+  }
 
   // Sync material cache for existing components in BOM
   useEffect(() => {
@@ -68,9 +78,10 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
       component: mat.code.toUpperCase(),
       unit: mat.unitOfMeasure as any,
       quantity: 1,
-      lunghezzaTaglioMm: mat.unitOfMeasure === 'mt' ? 1000 : undefined,
+      lunghezzaTaglioMm: undefined,
       note: ''
     };
+    rowIdsRef.current.push(`smart-bom-row-${nextRowIdCounterRef.current++}`);
     onChange([...bom, newItem]);
     setSearchTerm('');
     setSuggestions([]);
@@ -80,6 +91,7 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
   const removeComponent = (index: number) => {
     const newBom = [...bom];
     newBom.splice(index, 1);
+    rowIdsRef.current.splice(index, 1);
     onChange(newBom);
   };
 
@@ -97,6 +109,7 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
       lunghezzaTaglioMm: undefined,
       note: ''
     };
+    rowIdsRef.current.push(`smart-bom-row-${nextRowIdCounterRef.current++}`);
     onChange([...bom, newItem]);
   };
 
@@ -149,9 +162,10 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
         <div className="space-y-3">
           {bom.map((item, idx) => {
             const material = materialCache[item.component.toUpperCase()];
+            const rowKey = rowIdsRef.current[idx] || `smart-bom-row-fallback-${idx}`;
             
             return (
-              <div key={idx} className="grid grid-cols-12 gap-3 p-4 bg-slate-900/30 rounded-xl border border-white/5 hover:border-primary/20 transition-all group relative">
+              <div key={rowKey} className="grid grid-cols-12 gap-3 p-4 bg-slate-900/30 rounded-xl border border-white/5 hover:border-primary/20 transition-all group relative">
                 {/* Component Code */}
                 <div className="col-span-12 md:col-span-4 space-y-1.5">
                   <div className="flex items-center justify-between h-4">

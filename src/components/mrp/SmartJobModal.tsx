@@ -138,7 +138,7 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
     }
   }, [initialJob, isOpen, departments]);
 
-  // Live Validation + Pre-compilazione Reparto Predefinito se articolo esistente
+  // Live Validation + Pre-compilazione Reparto Predefinito e BOM se articolo esistente
   useEffect(() => {
     if (articleCode && !articleCode.includes("??")) {
       setIsValidating(true);
@@ -147,9 +147,20 @@ export function SmartJobModal({ isOpen, onClose, settings: globalSettings, initi
           const preview = await getArticlePreviewByCode(articleCode);
           setArticleExists(preview.exists);
           if (!initialJob && preview.exists && preview.article) {
-            const artDept = getArticleDefaultDepartment(preview.article, departments);
-            if (artDept && lastAutoDeptArticleRef.current !== articleCode) {
-              setSelectedDept(artDept);
+            if (lastAutoDeptArticleRef.current !== articleCode) {
+              const artDept = getArticleDefaultDepartment(preview.article, departments);
+              if (artDept) {
+                setSelectedDept(artDept);
+              }
+              if (Array.isArray(preview.article.billOfMaterials) && preview.article.billOfMaterials.length > 0) {
+                setBom(preview.article.billOfMaterials);
+              }
+              if (preview.article.workCycleId) {
+                setSelectedCycleId(preview.article.workCycleId);
+              }
+              if (preview.article.expectedMinutesDefault && preview.article.expectedMinutesDefault > 0) {
+                setExpectedMinutes(String(preview.article.expectedMinutesDefault));
+              }
               lastAutoDeptArticleRef.current = articleCode;
             }
           }

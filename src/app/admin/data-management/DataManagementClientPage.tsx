@@ -58,6 +58,8 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { getODLConfig } from '@/app/admin/settings/odl-actions';
+import { getOdlPrintData } from '../programmazione/actions';
+import { mergeServerAndLocalJobForOdlPrint } from '@/lib/bom-import-utils';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { Calendar } from '@/components/ui/calendar';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
@@ -211,36 +213,36 @@ const JobTableRows = ({
             </TableCell>
             <TableCell className="font-mono text-xs">
               {isPlanned ? (
-                 <Input 
-                    defaultValue={j.numeroODLInterno || ''}
-                    onBlur={(e) => {
-                       if (e.target.value !== (j.numeroODLInterno || '')) {
-                           onUpdateOdlNumber(j.id, e.target.value);
-                       }
-                    }}
-                    onKeyDown={(e) => {
-                       if (e.key === 'Enter') {
-                          e.currentTarget.blur();
-                       }
-                    }}
-                    className="h-8 text-xs w-[120px]"
-                    placeholder="Es. 185/PF"
-                 />
+                <Input
+                  defaultValue={j.numeroODLInterno || ''}
+                  onBlur={(e) => {
+                    if (e.target.value !== (j.numeroODLInterno || '')) {
+                      onUpdateOdlNumber(j.id, e.target.value);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  className="h-8 text-xs w-[120px]"
+                  placeholder="Es. 185/PF"
+                />
               ) : (
-                 j.numeroODLInterno || '-'
+                j.numeroODLInterno || '-'
               )}
             </TableCell>
             <TableCell>
-              <MaskedDatePicker 
-                value={effectivePrepDate ? parseISO(effectivePrepDate) : null} 
-                onChange={(date) => onUpdatePrepDate(j.id, date || undefined)} 
+              <MaskedDatePicker
+                value={effectivePrepDate ? parseISO(effectivePrepDate) : null}
+                onChange={(date) => onUpdatePrepDate(j.id, date || undefined)}
                 className="w-[140px]"
               />
             </TableCell>
             <TableCell>
-              <MaskedDatePicker 
-                value={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : null} 
-                onChange={(date) => onUpdateDate(j.id, date || undefined)} 
+              <MaskedDatePicker
+                value={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : null}
+                onChange={(date) => onUpdateDate(j.id, date || undefined)}
                 className="w-[140px]"
               />
             </TableCell>
@@ -251,10 +253,10 @@ const JobTableRows = ({
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className={cn("h-8 w-8", !isPlanned && "opacity-30 cursor-not-allowed")} 
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn("h-8 w-8", !isPlanned && "opacity-30 cursor-not-allowed")}
                       onClick={() => isPlanned && onEdit(j)}
                     >
                       <Pencil className="h-4 w-4" />
@@ -323,7 +325,7 @@ export default function DataManagementClientPage({
   const [isEditStandardModalOpen, setIsEditStandardModalOpen] = useState(false);
   const [jobToEdit, setJobToEdit] = useState<JobOrder | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const [odlConfig, setOdlConfig] = useState<any>(undefined);
   const [qrRule, setQrRule] = useState<string>("{ordinePF}@{details}@{qta}");
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
@@ -332,8 +334,8 @@ export default function DataManagementClientPage({
     Promise.all([getODLConfig(), getGlobalSettings()]).then(([config, settings]) => {
       if (config) setOdlConfig(config);
       if (settings) {
-          setGlobalSettings(settings);
-          if (settings.jobOrderQrCodeRule) setQrRule(settings.jobOrderQrCodeRule);
+        setGlobalSettings(settings);
+        if (settings.jobOrderQrCodeRule) setQrRule(settings.jobOrderQrCodeRule);
       }
     });
   }, []);
@@ -368,21 +370,21 @@ export default function DataManagementClientPage({
   }, [router]);
 
   const handleSearchArticle = (term: string) => {
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-      if (term.length < 2) {
-          setArticleSuggestions([]);
-          setIsSearchingArticles(false);
-          return;
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (term.length < 2) {
+      setArticleSuggestions([]);
+      setIsSearchingArticles(false);
+      return;
+    }
+    setIsSearchingArticles(true);
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await getArticles(term);
+        setArticleSuggestions(res);
+      } catch (e) { } finally {
+        setIsSearchingArticles(false);
       }
-      setIsSearchingArticles(true);
-      searchTimeoutRef.current = setTimeout(async () => {
-          try {
-             const res = await getArticles(term);
-             setArticleSuggestions(res);
-          } catch(e) {} finally {
-             setIsSearchingArticles(false);
-          }
-      }, 400);
+    }, 400);
   };
 
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
@@ -433,7 +435,7 @@ export default function DataManagementClientPage({
     const planned: JobOrder[] = [];
     const prod: JobOrder[] = [];
     const comp: JobOrder[] = [];
-    
+
     allJobsUnfiltered.forEach(j => {
       const status = getDerivedJobStatus(j);
       if (status === 'CHIUSO') {
@@ -444,7 +446,7 @@ export default function DataManagementClientPage({
         prod.push(j);
       }
     });
-    
+
     return { sSotPlanned: planned, sSotProduction: prod, sSotCompleted: comp };
   }, [allJobsUnfiltered]);
 
@@ -452,7 +454,7 @@ export default function DataManagementClientPage({
 
   const mrpTimelines = useMemo(() => {
     if (isDataLoading) return new Map<string, MRPTimelineEntry[]>();
-    
+
     return calculateMRPTimelines(
       [...sSotPlanned, ...sSotProduction],
       rawMaterials,
@@ -496,7 +498,7 @@ export default function DataManagementClientPage({
   }, [classifiedMRPAlarms]);
 
   const filteredDepartmentsForManualCreate = useMemo(() => {
-    return departments.filter(d => 
+    return departments.filter(d =>
       d.macroAreas.includes('PRODUZIONE') || d.code === 'MAG'
     );
   }, [departments]);
@@ -583,22 +585,53 @@ export default function DataManagementClientPage({
   const generateSinglePdf = async (
     job: JobOrder,
     precomputedContoLavoroMap?: Record<string, string[]>,
-    skipMarkPrinted?: boolean
+    skipMarkPrinted?: boolean,
+    prefetchedServerBundle?: Awaited<ReturnType<typeof getOdlPrintData>>
   ) => {
     setIsDownloadingPdf(job.id);
     try {
-      const artKey = (job.details || '').toUpperCase().trim();
-      const article = articlesByCodeMap[artKey] || null;
-      const contoLavoroMap = precomputedContoLavoroMap || {
-        [job.id]: (job.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim()),
+      const initialArtKey = ((job as any).articolo || job.details || (job as any).articleCode || '').toUpperCase().trim();
+      let serverBundle = prefetchedServerBundle;
+      if (!serverBundle) {
+        try {
+          serverBundle = await getOdlPrintData([job.id], initialArtKey ? [initialArtKey] : [], []);
+        } catch (fetchErr) {
+          console.warn('Avviso fetch dati freschi ODL in DataManagementClientPage:', fetchErr);
+        }
+      }
+
+      const freshServerJob = serverBundle?.jobsById?.[job.id];
+      const resolvedExt =
+        serverBundle?.contoLavoroMap?.[job.id] ??
+        precomputedContoLavoroMap?.[job.id] ??
+        (freshServerJob?.externalizedMaterials || job.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim());
+
+      const mergedJob = mergeServerAndLocalJobForOdlPrint(job, freshServerJob, resolvedExt);
+      const artKey = ((mergedJob as any).articolo || mergedJob.details || (mergedJob as any).articleCode || '').toUpperCase().trim();
+
+      const mergedArticlesByCode: Record<string, Article> = {
+        ...articlesByCodeMap,
+        ...(serverBundle?.articlesByCode || {}),
       };
+      const mergedMaterialsByCode: Record<string, RawMaterial> = {
+        ...materialsByCodeMap,
+        ...(serverBundle?.materialsByCode || {}),
+      };
+
+      const article = mergedArticlesByCode[artKey] || null;
+      const contoLavoroMap: Record<string, string[]> = {
+        ...(precomputedContoLavoroMap || {}),
+        ...(serverBundle?.contoLavoroMap || {}),
+        [mergedJob.id]: resolvedExt,
+      };
+
       setPdfData({
-        job,
+        job: mergedJob,
         article,
         materials: [],
         contoLavoroMap,
-        materialsByCode: materialsByCodeMap,
-        articlesByCode: articlesByCodeMap,
+        materialsByCode: mergedMaterialsByCode,
+        articlesByCode: mergedArticlesByCode,
         printDate: new Date(),
       });
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
@@ -614,14 +647,14 @@ export default function DataManagementClientPage({
         if (i > 0) pdf.addPage();
         pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
       }
-      pdf.save(`ODL_${job.ordinePF.replace(/\//g, '_')}.pdf`);
+      pdf.save(`ODL_${mergedJob.ordinePF.replace(/\//g, '_')}.pdf`);
       if (!skipMarkPrinted) {
-        await markJobAsPrinted(job.id);
+        await markJobAsPrinted(mergedJob.id);
       }
-    } catch (error) { 
-      toast({ variant: "destructive", title: `Errore Download ${job.ordinePF}` }); 
-    } finally { 
-      setPdfData(null); 
+    } catch (error) {
+      toast({ variant: "destructive", title: `Errore Download ${job.ordinePF}` });
+    } finally {
+      setPdfData(null);
     }
   };
 
@@ -636,19 +669,31 @@ export default function DataManagementClientPage({
   const handleBatchDownloadPdf = async () => {
     if (isDownloadingPdf || isProcessingBatch || selectedRows.length === 0) return;
     setIsProcessingBatch(true);
-    
+
     const jobsToDownload = allJobsUnfiltered.filter(j => selectedRows.includes(j.id));
     const batchContoLavoroMap: Record<string, string[]> = {};
+    const batchJobIds: string[] = [];
+    const batchArtCodes = new Set<string>();
     jobsToDownload.forEach((j) => {
+      batchJobIds.push(j.id);
+      const artKey = ((j as any).articolo || j.details || (j as any).articleCode || '').toUpperCase().trim();
+      if (artKey) batchArtCodes.add(artKey);
       batchContoLavoroMap[j.id] = (j.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim());
     });
-    
+
+    let prefetchedBundle: Awaited<ReturnType<typeof getOdlPrintData>> | undefined = undefined;
+    try {
+      prefetchedBundle = await getOdlPrintData(batchJobIds, Array.from(batchArtCodes), []);
+    } catch (e) {
+      console.warn('Avviso bulk pre-fetch ODL in DataManagementClientPage:', e);
+    }
+
     for (const job of jobsToDownload) {
-      await generateSinglePdf(job, batchContoLavoroMap, true);
+      await generateSinglePdf(job, batchContoLavoroMap, true, prefetchedBundle);
     }
 
     await Promise.all(jobsToDownload.map((job) => markJobAsPrinted(job.id)));
-    
+
     setIsDownloadingPdf(null);
     setIsProcessingBatch(false);
     setSelectedRows([]);
@@ -683,7 +728,7 @@ export default function DataManagementClientPage({
     if (date) {
       const job = [...plannedJobOrders, ...productionJobOrders, ...completedJobOrders].find(j => j.id === jobId);
       const newDateStr = format(date, 'yyyy-MM-dd');
-      
+
       // STOP Loop: update only if changed
       if (job && job.dataConsegnaFinale === newDateStr) return;
 
@@ -715,8 +760,8 @@ export default function DataManagementClientPage({
       if (job && job.dataFinePreparazione === newPrepStr) return;
 
       if (job && job.dataConsegnaFinale && newPrepStr > job.dataConsegnaFinale) {
-         toast({ variant: "destructive", title: "Validazione fallita", description: "La data preparazione non può superare la consegna." });
-         return;
+        toast({ variant: "destructive", title: "Validazione fallita", description: "La data preparazione non può superare la consegna." });
+        return;
       }
 
       const updateState = (prev: JobOrder[]) => prev.map(j => j.id === jobId ? { ...j, dataFinePreparazione: newPrepStr } : j);
@@ -831,7 +876,7 @@ export default function DataManagementClientPage({
                   Report temporizzato delle mancanze di materiale per le commesse a schermo. (In-Memory Aggregation)
                 </SheetDescription>
               </SheetHeader>
-              
+
               <div className="mt-6">
                 {isDataLoading ? (
                   <div className="text-center p-6 text-muted-foreground flex flex-col items-center justify-center space-y-4">
@@ -854,21 +899,21 @@ export default function DataManagementClientPage({
                           <div className="h-px bg-border flex-1"></div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-bold text-muted-foreground tracking-wider uppercase">{category}</span>
-                            <Badge 
-                              variant="outline" 
+                            <Badge
+                              variant="outline"
                               className={cn(
                                 "text-[9px] py-0 px-1 font-bold",
-                                worstCategoryStatus === 'RED' 
-                                  ? "border-red-400 text-red-600 bg-red-50/50" 
+                                worstCategoryStatus === 'RED'
+                                  ? "border-red-400 text-red-600 bg-red-50/50"
                                   : worstCategoryStatus === 'SUPPLIER_LATE'
                                     ? "border-red-500 text-red-600 bg-red-50/50"
                                     : "border-amber-400 text-amber-600 bg-amber-50/50"
                               )}
                             >
-                              {worstCategoryStatus === 'RED' 
-                                ? '🔴 MANCANTI' 
-                                : worstCategoryStatus === 'SUPPLIER_LATE' 
-                                  ? '🔴 RITARDO FORNITORE' 
+                              {worstCategoryStatus === 'RED'
+                                ? '🔴 MANCANTI'
+                                : worstCategoryStatus === 'SUPPLIER_LATE'
+                                  ? '🔴 RITARDO FORNITORE'
                                   : '🟠 DA ANTICIPARE'}
                             </Badge>
                           </div>
@@ -881,8 +926,8 @@ export default function DataManagementClientPage({
                               <div className="flex flex-col items-start text-left w-full gap-0.5">
                                 <div className="flex items-center justify-between w-full pr-4">
                                   <span className="font-bold text-sm">{matCode}</span>
-                                  <Badge 
-                                    variant={worstStatus === 'RED' || worstStatus === 'SUPPLIER_LATE' ? 'destructive' : 'secondary'} 
+                                  <Badge
+                                    variant={worstStatus === 'RED' || worstStatus === 'SUPPLIER_LATE' ? 'destructive' : 'secondary'}
                                     className={
                                       worstStatus === 'SUPPLIER_LATE'
                                         ? 'bg-red-600 hover:bg-red-700 text-white font-bold'
@@ -891,8 +936,8 @@ export default function DataManagementClientPage({
                                           : 'font-bold'
                                     }
                                   >
-                                    {worstStatus === 'RED' 
-                                      ? 'MANCANTE' 
+                                    {worstStatus === 'RED'
+                                      ? 'MANCANTE'
                                       : worstStatus === 'SUPPLIER_LATE'
                                         ? 'RITARDO FORN.'
                                         : worstStatus === 'EXPEDITE_NEEDED'
@@ -925,16 +970,16 @@ export default function DataManagementClientPage({
                                 {entriesWithVisual.map((item, i) => {
                                   const { jobDate, visualStatus, entry, job } = item;
                                   return (
-                                    <div 
-                                      key={i} 
+                                    <div
+                                      key={i}
                                       className={cn(
-                                        "p-2 rounded-md border text-sm", 
+                                        "p-2 rounded-md border text-sm",
                                         visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE'
-                                          ? "border-red-200 bg-red-50/30" 
+                                          ? "border-red-200 bg-red-50/30"
                                           : visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE'
-                                            ? "border-amber-200 bg-amber-50/30" 
-                                            : visualStatus === 'ORDERED' 
-                                              ? "border-indigo-200 bg-indigo-50/30" 
+                                            ? "border-amber-200 bg-amber-50/30"
+                                            : visualStatus === 'ORDERED'
+                                              ? "border-indigo-200 bg-indigo-50/30"
                                               : "border-border bg-muted/20"
                                       )}
                                     >
@@ -945,11 +990,11 @@ export default function DataManagementClientPage({
                                       <div className="flex justify-between items-center text-xs">
                                         <span className="text-muted-foreground">Fabbisogno: {entry.requiredQty.toFixed(2)}</span>
                                         <span className={cn(
-                                          "font-bold", 
-                                          visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE' ? "text-red-600" : 
-                                          visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE' ? "text-amber-600" : 
-                                          visualStatus === 'ORDERED' ? "text-indigo-600" : 
-                                          "text-emerald-600"
+                                          "font-bold",
+                                          visualStatus === 'RED' || visualStatus === 'SUPPLIER_LATE' ? "text-red-600" :
+                                            visualStatus === 'EXPEDITE_NEEDED' || visualStatus === 'LATE' ? "text-amber-600" :
+                                              visualStatus === 'ORDERED' ? "text-indigo-600" :
+                                                "text-emerald-600"
                                         )}>
                                           Stock Proiettato: {entry.projectedBalance.toFixed(2)}
                                         </span>
@@ -1021,9 +1066,9 @@ export default function DataManagementClientPage({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 className="text-indigo-600 hover:text-indigo-700 border-indigo-200 hover:border-indigo-500 gap-2 font-semibold"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -1032,7 +1077,7 @@ export default function DataManagementClientPage({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 bg-slate-900 border-slate-800 text-slate-200">
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 onClick={async () => {
                   if (!confirm("Sei sicuro di voler ripristinare le commesse non avviate in Sala d'Attesa?")) return;
                   const res = await emergencyRestoreStagingArea();
@@ -1048,7 +1093,7 @@ export default function DataManagementClientPage({
                 <RefreshCw className="h-4 w-4" />
                 Ripristina Filtri
               </DropdownMenuItem>
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 onClick={async () => {
                   if (!confirm("Avviare il ricalcolo forzato delle stime per tutte le commesse pianificate?")) return;
                   setIsRefreshingMRP(true);
@@ -1066,7 +1111,7 @@ export default function DataManagementClientPage({
                 <RefreshCw className="h-4 w-4" />
                 Forza Ricalcolo Stime
               </DropdownMenuItem>
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 onClick={async () => {
                   if (!confirm("Riparare eventuali commesse orfane (ghost) nel database delle commesse?")) return;
                   setIsRefreshingMRP(true);
@@ -1084,7 +1129,7 @@ export default function DataManagementClientPage({
                 <AlertTriangle className="h-4 w-4" />
                 Riparazione Database
               </DropdownMenuItem>
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 onClick={async () => {
                   if (!confirm("Ripristinare gli slash '/' originari nei codici delle commesse rapide salvate con trattini?")) return;
                   setIsRefreshingMRP(true);
@@ -1120,17 +1165,17 @@ export default function DataManagementClientPage({
                   description: result.message
                 });
               }
-            } catch (e) { 
+            } catch (e) {
               console.error("Import error:", e);
-              toast({ 
-                variant: "destructive", 
-                title: "Errore Import", 
-                description: e instanceof Error ? e.message : "Errore sconosciuto durante l'elaborazione del file." 
-              }); 
+              toast({
+                variant: "destructive",
+                title: "Errore Import",
+                description: e instanceof Error ? e.message : "Errore sconosciuto durante l'elaborazione del file."
+              });
             }
             finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
           }} accept=".xlsx, .xls" className="hidden" />
-          
+
           <Button variant="outline" onClick={handleDownloadTemplate}>
             <FileDown className="mr-2 h-4 w-4" />
             Scarica Template
@@ -1142,14 +1187,14 @@ export default function DataManagementClientPage({
           </Button>
           {globalSettings?.smartCodeSettings?.enabled && (
             <>
-              <Button 
+              <Button
                 onClick={() => setIsSmartJobModalOpen(true)}
                 className="bg-primary hover:bg-primary/80 text-white gap-2"
               >
                 <Combine className="h-4 w-4" />
                 + Commessa Rapida
               </Button>
-              <Button 
+              <Button
                 variant="outline"
                 onClick={() => setIsSmartPasteModalOpen(true)}
                 className="gap-2 border-primary/20 text-primary hover:bg-primary/5"
@@ -1159,10 +1204,10 @@ export default function DataManagementClientPage({
               </Button>
             </>
           )}
-          <Button 
-            onClick={handleBatchDownloadPdf} 
-            disabled={selectedRows.length === 0 || isProcessingBatch || isDownloadingPdf !== null} 
-            variant="outline" 
+          <Button
+            onClick={handleBatchDownloadPdf}
+            disabled={selectedRows.length === 0 || isProcessingBatch || isDownloadingPdf !== null}
+            variant="outline"
             className="border-green-200 text-green-700 hover:bg-green-50"
           >
             {isProcessingBatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
@@ -1209,172 +1254,172 @@ export default function DataManagementClientPage({
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} />
                 </div>
-              {selectedRows.length > 0 && (
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ({selectedRows.length})</Button>
-                  <Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4" /> Elimina</Button>
+                {selectedRows.length > 0 && (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ({selectedRows.length})</Button>
+                    <Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4" /> Elimina</Button>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead>
+                      <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead>Articolo</TableHead>
+                      <TableHead>Qta</TableHead>
+                      <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead>Ciclo</TableHead>
+                      <TableHead>N° ODL</TableHead>
+                      <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
+                      <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead className="text-center">Stock</TableHead>
+                      <TableHead className="text-right">Azioni</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <JobTableRows
+                      data={filteredPlanned}
+                      departments={departments}
+                      workCycles={workCycles}
+                      articles={articles}
+                      rawMaterials={rawMaterials}
+                      mrpTimelines={mrpTimelines}
+                      selectedRows={selectedRows}
+                      onToggleRow={handleToggleRow}
+                      onUpdateCycle={handleUpdateCycleLocal}
+                      onUpdateDate={handleUpdateDateLocal}
+                      onUpdatePrepDate={handleUpdatePrepDateLocal}
+                      onUpdateOdlNumber={handleUpdateOdlLocal}
+                      onDownloadPdf={handleDownloadPdf}
+                      onAction={handleActionLocal}
+                      onEdit={(job) => {
+                        setJobToEdit(job);
+                        setIsEditStandardModalOpen(true);
+                      }}
+                      isDownloadingPdf={isDownloadingPdf}
+                      isProcessingBatch={isProcessingBatch}
+                      globalSettings={globalSettings}
+                      allowLink={false}
+                      activeSessions={activeSessions}
+                    />
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="production">
+            <Card>
+              <CardHeader>
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} />
                 </div>
-              )}
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead>
-                    <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead>Articolo</TableHead>
-                    <TableHead>Qta</TableHead>
-                    <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead>Ciclo</TableHead>
-                    <TableHead>N° ODL</TableHead>
-                    <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
-                    <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead className="text-center">Stock</TableHead>
-                    <TableHead className="text-right">Azioni</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <JobTableRows
-                    data={filteredPlanned}
-                    departments={departments}
-                    workCycles={workCycles}
-                    articles={articles}
-                    rawMaterials={rawMaterials}
-                    mrpTimelines={mrpTimelines}
-                    selectedRows={selectedRows}
-                    onToggleRow={handleToggleRow}
-                    onUpdateCycle={handleUpdateCycleLocal}
-                    onUpdateDate={handleUpdateDateLocal}
-                    onUpdatePrepDate={handleUpdatePrepDateLocal}
-                    onUpdateOdlNumber={handleUpdateOdlLocal}
-                    onDownloadPdf={handleDownloadPdf}
-                    onAction={handleActionLocal}
-                    onEdit={(job) => {
-                      setJobToEdit(job);
-                      setIsEditStandardModalOpen(true);
-                    }}
-                    isDownloadingPdf={isDownloadingPdf}
-                    isProcessingBatch={isProcessingBatch}
-                    globalSettings={globalSettings}
-                    allowLink={false}
-                    activeSessions={activeSessions}
-                  />
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="production">
-          <Card>
-            <CardHeader>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead>
-                    <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead>Articolo</TableHead>
-                    <TableHead>Qta</TableHead>
-                    <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead>Ciclo</TableHead>
-                    <TableHead>N° ODL</TableHead>
-                    <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
-                    <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead className="text-center">Stock</TableHead>
-                    <TableHead className="text-right">Azioni</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <JobTableRows
-                    data={filteredProduction}
-                    departments={departments}
-                    workCycles={workCycles}
-                    articles={articles}
-                    rawMaterials={rawMaterials}
-                    mrpTimelines={mrpTimelines}
-                    selectedRows={selectedRows}
-                    onToggleRow={handleToggleRow}
-                    onUpdateCycle={handleUpdateCycleLocal}
-                    onUpdateDate={handleUpdateDateLocal}
-                    onUpdatePrepDate={handleUpdatePrepDateLocal}
-                    onUpdateOdlNumber={handleUpdateOdlLocal}
-                    onDownloadPdf={handleDownloadPdf}
-                    onAction={handleActionLocal}
-                    onEdit={(job) => {
-                      setJobToEdit(job);
-                      setIsEditStandardModalOpen(true);
-                    }}
-                    isDownloadingPdf={isDownloadingPdf}
-                    isProcessingBatch={isProcessingBatch}
-                    globalSettings={globalSettings}
-                    allowLink={true}
-                    activeSessions={activeSessions}
-                  />
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="completed">
-          <Card>
-            <CardHeader>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca conclusi..." className="pl-9" value={completedSearchTerm} onChange={e => setCompletedSearchTerm(e.target.value)} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredCompleted.length && filteredCompleted.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredCompleted.map(j => j.id) : [])} /></TableHead>
-                    <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead>Articolo</TableHead>
-                    <TableHead>Qta</TableHead>
-                    <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead>Ciclo</TableHead>
-                    <TableHead>N° ODL</TableHead>
-                    <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
-                    <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
-                    <TableHead className="text-center">Stock</TableHead>
-                    <TableHead className="text-right">Azioni</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <JobTableRows
-                    data={filteredCompleted}
-                    departments={departments}
-                    workCycles={workCycles}
-                    articles={articles}
-                    rawMaterials={rawMaterials}
-                    mrpTimelines={mrpTimelines}
-                    selectedRows={selectedRows}
-                    onToggleRow={handleToggleRow}
-                    onUpdateCycle={handleUpdateCycleLocal}
-                    onUpdateDate={handleUpdateDateLocal}
-                    onUpdatePrepDate={handleUpdatePrepDateLocal}
-                    onUpdateOdlNumber={handleUpdateOdlLocal}
-                    onDownloadPdf={handleDownloadPdf}
-                    onAction={handleActionLocal}
-                    onEdit={(job) => {
-                      setJobToEdit(job);
-                      setIsEditStandardModalOpen(true);
-                    }}
-                    isDownloadingPdf={isDownloadingPdf}
-                    isProcessingBatch={isProcessingBatch}
-                    globalSettings={globalSettings}
-                    allowLink={true}
-                    activeSessions={activeSessions}
-                  />
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead>
+                      <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead>Articolo</TableHead>
+                      <TableHead>Qta</TableHead>
+                      <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead>Ciclo</TableHead>
+                      <TableHead>N° ODL</TableHead>
+                      <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
+                      <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead className="text-center">Stock</TableHead>
+                      <TableHead className="text-right">Azioni</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <JobTableRows
+                      data={filteredProduction}
+                      departments={departments}
+                      workCycles={workCycles}
+                      articles={articles}
+                      rawMaterials={rawMaterials}
+                      mrpTimelines={mrpTimelines}
+                      selectedRows={selectedRows}
+                      onToggleRow={handleToggleRow}
+                      onUpdateCycle={handleUpdateCycleLocal}
+                      onUpdateDate={handleUpdateDateLocal}
+                      onUpdatePrepDate={handleUpdatePrepDateLocal}
+                      onUpdateOdlNumber={handleUpdateOdlLocal}
+                      onDownloadPdf={handleDownloadPdf}
+                      onAction={handleActionLocal}
+                      onEdit={(job) => {
+                        setJobToEdit(job);
+                        setIsEditStandardModalOpen(true);
+                      }}
+                      isDownloadingPdf={isDownloadingPdf}
+                      isProcessingBatch={isProcessingBatch}
+                      globalSettings={globalSettings}
+                      allowLink={true}
+                      activeSessions={activeSessions}
+                    />
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="completed">
+            <Card>
+              <CardHeader>
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca conclusi..." className="pl-9" value={completedSearchTerm} onChange={e => setCompletedSearchTerm(e.target.value)} />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredCompleted.length && filteredCompleted.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredCompleted.map(j => j.id) : [])} /></TableHead>
+                      <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead>Articolo</TableHead>
+                      <TableHead>Qta</TableHead>
+                      <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead>Ciclo</TableHead>
+                      <TableHead>N° ODL</TableHead>
+                      <SortHeader label="Fine Prep." sortKey="dataFinePreparazione" sortConfig={sortConfig} onSort={handleSort} />
+                      <SortHeader label="Consegna Finale" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
+                      <TableHead className="text-center">Stock</TableHead>
+                      <TableHead className="text-right">Azioni</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <JobTableRows
+                      data={filteredCompleted}
+                      departments={departments}
+                      workCycles={workCycles}
+                      articles={articles}
+                      rawMaterials={rawMaterials}
+                      mrpTimelines={mrpTimelines}
+                      selectedRows={selectedRows}
+                      onToggleRow={handleToggleRow}
+                      onUpdateCycle={handleUpdateCycleLocal}
+                      onUpdateDate={handleUpdateDateLocal}
+                      onUpdatePrepDate={handleUpdatePrepDateLocal}
+                      onUpdateOdlNumber={handleUpdateOdlLocal}
+                      onDownloadPdf={handleDownloadPdf}
+                      onAction={handleActionLocal}
+                      onEdit={(job) => {
+                        setJobToEdit(job);
+                        setIsEditStandardModalOpen(true);
+                      }}
+                      isDownloadingPdf={isDownloadingPdf}
+                      isProcessingBatch={isProcessingBatch}
+                      globalSettings={globalSettings}
+                      allowLink={true}
+                      activeSessions={activeSessions}
+                    />
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       )}
 
 
@@ -1388,57 +1433,57 @@ export default function DataManagementClientPage({
             </div>
             <FormField control={manualForm.control} name="articleCode" render={({ field }) => (
               <FormItem className="flex flex-col"><FormLabel>Articolo</FormLabel><Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between font-bold text-blue-400 border-blue-500/20">{field.value || "Seleziona..."}<ArrowUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca minimo 2 char..." onValueChange={handleSearchArticle} /><CommandList><CommandEmpty>{isSearchingArticles ? <Loader2 className="h-4 w-4 animate-spin mx-auto my-2" /> : "Nessun articolo."}</CommandEmpty><CommandGroup>{articleSuggestions.map(a => (
-                <CommandItem key={a.id} value={a.code} onSelect={() => { 
-                  manualForm.setValue("articleCode", a.code); 
+                <CommandItem key={a.id} value={a.code} onSelect={() => {
+                  manualForm.setValue("articleCode", a.code);
                   if (a.workCycleId) {
-                      manualForm.setValue("workCycleId", a.workCycleId);
+                    manualForm.setValue("workCycleId", a.workCycleId);
                   }
                   const artDept = getArticleDefaultDepartment(a, departments);
                   if (artDept) {
-                      manualForm.setValue("department", artDept);
+                    manualForm.setValue("department", artDept);
                   } else if (!manualForm.getValues("department")) {
-                      const defaultDept = filteredDepartmentsForManualCreate.find(d => d.macroAreas?.includes('PRODUZIONE')) || filteredDepartmentsForManualCreate[0];
-                      if (defaultDept) {
-                          manualForm.setValue("department", defaultDept.code || defaultDept.id);
-                      }
+                    const defaultDept = filteredDepartmentsForManualCreate.find(d => d.macroAreas?.includes('PRODUZIONE')) || filteredDepartmentsForManualCreate[0];
+                    if (defaultDept) {
+                      manualForm.setValue("department", defaultDept.code || defaultDept.id);
+                    }
                   }
-                  setIsArticlePopoverOpen(false); 
+                  setIsArticlePopoverOpen(false);
                 }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
             )} />
             <div className="grid grid-cols-2 gap-6">
-              <FormField 
-                control={manualForm.control} 
-                name="dataFinePreparazione" 
+              <FormField
+                control={manualForm.control}
+                name="dataFinePreparazione"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-amber-500 font-black uppercase text-[10px] tracking-widest">Fine Prep. (Magazzino)</FormLabel>
                     <FormControl>
-                      <MaskedDatePicker 
-                        value={field.value ? parseISO(field.value) : null} 
-                        onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')} 
+                      <MaskedDatePicker
+                        value={field.value ? parseISO(field.value) : null}
+                        onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
                         className="border-amber-500/30 focus:border-amber-500 bg-amber-500/5 shadow-[0_0_10px_rgba(245,158,11,0.05)]"
                       />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
-                )} 
+                )}
               />
-              <FormField 
-                control={manualForm.control} 
-                name="dataConsegnaFinale" 
+              <FormField
+                control={manualForm.control}
+                name="dataConsegnaFinale"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-emerald-500 font-black uppercase text-[10px] tracking-widest">Consegna Finale (Cliente)</FormLabel>
                     <FormControl>
-                      <MaskedDatePicker 
-                        value={field.value ? parseISO(field.value) : null} 
-                        onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')} 
+                      <MaskedDatePicker
+                        value={field.value ? parseISO(field.value) : null}
+                        onChange={(date) => field.onChange(date ? format(date, 'yyyy-MM-dd') : '')}
                         className="border-emerald-500/30 focus:border-emerald-500 bg-emerald-500/5 shadow-[0_0_10px_rgba(16,185,129,0.05)]"
                       />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
-                )} 
+                )}
               />
             </div>
             <div className="grid grid-cols-2 gap-6">
@@ -1465,10 +1510,10 @@ export default function DataManagementClientPage({
                 <Select onValueChange={(val) => {
                   field.onChange(val);
                   if (!manualForm.getValues("department")) {
-                      const defaultDept = filteredDepartmentsForManualCreate.find(d => d.macroAreas?.includes('PRODUZIONE')) || filteredDepartmentsForManualCreate[0];
-                      if (defaultDept) {
-                          manualForm.setValue("department", defaultDept.code || defaultDept.id);
-                      }
+                    const defaultDept = filteredDepartmentsForManualCreate.find(d => d.macroAreas?.includes('PRODUZIONE')) || filteredDepartmentsForManualCreate[0];
+                    if (defaultDept) {
+                      manualForm.setValue("department", defaultDept.code || defaultDept.id);
+                    }
                   }
                 }} value={field.value || ""}>
                   <FormControl>
@@ -1542,13 +1587,13 @@ export default function DataManagementClientPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <SmartJobModal 
-        isOpen={isSmartJobModalOpen} 
+      <SmartJobModal
+        isOpen={isSmartJobModalOpen}
         onClose={() => {
           setIsSmartJobModalOpen(false);
           setJobToEdit(null);
-        }} 
-        settings={globalSettings} 
+        }}
+        settings={globalSettings}
         initialJob={jobToEdit}
       />
       <SmartPasteModal

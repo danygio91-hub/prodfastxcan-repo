@@ -13,6 +13,8 @@ import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
 import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import { normalizeDepartmentCode } from '@/lib/department-utils';
+import { optionalCutLengthMmSchema } from '@/lib/bom-import-utils';
+import { invalidateOdlArticleMemoCache } from '@/app/admin/programmazione/actions';
 import type { ArticleMasterData } from '@/lib/quick-article-cache';
 export type { ArticleMasterData };
 
@@ -54,7 +56,7 @@ const bomItemSchema = z.object({
     component: z.string().min(1, "Componente obbligatorio."),
     unit: z.enum(['n', 'mt', 'kg']),
     quantity: z.coerce.number().positive("Quantità obbligatoria."),
-    lunghezzaTaglioMm: z.coerce.number().optional(),
+    lunghezzaTaglioMm: optionalCutLengthMmSchema,
     note: z.string().optional(),
 });
 
@@ -128,14 +130,22 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
             packagingType, packingInstructions, unitWeightKg, packagingTareWeightKg
         } = validatedFields.data;
 
-        // Check if components exist in rawMaterials
+        // Check if components exist in rawMaterials and resolve their canonical unitOfMeasure
         const uniqueCodes = [...new Set(billOfMaterials.map(i => i.component).filter(Boolean))];
         const materialCodes = new Set<string>();
+        const materialByCodeMap = new Map<string, RawMaterial>();
 
         for (let i = 0; i < uniqueCodes.length; i += 30) {
             const chunk = uniqueCodes.slice(i, i + 30);
             const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
-            snap.forEach(d => materialCodes.add(d.data().code.toUpperCase()));
+            snap.forEach(d => {
+                const matData = { ...d.data(), id: d.id } as RawMaterial;
+                const upper = (matData.code || '').toUpperCase().trim();
+                if (upper) {
+                    materialCodes.add(upper);
+                    materialByCodeMap.set(upper, matData);
+                }
+            });
         }
 
         const invalid = billOfMaterials.filter(item => item.component && !materialCodes.has(item.component.toUpperCase()));
@@ -144,12 +154,27 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         }
 
         const docId = code.toUpperCase();
+        const normalizedBillOfMaterials = billOfMaterials.map((item) => {
+            const compUpper = item.component.toUpperCase().trim();
+            const mat = materialByCodeMap.get(compUpper);
+            const resolvedUnit = (mat?.unitOfMeasure as 'n' | 'mt' | 'kg') || item.unit;
+            const validCut =
+                typeof item.lunghezzaTaglioMm === 'number' && item.lunghezzaTaglioMm > 0
+                    ? item.lunghezzaTaglioMm
+                    : null;
+            return {
+                ...item,
+                component: compUpper,
+                unit: resolvedUnit,
+                lunghezzaTaglioMm: validCut,
+            };
+        });
 
         // Build articleData carefully to avoid undefined values
         const articleData: any = {
             id: docId,
             code: docId,
-            billOfMaterials: billOfMaterials,
+            billOfMaterials: normalizedBillOfMaterials,
             technicalNotes: technicalNotes ?? '',
             technicalDrawingUrl: technicalDrawingUrl ?? '',
         };
@@ -241,7 +266,7 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
                         const syncedBOMRaw = syncJobBOMItems(
                             job.qta,
                             job.billOfMaterials || [],
-                            billOfMaterials,
+                            normalizedBillOfMaterials,
                             rawMaterials,
                             globalSettings
                         );
@@ -290,7 +315,8 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
             // ma logghiamo l'errore.
         }
         // -------------------------------
-        // FASE 90: Rimossi revalidatePath massivi che causavano freeze della coda Server Actions sul client.
+        // FASE 90 & FASE 105-BIS: Invalida memo cache ODL e aggiorna version token MRP
+        await invalidateOdlArticleMemoCache(docId);
         await bumpMrpSyncVersion('jobsBom', 'article-management:saveArticle');
 
         return { success: true, message: 'Articolo salvato e impegni commesse sincronizzati.' };
@@ -331,10 +357,20 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
     const uniqueComponents = [...allImportedComponents];
 
     const validCodes = new Set<string>();
+    const materialUnitsByCode = new Map<string, 'n' | 'mt' | 'kg'>();
     for (let i = 0; i < uniqueComponents.length; i += 30) {
         const chunk = uniqueComponents.slice(i, i + 30);
         const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
-        snap.forEach(d => validCodes.add(d.data().code.toUpperCase()));
+        snap.forEach(d => {
+            const data = d.data();
+            const upper = String(data.code || '').toUpperCase().trim();
+            if (upper) {
+                validCodes.add(upper);
+                if (data.unitOfMeasure) {
+                    materialUnitsByCode.set(upper, data.unitOfMeasure as 'n' | 'mt' | 'kg');
+                }
+            }
+        });
     }
 
     const existingCodes = new Set<string>();
@@ -355,8 +391,18 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
         if (!art.code || art.code.length < 3) errors.push("Codice troppo corto.");
         if (!art.billOfMaterials || art.billOfMaterials.length === 0) errors.push("Distinta vuota.");
         else {
-            art.billOfMaterials.forEach((item, idx) => {
-                if (!validCodes.has(item.component.toUpperCase())) errors.push(`Componente riga ${idx + 1} non in anagrafica: ${item.component}`);
+            art.billOfMaterials = art.billOfMaterials.map((item: any, idx) => {
+                const compUpper = (item.component || '').toUpperCase().trim();
+                if (!validCodes.has(compUpper)) {
+                    errors.push(`Componente riga ${idx + 1} non in anagrafica: ${item.component}`);
+                }
+                const canonicalUnit = materialUnitsByCode.get(compUpper);
+                const { _hasExplicitUnit, ...cleanItem } = item;
+                return {
+                    ...cleanItem,
+                    component: compUpper,
+                    unit: canonicalUnit || cleanItem.unit || 'n',
+                };
             });
         }
 
@@ -374,31 +420,57 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
 }
 
 export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
-    const batch = adminDb.batch();
+    const FIRESTORE_BATCH_LIMIT = 400;
+
+    // Pre-carica una sola volta i materiali coinvolti e le impostazioni globali
+    const [rawMaterialsSnap, globalSettings] = await Promise.all([
+        adminDb.collection("rawMaterials").get(),
+        getGlobalSettings(),
+    ]);
+    const rawMaterials = rawMaterialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
+    const materialByCodeMap = new Map<string, RawMaterial>();
+    rawMaterials.forEach(m => {
+        if (m.code) materialByCodeMap.set(m.code.toUpperCase().trim(), m);
+    });
+
+    type PendingWriteOp =
+        | { type: 'set'; ref: FirebaseFirestore.DocumentReference; data: Record<string, any> }
+        | { type: 'update'; ref: FirebaseFirestore.DocumentReference; data: Record<string, any> };
+
+    const pendingOps: PendingWriteOp[] = [];
 
     for (const art of articles) {
         const id = art.code.toUpperCase().trim();
-        // Ensure BOM components are uppercase
-        const normalizedBOM = (art.billOfMaterials || []).map(item => ({
-            ...item,
-            component: item.component.toUpperCase().trim()
-        }));
+        // Ensure BOM components are uppercase and aligned with canonical unitOfMeasure
+        const normalizedBOM = (art.billOfMaterials || []).map((item: any) => {
+            const compUpper = (item.component || '').toUpperCase().trim();
+            const mat = materialByCodeMap.get(compUpper);
+            const { _hasExplicitUnit, ...cleanItem } = item;
+            const validCut =
+                typeof cleanItem.lunghezzaTaglioMm === 'number' && cleanItem.lunghezzaTaglioMm > 0
+                    ? cleanItem.lunghezzaTaglioMm
+                    : null;
+            return {
+                ...cleanItem,
+                component: compUpper,
+                unit: (mat?.unitOfMeasure as 'n' | 'mt' | 'kg') || cleanItem.unit || 'n',
+                lunghezzaTaglioMm: validCut,
+            };
+        });
 
-        batch.set(adminDb.collection('articles').doc(id), { ...art, id, code: id, billOfMaterials: normalizedBOM }, { merge: true });
+        pendingOps.push({
+            type: 'set',
+            ref: adminDb.collection('articles').doc(id),
+            data: { ...art, id, code: id, billOfMaterials: normalizedBOM },
+        });
 
-        // --- CASCADING SYNC FOR BULK (Solo commesse PIANIFICATA - Ciclo Congelato) ---
+        // --- CASCADING SYNC FOR BULK (Commesse attive eleggibili) ---
         const allLinkedJobs = await fetchJobDocsByArticleKeys(id, id);
         const plannedJobs = allLinkedJobs.filter(doc =>
             isJobEligibleForArticleSync(doc.data() as JobOrder)
         );
 
         if (plannedJobs.length > 0) {
-            const [rawMaterialsSnap, globalSettings] = await Promise.all([
-                adminDb.collection("rawMaterials").get(),
-                getGlobalSettings()
-            ]);
-            const rawMaterials = rawMaterialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
-
             plannedJobs.forEach(doc => {
                 const job = doc.data() as JobOrder;
                 const syncedBOMRaw = syncJobBOMItems(
@@ -417,12 +489,29 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
                     note: item.note ?? ""
                 }));
 
-                batch.update(doc.ref, { billOfMaterials: syncedBOM });
+                pendingOps.push({
+                    type: 'update',
+                    ref: doc.ref,
+                    data: { billOfMaterials: syncedBOM },
+                });
             });
         }
     }
 
-    await batch.commit();
+    for (let i = 0; i < pendingOps.length; i += FIRESTORE_BATCH_LIMIT) {
+        const chunk = pendingOps.slice(i, i + FIRESTORE_BATCH_LIMIT);
+        const batch = adminDb.batch();
+        chunk.forEach((op) => {
+            if (op.type === 'set') {
+                batch.set(op.ref, op.data, { merge: true });
+            } else {
+                batch.update(op.ref, op.data);
+            }
+        });
+        await batch.commit();
+    }
+
+    await invalidateOdlArticleMemoCache();
     await bumpMrpSyncVersion('jobsBom', 'article-management:bulkSaveArticles');
     revalidatePath('/admin/article-management');
     revalidatePath('/admin/raw-material-management');

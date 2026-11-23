@@ -12,16 +12,30 @@ export interface ArticleMasterData {
 interface CacheEntry {
     data: ArticleMasterData;
     timestamp: number;
+    jobsBomVersion?: number;
 }
 
 export const QUICK_ARTICLE_CACHE_TTL_MS = 60 * 1000; // 60 secondi di default
 
 export class QuickArticleCache {
     private cache = new Map<string, CacheEntry>();
+    private currentJobsBomVersion: number | undefined = undefined;
 
-    get(code: string, ttlMs: number = QUICK_ARTICLE_CACHE_TTL_MS): ArticleMasterData | null {
+    syncJobsBomVersion(version?: number): void {
+        if (typeof version !== 'number' || !Number.isFinite(version)) return;
+        if (this.currentJobsBomVersion !== undefined && version > this.currentJobsBomVersion) {
+            this.cache.clear();
+        }
+        this.currentJobsBomVersion = version;
+    }
+
+    get(code: string, ttlMs: number = QUICK_ARTICLE_CACHE_TTL_MS, expectedJobsBomVersion?: number): ArticleMasterData | null {
         const key = (code || '').trim().toUpperCase();
         if (!key) return null;
+
+        if (typeof expectedJobsBomVersion === 'number') {
+            this.syncJobsBomVersion(expectedJobsBomVersion);
+        }
 
         const entry = this.cache.get(key);
         if (!entry) return null;
@@ -31,16 +45,30 @@ export class QuickArticleCache {
             return null;
         }
 
+        if (
+            typeof expectedJobsBomVersion === 'number' &&
+            entry.jobsBomVersion !== undefined &&
+            entry.jobsBomVersion !== expectedJobsBomVersion
+        ) {
+            this.cache.delete(key);
+            return null;
+        }
+
         return entry.data;
     }
 
-    set(code: string, data: ArticleMasterData): void {
+    set(code: string, data: ArticleMasterData, jobsBomVersion?: number): void {
         const key = (code || '').trim().toUpperCase();
         if (!key) return;
+
+        if (typeof jobsBomVersion === 'number') {
+            this.currentJobsBomVersion = jobsBomVersion;
+        }
 
         this.cache.set(key, {
             data,
             timestamp: Date.now(),
+            jobsBomVersion: jobsBomVersion ?? this.currentJobsBomVersion,
         });
     }
 
@@ -50,6 +78,18 @@ export class QuickArticleCache {
 
         const existing = this.cache.get(key);
         if (existing) {
+            const existingMatCodes = new Set(
+                (existing.data.materials || []).map((m) => (m.code || '').trim().toUpperCase()).filter(Boolean)
+            );
+            const hasMissingMaterials = (updatedArticle.billOfMaterials || []).some((b) => {
+                const c = (b.component || '').trim().toUpperCase();
+                return c && !existingMatCodes.has(c);
+            });
+            if (hasMissingMaterials && !fallbackMaster?.materials) {
+                // Invalida la entry se contiene nuovi componenti non presenti nell'array materials precaricato
+                this.cache.delete(key);
+                return;
+            }
             this.cache.set(key, {
                 data: {
                     ...existing.data,
@@ -57,6 +97,7 @@ export class QuickArticleCache {
                     article: updatedArticle,
                 },
                 timestamp: Date.now(),
+                jobsBomVersion: this.currentJobsBomVersion,
             });
         } else {
             this.cache.set(key, {
@@ -68,6 +109,7 @@ export class QuickArticleCache {
                     materials: fallbackMaster?.materials || [],
                 },
                 timestamp: Date.now(),
+                jobsBomVersion: this.currentJobsBomVersion,
             });
         }
     }

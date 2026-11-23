@@ -40,12 +40,13 @@ import {
   getArticleDefaultDepartment,
   normalizeDepartmentCode,
 } from '@/lib/department-utils';
+import { optionalCutLengthMmSchema } from '@/lib/bom-import-utils';
 
 const bomItemSchema = z.object({
   component: z.string().optional(),
   unit: z.enum(['n', 'mt', 'kg']),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo.").default(1),
-  lunghezzaTaglioMm: z.coerce.number().optional(),
+  lunghezzaTaglioMm: optionalCutLengthMmSchema,
   note: z.string().optional(),
 });
 
@@ -69,7 +70,7 @@ type ArticleFormValues = z.infer<typeof articleSchema>;
 
 interface ArticleFormDialogProps {
   isOpen: boolean;
-  onClose: (refresh?: boolean, updatedArticle?: Article) => void;
+  onClose: (refresh?: boolean, updatedArticle?: Article, resolvedMaterials?: RawMaterial[]) => void;
   article: Article | null;
   workCycles?: WorkCycle[];
   departments?: Department[];
@@ -99,7 +100,7 @@ export default function ArticleFormDialog({
   const [materialCache, setMaterialCache] = useState<Record<string, RawMaterial>>({});
   const [suggestions, setSuggestions] = useState<RawMaterial[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [availableWorkCycles, setAvailableWorkCycles] = useState<WorkCycle[]>(initialWorkCycles || []);
   const [availableDepartments, setAvailableDepartments] = useState<Department[]>(initialDepartments || []);
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(initialGlobalSettings || null);
@@ -117,7 +118,7 @@ export default function ArticleFormDialog({
     if (initialDepartments && initialDepartments.length > 0) {
       setAvailableDepartments(initialDepartments);
     } else {
-      getDepartments().then(setAvailableDepartments).catch(() => {});
+      getDepartments().then(setAvailableDepartments).catch(() => { });
     }
 
     if (initialGlobalSettings) {
@@ -126,7 +127,11 @@ export default function ArticleFormDialog({
       getGlobalSettings().then(setGlobalSettings);
     }
 
+    const preloadedSet = new Set<string>();
     if (preloadedMaterials && preloadedMaterials.length > 0) {
+      preloadedMaterials.forEach((m) => {
+        if (m.code) preloadedSet.add(m.code.toUpperCase());
+      });
       setMaterialCache((prev) => {
         const newC = { ...prev };
         preloadedMaterials.forEach((m) => {
@@ -134,10 +139,18 @@ export default function ArticleFormDialog({
         });
         return newC;
       });
-    } else if (article?.billOfMaterials) {
-      const codes = article.billOfMaterials.map((i) => i.component).filter(Boolean);
-      if (codes.length > 0) {
-        getMaterialsByCodes(codes).then((mats) => {
+    }
+
+    if (article?.billOfMaterials) {
+      const missingCodes = Array.from(
+        new Set(
+          article.billOfMaterials
+            .map((i) => (i.component || '').trim().toUpperCase())
+            .filter((code) => code && !preloadedSet.has(code))
+        )
+      );
+      if (missingCodes.length > 0) {
+        getMaterialsByCodes(missingCodes).then((mats) => {
           setMaterialCache((prev) => {
             const newC = { ...prev };
             mats.forEach((m) => {
@@ -148,17 +161,17 @@ export default function ArticleFormDialog({
         });
       }
     }
-  }, [isOpen, article, initialWorkCycles, initialGlobalSettings, preloadedMaterials]);
+  }, [isOpen, article, initialWorkCycles, initialDepartments, initialGlobalSettings, preloadedMaterials]);
 
   const handleSearch = (term: string) => {
-    if (searchTimeout) clearTimeout(searchTimeout);
     if (term.length < 2) {
       setSuggestions([]);
       setIsSearching(false);
       return;
     }
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     setIsSearching(true);
-    const timeout = setTimeout(async () => {
+    searchTimeoutRef.current = setTimeout(async () => {
       const mats = await getRawMaterials(term);
       setSuggestions(mats);
       setMaterialCache(prev => {
@@ -168,7 +181,6 @@ export default function ArticleFormDialog({
       });
       setIsSearching(false);
     }, 300);
-    setSearchTimeout(timeout);
   };
 
   const departmentOptions = React.useMemo(
@@ -380,27 +392,58 @@ export default function ArticleFormDialog({
     setIsPending(true);
     try {
       const normalizedDept = normalizeDepartmentCode(data.defaultDepartmentId, availableDepartments);
+      const nonEmptyRows = (data.billOfMaterials || []).filter(
+        (item) => item.component && item.component.trim() !== ''
+      );
+
+      // FASE 105-BIS: Risolve eventuali componenti non ancora presenti in materialCache prima del salvataggio
+      const effectiveMaterialCache: Record<string, RawMaterial> = { ...materialCache };
+      const missingCodes = Array.from(
+        new Set(
+          nonEmptyRows
+            .map((item) => (item.component || '').trim().toUpperCase())
+            .filter((code) => code && !effectiveMaterialCache[code])
+        )
+      );
+      if (missingCodes.length > 0) {
+        try {
+          const fetchedMats = await getMaterialsByCodes(missingCodes);
+          fetchedMats.forEach((m) => {
+            if (m.code) effectiveMaterialCache[m.code.toUpperCase()] = m;
+          });
+          setMaterialCache((prev) => ({ ...prev, ...effectiveMaterialCache }));
+        } catch (fetchErr) {
+          console.warn('Avviso caricamento materiali mancanti pre-submit BOM:', fetchErr);
+        }
+      }
+
       // Filter out empty rows and ensure codes are uppercase before sending to server
       const filteredData = {
         ...data,
         defaultDepartmentId: normalizedDept || null,
         defaultDepartmentCode: normalizedDept || null,
         department: normalizedDept || '',
-        billOfMaterials: (data.billOfMaterials || [])
-          .filter(item => item.component && item.component.trim() !== '')
-          .map(item => {
-            const material = materialCache[item.component?.toUpperCase() || ""];
-            const typeConfig = material && globalSettings
-              ? globalSettings.rawMaterialTypes.find(t => t.id === material.type)
+        billOfMaterials: nonEmptyRows.map((item) => {
+          const compCode = (item.component || '').trim().toUpperCase();
+          const material = effectiveMaterialCache[compCode];
+          const typeConfig =
+            material && globalSettings
+              ? globalSettings.rawMaterialTypes.find((t) => t.id === material.type)
               : null;
-            const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true;
+          const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true;
+          const resolvedUnit = (material?.unitOfMeasure as 'n' | 'mt' | 'kg') || item.unit;
+          const validCutLength =
+            requiresCut && typeof item.lunghezzaTaglioMm === 'number' && item.lunghezzaTaglioMm > 0
+              ? item.lunghezzaTaglioMm
+              : null;
 
-            return {
-              ...item,
-              component: item.component?.toUpperCase(),
-              lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? null) : null
-            };
-          })
+          return {
+            ...item,
+            component: compCode,
+            unit: resolvedUnit,
+            lunghezzaTaglioMm: validCutLength,
+          };
+        }),
       };
       const result = await saveArticle(filteredData);
       toast({
@@ -427,7 +470,7 @@ export default function ArticleFormDialog({
           unitWeightKg: data.unitWeightKg,
           packagingTareWeightKg: data.packagingTareWeightKg,
         };
-        onClose(true, updatedArticle);
+        onClose(true, updatedArticle, Object.values(effectiveMaterialCache));
       }
     } catch (err: any) {
       console.error("Errore salvataggio distinta base:", err);
