@@ -67,15 +67,20 @@ import {
   PlusCircle,
   Lock,
   FolderOpen,
+  Pencil,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { cn, formatDisplayStock } from '@/lib/utils';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   VIRTUAL_SESSION_2025_ID,
+  computeInventoryMetrics,
   evaluateLotsForInventorySession,
+  getAllowedInventoryInputUnits,
+  normInventoryLot,
 } from '@/lib/inventory-ledger-logic';
-import type { InventoryCountingSession } from '@/types';
+import type { InventoryCountingSession, Packaging, UnitOfMeasure } from '@/types';
 import {
   approveLedgerInventoryRecord,
   approveMultipleLedgerInventoryRecords,
@@ -84,7 +89,9 @@ import {
   getInventoryLedgerData,
   openInventoryCountingSession,
   rejectLedgerInventoryRecord,
+  rejectMultipleLedgerInventoryRecords,
   revertLedgerInventoryRecord,
+  updatePendingLedgerInventoryRecord,
   writeOffUnscannedLots,
   type EnrichedLedgerInventoryRecord,
   type InventoryLedgerPageData,
@@ -160,6 +167,17 @@ export default function InventoryLedgerClientPage({
   // Selections for Tab 2 (Pending Records) and Tab 3 (Unscanned Lots)
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [selectedUnscannedKeys, setSelectedUnscannedKeys] = useState<string[]>([]);
+  const [isConfirmBulkRejectOpen, setIsConfirmBulkRejectOpen] = useState(false);
+
+  // Edit Pending Record Dialog State (FASE 106-BIS)
+  const [editingPendingRecord, setEditingPendingRecord] =
+    useState<EnrichedLedgerInventoryRecord | null>(null);
+  const [editLotto, setEditLotto] = useState('');
+  const [editInputUnit, setEditInputUnit] = useState<UnitOfMeasure>('kg');
+  const [editInputQuantity, setEditInputQuantity] = useState('');
+  const [editPackagingId, setEditPackagingId] = useState('none');
+  const [editMaterialFactor, setEditMaterialFactor] = useState('');
+  const [showAllEditPackaging, setShowAllEditPackaging] = useState(false);
 
   // Confirmation modal for write-off of unscanned lots
   const [lotsPendingWriteOff, setLotsPendingWriteOff] = useState<
@@ -394,10 +412,10 @@ export default function InventoryLedgerClientPage({
   };
 
   const handleApproveBatch = async () => {
-    if (!adminUid || selectedRecordIds.length === 0) return;
+    if (!adminUid || approvableSelectedIds.length === 0) return;
     setIsMutating(true);
     try {
-      const res = await approveMultipleLedgerInventoryRecords(selectedRecordIds, adminUid);
+      const res = await approveMultipleLedgerInventoryRecords(approvableSelectedIds, adminUid);
       toast({
         title: res.success ? 'Approvazione Multipla SSoT' : 'Errore',
         description: res.message,
@@ -440,6 +458,190 @@ export default function InventoryLedgerClientPage({
       setIsMutating(false);
     }
   };
+
+  const handleRejectBatch = async () => {
+    if (!adminUid || selectedRecordIds.length === 0) return;
+    setIsMutating(true);
+    try {
+      const res = await rejectMultipleLedgerInventoryRecords(selectedRecordIds, adminUid);
+      toast({
+        title: res.success ? 'Rifiuto Massivo Completato' : 'Errore',
+        description: res.message,
+        variant: res.success ? 'default' : 'destructive',
+      });
+      setIsConfirmBulkRejectOpen(false);
+      if (res.success) await refreshData(selectedSessionId);
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const openEditPendingDialog = (rec: EnrichedLedgerInventoryRecord) => {
+    const allowed = getAllowedInventoryInputUnits(rec.uom);
+    const initialUnit = allowed.includes(rec.inputUnit) ? rec.inputUnit : (allowed[0] || rec.uom);
+    setEditingPendingRecord(rec);
+    setEditLotto(rec.lotto || '');
+    setEditInputUnit(initialUnit);
+    setEditInputQuantity(
+      rec.inputQuantity !== undefined && rec.inputQuantity !== null
+        ? String(rec.inputQuantity)
+        : ''
+    );
+    setEditPackagingId(initialUnit === 'kg' ? rec.packagingId || 'none' : 'none');
+    const existingFactor =
+      rec.uom === 'mt'
+        ? rec.liveRapportoKgMt || rec.liveConversionFactor || rec.rapportoKgMt || 0
+        : rec.uom === 'n'
+          ? rec.liveConversionFactor || rec.conversionFactor || 0
+          : 0;
+    setEditMaterialFactor(existingFactor > 0 ? String(existingFactor) : '');
+    setShowAllEditPackaging(false);
+  };
+
+  const allPackagingItems = useMemo<Packaging[]>(
+    () => (Array.isArray(data?.packagingItems) ? data.packagingItems : []),
+    [data?.packagingItems]
+  );
+
+  const { editCompatiblePackagingItems, editHasFilteredPackaging } = useMemo(() => {
+    const matType = String(editingPendingRecord?.materialType || '').trim().toUpperCase();
+    if (!matType) {
+      return { editCompatiblePackagingItems: allPackagingItems, editHasFilteredPackaging: false };
+    }
+    const compatible = allPackagingItems.filter((p) => {
+      const types = Array.isArray(p.associatedTypes) ? p.associatedTypes : [];
+      return types.some((t) => String(t || '').trim().toUpperCase() === matType);
+    });
+    if (compatible.length === 0) {
+      return { editCompatiblePackagingItems: allPackagingItems, editHasFilteredPackaging: false };
+    }
+    return {
+      editCompatiblePackagingItems: compatible,
+      editHasFilteredPackaging: compatible.length < allPackagingItems.length,
+    };
+  }, [allPackagingItems, editingPendingRecord?.materialType]);
+
+  const editDisplayedPackagingItems = useMemo(() => {
+    if (showAllEditPackaging || !editHasFilteredPackaging) return allPackagingItems;
+    if (editPackagingId && editPackagingId !== 'none') {
+      const extra = allPackagingItems.find(
+        (p) => p.id === editPackagingId && !editCompatiblePackagingItems.some((c) => c.id === p.id)
+      );
+      if (extra) return [...editCompatiblePackagingItems, extra];
+    }
+    return editCompatiblePackagingItems;
+  }, [
+    showAllEditPackaging,
+    editHasFilteredPackaging,
+    allPackagingItems,
+    editCompatiblePackagingItems,
+    editPackagingId,
+  ]);
+
+  const editPreviewMetrics = useMemo(() => {
+    if (!editingPendingRecord) return null;
+    const trimmedQty = editInputQuantity.trim().replace(',', '.');
+    if (!trimmedQty || Number.isNaN(Number(trimmedQty))) return null;
+    const numericQty = Number(trimmedQty);
+
+    const parsedFactorNum = Number(editMaterialFactor.trim().replace(',', '.'));
+    const effectiveFactor = Number.isFinite(parsedFactorNum) && parsedFactorNum > 0 ? parsedFactorNum : 0;
+
+    const cleanLottoNorm = normInventoryLot(editLotto);
+    const matchedLot = (data?.baseLots || []).find(
+      (l) => l.materialId === editingPendingRecord.materialId && l.normLotto === cleanLottoNorm
+    );
+    const theoreticalUnits = matchedLot ? matchedLot.theoreticalUnits : 0;
+
+    const tareWeight =
+      editInputUnit === 'kg'
+        ? allPackagingItems.find((p) => p.id === editPackagingId)?.weightKg || 0
+        : 0;
+
+    return computeInventoryMetrics({
+      material: {
+        unitOfMeasure: editingPendingRecord.uom,
+        conversionFactor:
+          editingPendingRecord.uom === 'n'
+            ? effectiveFactor
+            : editingPendingRecord.uom === 'mt'
+              ? effectiveFactor
+              : editingPendingRecord.liveConversionFactor,
+        rapportoKgMt:
+          editingPendingRecord.uom === 'mt'
+            ? effectiveFactor
+            : editingPendingRecord.liveRapportoKgMt,
+      },
+      inputQuantity: numericQty,
+      inputUnit: editInputUnit,
+      tareWeight,
+      theoreticalUnitsAtScan: theoreticalUnits,
+    });
+  }, [
+    editingPendingRecord,
+    editInputQuantity,
+    editMaterialFactor,
+    editLotto,
+    editInputUnit,
+    editPackagingId,
+    allPackagingItems,
+    data?.baseLots,
+  ]);
+
+  const handleSaveEditPendingRecord = async () => {
+    if (!adminUid || !editingPendingRecord || !editPreviewMetrics) return;
+    if (editPreviewMetrics.hasNegativeNetWarning) {
+      toast({
+        variant: 'destructive',
+        title: 'Tara non valida',
+        description: 'Il peso lordo inserito è inferiore alla tara selezionata.',
+      });
+      return;
+    }
+
+    const numericQty = Number(editInputQuantity.trim().replace(',', '.'));
+    const parsedFactor = Number(editMaterialFactor.trim().replace(',', '.'));
+
+    setIsMutating(true);
+    try {
+      const res = await updatePendingLedgerInventoryRecord(
+        {
+          recordId: editingPendingRecord.id,
+          lotto: editLotto,
+          inputUnit: editInputUnit,
+          inputQuantity: numericQty,
+          packagingId: editInputUnit === 'kg' ? editPackagingId : 'none',
+          newMaterialFactor:
+            (editingPendingRecord.uom === 'mt' || editingPendingRecord.uom === 'n') &&
+            editInputUnit === 'kg' &&
+            Number.isFinite(parsedFactor) &&
+            parsedFactor > 0
+              ? parsedFactor
+              : null,
+        },
+        adminUid
+      );
+      toast({
+        title: res.success ? 'Rilevazione Aggiornata' : 'Errore Modifica',
+        description: res.message,
+        variant: res.success ? 'default' : 'destructive',
+      });
+      if (res.success) {
+        setEditingPendingRecord(null);
+        await refreshData(selectedSessionId);
+      }
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const approvableSelectedIds = useMemo(() => {
+    const mapById = new Map(sessionEvaluated.recordsForTab2.map((r) => [r.id, r]));
+    return selectedRecordIds.filter((id) => {
+      const r = mapById.get(id);
+      return r && r.status === 'pending' && !r.missingConversionFactor;
+    });
+  }, [selectedRecordIds, sessionEvaluated.recordsForTab2]);
 
   const confirmWriteOffLots = async () => {
     if (!adminUid || lotsPendingWriteOff.length === 0) return;
@@ -502,7 +704,7 @@ export default function InventoryLedgerClientPage({
             Registro Inventario SSoT (Spunta Lotti & Riconciliazione)
           </h1>
           <p className="text-muted-foreground text-sm">
-            Riconciliazione deterministica per Delta matematico ($\Delta = Q_{"{rilevata}"} - Q_{"{teorica}"}$) append-only compatibile con il Ledger SSoT.
+            Riconciliazione deterministica per Delta matematico (Δ = Q rilevata − Q teorica) append-only compatibile con il Ledger SSoT.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -927,19 +1129,37 @@ export default function InventoryLedgerClientPage({
                   </div>
 
                   {selectedRecordIds.length > 0 && (
-                    <Button
-                      size="sm"
-                      onClick={handleApproveBatch}
-                      disabled={isMutating}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                    >
-                      {isMutating ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <CheckCheck className="mr-2 h-4 w-4" />
-                      )}
-                      Approva Selezionate ({selectedRecordIds.length})
-                    </Button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setIsConfirmBulkRejectOpen(true)}
+                        disabled={isMutating}
+                        className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <X className="mr-1.5 h-4 w-4" />
+                        Rifiuta Selezionate ({selectedRecordIds.length})
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        onClick={handleApproveBatch}
+                        disabled={isMutating || approvableSelectedIds.length === 0}
+                        title={
+                          approvableSelectedIds.length === 0
+                            ? 'Le righe selezionate richiedono un fattore di conversione prima di poter essere approvate'
+                            : 'Approva le rilevazioni pronte selezionate'
+                        }
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        {isMutating ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCheck className="mr-2 h-4 w-4" />
+                        )}
+                        Approva Selezionate ({approvableSelectedIds.length})
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -993,11 +1213,15 @@ export default function InventoryLedgerClientPage({
                         const isApproved = rec.status === 'approved';
                         const delta = rec.liveDeltaUnits;
                         const rowHighlight =
-                          Math.abs(delta) <= 0.0001
-                            ? 'bg-blue-500/5'
-                            : delta > 0
-                              ? 'bg-emerald-500/5'
-                              : 'bg-red-500/5';
+                          rec.missingConversionFactor || delta === null
+                            ? 'bg-amber-500/10'
+                            : Math.abs(delta) <= 0.0001
+                              ? 'bg-blue-500/5'
+                              : delta > 0
+                                ? 'bg-emerald-500/5'
+                                : 'bg-red-500/5';
+
+                        const factorLabel = rec.uom === 'mt' ? 'kg/mt' : 'kg/pz';
 
                         return (
                           <TableRow key={rec.id} className={rowHighlight}>
@@ -1048,17 +1272,60 @@ export default function InventoryLedgerClientPage({
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              <div className="font-bold font-mono text-primary">
-                                {formatDisplayStock(
-                                  Number(rec.countedUnits || 0),
-                                  (rec.uom || 'kg') as any
-                                )}
-                              </div>
-                              <div className="text-[11px] text-muted-foreground">
-                                Netto: {Number(rec.netWeight || 0).toFixed(2)} kg | Tara:{' '}
-                                {Number(rec.tareWeight || 0).toFixed(2)} kg
-                              </div>
-                              {rec.isAnomaly && (
+                              {rec.missingConversionFactor ? (
+                                <>
+                                  <div className="font-bold text-amber-600 dark:text-amber-400 text-xs">
+                                    In attesa fattore
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    Lordo: {Number(rec.grossWeight || 0).toFixed(2)} kg | Tara:{' '}
+                                    {Number(rec.tareWeight || 0).toFixed(2)} kg | Netto:{' '}
+                                    {Number(rec.netWeight || 0).toFixed(2)} kg
+                                  </div>
+                                  <div className="mt-1 flex justify-end">
+                                    <Badge
+                                      variant="outline"
+                                      className="border-amber-500/70 bg-amber-500/15 text-amber-800 dark:text-amber-300 text-[10px] gap-1 font-semibold"
+                                    >
+                                      <AlertTriangle className="h-3 w-3" />
+                                      ⚠ MANCA FATTORE ({factorLabel})
+                                    </Badge>
+                                  </div>
+                                </>
+                              ) : rec.isDirectCount ? (
+                                <>
+                                  <div className="font-bold font-mono text-primary">
+                                    {formatDisplayStock(
+                                      Number(rec.countedUnits || 0),
+                                      (rec.uom || 'kg') as any
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    Conteggio diretto ({(rec.uom || 'kg').toUpperCase()})
+                                    {rec.hasWeightEstimate && Number(rec.netWeight || 0) > 0
+                                      ? ` | ≈ ${Number(rec.netWeight).toFixed(2)} kg stimati`
+                                      : ''}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="font-bold font-mono text-primary">
+                                    {formatDisplayStock(
+                                      Number(rec.countedUnits || 0),
+                                      (rec.uom || 'kg') as any
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    Lordo: {Number(rec.grossWeight || 0).toFixed(2)} kg | Tara:{' '}
+                                    {Number(rec.tareWeight || 0).toFixed(2)} kg | Netto:{' '}
+                                    {Number(rec.netWeight || 0).toFixed(2)} kg
+                                    {rec.uom !== 'kg' && rec.appliedFactor > 0
+                                      ? ` (÷ ${rec.appliedFactor} ${factorLabel})`
+                                      : ''}
+                                  </div>
+                                </>
+                              )}
+                              {rec.isAnomaly && !rec.missingConversionFactor && (
                                 <div className="mt-1 flex justify-end">
                                   <Badge
                                     variant="outline"
@@ -1071,7 +1338,16 @@ export default function InventoryLedgerClientPage({
                               )}
                             </TableCell>
                             <TableCell className="text-center">
-                              {renderDeltaBadge(delta, rec.uom)}
+                              {rec.missingConversionFactor || delta === null ? (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-500/60 bg-amber-500/15 text-amber-800 dark:text-amber-300 font-semibold"
+                                >
+                                  Da convertire
+                                </Badge>
+                              ) : (
+                                renderDeltaBadge(delta, rec.uom)
+                              )}
                             </TableCell>
                             <TableCell className="text-center">
                               {isPending && (
@@ -1090,9 +1366,24 @@ export default function InventoryLedgerClientPage({
                                   <>
                                     <Button
                                       size="sm"
-                                      onClick={() => handleApproveSingle(rec.id)}
+                                      variant="outline"
+                                      onClick={() => openEditPendingDialog(rec)}
                                       disabled={isMutating}
-                                      className="bg-emerald-600 hover:bg-emerald-700 text-white h-8"
+                                      title="Modifica rilevazione o inserisci fattore mancante"
+                                      className="h-8 px-2"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleApproveSingle(rec.id)}
+                                      disabled={isMutating || Boolean(rec.missingConversionFactor)}
+                                      title={
+                                        rec.missingConversionFactor
+                                          ? `Impossibile approvare senza fattore ${factorLabel}. Clicca Modifica per inserirlo.`
+                                          : 'Approva e consolida nel Ledger SSoT'
+                                      }
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 disabled:opacity-40"
                                     >
                                       <Check className="mr-1 h-3.5 w-3.5" />
                                       Approva
@@ -1427,7 +1718,7 @@ export default function InventoryLedgerClientPage({
                   Stai per azzerare nel Ledger SSoT{' '}
                   <span className="font-bold">{lotsPendingWriteOff.length}</span>{' '}
                   {lotsPendingWriteOff.length === 1 ? 'lotto non battuto' : 'lotti non battuti'}.
-                  Verrà generato un record tracciato con $Q_{"{rilevata}"} = 0$ e un movimento di scarico{' '}
+                  Verrà generato un record tracciato con Q rilevata = 0 e un movimento di scarico{' '}
                   <code>RETTIFICA_INVENTARIO</code> in <code>materialWithdrawals</code> (reversibile tramite Storno).
                 </p>
                 <div className="max-h-40 overflow-y-auto rounded border p-2 bg-muted/40 space-y-1 font-mono text-xs">
@@ -1460,6 +1751,276 @@ export default function InventoryLedgerClientPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dialog Conferma Rifiuto Massivo Rilevazioni Pendenti (FASE 106-BIS) */}
+      <AlertDialog
+        open={isConfirmBulkRejectOpen}
+        onOpenChange={setIsConfirmBulkRejectOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confermi il rifiuto massivo delle rilevazioni selezionate?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Stai per marcare come <strong>Rifiutate</strong>{' '}
+              <strong>{selectedRecordIds.length}</strong> rilevazioni selezionate.
+              Eventuali righe già approvate verranno ignorate e{' '}
+              <strong>nessuna giacenza o lotto a magazzino verrà modificato</strong>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isMutating}>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRejectBatch}
+              disabled={isMutating}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isMutating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Rifiuta Selezionate ({selectedRecordIds.length})
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog Modifica Riga Pendente + Sblocco Rapido Fattore Materiale (FASE 106-BIS) */}
+      <Dialog
+        open={Boolean(editingPendingRecord)}
+        onOpenChange={(open) => {
+          if (!open && !isMutating) setEditingPendingRecord(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-primary" />
+              Modifica Rilevazione Pendente
+            </DialogTitle>
+            <DialogDescription>
+              Correggi lotto, unità, peso lordo/quantità, tara oppure sblocca il fattore di conversione anagrafico prima di approvare.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingPendingRecord && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border bg-muted/40 p-3 flex items-center justify-between gap-2">
+                <div>
+                  <div className="font-mono font-bold text-sm">
+                    {editingPendingRecord.materialCode}
+                  </div>
+                  <div className="text-xs text-muted-foreground line-clamp-1">
+                    {editingPendingRecord.materialDescription}
+                  </div>
+                </div>
+                <Badge className="uppercase">{editingPendingRecord.uom}</Badge>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-pending-lotto">Codice Lotto</Label>
+                <Input
+                  id="edit-pending-lotto"
+                  value={editLotto}
+                  onChange={(e) => setEditLotto(e.target.value)}
+                  placeholder="Es. L2026-01 (lascia vuoto per SENZA_LOTTO)"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Unità Inserita</Label>
+                <div
+                  className={cn(
+                    'grid gap-2',
+                    getAllowedInventoryInputUnits(editingPendingRecord.uom).length === 1
+                      ? 'grid-cols-1'
+                      : 'grid-cols-2'
+                  )}
+                >
+                  {getAllowedInventoryInputUnits(editingPendingRecord.uom).map((u) => (
+                    <Button
+                      key={u}
+                      type="button"
+                      size="sm"
+                      variant={editInputUnit === u ? 'default' : 'outline'}
+                      onClick={() => {
+                        setEditInputUnit(u);
+                        if (u !== 'kg') {
+                          setEditPackagingId('none');
+                        }
+                      }}
+                      className="uppercase font-bold"
+                    >
+                      {u.toUpperCase()}
+                      {u === editingPendingRecord.uom ? ' (Diretto)' : ' (Pesatura KG)'}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className={cn('grid gap-4', editInputUnit === 'kg' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1')}>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-pending-qty">
+                    {editInputUnit === 'kg'
+                      ? 'Peso Lordo (KG)'
+                      : `Quantità (${editInputUnit.toUpperCase()})`}
+                  </Label>
+                  <Input
+                    id="edit-pending-qty"
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={editInputQuantity}
+                    onChange={(e) => setEditInputQuantity(e.target.value)}
+                  />
+                </div>
+
+                {editInputUnit === 'kg' && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="edit-pending-packaging">Tara (Imballo)</Label>
+                      {editHasFilteredPackaging && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllEditPackaging((prev) => !prev)}
+                          className="text-[11px] text-primary hover:underline"
+                        >
+                          {showAllEditPackaging ? 'Solo compatibili' : 'Mostra tutti'}
+                        </button>
+                      )}
+                    </div>
+                    <Select value={editPackagingId} onValueChange={setEditPackagingId}>
+                      <SelectTrigger id="edit-pending-packaging">
+                        <SelectValue placeholder="Seleziona tara..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nessuna Tara (0.000 kg)</SelectItem>
+                        {editDisplayedPackagingItems.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name} ({p.weightKg.toFixed(3)} kg)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+
+              {(editingPendingRecord.uom === 'mt' || editingPendingRecord.uom === 'n') &&
+                editInputUnit === 'kg' && (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label
+                        htmlFor="edit-material-factor"
+                        className="text-xs font-semibold text-amber-900 dark:text-amber-300"
+                      >
+                        Sblocco Rapido Fattore Anagrafica ({editingPendingRecord.uom === 'mt' ? 'kg/mt' : 'kg/pz'})
+                      </Label>
+                      {(!editMaterialFactor || Number(editMaterialFactor.replace(',', '.')) <= 0) && (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500 text-amber-700 dark:text-amber-300 text-[10px]"
+                        >
+                          Fattore mancante
+                        </Badge>
+                      )}
+                    </div>
+                    <Input
+                      id="edit-material-factor"
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={editMaterialFactor}
+                      onChange={(e) => setEditMaterialFactor(e.target.value)}
+                      placeholder={
+                        editingPendingRecord.uom === 'mt'
+                          ? 'Es. 0.250 (kg per metro)'
+                          : 'Es. 0.045 (kg per pezzo)'
+                      }
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Salvando un valore &gt; 0 verrà aggiornata anche l&apos;anagrafica di{' '}
+                      <strong>{editingPendingRecord.materialCode}</strong> sbloccando tutte le sue rilevazioni parcheggiate.
+                    </p>
+                  </div>
+                )}
+
+              {editPreviewMetrics?.hasNegativeNetWarning && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Peso Netto Negativo</AlertTitle>
+                  <AlertDescription>
+                    Il peso lordo inserito è inferiore alla tara selezionata.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="rounded-lg border bg-muted/30 p-3 grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <span className="text-[11px] text-muted-foreground block">
+                    Giacenza Rilevata
+                  </span>
+                  <span className="font-bold font-mono text-sm text-primary">
+                    {!editPreviewMetrics
+                      ? '---'
+                      : editPreviewMetrics.missingConversionFactor
+                        ? 'Manca fattore'
+                        : formatDisplayStock(
+                            editPreviewMetrics.countedUnits,
+                            editingPendingRecord.uom
+                          )}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-muted-foreground block">
+                    Peso Netto (KG)
+                  </span>
+                  <span className="font-bold font-mono text-sm">
+                    {!editPreviewMetrics
+                      ? '---'
+                      : editPreviewMetrics.isDirectCount && !editPreviewMetrics.hasWeightEstimate
+                        ? 'N/D'
+                        : formatDisplayStock(editPreviewMetrics.netWeight, 'kg')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-muted-foreground block">
+                    Delta Stimato
+                  </span>
+                  <span className="font-bold font-mono text-sm">
+                    {!editPreviewMetrics
+                      ? '---'
+                      : editPreviewMetrics.missingConversionFactor ||
+                          editPreviewMetrics.deltaUnits === null
+                        ? 'Da convertire'
+                        : `${editPreviewMetrics.deltaUnits > 0 ? '+' : ''}${formatDisplayStock(
+                            editPreviewMetrics.deltaUnits,
+                            editingPendingRecord.uom
+                          )}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditingPendingRecord(null)}
+              disabled={isMutating}
+            >
+              Annulla
+            </Button>
+            <Button
+              onClick={handleSaveEditPendingRecord}
+              disabled={
+                isMutating ||
+                !editPreviewMetrics ||
+                editPreviewMetrics.hasNegativeNetWarning
+              }
+            >
+              {isMutating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Salva Modifiche (Resta in Attesa)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

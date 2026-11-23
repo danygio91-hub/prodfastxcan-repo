@@ -61,7 +61,7 @@ export function hydrateMaterialWithWithdrawals(material: RawMaterial, withdrawal
             if (hydratedMaterial.unitOfMeasure === 'kg') {
                 batch.currentWeightKg = batch.currentQuantity;
             } else {
-                const batchFactor = (hydratedMaterial.unitOfMeasure === 'mt' ? hydratedMaterial.rapportoKgMt : hydratedMaterial.conversionFactor) || 1;
+                const batchFactor = (hydratedMaterial.unitOfMeasure === 'mt' ? (hydratedMaterial.rapportoKgMt || hydratedMaterial.conversionFactor) : hydratedMaterial.conversionFactor) || 1;
                 batch.currentWeightKg = Number((batch.currentQuantity * batchFactor).toFixed(3));
             }
 
@@ -83,7 +83,7 @@ export function hydrateMaterialWithWithdrawals(material: RawMaterial, withdrawal
     if (hydratedMaterial.unitOfMeasure === 'kg') {
         hydratedMaterial.currentWeightKg = hydratedMaterial.currentStockUnits;
     } else {
-        const factor = (hydratedMaterial.unitOfMeasure === 'mt' ? hydratedMaterial.rapportoKgMt : hydratedMaterial.conversionFactor) || 1;
+        const factor = (hydratedMaterial.unitOfMeasure === 'mt' ? (hydratedMaterial.rapportoKgMt || hydratedMaterial.conversionFactor) : hydratedMaterial.conversionFactor) || 1;
         hydratedMaterial.currentWeightKg = Number((hydratedMaterial.currentStockUnits * factor).toFixed(3));
     }
 
@@ -320,7 +320,7 @@ export function previewWithdrawalImpact(params: WithdrawalPreviewParams): Withdr
 
     // Modalità Bilancia (Input = Peso Lordo residuo sulla bilancia in KG)
     const netWeightKg = Math.max(0, numericInput - (Number(tareKg) || 0));
-    const factor = (uom === 'mt' ? rapportoKgMt : conversionFactor) || 1;
+    const factor = (uom === 'mt' ? (rapportoKgMt || conversionFactor) : conversionFactor) || 1;
     const rawOnScaleUnits = uom === 'kg' ? netWeightKg : factor > 0 ? netWeightKg / factor : netWeightKg;
     const roundedOnScale = uom === 'n' ? Math.round(rawOnScaleUnits) : Number(rawOnScaleUnits.toFixed(3));
     // Tolleranza float / arrotondamento bilancia (<= 0.01 su continuo, o <= 0.5 su pezzo intero se il valore grezzo è entro il residuo)

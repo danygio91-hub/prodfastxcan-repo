@@ -532,11 +532,14 @@ export interface InventoryRecord {
   uom?: UnitOfMeasure;
   countedUnits?: number;
   theoreticalUnitsAtScan?: number;
-  deltaUnits?: number;
+  deltaUnits?: number | null;
   theoreticalUnitsAtApproval?: number;
   deltaApplied?: number;
   ledgerRefId?: string | null;
   ledgerActionType?: 'NONE' | 'ADD_BATCH' | 'WITHDRAWAL' | 'WRITE_OFF';
+  missingConversionFactor?: boolean;
+  isDirectCount?: boolean;
+  hasWeightEstimate?: boolean;
   // FASE 77: Inventory Counting Session Fields
   sessionId?: string | null;
   sessionName?: string | null;
@@ -595,11 +598,11 @@ export interface Packaging {
 }
 
 export interface ProductionTimeData {
-    estimatedTotalMinutes: number;
-    detectedTotalMinutes: number;
-    efficiency: number;
-    remainingMinutes: number;
-    isIpothesis: boolean;
+  estimatedTotalMinutes: number;
+  detectedTotalMinutes: number;
+  efficiency: number;
+  remainingMinutes: number;
+  isIpothesis: boolean;
 }
 
 export interface DraftJobOrder {

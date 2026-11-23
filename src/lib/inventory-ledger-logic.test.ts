@@ -4,6 +4,7 @@ import {
   computeInventoryMetrics,
   evaluateLotsForInventorySession,
   getAggregatedLotsForMaterial,
+  getAllowedInventoryInputUnits,
   inferYearFromLotOrDdt,
   normInventoryLot,
   resolveRecordCountedUnits,
@@ -23,8 +24,8 @@ import type {
   InventoryCountingSession,
 } from '@/types';
 
-describe('FASE 74: SSoT Inventory Ledger & Universal Metrics', () => {
-  it('fixes the N/MT without conversionFactor bug so netWeight is never 0 when inputQuantity > 0', () => {
+describe('FASE 74 & FASE 106-BIS: SSoT Inventory Ledger & Universal Metrics', () => {
+  it('supports direct count on N/MT without factor (isDirectCount: true, no fake 1:1 netWeight)', () => {
     const materialN = {
       unitOfMeasure: 'n' as const,
       conversionFactor: 0,
@@ -35,15 +36,20 @@ describe('FASE 74: SSoT Inventory Ledger & Universal Metrics', () => {
       material: materialN,
       inputQuantity: 250,
       inputUnit: 'n',
-      tareWeight: 0,
+      tareWeight: 5, // must be forced to 0 for direct counts
       theoreticalUnitsAtScan: 300,
     });
 
     expect(metrics.uom).toBe('n');
+    expect(metrics.isDirectCount).toBe(true);
+    expect(metrics.missingConversionFactor).toBe(false);
+    expect(metrics.hasWeightEstimate).toBe(false);
+    expect(metrics.tareWeight).toBe(0);
     expect(metrics.countedUnits).toBe(250);
     expect(metrics.theoreticalUnitsAtScan).toBe(300);
     expect(metrics.deltaUnits).toBe(-50);
-    expect(metrics.netWeight).toBe(250); // No longer 0!
+    expect(metrics.netWeight).toBe(0);
+    expect(metrics.grossWeight).toBe(0);
   });
 
   it('supports inputQuantity = 0 to declare an exhausted lot', () => {
@@ -376,6 +382,193 @@ describe('FASE 74: SSoT Inventory Ledger & Universal Metrics', () => {
     // 201-26 (loaded Feb 14, 2026, after session opened Feb 1, 2026) is distinguished as POST_SESSION_OPENED
     expect(lot201_in2026.scanStatus).toBe('UNSCANNED');
     expect(lot201_in2026.lotTemporalStatus).toBe('POST_SESSION_OPENED');
+  });
+
+  it('FASE 106-BIS (1): enforces allowed input units matrix for mt, n, kg', () => {
+    expect(getAllowedInventoryInputUnits('mt')).toEqual(['mt', 'kg']);
+    expect(getAllowedInventoryInputUnits('n')).toEqual(['n', 'kg']);
+    expect(getAllowedInventoryInputUnits('kg')).toEqual(['kg']);
+  });
+
+  it('FASE 106-BIS (2): Option B ("Pesa e Parcheggia") blocks 1:1 fallback when weighing mt/n without conversion factor', () => {
+    const mtWithoutFactor = {
+      unitOfMeasure: 'mt' as const,
+      rapportoKgMt: 0,
+      conversionFactor: null,
+    };
+
+    const metricsMt = computeInventoryMetrics({
+      material: mtWithoutFactor,
+      inputQuantity: 92,
+      inputUnit: 'kg',
+      tareWeight: 2,
+      theoreticalUnitsAtScan: 200,
+    });
+
+    expect(metricsMt.missingConversionFactor).toBe(true);
+    expect(metricsMt.isDirectCount).toBe(false);
+    expect(metricsMt.netWeight).toBe(90);
+    expect(metricsMt.grossWeight).toBe(92);
+    expect(metricsMt.tareWeight).toBe(2);
+    expect(metricsMt.countedUnits).toBe(0);
+    expect(metricsMt.deltaUnits).toBeNull();
+    expect(metricsMt.isAnomaly).toBe(true);
+
+    const nWithoutFactor = {
+      unitOfMeasure: 'n' as const,
+      conversionFactor: undefined,
+      rapportoKgMt: null,
+    };
+
+    const metricsN = computeInventoryMetrics({
+      material: nWithoutFactor,
+      inputQuantity: 15,
+      inputUnit: 'kg',
+      tareWeight: 0,
+      theoreticalUnitsAtScan: 100,
+    });
+
+    expect(metricsN.missingConversionFactor).toBe(true);
+    expect(metricsN.countedUnits).toBe(0);
+    expect(metricsN.deltaUnits).toBeNull();
+  });
+
+  it('FASE 106-BIS (3): direct count on mt/n without factor sets isDirectCount: true and zero fake kg weight', () => {
+    const guainaMt = {
+      unitOfMeasure: 'mt' as const,
+      rapportoKgMt: null,
+      conversionFactor: 0,
+    };
+
+    const metrics = computeInventoryMetrics({
+      material: guainaMt,
+      inputQuantity: 1800,
+      inputUnit: 'mt',
+      tareWeight: 0,
+      theoreticalUnitsAtScan: 1500,
+    });
+
+    expect(metrics.isDirectCount).toBe(true);
+    expect(metrics.missingConversionFactor).toBe(false);
+    expect(metrics.hasWeightEstimate).toBe(false);
+    expect(metrics.countedUnits).toBe(1800);
+    expect(metrics.deltaUnits).toBe(300);
+    expect(metrics.netWeight).toBe(0);
+    expect(metrics.grossWeight).toBe(0);
+  });
+
+  it('FASE 106-BIS (4): rounds countedUnits to integer via Math.round when uom="n" is weighed in kg', () => {
+    const pezziMaterial = {
+      unitOfMeasure: 'n' as const,
+      conversionFactor: 0.047, // 47g per piece
+    };
+
+    // 5.0 kg net / 0.047 = 106.382978... -> rounds to 106 integer pieces
+    const metricsFloor = computeInventoryMetrics({
+      material: pezziMaterial,
+      inputQuantity: 5.0,
+      inputUnit: 'kg',
+      tareWeight: 0,
+      theoreticalUnitsAtScan: 100,
+    });
+    expect(metricsFloor.countedUnits).toBe(106);
+    expect(Number.isInteger(metricsFloor.countedUnits)).toBe(true);
+
+    // 5.02 kg net / 0.047 = 106.8085... -> rounds to 107 integer pieces
+    const metricsCeil = computeInventoryMetrics({
+      material: pezziMaterial,
+      inputQuantity: 5.02,
+      inputUnit: 'kg',
+      tareWeight: 0,
+      theoreticalUnitsAtScan: 100,
+    });
+    expect(metricsCeil.countedUnits).toBe(107);
+    expect(Number.isInteger(metricsCeil.countedUnits)).toBe(true);
+  });
+
+  it('FASE 106-BIS (5): pending record dynamically unlocks and recalculates once material receives conversion factor', () => {
+    const pendingParkedRecord = {
+      id: 'rec-parked-1',
+      materialId: 'mat-guaina',
+      status: 'pending' as const,
+      inputUnit: 'kg' as const,
+      inputQuantity: 27,
+      grossWeight: 27,
+      tareWeight: 2,
+      netWeight: 25,
+      countedUnits: 0,
+      theoreticalUnitsAtScan: 80,
+      conversionFactor: undefined,
+      rapportoKgMt: undefined,
+    };
+
+    // Step 1: Material has no factor yet -> parked (missingConversionFactor: true)
+    const beforeFactor = resolveRecordMetrics(pendingParkedRecord, {
+      unitOfMeasure: 'mt',
+      rapportoKgMt: 0,
+      conversionFactor: 0,
+    });
+    expect(beforeFactor.missingConversionFactor).toBe(true);
+    expect(beforeFactor.countedUnits).toBe(0);
+    expect(beforeFactor.deltaUnits).toBeNull();
+
+    // Step 2: Admin sets rapportoKgMt = 0.25 on rawMaterials -> row unlocks automatically!
+    // Net weight = 27 - 2 = 25 kg -> 25 / 0.25 = 100 mt (Delta = +20 mt)
+    const afterFactor = resolveRecordMetrics(pendingParkedRecord, {
+      unitOfMeasure: 'mt',
+      rapportoKgMt: 0.25,
+      conversionFactor: 0,
+    });
+    expect(afterFactor.missingConversionFactor).toBe(false);
+    expect(afterFactor.countedUnits).toBe(100);
+    expect(afterFactor.deltaUnits).toBe(20);
+    expect(resolveRecordCountedUnits(pendingParkedRecord, { unitOfMeasure: 'mt', rapportoKgMt: 0.25 })).toBe(100);
+  });
+
+  it('FASE 106-BIS (6): aligns stock-logic.ts hydrateMaterialWithWithdrawals for mt using conversionFactor fallback', () => {
+    const mtWithConvFactor: RawMaterial = {
+      id: 'mat-mt-conv',
+      type: 'GUAINA',
+      code: 'GU-TEST',
+      description: 'Guaina con fattore in conversionFactor',
+      details: {},
+      unitOfMeasure: 'mt',
+      rapportoKgMt: 0,
+      conversionFactor: 0.25,
+      currentStockUnits: 100,
+      currentWeightKg: 100,
+      batches: [
+        {
+          id: 'b-gu-1',
+          date: '2026-01-10T00:00:00.000Z',
+          ddt: 'DDT-1',
+          lotto: 'LG-1',
+          netQuantity: 100,
+          grossWeight: 25,
+          tareWeight: 0,
+        },
+      ],
+    };
+
+    const hydrated = hydrateMaterialWithWithdrawals(mtWithConvFactor, [
+      {
+        id: 'w-gu-1',
+        jobIds: [],
+        jobOrderPFs: [],
+        materialId: 'mat-mt-conv',
+        materialCode: 'GU-TEST',
+        lotto: 'LG-1',
+        consumedUnits: 20,
+        consumedWeight: 5,
+        operatorId: 'op-1',
+        withdrawalDate: '2026-02-01T00:00:00.000Z',
+        status: 'completed',
+      },
+    ]);
+
+    expect(hydrated.currentStockUnits).toBe(80);
+    expect(hydrated.currentWeightKg).toBe(20); // 80 mt * 0.25 kg/mt = 20 kg
+    expect(hydrated.batches[0].currentWeightKg).toBe(20);
   });
 });
 

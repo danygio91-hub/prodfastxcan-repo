@@ -54,79 +54,12 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
   return JSON.parse(JSON.stringify(convertTimestamps(records)));
 }
 
-export async function approveInventoryRecord(recordId: string, uid: string): Promise<{ success: boolean; message: string; }> {
+export async function approveInventoryRecord(_recordId: string, uid: string): Promise<{ success: boolean; message: string; }> {
     await ensureAdmin(uid);
-    const recordRef = adminDb.collection('inventoryRecords').doc(recordId);
-    try {
-        const globalSettings = await getGlobalSettings();
-
-        await adminDb.runTransaction(async (transaction) => {
-            const rSnap = await transaction.get(recordRef);
-            if (!rSnap.exists || rSnap.data()?.status !== 'pending') throw new Error("Gìa processata.");
-            const record = rSnap.data() as InventoryRecord;
-
-            const mRef = adminDb.collection('rawMaterials').doc(record.materialId);
-            const [mSnap, withdrawalsSnap] = await Promise.all([
-                transaction.get(mRef),
-                adminDb.collection('materialWithdrawals').where('materialId', '==', record.materialId).get()
-            ]);
-
-            if (!mSnap.exists) throw new Error("Materiale non trovato.");
-            const material = mSnap.data() as RawMaterial;
-            const withdrawals = withdrawalsSnap.docs.map((d: any) => d.data());
-            
-            const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
-                id: material.type,
-                label: material.type,
-                defaultUnit: material.unitOfMeasure,
-                hasConversion: false
-            } as any;
-
-            // FIX: Always use the calculated netWeight from the record for stock movement.
-            // For KG materials, the operator inputs Gross weight, so we must use the already-subtracted netWeight.
-            const { unitsToChange, weightToChange } = calculateInventoryMovement(
-                material,
-                config,
-                record.netWeight,
-                'kg', // netWeight is always in KG
-                true, // Addition (Carico da inventario)
-                record.lotto
-            );
-            
-            const dateStr = (record.recordedAt instanceof admin.firestore.Timestamp) 
-                ? record.recordedAt.toDate().toISOString() 
-                : (record.recordedAt?.toDate?.())
-                    ? record.recordedAt.toDate().toISOString()
-                    : new Date(record.recordedAt).toISOString();
-
-            const newBatch: RawMaterialBatch = { 
-                id: `batch-inv-${record.id}`, 
-                inventoryRecordId: recordId, 
-                date: dateStr, 
-                ddt: `Inventario`, 
-                netQuantity: unitsToChange, 
-                grossWeight: record.grossWeight, // Truth: Use recorded gross weight
-                tareWeight: record.tareWeight,   // Truth: Use recorded tare
-                lotto: record.lotto 
-            };
-            
-            const updatedBatches = [...(material.batches || []), newBatch];
-            transaction.update(mRef, { 
-                batches: updatedBatches,
-                stock: admin.firestore.FieldValue.increment(unitsToChange),
-                currentStockUnits: admin.firestore.FieldValue.increment(unitsToChange),
-                currentWeightKg: admin.firestore.FieldValue.increment(weightToChange)
-            });
-            transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() });
-        });
-        await bumpMrpSyncVersion('stock', 'inventory-management:approveInventoryRecord');
-        revalidatePath('/admin/inventory-management');
-        revalidatePath('/admin/raw-material-management');
-        return { success: true, message: `Approvata.` };
-    } catch (e) { 
-        console.error("Errore approvazione:", e);
-        return { success: false, message: 'Errore durante l\'approvazione.' }; 
-    }
+    return {
+        success: false,
+        message: 'Azione deprecata: approvare le rilevazioni esclusivamente dal Registro Inventario SSoT (/admin/inventory-ledger) con riconciliazione per Delta.',
+    };
 }
 
 export async function deleteInventoryRecords(ids: string[], uid: string) {
@@ -220,9 +153,12 @@ export async function updateInventoryRecord(id: string, qty: number, unit: strin
     return { success: true, message: 'Aggiornata.' };
 }
 
-export async function approveMultipleInventoryRecords(ids: string[], uid: string) {
-    for (const id of ids) await approveInventoryRecord(id, uid);
-    return { success: true, message: 'Completato.' };
+export async function approveMultipleInventoryRecords(_ids: string[], uid: string): Promise<{ success: boolean; message: string; }> {
+    await ensureAdmin(uid);
+    return {
+        success: false,
+        message: 'Azione deprecata: approvare le rilevazioni esclusivamente dal Registro Inventario SSoT (/admin/inventory-ledger) con riconciliazione per Delta.',
+    };
 }
 
 export async function rejectMultipleInventoryRecords(ids: string[], uid: string) {

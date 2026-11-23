@@ -10,10 +10,12 @@ import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import {
   VIRTUAL_SESSION_2025_ID,
   VIRTUAL_SESSION_FREE_2026_ID,
+  computeInventoryMetrics,
   convertUnitsToWeightKg,
   doesRecordBelongToSession,
   evaluateLotsForInventorySession,
   getAggregatedLotsForMaterial,
+  getAllowedInventoryInputUnits,
   normInventoryLot,
   resolveRecordCountedUnits,
   resolveRecordMetrics,
@@ -28,6 +30,7 @@ import type {
   InventoryCountingSession,
   InventoryRecord,
   MaterialWithdrawal,
+  Packaging,
   RawMaterial,
   RawMaterialBatch,
   UnitOfMeasure,
@@ -62,13 +65,20 @@ function convertTimestamps(obj: any): any {
 
 export interface EnrichedLedgerInventoryRecord extends InventoryRecord {
   materialDescription: string;
+  materialType?: string;
   uom: UnitOfMeasure;
   countedUnits: number;
   liveTheoreticalUnits: number;
-  liveDeltaUnits: number;
+  liveDeltaUnits: number | null;
   resolvedSessionId: string;
   lotLoadDate?: string;
   lotLoadYear?: number;
+  isDirectCount: boolean;
+  hasWeightEstimate: boolean;
+  missingConversionFactor: boolean;
+  appliedFactor: number;
+  liveConversionFactor?: number;
+  liveRapportoKgMt?: number;
   isAnomaly?: boolean;
   anomalyReason?: string;
   hasNegativeNetWarning?: boolean;
@@ -87,6 +97,7 @@ export interface InventoryLedgerPageData {
   allActiveLots: LedgerLotCheckoffItem[];
   unscannedLots: LedgerLotCheckoffItem[];
   records: EnrichedLedgerInventoryRecord[];
+  packagingItems?: Packaging[];
 }
 
 /**
@@ -99,7 +110,7 @@ export interface InventoryLedgerPageData {
  */
 export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData> {
   try {
-    const [materialsSnap, withdrawalsSnap, recordsSnap, sessionsSnap] = await Promise.all([
+    const [materialsSnap, withdrawalsSnap, recordsSnap, sessionsSnap, packagingSnap] = await Promise.all([
       adminDb.collection('rawMaterials').get(),
       adminDb.collection('materialWithdrawals').get(),
       adminDb.collection('inventoryRecords').orderBy('recordedAt', 'desc').get(),
@@ -107,7 +118,20 @@ export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData>
         .collection('inventoryCountingSessions')
         .get()
         .catch(() => null),
+      adminDb
+        .collection('packaging')
+        .orderBy('name')
+        .get()
+        .catch(() => null),
     ]);
+
+    const packagingItems: Packaging[] =
+      packagingSnap && !packagingSnap.empty
+        ? packagingSnap.docs.map((pDoc) => ({
+            ...(convertTimestamps(pDoc.data()) as Packaging),
+            id: pDoc.id,
+          }))
+        : [];
 
     const withdrawalsByMaterial = new Map<string, MaterialWithdrawal[]>();
     withdrawalsSnap.docs.forEach((doc) => {
@@ -156,6 +180,7 @@ export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData>
         const matchedLot = lotMapByMaterialAndNormLot.get(lotKey);
 
         const countedUnits = toSafeFiniteNumber(resolvedMetrics.countedUnits, 0);
+        const missingConversionFactor = Boolean(resolvedMetrics.missingConversionFactor);
 
         // If pending, compare against live SSoT theoretical stock; if approved, show historical or live
         const hasApprovedTheoretical =
@@ -176,7 +201,9 @@ export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData>
 
         const liveDeltaUnits = hasApprovedDelta
           ? toSafeFiniteNumber(rawRec.deltaApplied, 0)
-          : Number((countedUnits - liveTheoreticalUnits).toFixed(4));
+          : missingConversionFactor
+            ? null
+            : Number((countedUnits - liveTheoreticalUnits).toFixed(4));
 
         const missingMaterialAnomaly = !mat;
         const isAnomaly = Boolean(resolvedMetrics.isAnomaly || missingMaterialAnomaly);
@@ -192,20 +219,31 @@ export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData>
           materialId: rawRec.materialId || '',
           materialCode: String(rawRec.materialCode ?? mat?.code ?? 'N/D'),
           materialDescription: String(mat?.description ?? ''),
+          materialType: mat?.type,
           lotto: String(rawRec.lotto ?? '').trim() || 'SENZA_LOTTO',
           operatorName: String(rawRec.operatorName ?? 'Operatore'),
           uom,
-          inputUnit: toSafeUom(rawRec.inputUnit, uom),
+          inputUnit: resolvedMetrics.inputUnit,
           inputQuantity: toSafeFiniteNumber(rawRec.inputQuantity, 0),
-          grossWeight: toSafeFiniteNumber(rawRec.grossWeight, resolvedMetrics.grossWeight),
-          tareWeight: toSafeFiniteNumber(rawRec.tareWeight, resolvedMetrics.tareWeight),
+          grossWeight: resolvedMetrics.isDirectCount
+            ? resolvedMetrics.grossWeight
+            : toSafeFiniteNumber(rawRec.grossWeight, resolvedMetrics.grossWeight),
+          tareWeight: resolvedMetrics.isDirectCount
+            ? 0
+            : toSafeFiniteNumber(rawRec.tareWeight, resolvedMetrics.tareWeight),
           netWeight: Math.max(0, toSafeFiniteNumber(resolvedMetrics.netWeight, 0)),
           countedUnits: Number(countedUnits.toFixed(4)),
           liveTheoreticalUnits: Number(liveTheoreticalUnits.toFixed(4)),
-          liveDeltaUnits: Number(liveDeltaUnits.toFixed(4)),
+          liveDeltaUnits: liveDeltaUnits === null ? null : Number(liveDeltaUnits.toFixed(4)),
           resolvedSessionId,
           lotLoadDate: matchedLot?.lotLoadDate,
           lotLoadYear: matchedLot?.lotLoadYear,
+          isDirectCount: resolvedMetrics.isDirectCount,
+          hasWeightEstimate: resolvedMetrics.hasWeightEstimate,
+          missingConversionFactor,
+          appliedFactor: resolvedMetrics.appliedFactor,
+          liveConversionFactor: mat?.conversionFactor ?? undefined,
+          liveRapportoKgMt: mat?.rapportoKgMt ?? undefined,
           isAnomaly,
           hasNegativeNetWarning: resolvedMetrics.hasNegativeNetWarning,
           ...(anomalyReason ? { anomalyReason } : {}),
@@ -241,6 +279,10 @@ export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData>
           liveTheoreticalUnits: 0,
           liveDeltaUnits: 0,
           resolvedSessionId: VIRTUAL_SESSION_2025_ID,
+          isDirectCount: false,
+          hasWeightEstimate: true,
+          missingConversionFactor: false,
+          appliedFactor: 1,
           isAnomaly: true,
           anomalyReason: 'Record storico malformato',
         });
@@ -367,6 +409,7 @@ export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData>
         allActiveLots: evaluated.allActiveLots,
         unscannedLots: evaluated.unscannedLots,
         records: enrichedRecords,
+        packagingItems,
       })
     );
   } catch (err) {
@@ -389,6 +432,7 @@ export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData>
       allActiveLots: [],
       unscannedLots: [],
       records: [],
+      packagingItems: [],
     };
   }
 }
@@ -403,7 +447,8 @@ export async function getInventoryLedgerData(): Promise<InventoryLedgerPageData>
  */
 export async function approveLedgerInventoryRecord(
   recordId: string,
-  adminUid: string
+  adminUid: string,
+  options?: { skipSideEffects?: boolean }
 ): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(adminUid);
@@ -446,6 +491,17 @@ export async function approveLedgerInventoryRecord(
       }));
 
       const hydrated = hydrateMaterialWithWithdrawals(rawMaterial, withdrawals);
+      const metrics = resolveRecordMetrics(record, hydrated);
+
+      if (metrics.missingConversionFactor) {
+        throw new Error(
+          'Impossibile approvare: manca il fattore di conversione kg/mt o kg/pz in anagrafica.'
+        );
+      }
+      if (metrics.hasNegativeNetWarning) {
+        throw new Error('Impossibile approvare: tara superiore al peso lordo.');
+      }
+
       const aggregatedLots = getAggregatedLotsForMaterial(hydrated);
 
       const cleanLotto = (record.lotto || '').trim() || 'SENZA_LOTTO';
@@ -453,7 +509,7 @@ export async function approveLedgerInventoryRecord(
       const matchingLot = aggregatedLots.find((l) => l.normLotto === targetNormLot);
 
       const theoreticalUnitsLive = matchingLot ? matchingLot.theoreticalUnits : 0;
-      const countedUnits = resolveRecordCountedUnits(record, hydrated);
+      const countedUnits = metrics.countedUnits;
       const delta = Number((countedUnits - theoreticalUnitsLive).toFixed(4));
       const deltaWeightKg = convertUnitsToWeightKg(delta, hydrated);
       const uom = hydrated.unitOfMeasure;
@@ -474,6 +530,7 @@ export async function approveLedgerInventoryRecord(
           countedUnits,
           theoreticalUnitsAtApproval: theoreticalUnitsLive,
           deltaApplied: 0,
+          missingConversionFactor: false,
           ledgerActionType: 'NONE',
           ledgerRefId: null,
         });
@@ -482,6 +539,7 @@ export async function approveLedgerInventoryRecord(
       } else if (delta > 0.0001) {
         // Delta > 0: Append immutable RETTIFICA_INVENTARIO batch
         const newBatchId = `batch-inv-ssot-${record.id}`;
+        const tareWeightForBatch = metrics.isDirectCount ? 0 : (record.tareWeight || 0);
         const newBatch: RawMaterialBatch = {
           id: newBatchId,
           inventoryRecordId: record.id,
@@ -491,10 +549,10 @@ export async function approveLedgerInventoryRecord(
           isReturn: true,
           lotto: cleanLotto,
           netQuantity: Number(delta.toFixed(4)),
-          grossWeight: Number((deltaWeightKg + (record.tareWeight || 0)).toFixed(4)),
-          tareWeight: record.tareWeight || 0,
-          ...(record.tareName ? { tareName: record.tareName } : {}),
-          ...(record.packagingId ? { packagingId: record.packagingId } : {}),
+          grossWeight: Number((deltaWeightKg + tareWeightForBatch).toFixed(4)),
+          tareWeight: tareWeightForBatch,
+          ...(tareWeightForBatch > 0 && record.tareName ? { tareName: record.tareName } : {}),
+          ...(tareWeightForBatch > 0 && record.packagingId ? { packagingId: record.packagingId } : {}),
           isExhausted: false,
         };
 
@@ -521,6 +579,7 @@ export async function approveLedgerInventoryRecord(
           countedUnits,
           theoreticalUnitsAtApproval: theoreticalUnitsLive,
           deltaApplied: Number(delta.toFixed(4)),
+          missingConversionFactor: false,
           ledgerActionType: 'ADD_BATCH',
           ledgerRefId: newBatchId,
         });
@@ -572,6 +631,7 @@ export async function approveLedgerInventoryRecord(
           countedUnits,
           theoreticalUnitsAtApproval: theoreticalUnitsLive,
           deltaApplied: Number(delta.toFixed(4)),
+          missingConversionFactor: false,
           ledgerActionType: 'WITHDRAWAL',
           ledgerRefId: withdrawalId,
         });
@@ -580,11 +640,13 @@ export async function approveLedgerInventoryRecord(
       }
     });
 
-    await bumpMrpSyncVersion('stock', 'inventory-ledger:approveLedgerInventoryRecord');
-    revalidatePath('/admin/inventory-ledger');
-    revalidatePath('/admin/inventory-management');
-    revalidatePath('/admin/raw-material-management');
-    revalidatePath('/admin/batch-management');
+    if (!options?.skipSideEffects) {
+      await bumpMrpSyncVersion('stock', 'inventory-ledger:approveLedgerInventoryRecord');
+      revalidatePath('/admin/inventory-ledger');
+      revalidatePath('/admin/inventory-management');
+      revalidatePath('/admin/raw-material-management');
+      revalidatePath('/admin/batch-management');
+    }
     return { success: true, message: resultMsg };
   } catch (error) {
     return {
@@ -597,7 +659,7 @@ export async function approveLedgerInventoryRecord(
 /**
  * Batch version of approveLedgerInventoryRecord.
  * Processes records sequentially so multiple records on the same material/lot
- * see each other's updated SSoT state cleanly.
+ * see each other's updated SSoT state cleanly, executing bumpMrpSyncVersion and revalidatePath once at the end.
  */
 export async function approveMultipleLedgerInventoryRecords(
   recordIds: string[],
@@ -605,15 +667,16 @@ export async function approveMultipleLedgerInventoryRecords(
 ): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(adminUid);
-    if (!recordIds || recordIds.length === 0) {
+    const cleanIds = Array.from(new Set((recordIds || []).filter(Boolean)));
+    if (cleanIds.length === 0) {
       return { success: false, message: 'Nessun record selezionato.' };
     }
 
     let approvedCount = 0;
     const errors: string[] = [];
 
-    for (const id of recordIds) {
-      const res = await approveLedgerInventoryRecord(id, adminUid);
+    for (const id of cleanIds) {
+      const res = await approveLedgerInventoryRecord(id, adminUid, { skipSideEffects: true });
       if (res.success) {
         approvedCount++;
       } else {
@@ -621,10 +684,18 @@ export async function approveMultipleLedgerInventoryRecords(
       }
     }
 
+    if (approvedCount > 0) {
+      await bumpMrpSyncVersion('stock', 'inventory-ledger:approveMultipleLedgerInventoryRecords');
+      revalidatePath('/admin/inventory-ledger');
+      revalidatePath('/admin/inventory-management');
+      revalidatePath('/admin/raw-material-management');
+      revalidatePath('/admin/batch-management');
+    }
+
     if (errors.length > 0) {
       return {
         success: approvedCount > 0,
-        message: `Approvate ${approvedCount}/${recordIds.length} rilevazioni. Errori: ${errors.join('; ')}`,
+        message: `Approvate ${approvedCount}/${cleanIds.length} rilevazioni. Bloccate/Errori: ${errors.join('; ')}`,
       };
     }
 
@@ -968,6 +1039,277 @@ export async function rejectLedgerInventoryRecord(
     return {
       success: false,
       message: error instanceof Error ? error.message : 'Errore durante il rifiuto.',
+    };
+  }
+}
+
+/**
+ * FASE 106-BIS: Annullamento/Rifiuto massivo di rilevazioni pendenti a chunk (max 400 ops/batch).
+ * Ignora eventuali record già approvati; non altera alcuna giacenza di magazzino.
+ */
+export async function rejectMultipleLedgerInventoryRecords(
+  recordIds: string[],
+  adminUid: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(adminUid);
+    const cleanIds = Array.from(new Set((recordIds || []).map((id) => String(id).trim()).filter(Boolean)));
+    if (cleanIds.length === 0) {
+      return { success: false, message: 'Nessuna rilevazione selezionata.' };
+    }
+
+    const refsToReject: FirebaseFirestore.DocumentReference[] = [];
+    let skippedApprovedCount = 0;
+
+    for (let i = 0; i < cleanIds.length; i += 200) {
+      const refChunk = cleanIds
+        .slice(i, i + 200)
+        .map((id) => adminDb.collection('inventoryRecords').doc(id));
+      const snaps = await adminDb.getAll(...refChunk);
+      for (const snap of snaps) {
+        if (!snap.exists) continue;
+        const status = snap.data()?.status;
+        if (status === 'approved') {
+          skippedApprovedCount++;
+          continue;
+        }
+        if (status !== 'rejected') {
+          refsToReject.push(snap.ref);
+        }
+      }
+    }
+
+    const FIRESTORE_BATCH_LIMIT = 400;
+    const nowTs = admin.firestore.Timestamp.now();
+    for (let i = 0; i < refsToReject.length; i += FIRESTORE_BATCH_LIMIT) {
+      const batch = adminDb.batch();
+      const chunk = refsToReject.slice(i, i + FIRESTORE_BATCH_LIMIT);
+      for (const ref of chunk) {
+        batch.update(ref, {
+          status: 'rejected',
+          approvedBy: adminUid,
+          approvedAt: nowTs,
+        });
+      }
+      await batch.commit();
+    }
+
+    revalidatePath('/admin/inventory-ledger');
+    revalidatePath('/admin/inventory-management');
+
+    const skipSuffix =
+      skippedApprovedCount > 0 ? ` (${skippedApprovedCount} già approvate ignorate)` : '';
+    return {
+      success: true,
+      message: `${refsToReject.length} rilevazioni rifiutate con zero modifiche alle giacenze.${skipSuffix}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Errore durante il rifiuto massivo.',
+    };
+  }
+}
+
+/**
+ * FASE 106-BIS: Modifica controllata di una riga inventario in stato `pending` prima dell'approvazione,
+ * con eventuale sblocco rapido del fattore di conversione (rapportoKgMt / conversionFactor) sul materiale.
+ */
+export async function updatePendingLedgerInventoryRecord(
+  params: {
+    recordId: string;
+    lotto: string;
+    inputUnit: UnitOfMeasure;
+    inputQuantity: number;
+    packagingId?: string | null;
+    newMaterialFactor?: number | null;
+  },
+  adminUid: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(adminUid);
+
+    const recordId = String(params.recordId || '').trim();
+    if (!recordId) {
+      return { success: false, message: 'ID rilevazione mancante.' };
+    }
+
+    const numericQty = Number(params.inputQuantity);
+    if (!Number.isFinite(numericQty) || numericQty < 0) {
+      return { success: false, message: 'Inserisci una quantità valida (>= 0).' };
+    }
+
+    let didUpdateMaterialFactor = false;
+    let finalMessage = 'Rilevazione pendente aggiornata.';
+
+    await adminDb.runTransaction(async (transaction) => {
+      // 1. ALL READS FIRST
+      const recordRef = adminDb.collection('inventoryRecords').doc(recordId);
+      const recordDoc = await transaction.get(recordRef);
+
+      if (!recordDoc.exists) {
+        throw new Error('Rilevazione inventario non trovata.');
+      }
+
+      const existingRecord = { ...(recordDoc.data() as InventoryRecord), id: recordDoc.id };
+      if (existingRecord.status !== 'pending') {
+        throw new Error('Solo le rilevazioni in stato "In Attesa" possono essere modificate.');
+      }
+
+      const materialRef = adminDb.collection('rawMaterials').doc(existingRecord.materialId);
+      const withdrawalsQuery = adminDb
+        .collection('materialWithdrawals')
+        .where('materialId', '==', existingRecord.materialId);
+
+      const cleanPackagingId =
+        params.inputUnit === 'kg' && params.packagingId && params.packagingId !== 'none'
+          ? String(params.packagingId).trim()
+          : '';
+
+      const packagingRef = cleanPackagingId
+        ? adminDb.collection('packaging').doc(cleanPackagingId)
+        : null;
+
+      const [materialDoc, withdrawalsSnap, packagingDoc] = await Promise.all([
+        transaction.get(materialRef),
+        transaction.get(withdrawalsQuery),
+        packagingRef ? transaction.get(packagingRef) : Promise.resolve(null),
+      ]);
+
+      if (!materialDoc.exists) {
+        throw new Error('Materia prima associata non trovata.');
+      }
+
+      const rawMaterial = { ...(materialDoc.data() as RawMaterial), id: materialDoc.id };
+      const allowedUnits = getAllowedInventoryInputUnits(rawMaterial.unitOfMeasure);
+      if (!allowedUnits.includes(params.inputUnit)) {
+        throw new Error(
+          `Unità "${params.inputUnit.toUpperCase()}" non consentita per materiale gestito in ${rawMaterial.unitOfMeasure.toUpperCase()}.`
+        );
+      }
+
+      const withdrawals: MaterialWithdrawal[] = withdrawalsSnap.docs.map((d) => ({
+        ...(d.data() as MaterialWithdrawal),
+        id: d.id,
+      }));
+
+      // Eventuale aggiornamento rapido del fattore di conversione sul materiale (sinergia Opzione B)
+      const factorUpdatePayload: Record<string, number> = {};
+      let materialWithUpdatedFactor: RawMaterial = rawMaterial;
+      if (
+        typeof params.newMaterialFactor === 'number' &&
+        Number.isFinite(params.newMaterialFactor) &&
+        params.newMaterialFactor > 0 &&
+        (rawMaterial.unitOfMeasure === 'mt' || rawMaterial.unitOfMeasure === 'n')
+      ) {
+        if (rawMaterial.unitOfMeasure === 'mt') {
+          const prevFactor = Number(rawMaterial.rapportoKgMt || 0);
+          if (Math.abs(prevFactor - params.newMaterialFactor) > 1e-6) {
+            factorUpdatePayload.rapportoKgMt = params.newMaterialFactor;
+            materialWithUpdatedFactor = { ...rawMaterial, rapportoKgMt: params.newMaterialFactor };
+            didUpdateMaterialFactor = true;
+          }
+        } else {
+          const prevFactor = Number(rawMaterial.conversionFactor || 0);
+          if (Math.abs(prevFactor - params.newMaterialFactor) > 1e-6) {
+            factorUpdatePayload.conversionFactor = params.newMaterialFactor;
+            materialWithUpdatedFactor = {
+              ...rawMaterial,
+              conversionFactor: params.newMaterialFactor,
+            };
+            didUpdateMaterialFactor = true;
+          }
+        }
+      }
+
+      const hydrated = hydrateMaterialWithWithdrawals(materialWithUpdatedFactor, withdrawals);
+      const aggregatedLots = getAggregatedLotsForMaterial(hydrated);
+
+      const cleanLotto = (params.lotto || '').trim() || 'SENZA_LOTTO';
+      const targetNormLot = normInventoryLot(cleanLotto);
+      const matchingLot = aggregatedLots.find((l) => l.normLotto === targetNormLot);
+      const theoreticalUnitsAtScan = matchingLot ? matchingLot.theoreticalUnits : 0;
+
+      let tareWeight = 0;
+      let tareName: string | undefined = undefined;
+      if (params.inputUnit === 'kg' && packagingDoc?.exists) {
+        const pkgData = packagingDoc.data() as Packaging;
+        tareWeight = pkgData.weightKg || 0;
+        tareName = pkgData.name;
+      }
+
+      const metrics = computeInventoryMetrics({
+        material: hydrated,
+        inputQuantity: numericQty,
+        inputUnit: params.inputUnit,
+        tareWeight,
+        theoreticalUnitsAtScan,
+      });
+
+      if (metrics.hasNegativeNetWarning) {
+        throw new Error(
+          'Il peso lordo inserito è inferiore alla tara selezionata. Correggi peso o imballo.'
+        );
+      }
+
+      // 2. WRITES
+      if (didUpdateMaterialFactor) {
+        transaction.update(materialRef, factorUpdatePayload);
+        await recalculateMaterialStock(rawMaterial.id, transaction, {
+          material: hydrated,
+          withdrawals,
+        });
+      }
+
+      transaction.update(recordRef, {
+        lotto: cleanLotto,
+        inputUnit: params.inputUnit,
+        inputQuantity: numericQty,
+        packagingId:
+          params.inputUnit === 'kg' && cleanPackagingId
+            ? cleanPackagingId
+            : admin.firestore.FieldValue.delete(),
+        tareName:
+          params.inputUnit === 'kg' && tareName
+            ? tareName
+            : admin.firestore.FieldValue.delete(),
+        tareWeight: metrics.tareWeight,
+        netWeight: metrics.netWeight,
+        grossWeight: metrics.grossWeight,
+        uom: hydrated.unitOfMeasure,
+        materialUnitOfMeasure: hydrated.unitOfMeasure,
+        countedUnits: metrics.countedUnits,
+        theoreticalUnitsAtScan: metrics.theoreticalUnitsAtScan,
+        deltaUnits: metrics.deltaUnits,
+        missingConversionFactor: metrics.missingConversionFactor,
+        isDirectCount: metrics.isDirectCount,
+        hasWeightEstimate: metrics.hasWeightEstimate,
+        ...(hydrated.conversionFactor
+          ? { conversionFactor: hydrated.conversionFactor }
+          : { conversionFactor: admin.firestore.FieldValue.delete() }),
+        ...(hydrated.rapportoKgMt
+          ? { rapportoKgMt: hydrated.rapportoKgMt }
+          : { rapportoKgMt: admin.firestore.FieldValue.delete() }),
+      });
+
+      finalMessage = didUpdateMaterialFactor
+        ? `Rilevazione e fattore ${hydrated.code} aggiornati (Resta in Attesa di Approvazione).`
+        : `Rilevazione aggiornata per Lotto "${cleanLotto}" (Resta in Attesa di Approvazione).`;
+    });
+
+    if (didUpdateMaterialFactor) {
+      await bumpMrpSyncVersion('stock', 'inventory-ledger:updatePendingLedgerInventoryRecord');
+      revalidatePath('/admin/raw-material-management');
+      revalidatePath('/admin/batch-management');
+    }
+    revalidatePath('/admin/inventory-ledger');
+    revalidatePath('/admin/inventory-management');
+
+    return { success: true, message: finalMessage };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Errore durante la modifica della riga.',
     };
   }
 }

@@ -74,7 +74,9 @@ import { useCameraStream } from '@/hooks/use-camera-stream';
 import {
   computeInventoryMetrics,
   getAggregatedLotsForMaterial,
+  getAllowedInventoryInputUnits,
   normInventoryLot,
+  resolveMaterialConversionFactor,
   type AggregatedMaterialLot,
 } from '@/lib/inventory-ledger-logic';
 
@@ -104,6 +106,7 @@ export default function InventoryPage() {
   const [activeSession, setActiveSession] = useState<InventoryCountingSession | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isLottoScanOpen, setIsLottoScanOpen] = useState(false);
+  const [showAllPackaging, setShowAllPackaging] = useState(false);
 
   // Manual search / autocomplete state
   const [searchQuery, setSearchQuery] = useState('');
@@ -160,8 +163,11 @@ export default function InventoryPage() {
     }
 
     const numericQty = Number(rawEnteredQuantity);
+    const effectiveUnit = inputUnit || scannedMaterial.unitOfMeasure;
     const selectedTara =
-      packagingItems.find((p) => p.id === selectedPackagingId)?.weightKg || 0;
+      effectiveUnit === 'kg'
+        ? packagingItems.find((p) => p.id === selectedPackagingId)?.weightKg || 0
+        : 0;
     const theoreticalUnitsAtScan = activeLotIdentikit
       ? activeLotIdentikit.theoreticalUnits
       : 0;
@@ -170,7 +176,7 @@ export default function InventoryPage() {
       return computeInventoryMetrics({
         material: scannedMaterial,
         inputQuantity: numericQty,
-        inputUnit: inputUnit || scannedMaterial.unitOfMeasure,
+        inputUnit: effectiveUnit,
         tareWeight: selectedTara,
         theoreticalUnitsAtScan,
       });
@@ -228,6 +234,7 @@ export default function InventoryPage() {
   const selectMaterialAndLot = useCallback(
     (material: RawMaterial, preselectedLotto?: string) => {
       setScannedMaterial(material);
+      setShowAllPackaging(false);
       const lots = getAggregatedLotsForMaterial(material);
       const activeLots = lots.filter((l) => !l.isExhausted);
 
@@ -240,14 +247,17 @@ export default function InventoryPage() {
         ? lots.find((l) => l.normLotto === normInventoryLot(chosenLotto))
         : null;
 
+      const allowedUnits = getAllowedInventoryInputUnits(material.unitOfMeasure);
+      const defaultUnit = allowedUnits[0] || material.unitOfMeasure;
+
       if (operator) {
         form.reset({
           materialId: material.id,
           lotto: chosenLotto,
-          packagingId: matchedLot?.packagingId || 'none',
+          packagingId: defaultUnit === 'kg' ? (matchedLot?.packagingId || 'none') : 'none',
           operatorId: operator.id,
           operatorName: operator.nome,
-          inputUnit: material.unitOfMeasure,
+          inputUnit: defaultUnit,
           inputQuantity: undefined,
         });
       }
@@ -277,11 +287,13 @@ export default function InventoryPage() {
   const handleSelectLotChip = useCallback(
     (lot: AggregatedMaterialLot) => {
       form.setValue('lotto', lot.lotto, { shouldValidate: true });
-      if (lot.packagingId) {
+      if (inputUnit === 'kg' && lot.packagingId) {
         form.setValue('packagingId', lot.packagingId, { shouldValidate: true });
+      } else if (inputUnit !== 'kg') {
+        form.setValue('packagingId', 'none', { shouldValidate: true });
       }
     },
-    [form]
+    [form, inputUnit]
   );
 
   const handleLottoScanned = useCallback(
@@ -291,8 +303,10 @@ export default function InventoryPage() {
       const matched = aggregatedLots.find(
         (l) => l.normLotto === normInventoryLot(trimmed)
       );
-      if (matched?.packagingId) {
+      if (inputUnit === 'kg' && matched?.packagingId) {
         form.setValue('packagingId', matched.packagingId, { shouldValidate: true });
+      } else if (inputUnit !== 'kg') {
+        form.setValue('packagingId', 'none', { shouldValidate: true });
       }
       setIsLottoScanOpen(false);
       toast({
@@ -300,7 +314,7 @@ export default function InventoryPage() {
         description: `Lotto "${trimmed}" selezionato.`,
       });
     },
-    [form, toast, aggregatedLots]
+    [form, toast, aggregatedLots, inputUnit]
   );
 
   const triggerScan = async (onScan: (code: string) => void) => {
@@ -384,20 +398,70 @@ export default function InventoryPage() {
 
   const resetFlow = () => {
     setScannedMaterial(null);
+    setShowAllPackaging(false);
     form.reset();
     setStep('scan_material');
   };
 
-  // Available units for universal input selector
+  // Forza packagingId = 'none' quando l'unità non è KG (conteggio diretto)
+  useEffect(() => {
+    if (inputUnit !== 'kg' && selectedPackagingId !== 'none') {
+      form.setValue('packagingId', 'none', { shouldValidate: true });
+    }
+  }, [inputUnit, selectedPackagingId, form]);
+
+  // Available units for universal input selector (guidato dalla matrice SSoT)
   const availableInputUnits = useMemo<UnitOfMeasure[]>(() => {
-    if (!scannedMaterial) return ['kg', 'mt', 'n'];
-    const base = scannedMaterial.unitOfMeasure;
-    const list: UnitOfMeasure[] = [base];
-    if (!list.includes('kg')) list.push('kg');
-    if (!list.includes('mt')) list.push('mt');
-    if (!list.includes('n')) list.push('n');
-    return list;
+    if (!scannedMaterial) return ['kg'];
+    return getAllowedInventoryInputUnits(scannedMaterial.unitOfMeasure);
   }, [scannedMaterial]);
+
+  const { compatiblePackagingItems, hasFilteredPackagingSubset } = useMemo(() => {
+    const matType = String(scannedMaterial?.type || '').trim().toUpperCase();
+    if (!matType) {
+      return { compatiblePackagingItems: packagingItems, hasFilteredPackagingSubset: false };
+    }
+    const compatible = packagingItems.filter((p) => {
+      const types = Array.isArray(p.associatedTypes) ? p.associatedTypes : [];
+      return types.some((t) => String(t || '').trim().toUpperCase() === matType);
+    });
+    if (compatible.length === 0) {
+      return { compatiblePackagingItems: packagingItems, hasFilteredPackagingSubset: false };
+    }
+    return {
+      compatiblePackagingItems: compatible,
+      hasFilteredPackagingSubset: compatible.length < packagingItems.length,
+    };
+  }, [packagingItems, scannedMaterial?.type]);
+
+  const displayedPackagingItems = useMemo(() => {
+    if (showAllPackaging || !hasFilteredPackagingSubset) return packagingItems;
+    if (selectedPackagingId && selectedPackagingId !== 'none') {
+      const extra = packagingItems.find(
+        (p) => p.id === selectedPackagingId && !compatiblePackagingItems.some((c) => c.id === p.id)
+      );
+      if (extra) return [...compatiblePackagingItems, extra];
+    }
+    return compatiblePackagingItems;
+  }, [
+    showAllPackaging,
+    hasFilteredPackagingSubset,
+    packagingItems,
+    compatiblePackagingItems,
+    selectedPackagingId,
+  ]);
+
+  const liveMaterialFactor = useMemo(() => {
+    if (!scannedMaterial) return 0;
+    return resolveMaterialConversionFactor(scannedMaterial, scannedMaterial.unitOfMeasure);
+  }, [scannedMaterial]);
+
+  const isMissingFactorForWeightMode = Boolean(
+    scannedMaterial &&
+      inputUnit === 'kg' &&
+      scannedMaterial.unitOfMeasure !== 'kg' &&
+      liveMaterialFactor <= 0
+  );
 
   if (authLoading || !operator) {
     return (
@@ -698,17 +762,16 @@ export default function InventoryPage() {
                             </span>
                           </span>
                         </div>
-                        {activeLotIdentikit ? (
-                          <Badge
-                            variant={activeLotIdentikit.isExhausted ? 'secondary' : 'default'}
-                          >
-                            {activeLotIdentikit.isExhausted
-                              ? 'Lotto Esaurito a Sistema'
-                              : 'Lotto Attivo a Sistema'}
+                        {activeLotIdentikit && !activeLotIdentikit.isExhausted ? (
+                          <Badge variant="default">
+                            Lotto Attivo a Sistema
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="border-amber-500 text-amber-600">
-                            Nuovo Lotto / Non Presente a Sistema
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                          >
+                            Lotto non attivo a sistema — verrà inviato in approvazione come reintegro (+)
                           </Badge>
                         )}
                       </div>
@@ -755,7 +818,7 @@ export default function InventoryPage() {
                       </div>
                     </div>
 
-                    {/* Selettore Universale Unità di Misura (UdM nativa, KG, MT, N) */}
+                    {/* Selettore Guidato Unità di Misura (consentite per la UdM nativa) */}
                     <FormField
                       control={form.control}
                       name="inputUnit"
@@ -764,7 +827,12 @@ export default function InventoryPage() {
                           <FormLabel className="font-semibold">
                             Unità di Misura della Rilevazione
                           </FormLabel>
-                          <div className="grid grid-cols-3 gap-2">
+                          <div
+                            className={cn(
+                              'grid gap-2',
+                              availableInputUnits.length === 1 ? 'grid-cols-1 max-w-xs' : 'grid-cols-2'
+                            )}
+                          >
                             {availableInputUnits.map((u) => {
                               const isNative = u === scannedMaterial.unitOfMeasure;
                               const isSelected = field.value === u;
@@ -773,11 +841,20 @@ export default function InventoryPage() {
                                   key={u}
                                   type="button"
                                   variant={isSelected ? 'default' : 'outline'}
-                                  onClick={() => field.onChange(u)}
+                                  onClick={() => {
+                                    field.onChange(u);
+                                    if (u !== 'kg') {
+                                      form.setValue('packagingId', 'none', { shouldValidate: true });
+                                    } else if (activeLotIdentikit?.packagingId) {
+                                      form.setValue('packagingId', activeLotIdentikit.packagingId, {
+                                        shouldValidate: true,
+                                      });
+                                    }
+                                  }}
                                   className="h-10 font-bold uppercase"
                                 >
                                   {u.toUpperCase()}
-                                  {isNative ? ' (UdM Base)' : ''}
+                                  {isNative ? ' (Conteggio Diretto / UdM Base)' : ' (Pesatura Bilancia)'}
                                 </Button>
                               );
                             })}
@@ -786,8 +863,13 @@ export default function InventoryPage() {
                       )}
                     />
 
-                    {/* Input Quantità Rilevata (con supporto 0) e Tara */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Input Quantità Rilevata (con supporto 0) e Tara (visibile solo per pesatura KG) */}
+                    <div
+                      className={cn(
+                        'grid grid-cols-1 gap-4',
+                        inputUnit === 'kg' ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
+                      )}
+                    >
                       <FormField
                         control={form.control}
                         name="inputQuantity"
@@ -831,34 +913,49 @@ export default function InventoryPage() {
                         )}
                       />
 
-                      <FormField
-                        control={form.control}
-                        name="packagingId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="flex items-center font-semibold">
-                              <Archive className="mr-1.5 h-4 w-4" />
-                              Tara (Imballo)
-                            </FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value || 'none'}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Nessuna" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">Nessuna Tara (0.000 kg)</SelectItem>
-                                {packagingItems.map((item) => (
-                                  <SelectItem key={item.id} value={item.id}>
-                                    {item.name} ({item.weightKg.toFixed(3)} kg)
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      {inputUnit === 'kg' && (
+                        <FormField
+                          control={form.control}
+                          name="packagingId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <div className="flex items-center justify-between gap-2">
+                                <FormLabel className="flex items-center font-semibold">
+                                  <Archive className="mr-1.5 h-4 w-4" />
+                                  Tara (Imballo)
+                                </FormLabel>
+                                {hasFilteredPackagingSubset && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                                    onClick={() => setShowAllPackaging((prev) => !prev)}
+                                  >
+                                    {showAllPackaging ? 'Solo compatibili' : 'Mostra tutti gli imballi'}
+                                  </Button>
+                                )}
+                              </div>
+                              <Select onValueChange={field.onChange} value={field.value || 'none'}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Nessuna" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="none">Nessuna Tara (0.000 kg)</SelectItem>
+                                  {displayedPackagingItems.map((item) => (
+                                    <SelectItem key={item.id} value={item.id}>
+                                      {item.name} ({item.weightKg.toFixed(3)} kg)
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
                     </div>
 
                     {liveMetrics?.hasNegativeNetWarning && (
@@ -871,30 +968,57 @@ export default function InventoryPage() {
                       </Alert>
                     )}
 
+                    {(liveMetrics?.missingConversionFactor ||
+                      (isMissingFactorForWeightMode &&
+                        (rawEnteredQuantity === undefined ||
+                          String(rawEnteredQuantity).trim() === ''))) && (
+                      <Alert className="border-amber-500/60 bg-amber-500/10 text-amber-800 dark:text-amber-300">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        <AlertTitle>Pesa e Parcheggia — Fattore Mancante</AlertTitle>
+                        <AlertDescription>
+                          Fattore{' '}
+                          {scannedMaterial.unitOfMeasure === 'mt' ? 'kg/mt' : 'kg/pz'}{' '}
+                          mancante in anagrafica: la pesata verrà parcheggiata in attesa di verifica ufficio.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     {/* Riepilogo Calcolo Live: CountedUnits, NetWeight, e Delta rispetto a SSoT */}
                     <div className="p-4 rounded-xl border bg-muted/40 grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
                         <Label className="text-xs text-muted-foreground">
                           Giacenza Rilevata ({scannedMaterial.unitOfMeasure.toUpperCase()})
                         </Label>
-                        <p className="text-xl font-bold text-primary">
-                          {liveMetrics !== null
-                            ? formatDisplayStock(
-                                liveMetrics.countedUnits,
-                                scannedMaterial.unitOfMeasure
-                              )
-                            : '---'}
-                        </p>
+                        {liveMetrics?.missingConversionFactor ? (
+                          <p className="text-sm font-bold text-amber-600 dark:text-amber-400 mt-1">
+                            In attesa fattore (da convertire in ufficio)
+                          </p>
+                        ) : (
+                          <p className="text-xl font-bold text-primary">
+                            {liveMetrics !== null
+                              ? formatDisplayStock(
+                                  liveMetrics.countedUnits,
+                                  scannedMaterial.unitOfMeasure
+                                )
+                              : '---'}
+                          </p>
+                        )}
                       </div>
 
                       <div>
                         <Label className="text-xs text-muted-foreground">
-                          Peso Netto Calcolato (KG)
+                          {liveMetrics?.isDirectCount
+                            ? 'Peso Stimato (KG)'
+                            : 'Peso Netto Calcolato (KG)'}
                         </Label>
                         <p className="text-xl font-bold text-foreground">
-                          {liveMetrics !== null
-                            ? formatDisplayStock(liveMetrics.netWeight, 'kg')
-                            : '---'}
+                          {liveMetrics === null
+                            ? '---'
+                            : liveMetrics.isDirectCount && !liveMetrics.hasWeightEstimate
+                              ? 'N/D (Conteggio diretto)'
+                              : liveMetrics.isDirectCount
+                                ? `≈ ${formatDisplayStock(liveMetrics.netWeight, 'kg')}`
+                                : formatDisplayStock(liveMetrics.netWeight, 'kg')}
                         </p>
                       </div>
 
@@ -902,25 +1026,31 @@ export default function InventoryPage() {
                         <Label className="text-xs text-muted-foreground">
                           Delta SSoT Stimato ({scannedMaterial.unitOfMeasure.toUpperCase()})
                         </Label>
-                        <p
-                          className={cn(
-                            'text-xl font-bold',
-                            !liveMetrics
-                              ? 'text-muted-foreground'
-                              : Math.abs(liveMetrics.deltaUnits) <= 0.001
-                                ? 'text-blue-600'
-                                : liveMetrics.deltaUnits > 0
-                                  ? 'text-emerald-600'
-                                  : 'text-red-600'
-                          )}
-                        >
-                          {liveMetrics !== null
-                            ? `${liveMetrics.deltaUnits > 0 ? '+' : ''}${formatDisplayStock(
-                                liveMetrics.deltaUnits,
-                                scannedMaterial.unitOfMeasure
-                              )}`
-                            : '---'}
-                        </p>
+                        {liveMetrics?.missingConversionFactor || liveMetrics?.deltaUnits === null ? (
+                          <p className="text-sm font-bold text-amber-600 dark:text-amber-400 mt-1">
+                            In attesa fattore (da convertire in ufficio)
+                          </p>
+                        ) : (
+                          <p
+                            className={cn(
+                              'text-xl font-bold',
+                              !liveMetrics
+                                ? 'text-muted-foreground'
+                                : Math.abs(liveMetrics.deltaUnits) <= 0.001
+                                  ? 'text-blue-600'
+                                  : liveMetrics.deltaUnits > 0
+                                    ? 'text-emerald-600'
+                                    : 'text-red-600'
+                            )}
+                          >
+                            {liveMetrics !== null
+                              ? `${liveMetrics.deltaUnits > 0 ? '+' : ''}${formatDisplayStock(
+                                  liveMetrics.deltaUnits,
+                                  scannedMaterial.unitOfMeasure
+                                )}`
+                              : '---'}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </CardContent>

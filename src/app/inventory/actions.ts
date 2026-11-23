@@ -15,6 +15,7 @@ import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
 import {
   computeInventoryMetrics,
   getAggregatedLotsForMaterial,
+  getAllowedInventoryInputUnits,
   normInventoryLot,
 } from '@/lib/inventory-ledger-logic';
 
@@ -147,17 +148,28 @@ export async function registerInventoryBatch(
 
     // Hydrate material via SSoT to read live theoretical lot stock
     const hydratedMaterial = hydrateMaterialWithWithdrawals(rawMaterial, withdrawals);
+    const allowedUnits = getAllowedInventoryInputUnits(hydratedMaterial.unitOfMeasure);
+    if (!allowedUnits.includes(inputUnit)) {
+      return {
+        success: false,
+        message: `Unità di misura "${inputUnit.toUpperCase()}" non consentita per un materiale gestito in ${hydratedMaterial.unitOfMeasure.toUpperCase()}.`,
+      };
+    }
+
     const aggregatedLots = getAggregatedLotsForMaterial(hydratedMaterial);
 
     const finalLotto = (lotto || '').trim() || 'SENZA_LOTTO';
     const targetNormLot = normInventoryLot(finalLotto);
     const matchingLot = aggregatedLots.find((l) => l.normLotto === targetNormLot);
 
-    // Resolve tareWeight from selected packaging or fallback to lot's expected tare if none selected
+    // Resolve tareWeight ONLY when inputUnit === 'kg' (direct counts 'mt'/'n' force 0 tare & no packaging)
     let tareWeight = 0;
     let tareName: string | undefined = undefined;
-    if (packagingId && packagingId !== 'none') {
-      const packagingRef = adminDb.collection('packaging').doc(packagingId);
+    const effectivePackagingId =
+      inputUnit === 'kg' && packagingId && packagingId !== 'none' ? packagingId : undefined;
+
+    if (effectivePackagingId) {
+      const packagingRef = adminDb.collection('packaging').doc(effectivePackagingId);
       const packagingSnap = await packagingRef.get();
       if (packagingSnap.exists) {
         const pkgData = packagingSnap.data() as Packaging;
@@ -192,7 +204,7 @@ export async function registerInventoryBatch(
       tareWeight: metrics.tareWeight,
       ...(tareName ? { tareName } : {}),
       netWeight: metrics.netWeight,
-      ...(packagingId && packagingId !== 'none' ? { packagingId } : {}),
+      ...(effectivePackagingId ? { packagingId: effectivePackagingId } : {}),
       operatorId,
       operatorName,
       recordedAt: admin.firestore.Timestamp.now(),
@@ -204,6 +216,9 @@ export async function registerInventoryBatch(
       countedUnits: metrics.countedUnits,
       theoreticalUnitsAtScan: metrics.theoreticalUnitsAtScan,
       deltaUnits: metrics.deltaUnits,
+      missingConversionFactor: metrics.missingConversionFactor,
+      isDirectCount: metrics.isDirectCount,
+      hasWeightEstimate: metrics.hasWeightEstimate,
       ...(activeSession
         ? {
             sessionId: activeSession.id,
@@ -222,9 +237,18 @@ export async function registerInventoryBatch(
 
     revalidatePath('/admin/inventory-management');
     revalidatePath('/admin/inventory-ledger');
+
+    if (metrics.missingConversionFactor) {
+      return {
+        success: true,
+        message: `Pesata registrata (${metrics.netWeight} kg netti) per Lotto "${finalLotto}" e parcheggiata in attesa di fattore di conversione in ufficio.`,
+      };
+    }
+
+    const deltaVal = metrics.deltaUnits ?? 0;
     return {
       success: true,
-      message: `Inventario registrato per Lotto "${finalLotto}" (Rilevato: ${metrics.countedUnits} ${metrics.uom.toUpperCase()}, Delta: ${metrics.deltaUnits >= 0 ? '+' : ''}${metrics.deltaUnits} ${metrics.uom.toUpperCase()}). In attesa di approvazione.`,
+      message: `Inventario registrato per Lotto "${finalLotto}" (Rilevato: ${metrics.countedUnits} ${metrics.uom.toUpperCase()}, Delta: ${deltaVal >= 0 ? '+' : ''}${deltaVal} ${metrics.uom.toUpperCase()}). In attesa di approvazione.`,
     };
   } catch (error) {
     return {

@@ -100,6 +100,40 @@ export function toSafeUom(uom: unknown, fallback: UnitOfMeasure = 'kg'): UnitOfM
   return fallback;
 }
 
+/**
+ * FASE 106-BIS: Matrice SSoT delle unità di inserimento consentite in inventario
+ * in base all'unità di misura nativa del materiale:
+ * - 'mt' -> ['mt', 'kg']
+ * - 'n'  -> ['n', 'kg']
+ * - 'kg' -> ['kg']
+ */
+export function getAllowedInventoryInputUnits(
+  materialUom?: UnitOfMeasure | string | null
+): UnitOfMeasure[] {
+  const normalized = String(materialUom ?? '').trim().toLowerCase();
+  if (normalized === 'mt' || normalized === 'm') return ['mt', 'kg'];
+  if (normalized === 'n' || normalized === 'pz' || normalized === 'nr') return ['n', 'kg'];
+  return ['kg'];
+}
+
+/**
+ * FASE 106-BIS: Risolve il fattore di conversione (kg per unità) senza MAI ricadere su fallback 1:1 fittizi
+ * per materiali gestiti in 'mt' o 'n'. Restituisce 0 se mancante.
+ */
+export function resolveMaterialConversionFactor(
+  material?: Partial<Pick<RawMaterial, 'unitOfMeasure' | 'conversionFactor' | 'rapportoKgMt'>> | null,
+  uomOverride?: UnitOfMeasure
+): number {
+  const uom = toSafeUom(uomOverride ?? material?.unitOfMeasure, 'kg');
+  if (uom === 'kg') return 1;
+  if (uom === 'mt') {
+    const f = toSafeFiniteNumber(material?.rapportoKgMt || material?.conversionFactor, 0);
+    return f > 0 ? f : 0;
+  }
+  const f = toSafeFiniteNumber(material?.conversionFactor, 0);
+  return f > 0 ? f : 0;
+}
+
 export interface AggregatedMaterialLot {
   materialId: string;
   materialCode: string;
@@ -218,12 +252,17 @@ export function getAggregatedLotsForMaterial(
 
 export interface ComputedInventoryMetrics {
   uom: UnitOfMeasure;
+  inputUnit: UnitOfMeasure;
   countedUnits: number;
   theoreticalUnitsAtScan: number;
-  deltaUnits: number;
+  deltaUnits: number | null;
   tareWeight: number;
   netWeight: number;
   grossWeight: number;
+  appliedFactor: number;
+  isDirectCount: boolean;
+  hasWeightEstimate: boolean;
+  missingConversionFactor: boolean;
   hasNegativeNetWarning: boolean;
   isAnomaly: boolean;
   anomalyReason?: string;
@@ -232,8 +271,10 @@ export interface ComputedInventoryMetrics {
 /**
  * Computes universal inventory metrics (countedUnits in base UoM, netWeight, grossWeight, deltaUnits).
  * Never throws during read/hydration:
- * - If inputQuantity <= 0 (e.g. exhausted lot = 0 even with tare selected), netWeight and grossWeight are 0.
- * - If grossWeight - safeTare < -0.001, clamps netWeight to 0 and sets hasNegativeNetWarning/isAnomaly flags.
+ * - Zero silent 1:1 fallback when conversion factor is missing on 'mt'/'n' materials.
+ * - Direct counts ('mt'/'n') force tareWeight = 0 and never fabricate fake kg weight without factor.
+ * - Weighing in 'kg' on 'mt'/'n' without factor parks with missingConversionFactor: true, countedUnits: 0, deltaUnits: null.
+ * - Materials with uom === 'n' weighed in 'kg' always round countedUnits via Math.round.
  */
 export function computeInventoryMetrics(params: {
   material?: Partial<Pick<RawMaterial, 'unitOfMeasure' | 'conversionFactor' | 'rapportoKgMt'>> | null;
@@ -251,29 +292,37 @@ export function computeInventoryMetrics(params: {
   const safeTare = Math.max(0, toSafeFiniteNumber(tareWeight, 0));
   const safeTheoretical = Number(toSafeFiniteNumber(theoreticalUnitsAtScan, 0).toFixed(4));
 
+  const isDirectCount = (uom === 'mt' || uom === 'n') && normalizedInputUnit === uom;
+  const factor = resolveMaterialConversionFactor(material, uom);
+
   // Explicit 0 handling: declaring a lot physically exhausted (0 stock), even if tare is selected
   if (safeInputQty === 0) {
     const isNegativeInput = rawInputQty < -0.001;
     return {
       uom,
+      inputUnit: normalizedInputUnit,
       countedUnits: 0,
       theoreticalUnitsAtScan: safeTheoretical,
       deltaUnits: Number((0 - safeTheoretical).toFixed(4)),
-      tareWeight: Number(safeTare.toFixed(4)),
+      tareWeight: isDirectCount ? 0 : Number(safeTare.toFixed(4)),
       netWeight: 0,
       grossWeight: 0,
+      appliedFactor: factor,
+      isDirectCount,
+      hasWeightEstimate: uom === 'kg' || factor > 0,
+      missingConversionFactor: false,
       hasNegativeNetWarning: isNegativeInput,
       isAnomaly: isNegativeInput,
       ...(isNegativeInput ? { anomalyReason: 'Quantità rilevata negativa' } : {}),
     };
   }
 
-  const rawFactorMt = toSafeFiniteNumber(material?.rapportoKgMt || material?.conversionFactor, 0);
-  const rawFactorN = toSafeFiniteNumber(material?.conversionFactor, 0);
-
   let netWeight = 0;
   let grossWeight = 0;
   let countedUnits = 0;
+  let finalTareWeight = isDirectCount ? 0 : safeTare;
+  let hasWeightEstimate = uom === 'kg' || factor > 0;
+  let missingConversionFactor = false;
   let hasNegativeNetWarning = false;
   let isAnomaly = false;
   let anomalyReason: string | undefined = undefined;
@@ -287,50 +336,83 @@ export function computeInventoryMetrics(params: {
       anomalyReason = 'Tara superiore al peso lordo';
     }
     netWeight = Math.max(0, rawNetWeight);
+    hasWeightEstimate = true;
 
     if (uom === 'kg') {
-      countedUnits = netWeight;
-    } else if (uom === 'mt') {
-      const factor = rawFactorMt > 0 ? rawFactorMt : 1;
-      countedUnits = netWeight / factor;
+      countedUnits = Number(netWeight.toFixed(4));
+    } else if (factor <= 0) {
+      missingConversionFactor = true;
+      countedUnits = 0;
+      isAnomaly = true;
+      const missingMsg =
+        uom === 'mt'
+          ? 'Manca fattore conversione (kg/mt)'
+          : 'Manca fattore conversione (kg/pz)';
+      anomalyReason = anomalyReason ? `${anomalyReason}; ${missingMsg}` : missingMsg;
     } else {
-      // uom === 'n'
-      const factor = rawFactorN > 0 ? rawFactorN : 1;
-      countedUnits = netWeight / factor;
+      const rawUnits = netWeight / factor;
+      countedUnits = uom === 'n' ? Math.round(rawUnits) : Number(rawUnits.toFixed(4));
+    }
+  } else if (isDirectCount) {
+    finalTareWeight = 0;
+    missingConversionFactor = false;
+    countedUnits = uom === 'n' ? Math.round(safeInputQty) : Number(safeInputQty.toFixed(4));
+    if (factor > 0) {
+      hasWeightEstimate = true;
+      netWeight = Number((countedUnits * factor).toFixed(4));
+      grossWeight = netWeight;
+    } else {
+      hasWeightEstimate = false;
+      netWeight = 0;
+      grossWeight = 0;
     }
   } else {
-    // normalizedInputUnit is 'mt' or 'n'
-    const rawFactor = normalizedInputUnit === 'mt' ? rawFactorMt : rawFactorN;
-    // Fix Bug UdM: if factor is missing/0 on N or MT articles, fallback to 1 so netWeight is never 0
-    const effectiveWeightFactor = rawFactor > 0 ? rawFactor : 1;
-
-    netWeight = safeInputQty * effectiveWeightFactor;
-    grossWeight = netWeight + safeTare;
-
-    if (normalizedInputUnit === uom) {
-      countedUnits = safeInputQty;
-    } else if (uom === 'kg') {
-      countedUnits = netWeight;
-    } else if (uom === 'mt') {
-      const targetFactor = rawFactorMt > 0 ? rawFactorMt : 1;
-      countedUnits = netWeight / targetFactor;
+    // Mismatched legacy unit (e.g. inputUnit 'mt'/'n' on material in 'kg' or cross 'mt'/'n')
+    const inputFactor = resolveMaterialConversionFactor(material, normalizedInputUnit);
+    if (inputFactor <= 0 || (uom !== 'kg' && factor <= 0)) {
+      missingConversionFactor = true;
+      countedUnits = 0;
+      hasWeightEstimate = false;
+      netWeight = 0;
+      grossWeight = 0;
+      isAnomaly = true;
+      anomalyReason = 'Fattore di conversione mancante per unità incompatibile';
     } else {
-      const targetFactor = rawFactorN > 0 ? rawFactorN : 1;
-      countedUnits = netWeight / targetFactor;
+      hasWeightEstimate = true;
+      netWeight = Number((safeInputQty * inputFactor).toFixed(4));
+      grossWeight = Number((netWeight + finalTareWeight).toFixed(4));
+      if (uom === 'kg') {
+        countedUnits = netWeight;
+      } else {
+        const rawUnits = netWeight / factor;
+        countedUnits = uom === 'n' ? Math.round(rawUnits) : Number(rawUnits.toFixed(4));
+      }
     }
   }
 
-  const finalCountedUnits = Number(toSafeFiniteNumber(countedUnits, 0).toFixed(4));
-  const finalDeltaUnits = Number((finalCountedUnits - safeTheoretical).toFixed(4));
+  const finalCountedUnits = missingConversionFactor
+    ? 0
+    : uom === 'n'
+      ? Math.round(toSafeFiniteNumber(countedUnits, 0))
+      : Number(toSafeFiniteNumber(countedUnits, 0).toFixed(4));
+
+  const finalDeltaUnits = missingConversionFactor
+    ? null
+    : Number((finalCountedUnits - safeTheoretical).toFixed(4));
 
   return {
     uom,
+    inputUnit: normalizedInputUnit,
     countedUnits: finalCountedUnits,
     theoreticalUnitsAtScan: safeTheoretical,
     deltaUnits: finalDeltaUnits,
-    tareWeight: Number(safeTare.toFixed(4)),
+    tareWeight: Number(finalTareWeight.toFixed(4)),
     netWeight: Number(toSafeFiniteNumber(netWeight, 0).toFixed(4)),
     grossWeight: Number(toSafeFiniteNumber(grossWeight, 0).toFixed(4)),
+    appliedFactor: factor,
+    isDirectCount,
+    hasWeightEstimate,
+    missingConversionFactor,
     hasNegativeNetWarning,
     isAnomaly,
     ...(anomalyReason ? { anomalyReason } : {}),
@@ -340,20 +422,39 @@ export function computeInventoryMetrics(params: {
 /**
  * Safely resolves all metrics and anomaly flags for a historical or new InventoryRecord.
  * Never throws on malformed, NaN, null, or negative historical values.
+ * - For `status === 'pending'` (or missing status), resolves factors LIVE from `material`
+ *   and recalculates `countedUnits` live so adding a missing factor automatically unlocks parked rows.
  */
 export function resolveRecordMetrics(
   record: Partial<InventoryRecord> | null | undefined,
   material?: Partial<Pick<RawMaterial, 'unitOfMeasure' | 'conversionFactor' | 'rapportoKgMt'>> | null
 ): ComputedInventoryMetrics {
   const safeRecord = record || {};
+  const isPendingRecord = !safeRecord.status || safeRecord.status === 'pending';
+
   const uom = toSafeUom(
-    safeRecord.uom ||
-      safeRecord.materialUnitOfMeasure ||
-      material?.unitOfMeasure ||
-      safeRecord.inputUnit,
+    isPendingRecord
+      ? material?.unitOfMeasure ||
+          safeRecord.uom ||
+          safeRecord.materialUnitOfMeasure ||
+          safeRecord.inputUnit
+      : safeRecord.uom ||
+          safeRecord.materialUnitOfMeasure ||
+          material?.unitOfMeasure ||
+          safeRecord.inputUnit,
     'kg'
   );
-  const inputUnit = toSafeUom(safeRecord.inputUnit, uom);
+
+  const storedGross = toSafeFiniteNumber(safeRecord.grossWeight, 0);
+  const storedTare = toSafeFiniteNumber(safeRecord.tareWeight, 0);
+  const storedNet = toSafeFiniteNumber(safeRecord.netWeight, 0);
+
+  const hasExplicitInputUnit = Boolean(safeRecord.inputUnit);
+  const inferredLegacyInputUnit: UnitOfMeasure =
+    !hasExplicitInputUnit && (uom === 'mt' || uom === 'n') && storedTare > 0.0001
+      ? 'kg'
+      : uom;
+  const inputUnit = toSafeUom(safeRecord.inputUnit, inferredLegacyInputUnit);
 
   const hasExplicitInputQty =
     safeRecord.inputQuantity !== undefined &&
@@ -364,28 +465,41 @@ export function resolveRecordMetrics(
     ? toSafeFiniteNumber(safeRecord.inputQuantity, 0)
     : toSafeFiniteNumber(safeRecord.grossWeight ?? safeRecord.netWeight, 0);
 
+  // Live factor resolution for pending records when material doc is available
+  const resolvedConversionFactor =
+    isPendingRecord && material
+      ? material.conversionFactor
+      : isPendingRecord
+        ? material?.conversionFactor ?? safeRecord.conversionFactor
+        : safeRecord.conversionFactor ?? material?.conversionFactor;
+
+  const resolvedRapportoKgMt =
+    isPendingRecord && material
+      ? material.rapportoKgMt
+      : isPendingRecord
+        ? material?.rapportoKgMt ?? safeRecord.rapportoKgMt
+        : safeRecord.rapportoKgMt ?? material?.rapportoKgMt;
+
   const computed = computeInventoryMetrics({
     material: {
       unitOfMeasure: uom,
-      conversionFactor: material?.conversionFactor ?? safeRecord.conversionFactor,
-      rapportoKgMt: material?.rapportoKgMt ?? safeRecord.rapportoKgMt,
+      conversionFactor: resolvedConversionFactor,
+      rapportoKgMt: resolvedRapportoKgMt,
     },
     inputQuantity: fallbackInputQty,
     inputUnit,
-    tareWeight: toSafeFiniteNumber(safeRecord.tareWeight, 0),
+    tareWeight: inputUnit === 'kg' ? storedTare : 0,
     theoreticalUnitsAtScan: toSafeFiniteNumber(safeRecord.theoreticalUnitsAtScan, 0),
   });
-
-  // Check if historical stored netWeight was explicitly negative or gross < tare
-  const storedGross = toSafeFiniteNumber(safeRecord.grossWeight, 0);
-  const storedTare = toSafeFiniteNumber(safeRecord.tareWeight, 0);
-  const storedNet = toSafeFiniteNumber(safeRecord.netWeight, 0);
 
   let isAnomaly = computed.isAnomaly;
   let hasNegativeNetWarning = computed.hasNegativeNetWarning;
   let anomalyReason = computed.anomalyReason;
 
-  if (storedNet < -0.001 || (storedGross > 0 && storedGross - storedTare < -0.001)) {
+  if (
+    storedNet < -0.001 ||
+    (!computed.isDirectCount && storedGross > 0 && storedGross - storedTare < -0.001)
+  ) {
     isAnomaly = true;
     hasNegativeNetWarning = true;
     anomalyReason = anomalyReason || 'Tara superiore al peso lordo';
@@ -396,19 +510,33 @@ export function resolveRecordMetrics(
     Number.isFinite(safeRecord.countedUnits) &&
     safeRecord.countedUnits >= 0;
 
-  const finalCountedUnits = hasValidExplicitCounted
-    ? Number(safeRecord.countedUnits!.toFixed(4))
-    : computed.countedUnits;
+  const finalCountedUnits = isPendingRecord
+    ? computed.countedUnits
+    : computed.missingConversionFactor
+      ? 0
+      : hasValidExplicitCounted
+        ? uom === 'n'
+          ? Math.round(safeRecord.countedUnits!)
+          : Number(safeRecord.countedUnits!.toFixed(4))
+        : computed.countedUnits;
 
   const finalNetWeight =
-    storedNet > 0 && computed.netWeight === 0 && !hasExplicitInputQty
+    !computed.isDirectCount &&
+    storedNet > 0 &&
+    computed.netWeight === 0 &&
+    !hasExplicitInputQty
       ? Number(storedNet.toFixed(4))
       : computed.netWeight;
+
+  const finalDeltaUnits = computed.missingConversionFactor
+    ? null
+    : Number((finalCountedUnits - computed.theoreticalUnitsAtScan).toFixed(4));
 
   return {
     ...computed,
     uom,
     countedUnits: finalCountedUnits,
+    deltaUnits: finalDeltaUnits,
     netWeight: Math.max(0, finalNetWeight),
     isAnomaly,
     hasNegativeNetWarning,
@@ -429,6 +557,7 @@ export function resolveRecordCountedUnits(
 
 /**
  * Converts a delta in native material units to weight in KG.
+ * Returns 0 when conversion factor is missing on 'mt'/'n' (never multiplies by 1).
  */
 export function convertUnitsToWeightKg(
   units: number,
@@ -439,12 +568,8 @@ export function convertUnitsToWeightKg(
   if (uom === 'kg') {
     return Number(absUnits.toFixed(4));
   }
-  if (uom === 'mt') {
-    const factor = toSafeFiniteNumber(material?.rapportoKgMt || material?.conversionFactor, 1);
-    return Number((absUnits * (factor > 0 ? factor : 1)).toFixed(4));
-  }
-  const factor = toSafeFiniteNumber(material?.conversionFactor, 1);
-  return Number((absUnits * (factor > 0 ? factor : 1)).toFixed(4));
+  const factor = resolveMaterialConversionFactor(material, uom);
+  return factor > 0 ? Number((absUnits * factor).toFixed(4)) : 0;
 }
 
 export type LotSessionScanStatus =
