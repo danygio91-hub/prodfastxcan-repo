@@ -2809,6 +2809,46 @@ export async function invalidateOdlArticleMemoCache(articleCode?: string): Promi
  * 3. Esegue una sola query delta parallela per eventuali codici articolo o componenti BOM scoperti dai documenti appena letti.
  * 4. Supporta l'idratazione SSoT aggregata e parallela dei materiali (hydrateMaterialsSSoTInParallel) senza query N+1.
  */
+const ODL_JOB_SELECT_FIELDS: string[] = [
+    'ordinePF',
+    'numeroODL',
+    'numeroODLInterno',
+    'odlCounter',
+    'cliente',
+    'details',
+    'articolo',
+    'articleCode',
+    'articleId',
+    'qta',
+    'department',
+    'status',
+    'workCycleId',
+    'dataFinePreparazione',
+    'dataConsegnaFinale',
+    'dataConsegnaCliente',
+    'billOfMaterials',
+    'externalizedMaterials',
+    'note',
+    'technicalNotes',
+    'technicalDrawingUrl',
+    'isPrinted',
+    'odlPrinted',
+];
+
+const ODL_ARTICLE_SELECT_FIELDS: string[] = [
+    'code',
+    'description',
+    'name',
+    'billOfMaterials',
+    'phaseTimes',
+    'workCycleId',
+    'defaultDepartment',
+    'department',
+    'expectedMinutesDefault',
+    'technicalNotes',
+    'technicalDrawingUrl',
+];
+
 export async function getOdlPrintData(
     jobIds: string[],
     fallbackArticleCodes: string[] = [],
@@ -2882,27 +2922,30 @@ export async function getOdlPrintData(
         if (uncached.length === 0) return;
 
         const artChunks = chunkArray(uncached);
-        const [byCodeSnaps, byIdSnaps] = await Promise.all([
-            Promise.all(
-                artChunks.map((chunk) =>
-                    adminDb.collection('articles').where('code', 'in', chunk).get()
-                )
-            ),
+        const validArtDocRefs = uncached
+            .filter((code) => !code.includes('/'))
+            .map((code) => adminDb.collection('articles').doc(code));
+
+        const [byCodeSnaps, byIdDocs] = await Promise.all([
             Promise.all(
                 artChunks.map((chunk) =>
                     adminDb
                         .collection('articles')
-                        .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+                        .where('code', 'in', chunk)
+                        .select(...ODL_ARTICLE_SELECT_FIELDS)
                         .get()
                 )
             ),
+            validArtDocRefs.length > 0
+                ? adminDb.getAll(...validArtDocRefs, { fieldMask: ODL_ARTICLE_SELECT_FIELDS })
+                : Promise.resolve([] as FirebaseFirestore.DocumentSnapshot[]),
         ]);
 
         const seenDocIds = new Set<string>();
-        const handleSnap = (docSnap: FirebaseFirestore.QueryDocumentSnapshot) => {
-            if (seenDocIds.has(docSnap.id)) return;
+        const handleSnap = (docSnap: FirebaseFirestore.DocumentSnapshot) => {
+            if (!docSnap.exists || seenDocIds.has(docSnap.id)) return;
             seenDocIds.add(docSnap.id);
-            const raw = docSnap.data();
+            const raw = docSnap.data() || {};
             const art = serializeForClient({
                 ...convertTimestampsToDates(raw),
                 id: docSnap.id,
@@ -2912,7 +2955,7 @@ export async function getOdlPrintData(
         };
 
         byCodeSnaps.forEach((snap) => snap.forEach(handleSnap));
-        byIdSnaps.forEach((snap) => snap.forEach(handleSnap));
+        byIdDocs.forEach(handleSnap);
     };
 
     const fetchMaterialsBatchParallel = async (codesToFetch: string[]) => {
@@ -2984,7 +3027,7 @@ export async function getOdlPrintData(
 
     try {
         const cleanJobIds = Array.from(
-            new Set((jobIds || []).map((id) => (id || '').trim()).filter(Boolean))
+            new Set((jobIds || []).map((id) => (id || '').trim()).filter((id) => id.length > 0 && !id.includes('/')))
         );
 
         const initialArticleCodes = Array.from(
@@ -2997,79 +3040,85 @@ export async function getOdlPrintData(
         const discoveredArticleCodes = new Set<string>(initialArticleCodes);
         const discoveredMaterialCodes = new Set<string>(initialMaterialCodes);
 
-        const jobChunks = chunkArray(cleanJobIds);
+        const jobRefs = cleanJobIds.map((id) => adminDb.collection('jobOrders').doc(id));
 
-        // 1. WAVE 1 PARALLELA: Esegue in parallelo il fetch delle commesse, degli articoli noti e dei materiali noti
-        const [jobSnapshots] = await Promise.all([
-            jobChunks.length > 0
-                ? Promise.all(
-                    jobChunks.map((chunk) =>
-                        adminDb
-                            .collection('jobOrders')
-                            .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
-                            .get()
-                    )
-                )
-                : Promise.resolve([]),
+        // 1. WAVE 1 PARALLELA: adminDb.getAll con fieldMask mirato su jobOrders + articoli noti + materiali noti
+        const [jobDocSnapshots] = await Promise.all([
+            jobRefs.length > 0
+                ? adminDb.getAll(...jobRefs, { fieldMask: ODL_JOB_SELECT_FIELDS })
+                : Promise.resolve([] as FirebaseFirestore.DocumentSnapshot[]),
             fetchArticlesBatchParallel(initialArticleCodes, discoveredMaterialCodes),
             fetchMaterialsBatchParallel(initialMaterialCodes),
         ]);
 
-        for (const snap of jobSnapshots) {
-            snap.forEach((docSnap) => {
-                const jobData = serializeForClient({
-                    ...convertTimestampsToDates(docSnap.data()),
-                    id: docSnap.id,
-                }) as JobOrder;
+        for (const docSnap of jobDocSnapshots) {
+            if (!docSnap.exists) continue;
+            const rawData = docSnap.data() || {};
+            const jobData = serializeForClient({
+                ...convertTimestampsToDates(rawData),
+                id: docSnap.id,
+            }) as JobOrder;
 
-                jobsById[jobData.id] = jobData;
+            jobsById[jobData.id] = jobData;
 
-                // Pre-compila il dizionario Conto Lavoro O(1): Record<JobId, MaterialId[]>
-                const extList = Array.from(
-                    new Set(
-                        (jobData.externalizedMaterials || [])
-                            .map((m) => (m || '').trim().toUpperCase())
-                            .filter(Boolean)
-                    )
-                );
-                contoLavoroMap[jobData.id] = extList;
-                if (jobData.ordinePF) {
-                    contoLavoroMap[jobData.ordinePF] = extList;
-                }
-
-                const artCode = (
-                    (jobData as any).articolo ||
-                    jobData.details ||
-                    (jobData as any).articleCode ||
-                    ''
+            // Pre-compila il dizionario Conto Lavoro O(1): Record<JobId, MaterialId[]>
+            const extList = Array.from(
+                new Set(
+                    (jobData.externalizedMaterials || [])
+                        .map((m) => (m || '').trim().toUpperCase())
+                        .filter(Boolean)
                 )
-                    .trim()
-                    .toUpperCase();
-                if (artCode) {
-                    discoveredArticleCodes.add(artCode);
-                }
+            );
+            contoLavoroMap[jobData.id] = extList;
+            if (jobData.ordinePF) {
+                contoLavoroMap[jobData.ordinePF] = extList;
+            }
 
-                (jobData.billOfMaterials || []).forEach((item) => {
-                    if (item?.component) {
-                        discoveredMaterialCodes.add(item.component.trim().toUpperCase());
-                    }
-                });
+            const artCode = (
+                (jobData as any).articolo ||
+                jobData.details ||
+                (jobData as any).articleCode ||
+                ''
+            )
+                .trim()
+                .toUpperCase();
+            if (artCode) {
+                discoveredArticleCodes.add(artCode);
+            }
+
+            (jobData.billOfMaterials || []).forEach((item) => {
+                if (item?.component) {
+                    discoveredMaterialCodes.add(item.component.trim().toUpperCase());
+                }
             });
         }
 
-        // 2. WAVE 2 DELTA PARALLELA: Scarica solo eventuali articoli o materiali non già presenti nella mappa di deduplicazione
+        // 2. WAVE 2 PARALLELA: fetch simultaneo degli articoli delta e dei materiali già scoperti dalle commesse
         const missingDeltaArticles = Array.from(discoveredArticleCodes).filter(
             (code) => !articlesByCode[code]
         );
-        if (missingDeltaArticles.length > 0) {
-            await fetchArticlesBatchParallel(missingDeltaArticles, discoveredMaterialCodes);
-        }
-
-        const missingDeltaMaterials = Array.from(discoveredMaterialCodes).filter(
+        const missingKnownMaterials = Array.from(discoveredMaterialCodes).filter(
             (code) => !materialsByCode[code]
         );
-        if (missingDeltaMaterials.length > 0) {
-            await fetchMaterialsBatchParallel(missingDeltaMaterials);
+        const extraArticleMaterials = new Set<string>();
+
+        if (missingDeltaArticles.length > 0 || missingKnownMaterials.length > 0) {
+            await Promise.all([
+                missingDeltaArticles.length > 0
+                    ? fetchArticlesBatchParallel(missingDeltaArticles, extraArticleMaterials)
+                    : Promise.resolve(),
+                missingKnownMaterials.length > 0
+                    ? fetchMaterialsBatchParallel(missingKnownMaterials)
+                    : Promise.resolve(),
+            ]);
+        }
+
+        // Eventuale mini-wave 3 solo per materiali scoperti dalle BOM degli articoli appena caricati
+        const remainingExtraMaterials = Array.from(extraArticleMaterials).filter(
+            (code) => !materialsByCode[code]
+        );
+        if (remainingExtraMaterials.length > 0) {
+            await fetchMaterialsBatchParallel(remainingExtraMaterials);
         }
 
         return {

@@ -49,7 +49,8 @@ import {
   Hourglass,
   Activity,
   Target,
-  Split
+  Split,
+  ChevronDown
 } from 'lucide-react';
 import { format, startOfISOWeek, endOfISOWeek, getISOWeek, getISOWeekYear, addWeeks, subWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -129,8 +130,13 @@ import {
   emitNetworkStatus,
   PROGRAMMAZIONE_SWR_CONFIG,
 } from '@/lib/network-resilience';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import {
+  printOdlContainerViaIframe,
+  generateOptimizedOdlPdf,
+  waitForOdlContainerReady,
+  buildSingleOdlDocumentTitle,
+  buildBulkOdlDocumentTitle,
+} from '@/lib/odl-print-engine';
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 import { SmartJobModal } from '@/components/mrp/SmartJobModal';
@@ -1164,6 +1170,7 @@ interface JobTableRowProps {
   onAssignJobWeek: (job: JobOrder, newWeekVal: string) => void;
   onStatusChange: (job: JobOrder, newStatus: JobStatusOption) => void;
   onTogglePrintODL: (job: JobOrder) => void;
+  onDownloadODLPdf: (job: JobOrder) => void;
   onStartProduction: (job: JobOrder) => void;
   onRollbackJob: (job: JobOrder) => void;
   onOpenEditModal: (job: JobOrder) => void;
@@ -1187,6 +1194,7 @@ const JobTableRow = React.memo(function JobTableRow({
   onAssignJobWeek,
   onStatusChange,
   onTogglePrintODL,
+  onDownloadODLPdf,
   onStartProduction,
   onRollbackJob,
   onOpenEditModal,
@@ -1535,41 +1543,79 @@ const JobTableRow = React.memo(function JobTableRow({
       {/* 12. AZIONI */}
       <td className="py-1 px-1.5 text-center align-middle">
         <div className="flex items-center justify-center gap-1">
-          {/* Stampa ODL */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-block">
+          {/* Stampa ODL (Vettoriale Istantanea 2A + Dropdown Scarica PDF Livello 1) */}
+          <div className="inline-flex items-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-block">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    disabled={isDeliveryDateMissing || isDownloadingPdf}
+                    onClick={() => onTogglePrintODL(job)}
+                    className={cn(
+                      "h-7 w-7 transition-colors",
+                      isDeliveryDateMissing && "opacity-30 cursor-not-allowed",
+                      !isDeliveryDateMissing && isPrinted
+                        ? "text-green-500 hover:text-green-600 bg-green-500/10 hover:bg-green-500/20"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    )}
+                  >
+                    {isDownloadingPdf ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                    ) : (
+                      <Printer className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isDeliveryDateMissing
+                  ? "Inserire Data di Consegna per avviare"
+                  : isDownloadingPdf
+                    ? "Preparazione stampa / PDF ODL..."
+                    : isPrinted
+                      ? "ODL stampato (clicca per ristampare subito)"
+                      : "Stampa ODL (richiede N° ODL)"}
+              </TooltipContent>
+            </Tooltip>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   disabled={isDeliveryDateMissing || isDownloadingPdf}
-                  onClick={() => onTogglePrintODL(job)}
+                  title="Opzioni stampa ODL (Stampa Istantanea / Scarica PDF)"
                   className={cn(
-                    "h-7 w-7 transition-colors",
+                    "h-7 w-4 px-0 transition-colors",
                     isDeliveryDateMissing && "opacity-30 cursor-not-allowed",
                     !isDeliveryDateMissing && isPrinted
-                      ? "text-green-500 hover:text-green-600 bg-green-500/10 hover:bg-green-500/20"
+                      ? "text-green-500 hover:text-green-600 hover:bg-green-500/20"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                   )}
                 >
-                  {isDownloadingPdf ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                  ) : (
-                    <Printer className="h-3.5 w-3.5" />
-                  )}
+                  <ChevronDown className="h-3 w-3" />
                 </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isDeliveryDateMissing
-                ? "Inserire Data di Consegna per avviare"
-                : isDownloadingPdf
-                  ? "Generazione PDF ODL in corso..."
-                  : isPrinted
-                    ? "ODL stampato (clicca per ristampare il PDF)"
-                    : "Stampa ODL (richiede N° ODL)"}
-            </TooltipContent>
-          </Tooltip>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => onTogglePrintODL(job)}
+                  className="text-xs cursor-pointer gap-2"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>Stampa ODL (Istantanea)</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => onDownloadODLPdf(job)}
+                  className="text-xs cursor-pointer gap-2"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Scarica PDF (.pdf)</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
           {/* FASE 19 / FASE 72: Pulsante di Azione Dinamico (Avvia Play / Ripristina Undo) */}
           {currentStatus === 'Pianificata' && (
@@ -1770,6 +1816,7 @@ export default function ProgrammazioneClientPage({
 
   const [odlConfig] = useState<ODLConfig>(initialOdlConfig || DEFAULT_ODL_CONFIG);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
+  const [pdfProgress, setPdfProgress] = useState<{ current: number; total: number } | null>(null);
   const [pdfData, setPdfData] = useState<Array<{
     job: JobOrder;
     article: Article | null;
@@ -2348,6 +2395,7 @@ export default function ProgrammazioneClientPage({
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   const [isBulkPrinting, setIsBulkPrinting] = useState(false);
+  const [bulkPrintMode, setBulkPrintMode] = useState<'print' | 'pdf' | null>(null);
   const [isBulkDateOpen, setIsBulkDateOpen] = useState(false);
   const [bulkDateInput, setBulkDateInput] = useState('');
 
@@ -4495,9 +4543,18 @@ export default function ProgrammazioneClientPage({
       );
 
       // Idrata la cache articoli e la cache ISOLATA per la stampa ODL (MAI materialsCacheRef: getOdlPrintData omette le giacenze SSoT!)
+      // Merge non distruttivo: preserva campi extra (historicalTimes, phaseTimesSecondary) se già in articlesCacheRef
       Object.values(serverBulkData.articlesByCode).forEach((art) => {
-        if (art?.code) articlesCacheRef.current.set(art.code.trim().toUpperCase(), art);
-        if (art?.id) articlesCacheRef.current.set(art.id.trim().toUpperCase(), art);
+        if (art?.code) {
+          const codeKey = art.code.trim().toUpperCase();
+          const prevArt = articlesCacheRef.current.get(codeKey);
+          articlesCacheRef.current.set(codeKey, prevArt ? { ...prevArt, ...art } : art);
+        }
+        if (art?.id) {
+          const idKey = art.id.trim().toUpperCase();
+          const prevArt = articlesCacheRef.current.get(idKey);
+          articlesCacheRef.current.set(idKey, prevArt ? { ...prevArt, ...art } : art);
+        }
       });
       Object.values(serverBulkData.materialsByCode).forEach((mat) => {
         if (mat?.code) odlPrintMaterialsCacheRef.current.set(mat.code.trim().toUpperCase(), mat);
@@ -4624,35 +4681,9 @@ export default function ProgrammazioneClientPage({
     });
   }, [articleMap, workCycles]);
 
-  // FASE 96: Helper non bloccante per attendere il paint DOM e il decode asincrono delle immagini nel container ODL
-  const waitForOdlDomAndImagesReady = useCallback(async () => {
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve());
-      });
-    });
-    const container = document.getElementById('odl-pdf-pages');
-    if (!container) return null;
-
-    const images = Array.from(container.querySelectorAll('img'));
-    if (images.length > 0) {
-      await Promise.race([
-        Promise.all(
-          images.map((img) => {
-            if (img.complete) return Promise.resolve();
-            if (typeof img.decode === 'function') {
-              return img.decode().catch(() => {});
-            }
-            return new Promise<void>((res) => {
-              img.addEventListener('load', () => res(), { once: true });
-              img.addEventListener('error', () => res(), { once: true });
-            });
-          })
-        ),
-        new Promise<void>((res) => setTimeout(res, 600)),
-      ]);
-    }
-    return container;
+  // FASE 96 & FASE 107-BIS: Helper unificato per attendere il paint DOM e il decode asincrono delle immagini nel container ODL
+  const waitForOdlDomAndImagesReady = useCallback(() => {
+    return waitForOdlContainerReady('odl-pdf-pages', 600);
   }, []);
 
   // FASE 33 & FASE 88: Helper per singola commessa basato sul motore Bulk O(1)
@@ -4661,9 +4692,9 @@ export default function ProgrammazioneClientPage({
     return singlePrepared;
   }, [prepareBulkJobsForPrint]);
 
-  // 1. FASE 33, FASE 88 & FASE 96: Stampa Massiva ODL con Batch Mount Singolo, Pre-fetching Parallelo e Lookup O(1)
-  const handleBulkPrintODL = async () => {
-    if (selectedJobIds.length === 0) return;
+  // 1. FASE 107-BIS: Pipeline Ibrida Stampa Massiva ODL (Modalità 2A Vettoriale Istantanea | Modalità 1 Scarica PDF Ottimizzato)
+  const executeBulkOdl = async (mode: 'print' | 'pdf') => {
+    if (selectedJobIds.length === 0 || isBulkProcessing || isDownloadingPdf) return;
 
     const selectedJobs = jobs.filter((j) => selectedJobIds.includes(j.id));
     if (selectedJobs.length === 0) return;
@@ -4681,18 +4712,18 @@ export default function ProgrammazioneClientPage({
 
     setIsBulkProcessing(true);
     setIsBulkPrinting(true);
+    setBulkPrintMode(mode);
+    setPdfProgress(null);
 
     try {
       toast({
-        title: "Generazione PDF ODL in corso",
+        title: mode === 'print' ? "Preparazione Stampa ODL" : "Generazione PDF ODL in corso",
         description: `Pre-caricamento massivo parallelo per ${selectedJobs.length} commesse...`,
       });
 
-      // FASE 88 & FASE 96: Esegui un UNICO Bulk Pre-fetch parallelo deduplicato PRIMA del rendering PDF
       const preparedJobsBatch = await prepareBulkJobsForPrint(selectedJobs);
       const printTimestamp = new Date();
 
-      // FASE 96: Monta TUTTI i template ODL in un UNICO aggiornamento di stato React (1 solo re-render invece di N!)
       setPdfData(
         preparedJobsBatch.map((item) => ({
           job: item.enrichedJob,
@@ -4710,88 +4741,75 @@ export default function ProgrammazioneClientPage({
         throw new Error("Template di stampa ODL non trovato nel DOM.");
       }
 
-      const pageElements = container.querySelectorAll('.odl-page');
-      if (pageElements.length === 0) {
-        throw new Error("Nessuna pagina ODL generata per le commesse selezionate.");
-      }
+      const documentTitle =
+        selectedJobs.length === 1
+          ? buildSingleOdlDocumentTitle(getJobCleanOdl(selectedJobs[0]), selectedJobs[0].ordinePF)
+          : buildBulkOdlDocumentTitle(selectedJobs.length, printTimestamp);
 
-      const pdf = new jsPDF({
-        orientation: 'landscape',
-        unit: 'mm',
-        format: 'a4',
-        compress: true
-      });
-
-      let totalPagesAdded = 0;
-
-      for (let pIdx = 0; pIdx < pageElements.length; pIdx++) {
-        // Cede il controllo al browser tra una pagina e l'altra per non congelare il main thread
-        if (pIdx > 0) {
-          await new Promise<void>((r) => setTimeout(r, 0));
-        }
-        const page = pageElements[pIdx] as HTMLElement;
-        const canvas = await html2canvas(page, {
-          scale: 2,
-          useCORS: true,
-          imageTimeout: 2500,
-          logging: false,
-          backgroundColor: '#ffffff'
+      if (mode === 'print') {
+        await printOdlContainerViaIframe(container, { documentTitle });
+      } else {
+        await generateOptimizedOdlPdf(container, {
+          fileName: `${documentTitle}.pdf`,
+          scale: 1.5,
+          jpegQuality: 0.85,
+          onProgress: (current, total) => setPdfProgress({ current, total }),
         });
-        const imgData = canvas.toDataURL('image/jpeg', 0.92);
-        if (totalPagesAdded > 0) {
-          pdf.addPage();
-        }
-        pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
-        totalPagesAdded++;
       }
 
-      if (totalPagesAdded > 0) {
-        if (selectedJobs.length === 1) {
-          const cleanOdl = getJobCleanOdl(selectedJobs[0]).replace(/\//g, '_');
-          const cleanPf = (selectedJobs[0].ordinePF || '').replace(/\//g, '_');
-          pdf.save(`ODL_${cleanOdl}_${cleanPf}.pdf`);
-        } else {
-          pdf.save(`ODL_Stampa_Massiva_${selectedJobs.length}_Commesse.pdf`);
-        }
-      }
-
-      // Aggiorna stato locale di stampa (isPrinted: true, odlPrinted: true) SENZA cambiare status
+      // Aggiorna stato locale e optimistic shield senza bloccare o lanciare router.refresh()
       const printedIds = selectedJobs.map((j) => j.id);
       const printedSet = new Set(printedIds);
 
+      printedIds.forEach((id) => {
+        const existing = optimisticPatchesRef.current.get(id)?.patch || {};
+        optimisticPatchesRef.current.set(id, {
+          patch: { ...existing, isPrinted: true, odlPrinted: true },
+          expiresAt: Date.now() + 20000,
+        });
+      });
+
       setJobs((prev) =>
-        prev.map((j) => {
-          if (printedSet.has(j.id)) {
-            return {
-              ...j,
-              isPrinted: true,
-              odlPrinted: true,
-            };
-          }
-          return j;
-        })
+        prev.map((j) =>
+          printedSet.has(j.id)
+            ? {
+                ...j,
+                isPrinted: true,
+                odlPrinted: true,
+              }
+            : j
+        )
       );
 
       toast({
-        title: "Stampa ODL Completata",
-        description: `${selectedJobs.length} ODL generati in PDF e contrassegnati come stampati.`,
+        title: mode === 'print' ? "Stampa ODL Avviata" : "PDF Massivo Scaricato",
+        description:
+          mode === 'print'
+            ? `${selectedJobs.length} ODL pronti nella finestra di stampa vettoriale.`
+            : `${selectedJobs.length} ODL esportati in PDF e contrassegnati come stampati.`,
       });
 
-      // Persisti flag isPrinted su Firestore
-      await bulkMarkJobsAsPrinted(printedIds);
+      void bulkMarkJobsAsPrinted(printedIds).catch((err) => {
+        console.warn("Avviso persistenza bulkMarkJobsAsPrinted:", err);
+      });
     } catch (error: any) {
-      console.error("Errore generazione ODL PDF massivo:", error);
+      console.error("Errore stampa/PDF massivo ODL:", error);
       toast({
         variant: "destructive",
         title: "Errore Stampa Massiva ODL",
-        description: error?.message || "Impossibile generare o scaricare il file PDF.",
+        description: error?.message || "Impossibile completare la stampa o generare il file PDF.",
       });
     } finally {
       setPdfData(null);
+      setPdfProgress(null);
       setIsBulkPrinting(false);
+      setBulkPrintMode(null);
       setIsBulkProcessing(false);
     }
   };
+
+  const handleBulkPrintODL = () => executeBulkOdl('print');
+  const handleBulkDownloadODLPdf = () => executeBulkOdl('pdf');
 
   // 2. FASE 33, FASE 81 & FASE 84-BIS: Avvio Massivo in Produzione (con refresh immediato badge Prossimo ODL)
   const handleBulkStartProduction = async () => {
@@ -5085,9 +5103,9 @@ export default function ProgrammazioneClientPage({
   };
 
   // =========================================================================
-  // STAMPA ODL (FASE 9: Generatore PDF fisico + Aggiornamento Stato)
+  // STAMPA ODL SINGOLA (FASE 107-BIS: Stampa Vettoriale 2A + Scarica PDF Livello 1)
   // =========================================================================
-  const handleTogglePrintODL = useCallback(async (job: JobOrder) => {
+  const executeSingleOdl = useCallback(async (job: JobOrder, mode: 'print' | 'pdf') => {
     // FASE 16: Guardrail Data Consegna Obbligatoria
     if (!job.dataConsegnaFinale || !job.dataConsegnaFinale.trim()) {
       toast({
@@ -5110,9 +5128,10 @@ export default function ProgrammazioneClientPage({
       return;
     }
 
-    if (isDownloadingPdf) return;
+    if (isDownloadingPdf || isBulkPrinting) return;
 
     setIsDownloadingPdf(job.id);
+    setPdfProgress(null);
 
     try {
       const {
@@ -5124,9 +5143,6 @@ export default function ProgrammazioneClientPage({
         articlesByCode,
       } = await prepareJobForPrint(job);
 
-      // =========================================================================
-      // PASSO 1 (Azione Fisica): Monta il template e forza download PDF
-      // =========================================================================
       setPdfData([
         {
           job: enrichedJob,
@@ -5144,75 +5160,77 @@ export default function ProgrammazioneClientPage({
         throw new Error("Template di stampa ODL non trovato nel DOM.");
       }
 
-      const pageElements = container.querySelectorAll('.odl-page');
-      if (pageElements.length === 0) {
-        throw new Error("Nessuna pagina ODL generata.");
+      const documentTitle = buildSingleOdlDocumentTitle(currentOdl, job.ordinePF);
+      if (mode === 'print') {
+        await printOdlContainerViaIframe(container, { documentTitle });
+      } else {
+        await generateOptimizedOdlPdf(container, {
+          fileName: `${documentTitle}.pdf`,
+          scale: 1.5,
+          jpegQuality: 0.85,
+          onProgress: (current, total) => setPdfProgress({ current, total }),
+        });
       }
 
-      const pdf = new jsPDF({
-        orientation: 'landscape',
-        unit: 'mm',
-        format: 'a4',
-        compress: true
+      const existing = optimisticPatchesRef.current.get(job.id)?.patch || {};
+      optimisticPatchesRef.current.set(job.id, {
+        patch: {
+          ...existing,
+          numeroODL: currentOdl,
+          numeroODLInterno: currentOdl,
+          isPrinted: true,
+          odlPrinted: true,
+        },
+        expiresAt: Date.now() + 20000,
       });
 
-      for (let i = 0; i < pageElements.length; i++) {
-        if (i > 0) {
-          await new Promise<void>((r) => setTimeout(r, 0));
-        }
-        const page = pageElements[i] as HTMLElement;
-        const canvas = await html2canvas(page, {
-          scale: 2,
-          useCORS: true,
-          imageTimeout: 2500,
-          logging: false,
-          backgroundColor: '#ffffff'
-        });
-        const imgData = canvas.toDataURL('image/jpeg', 0.92);
-        if (i > 0) pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
-      }
-
-      const cleanOdl = currentOdl.replace(/\//g, '_');
-      const cleanPf = (job.ordinePF || '').replace(/\//g, '_');
-      pdf.save(`ODL_${cleanOdl}_${cleanPf}.pdf`);
-
-      // =========================================================================
-      // PASSO 2 (Azione Logica): Aggiorna stato locale e Server Actions
-      // =========================================================================
       setJobs((prevJobs) =>
         prevJobs.map((j) =>
           j.id === job.id
             ? {
-              ...j,
-              numeroODL: currentOdl,
-              numeroODLInterno: currentOdl,
-              isPrinted: true,
-              odlPrinted: true,
-            }
+                ...j,
+                numeroODL: currentOdl,
+                numeroODLInterno: currentOdl,
+                isPrinted: true,
+                odlPrinted: true,
+              }
             : j
         )
       );
 
       toast({
-        title: "ODL Stampato con Successo",
-        description: `Commessa ${job.ordinePF}: PDF scaricato. Icona verde di stampa attiva.`,
+        title: mode === 'print' ? "Stampa ODL Avviata" : "ODL Scaricato in PDF",
+        description:
+          mode === 'print'
+            ? `Commessa ${job.ordinePF}: finestra di stampa pronta. Icona verde attiva.`
+            : `Commessa ${job.ordinePF}: PDF scaricato. Icona verde di stampa attiva.`,
       });
 
-      // Esegui la Server Action SSoT per persistere il flag isPrinted su Firestore
-      await markJobAsPrinted(job.id);
+      // Persiste su Firestore in background senza bloccare la stampa né fare router.refresh()
+      void markJobAsPrinted(job.id).catch((err) => {
+        console.warn("Avviso persistenza markJobAsPrinted:", err);
+      });
     } catch (error: any) {
-      console.error("Errore generazione ODL PDF:", error);
+      console.error("Errore stampa/PDF ODL:", error);
       toast({
         variant: "destructive",
-        title: `Errore Download ODL ${job.ordinePF}`,
-        description: error?.message || "Impossibile generare o scaricare il file PDF.",
+        title: `Errore Stampa ODL ${job.ordinePF}`,
+        description: error?.message || "Impossibile stampare o generare il file PDF.",
       });
     } finally {
       setPdfData(null);
+      setPdfProgress(null);
       setIsDownloadingPdf(null);
     }
-  }, [prepareJobForPrint, waitForOdlDomAndImagesReady, toast, isDownloadingPdf]);
+  }, [prepareJobForPrint, waitForOdlDomAndImagesReady, toast, isDownloadingPdf, isBulkPrinting]);
+
+  const handleTogglePrintODL = useCallback((job: JobOrder) => {
+    return executeSingleOdl(job, 'print');
+  }, [executeSingleOdl]);
+
+  const handleDownloadSingleODLPdf = useCallback((job: JobOrder) => {
+    return executeSingleOdl(job, 'pdf');
+  }, [executeSingleOdl]);
 
   // Settimane per il dropdown rapido (Standard ISO 8601 - Generate dinamicamente da tutte le commesse)
   const weekOptions = useMemo(() => {
@@ -6998,6 +7016,7 @@ export default function ProgrammazioneClientPage({
                         onAssignJobWeek={handleAssignJobWeek}
                         onStatusChange={handleStatusChange}
                         onTogglePrintODL={handleTogglePrintODL}
+                        onDownloadODLPdf={handleDownloadSingleODLPdf}
                         onStartProduction={handleStartProduction}
                         onRollbackJob={handleRollbackJob}
                         onOpenEditModal={handleOpenEditModal}
@@ -7048,21 +7067,45 @@ export default function ProgrammazioneClientPage({
               </button>
             </div>
 
-            {/* 1. Stampa ODL (Solo Stampa) */}
-            <Button
-              size="sm"
-              disabled={isBulkProcessing}
-              onClick={handleBulkPrintODL}
-              className="h-8 gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
-              title="Genera e scarica i PDF ODL per le commesse selezionate (richiede N° ODL compilato)"
-            >
-              {isBulkProcessing && isBulkPrinting ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Printer className="h-3.5 w-3.5" />
-              )}
-              <span>Stampa ODL</span>
-            </Button>
+            {/* 1. Stampa ODL Ibrida (Primario: Vettoriale Istantanea 2A | Secondario: Scarica PDF Livello 1) */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                size="sm"
+                disabled={isBulkProcessing}
+                onClick={handleBulkPrintODL}
+                className="h-8 gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md cursor-pointer shrink-0"
+                title="Stampa vettoriale istantanea per le commesse selezionate (richiede N° ODL compilato)"
+              >
+                {isBulkProcessing && isBulkPrinting && bulkPrintMode === 'print' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Printer className="h-3.5 w-3.5" />
+                )}
+                <span>Stampa ODL</span>
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isBulkProcessing}
+                onClick={handleBulkDownloadODLPdf}
+                className="h-8 gap-1.5 bg-slate-800 hover:bg-slate-700 text-blue-300 border-blue-500/40 font-semibold text-xs shadow-md cursor-pointer shrink-0"
+                title="Genera e scarica 1 PDF unico multipagina ottimizzato (richiede N° ODL compilato)"
+              >
+                {isBulkProcessing && isBulkPrinting && bulkPrintMode === 'pdf' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                <span>
+                  {isBulkProcessing && isBulkPrinting && bulkPrintMode === 'pdf'
+                    ? pdfProgress
+                      ? `Pagina ${pdfProgress.current} di ${pdfProgress.total}`
+                      : 'Generazione PDF...'
+                    : 'Scarica PDF'}
+                </span>
+              </Button>
+            </div>
 
             {/* 2. Avvia Produzione (Solo Avvio Produzione) */}
             <Button

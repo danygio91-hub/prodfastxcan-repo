@@ -23,6 +23,79 @@ interface ODLPrintTemplateProps {
   omitRootId?: boolean;
 }
 
+const TRECCIA_TYPES_SET = new Set(['BOB', 'PF3V0', 'BARRA', 'TRECCIA']);
+const FIRST_PAGE_ROW_LIMIT = 7;
+const SUBSEQUENT_PAGE_ROW_LIMIT = 17;
+
+const PAGE_STATIC_STYLE: React.CSSProperties = {
+  width: '297mm',
+  height: '210mm',
+  padding: '5mm',
+  backgroundColor: 'white',
+  color: 'black',
+  fontFamily: "'PT Sans', 'Calibri', sans-serif",
+  boxSizing: 'border-box',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  position: 'relative',
+  pageBreakAfter: 'always',
+};
+
+const QR_WRAPPER_STYLE: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: '100%',
+  width: '100%',
+  padding: '1mm',
+  boxSizing: 'border-box',
+};
+
+const VERIFICA_GRID_STYLE: React.CSSProperties = {
+  display: 'flex',
+  width: '100%',
+  height: '100%',
+  alignItems: 'stretch',
+};
+
+const VALUE_LARGE_STYLE: React.CSSProperties = {
+  fontSize: '12pt',
+  fontWeight: 'bold',
+};
+
+const PAGE_NUMBER_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  bottom: '5mm',
+  right: '5mm',
+  fontSize: '9pt',
+  fontWeight: 'bold',
+  backgroundColor: '#000',
+  color: '#fff',
+  padding: '1mm 3mm',
+  borderRadius: '1mm',
+};
+
+const ODL_ROOT_WRAPPER_STYLE: React.CSSProperties = { width: '297mm' };
+
+function formatDateSafe(dateInput: any): string {
+  if (!dateInput) return '---';
+  try {
+    const d =
+      typeof dateInput === 'string'
+        ? dateInput.includes('T')
+          ? parseISO(dateInput)
+          : new Date(dateInput)
+        : dateInput.toDate
+          ? dateInput.toDate()
+          : new Date(dateInput);
+
+    return isValid(d) ? format(d, 'dd/MM/yyyy') : '---';
+  } catch (e) {
+    return '---';
+  }
+}
+
 const MemoizedQRCode = React.memo(function MemoizedQRCode({
   value,
   size,
@@ -108,6 +181,19 @@ function ODLPrintTemplate({
     return map;
   }, [globalSettings?.rawMaterialTypes]);
 
+  // Pre-indicizza i reparti in O(1) per id / name / code
+  const departmentCodeMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of departments) {
+      const resolvedCode = d.code || d.name || d.id;
+      if (!resolvedCode) continue;
+      if (d.id) map.set(d.id, resolvedCode);
+      if (d.name) map.set(d.name, resolvedCode);
+      if (d.code) map.set(d.code, resolvedCode);
+    }
+    return map;
+  }, [departments]);
+
   const sourceBom = React.useMemo(
     () =>
       job.billOfMaterials && job.billOfMaterials.length > 0
@@ -147,9 +233,25 @@ function ODLPrintTemplate({
           finalNote = articleBomNotesByKey.get(`${compUpper}__${cutKey}`) || '';
         }
 
-        return { ...item, note: finalNote, type, mat, isExternalized };
+        const enrichedBase = { ...item, note: finalNote, type, mat, isExternalized };
+        const configMat = (mat?.type ? rawMaterialTypesMap.get(mat.type) : null) || {
+          defaultUnit: mat?.unitOfMeasure,
+        };
+        const req = calculateBOMRequirement(job.qta, enrichedBase, mat as any, configMat as any);
+
+        return { ...enrichedBase, req };
       }),
-    [sourceBom, materialsByCode, materialsMap, contoLavoroMap, job.id, contoLavoroSet, articleBomNotesByKey]
+    [
+      sourceBom,
+      materialsByCode,
+      materialsMap,
+      contoLavoroMap,
+      job.id,
+      job.qta,
+      contoLavoroSet,
+      articleBomNotesByKey,
+      rawMaterialTypesMap,
+    ]
   );
 
   const qrValue = React.useMemo(
@@ -162,26 +264,43 @@ function ODLPrintTemplate({
     [qrRule, job.ordinePF, job.details, job.qta, job.numeroODLInterno]
   );
 
-  const trecciaItems = allItems.filter(i => ['BOB', 'PF3V0', 'BARRA', 'TRECCIA'].includes(i.type));
-  const tubiItems = allItems.filter(i => i.type === 'TUBI');
-  const guainaItems = allItems.filter(i => i.type === 'GUAINA');
+  const {
+    trecciaItems,
+    tubiItems,
+    guainaItems,
+    hasTrecciaNotes,
+    hasTubiNotes,
+    hasGuainaNotes,
+  } = React.useMemo(() => {
+    const treccia: typeof allItems = [];
+    const tubi: typeof allItems = [];
+    const guaina: typeof allItems = [];
+    let trecciaNotes = false;
+    let tubiNotes = false;
+    let guainaNotes = false;
 
-  const hasTrecciaNotes = trecciaItems.some(i => i.note && i.note.trim() !== '');
-  const hasTubiNotes = tubiItems.some(i => i.note && i.note.trim() !== '');
-  const hasGuainaNotes = guainaItems.some(i => i.note && i.note.trim() !== '');
+    for (const item of allItems) {
+      if (TRECCIA_TYPES_SET.has(item.type)) {
+        treccia.push(item);
+        if (!trecciaNotes && item.note && item.note.trim() !== '') trecciaNotes = true;
+      } else if (item.type === 'TUBI') {
+        tubi.push(item);
+        if (!tubiNotes && item.note && item.note.trim() !== '') tubiNotes = true;
+      } else if (item.type === 'GUAINA') {
+        guaina.push(item);
+        if (!guainaNotes && item.note && item.note.trim() !== '') guainaNotes = true;
+      }
+    }
 
-
-
-  const formatDateSafe = (dateInput: any) => {
-    if (!dateInput) return '---';
-    try {
-      const d = typeof dateInput === 'string' 
-        ? (dateInput.includes('T') ? parseISO(dateInput) : new Date(dateInput))
-        : (dateInput.toDate ? dateInput.toDate() : new Date(dateInput));
-      
-      return isValid(d) ? format(d, 'dd/MM/yyyy') : '---';
-    } catch (e) { return '---'; }
-  };
+    return {
+      trecciaItems: treccia,
+      tubiItems: tubi,
+      guainaItems: guaina,
+      hasTrecciaNotes: trecciaNotes,
+      hasTubiNotes: tubiNotes,
+      hasGuainaNotes: guainaNotes,
+    };
+  }, [allItems]);
 
   const getEstimatedTimeForSection = (phaseId: string) => {
     const timeData = resolvedArticle?.phaseTimes?.[phaseId];
@@ -193,104 +312,84 @@ function ODLPrintTemplate({
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   };
 
-  const styles = {
-    page: {
-      width: "297mm", 
-      height: "210mm",
-      padding: "5mm", 
-      backgroundColor: "white",
-      color: "black",
-      fontFamily: "'PT Sans', 'Calibri', sans-serif",
-      boxSizing: "border-box" as const,
-      display: "flex",
-      flexDirection: "column" as const,
-      overflow: "hidden",
-      position: "relative" as const,
-      pageBreakAfter: "always" as const,
-    },
-    masterTable: {
-      width: "100%",
-      borderCollapse: "collapse" as const,
-      tableLayout: "fixed" as const,
-      border: `1.5px solid ${config.colors.border}`,
-    },
-    cell: {
-      border: `1px solid ${config.colors.border}`,
-      padding: "0",
-      fontSize: `${config.typography.baseFontSize}pt`,
-      minHeight: "8.5mm",
-      verticalAlign: (config.layout.verticalAlign || "middle") as any,
-      textAlign: (config.layout.textAlign || "center") as any,
-      lineHeight: "1.2",
-      position: "relative" as const,
-    },
-    label: {
-        fontSize: `${config.typography.headerFontSize}pt`,
-        fontWeight: "bold" as const,
-        color: config.colors.headerText || "#555",
-        textAlign: "center" as const,
-    },
-    title: {
-      backgroundColor: config.colors.primary,
-      color: "white",
-      fontWeight: "bold" as const,
-      fontSize: `${config.typography.titleFontSize}pt`,
-      textAlign: "center" as const,
-      height: config.header.titleHeight || "12mm",
-      position: "relative" as const,
-    },
-    qrWrapper: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
+  const styles = React.useMemo(
+    () => ({
+      page: PAGE_STATIC_STYLE,
+      masterTable: {
         width: '100%',
-        padding: '1mm',
-        boxSizing: 'border-box' as const,
-    },
-    verificaGrid: {
-        display: "flex",
-        width: "100%",
-        height: "100%",
-        alignItems: "stretch",
-    },
-    verificaSlot: {
+        borderCollapse: 'collapse' as const,
+        tableLayout: 'fixed' as const,
+        border: `1.5px solid ${config.colors.border}`,
+      },
+      cell: {
+        border: `1px solid ${config.colors.border}`,
+        padding: '0',
+        fontSize: `${config.typography.baseFontSize}pt`,
+        minHeight: '8.5mm',
+        verticalAlign: (config.layout.verticalAlign || 'middle') as any,
+        textAlign: (config.layout.textAlign || 'center') as any,
+        lineHeight: '1.2',
+        position: 'relative' as const,
+      },
+      label: {
+        fontSize: `${config.typography.headerFontSize}pt`,
+        fontWeight: 'bold' as const,
+        color: config.colors.headerText || '#555',
+        textAlign: 'center' as const,
+      },
+      title: {
+        backgroundColor: config.colors.primary,
+        color: 'white',
+        fontWeight: 'bold' as const,
+        fontSize: `${config.typography.titleFontSize}pt`,
+        textAlign: 'center' as const,
+        height: config.header.titleHeight || '12mm',
+        position: 'relative' as const,
+      },
+      qrWrapper: QR_WRAPPER_STYLE,
+      verificaGrid: VERIFICA_GRID_STYLE,
+      verificaSlot: {
         flex: 1,
         borderRight: `1px solid ${config.colors.border}`,
-    },
-    valueLarge: {
-        fontSize: "12pt",
-        fontWeight: "bold" as const,
-    },
-    pageNumber: {
-        position: 'absolute' as const,
-        bottom: '5mm',
-        right: '5mm',
-        fontSize: '9pt',
-        fontWeight: 'bold' as const,
-        backgroundColor: '#000',
-        color: '#fff',
-        padding: '1mm 3mm',
-        borderRadius: '1mm',
-    }
-  };
+      },
+      valueLarge: VALUE_LARGE_STYLE,
+      pageNumber: PAGE_NUMBER_STYLE,
+    }),
+    [config]
+  );
 
-  const getCellFlexStyles = (colConfig?: any) => {
-    const vAlign = colConfig?.verticalAlign || config.layout.verticalAlign || 'middle';
-    const hAlign = colConfig?.textAlign || config.layout.textAlign || 'center';
-    
+  const cellFlexCache = React.useMemo(() => {
+    const cache = new Map<string, React.CSSProperties>();
+    const defaultV = config.layout.verticalAlign || 'middle';
+    const defaultH = config.layout.textAlign || 'center';
+    const paddingStr = `${config.layout.cellPadding || 0}px`;
+
     return {
-      display: "flex",
-      alignItems: vAlign === 'top' ? 'flex-start' : vAlign === 'bottom' ? 'flex-end' : 'center',
-      justifyContent: hAlign === 'left' ? 'flex-start' : hAlign === 'right' ? 'flex-end' : 'center',
-      height: "100%",
-      width: "100%",
-      whiteSpace: "normal" as any,
-      wordBreak: "break-word" as any,
-      padding: `${config.layout.cellPadding || 0}px`,
-      boxSizing: "border-box" as const,
+      get: (colConfig?: any): React.CSSProperties => {
+        const vAlign = colConfig?.verticalAlign || defaultV;
+        const hAlign = colConfig?.textAlign || defaultH;
+        const key = `${vAlign}__${hAlign}`;
+        let cached = cache.get(key);
+        if (!cached) {
+          cached = {
+            display: 'flex',
+            alignItems: vAlign === 'top' ? 'flex-start' : vAlign === 'bottom' ? 'flex-end' : 'center',
+            justifyContent: hAlign === 'left' ? 'flex-start' : hAlign === 'right' ? 'flex-end' : 'center',
+            height: '100%',
+            width: '100%',
+            whiteSpace: 'normal' as any,
+            wordBreak: 'break-word' as any,
+            padding: paddingStr,
+            boxSizing: 'border-box' as const,
+          };
+          cache.set(key, cached);
+        }
+        return cached;
+      },
     };
-  };
+  }, [config.layout.verticalAlign, config.layout.textAlign, config.layout.cellPadding]);
+
+  const getCellFlexStyles = (colConfig?: any) => cellFlexCache.get(colConfig);
 
   const activeHeaderCols = config.header.columns?.filter(c => c.visible) || [];
 
@@ -382,7 +481,7 @@ function ODLPrintTemplate({
                               {activeHeaderCols.map((col, idx) => {
                                 let val = '---';
                                 if (col.field === 'reparto') {
-                                    const deptCode = departments.find(d => d.id === job.department || d.name === job.department)?.code || job.department;
+                                    const deptCode = (job.department ? departmentCodeMap.get(job.department) : undefined) || job.department;
                                     val = deptCode || 'N/D';
                                 }
                                 if (col.field === 'dataOdl') val = format(printDate || new Date(), 'dd/MM/yyyy');
@@ -754,8 +853,7 @@ function ODLPrintTemplate({
         <tbody>
           {items.map((item, i) => {
             const compUpper = (item.component || '').toUpperCase().trim();
-            const configMat = (item.mat?.type ? rawMaterialTypesMap.get(item.mat.type) : null) || { defaultUnit: item.mat?.unitOfMeasure };
-            const req = calculateBOMRequirement(job.qta, item, item.mat as any, configMat as any);
+            const req = item.req;
             
             // FASE 47 & FASE 88: Verifica materiale esternalizzato in Conto Lavoro tramite lookup O(1) sul dizionario in memoria
             const isExternalized = Boolean(
@@ -886,53 +984,49 @@ function ODLPrintTemplate({
 
   // --- PAGINATION LOGIC V2 ---
   // --- DYNAMIC PAGINATION LOGIC (Smart Hybrid Strategy) ---
-  
-  type RenderBlock = 
-    | { type: 'category-header'; categoryName: string; sectionType: 'treccia' | 'tubi' | 'guaina'; isContinuation: boolean }
-    | { type: 'item-row'; item: any; sectionType: 'treccia' | 'tubi' | 'guaina'; colConfig: any[] };
+  const pages = React.useMemo(() => {
+    type RenderBlock =
+      | { type: 'category-header'; categoryName: string; sectionType: 'treccia' | 'tubi' | 'guaina'; isContinuation: boolean }
+      | { type: 'item-row'; item: any; sectionType: 'treccia' | 'tubi' | 'guaina'; colConfig: any[] };
 
-  const allBlocks: RenderBlock[] = [];
-  const trecciaCount = trecciaItems.length;
-  const tubiCount = tubiItems.length;
-  const guainaCount = guainaItems.length;
-  const totalRows = trecciaCount + tubiCount + guainaCount;
+    const allBlocks: RenderBlock[] = [];
+    const trecciaCount = trecciaItems.length;
+    const tubiCount = tubiItems.length;
+    const guainaCount = guainaItems.length;
+    const totalRows = trecciaCount + tubiCount + guainaCount;
 
-  // Rule: Small orders fit on one page. Large orders separate by category.
-  const STRATEGY = totalRows <= 7 ? 'UNIFIED' : 'ORGANIZED';
+    // Rule: Small orders fit on one page. Large orders separate by category.
+    const STRATEGY = totalRows <= 7 ? 'UNIFIED' : 'ORGANIZED';
 
-  const addCategoryToBlocks = (items: any[], categoryName: string, sectionType: 'treccia' | 'tubi' | 'guaina', colConfig: any[]) => {
-    if (items.length === 0) return;
-    allBlocks.push({ type: 'category-header', categoryName, sectionType, isContinuation: false });
-    items.forEach(item => {
-      allBlocks.push({ type: 'item-row', item, sectionType, colConfig });
-    });
-  };
+    const addCategoryToBlocks = (items: any[], categoryName: string, sectionType: 'treccia' | 'tubi' | 'guaina', colConfig: any[]) => {
+      if (items.length === 0) return;
+      allBlocks.push({ type: 'category-header', categoryName, sectionType, isContinuation: false });
+      items.forEach((item) => {
+        allBlocks.push({ type: 'item-row', item, sectionType, colConfig });
+      });
+    };
 
-  addCategoryToBlocks(trecciaItems, 'Componenti Treccia/Corda', 'treccia', config.columns.treccia);
-  addCategoryToBlocks(tubiItems, 'Componenti Tubi', 'tubi', config.columns.tubi);
-  addCategoryToBlocks(guainaItems, 'Componenti Guaina', 'guaina', config.columns.guaina);
+    addCategoryToBlocks(trecciaItems, 'Componenti Treccia/Corda', 'treccia', config.columns.treccia);
+    addCategoryToBlocks(tubiItems, 'Componenti Tubi', 'tubi', config.columns.tubi);
+    addCategoryToBlocks(guainaItems, 'Componenti Guaina', 'guaina', config.columns.guaina);
 
-  // Pagination Constants
-  const FIRST_PAGE_ROW_LIMIT = 7;
-  const SUBSEQUENT_PAGE_ROW_LIMIT = 17;
+    const computedPages: RenderBlock[][] = [];
+    let currentPage: RenderBlock[] = [];
+    let currentRowCount = 0;
+    let isFirstPage = true;
 
-  const pages: RenderBlock[][] = [];
-  let currentPage: RenderBlock[] = [];
-  let currentRowCount = 0;
-  let isFirstPage = true;
+    allBlocks.forEach((block, blockIdx) => {
+      const limit = isFirstPage ? FIRST_PAGE_ROW_LIMIT : SUBSEQUENT_PAGE_ROW_LIMIT;
+      let shouldBreak = currentRowCount >= limit;
 
-  allBlocks.forEach((block) => {
-    const limit = isFirstPage ? FIRST_PAGE_ROW_LIMIT : SUBSEQUENT_PAGE_ROW_LIMIT;
-    let shouldBreak = currentRowCount >= limit;
-
-    // STRATEGY: ORGANIZED -> Force break before category header (except first)
-    if (STRATEGY === 'ORGANIZED' && block.type === 'category-header' && !block.isContinuation && allBlocks.indexOf(block) > 0) {
+      // STRATEGY: ORGANIZED -> Force break before category header (except first)
+      if (STRATEGY === 'ORGANIZED' && block.type === 'category-header' && !block.isContinuation && blockIdx > 0) {
         shouldBreak = true;
-    }
-    
-    if (shouldBreak) {
+      }
+
+      if (shouldBreak) {
         if (currentPage.length > 0) {
-            pages.push(currentPage);
+          computedPages.push(currentPage);
         }
         currentPage = [];
         currentRowCount = 0;
@@ -940,31 +1034,48 @@ function ODLPrintTemplate({
 
         // Continuation logic: if we broke on a row, add the header on the new page
         if (block.type === 'item-row') {
-            currentPage.push({ 
-                type: 'category-header', 
-                categoryName: block.sectionType === 'treccia' ? 'Componenti Treccia/Corda' : block.sectionType === 'tubi' ? 'Componenti Tubi' : 'Componenti Guaina', 
-                sectionType: block.sectionType, 
-                isContinuation: true 
-            });
-            currentRowCount++;
+          currentPage.push({
+            type: 'category-header',
+            categoryName:
+              block.sectionType === 'treccia'
+                ? 'Componenti Treccia/Corda'
+                : block.sectionType === 'tubi'
+                  ? 'Componenti Tubi'
+                  : 'Componenti Guaina',
+            sectionType: block.sectionType,
+            isContinuation: true,
+          });
+          currentRowCount++;
         }
+      }
+
+      currentPage.push(block);
+      currentRowCount++;
+    });
+
+    if (currentPage.length > 0) {
+      computedPages.push(currentPage);
     }
 
-    currentPage.push(block);
-    currentRowCount++;
-  });
+    // Fallback for empty BOM
+    if (computedPages.length === 0) {
+      computedPages.push([
+        { type: 'category-header', categoryName: 'Distinta Base', sectionType: 'treccia', isContinuation: false },
+      ]);
+    }
 
-  if (currentPage.length > 0) {
-    pages.push(currentPage);
-  }
-
-  // Fallback for empty BOM
-  if (pages.length === 0) {
-    pages.push([{ type: 'category-header', categoryName: 'Distinta Base', sectionType: 'treccia', isContinuation: false }]);
-  }
+    return computedPages;
+  }, [
+    trecciaItems,
+    tubiItems,
+    guainaItems,
+    config.columns.treccia,
+    config.columns.tubi,
+    config.columns.guaina,
+  ]);
 
   return (
-    <div id={omitRootId ? undefined : "odl-pdf-pages"} style={{ width: '297mm' }}>
+    <div id={omitRootId ? undefined : "odl-pdf-pages"} style={ODL_ROOT_WRAPPER_STYLE}>
       {pages.map((pageBlocks, idx) => {
         const isFirstPageOfDoc = idx === 0;
         const isLastPageOfDoc = idx === pages.length - 1;

@@ -30,7 +30,7 @@ import {
   ListChecks, Upload, Loader2, Trash2, Briefcase, PlayCircle, Search, XCircle,
   FileDown, PlusCircle, ArrowUpDown, Calendar as CalendarIcon,
   CheckCircle2, AlertTriangle, Info, RefreshCw, Save, Combine,
-  Pencil, Edit3, BellRing, ChevronDown
+  Pencil, Edit3, BellRing, ChevronDown, Printer
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/types';
 import { format, parseISO, isBefore } from 'date-fns';
@@ -54,12 +54,18 @@ import { getArticleDefaultDepartment } from '@/lib/department-utils';
 import { calculateMRPTimelines, MRPTimelineEntry, aggregateMRPRequirements, classifyGlobalMRPAlarms } from '@/lib/mrp-utils';
 import { GlobalSettings } from '@/lib/settings-types';
 
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { getODLConfig } from '@/app/admin/settings/odl-actions';
-import { getOdlPrintData } from '../programmazione/actions';
+import { getOdlPrintData, bulkMarkJobsAsPrinted } from '../programmazione/actions';
 import { mergeServerAndLocalJobForOdlPrint } from '@/lib/bom-import-utils';
+import { getJobCleanOdl } from '@/lib/odl-numerator';
+import {
+  printOdlContainerViaIframe,
+  generateOptimizedOdlPdf,
+  waitForOdlContainerReady,
+  buildSingleOdlDocumentTitle,
+  buildBulkOdlDocumentTitle,
+} from '@/lib/odl-print-engine';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { Calendar } from '@/components/ui/calendar';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
@@ -103,7 +109,7 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sor
 
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
-  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onDownloadPdf, onAction, onEdit, isDownloadingPdf, isProcessingBatch, globalSettings, allowLink, activeSessions
+  selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onUpdatePrepDate, onUpdateOdlNumber, onPrintOdl, onDownloadPdf, onAction, onEdit, isDownloadingPdf, isProcessingBatch, globalSettings, allowLink, activeSessions
 }: {
   data: JobOrder[];
   departments: Department[];
@@ -117,6 +123,7 @@ const JobTableRows = ({
   onUpdateDate: (id: string, date: Date | undefined) => void;
   onUpdatePrepDate: (id: string, date: Date | undefined) => void;
   onUpdateOdlNumber: (id: string, newOdl: string) => Promise<void>;
+  onPrintOdl: (job: JobOrder) => void;
   onDownloadPdf: (job: JobOrder) => void;
   onAction: (id: string, type: 'start' | 'cancel') => void;
   onEdit: (job: JobOrder) => void;
@@ -270,7 +277,41 @@ const JobTableRows = ({
                 </Tooltip>
               </TooltipProvider>
 
-              <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => onDownloadPdf(j)} disabled={isDownloadingPdf !== null || isProcessingBatch}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
+              <div className="inline-flex items-center">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title={j.isPrinted ? "ODL stampato (clicca per ristampare subito)" : "Stampa ODL (Vettoriale Istantanea)"}
+                  className={cn("h-8 w-7 px-0", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")}
+                  onClick={() => onPrintOdl(j)}
+                  disabled={isDownloadingPdf !== null || isProcessingBatch}
+                >
+                  {isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Opzioni stampa ODL (Stampa Istantanea / Scarica PDF)"
+                      className={cn("h-8 w-4 px-0", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")}
+                      disabled={isDownloadingPdf !== null || isProcessingBatch}
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => onPrintOdl(j)} className="cursor-pointer">
+                      <Printer className="mr-2 h-3.5 w-3.5" />
+                      <span>Stampa ODL (Istantanea)</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onDownloadPdf(j)} className="cursor-pointer">
+                      <FileDown className="mr-2 h-3.5 w-3.5" />
+                      <span>Scarica PDF (.pdf)</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
               {isPlanned ? <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'start')}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button> : <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'cancel')}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>}
             </TableCell>
           </TableRow>
@@ -395,7 +436,9 @@ export default function DataManagementClientPage({
 
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
-  const [pdfData, setPdfData] = useState<{
+  const [batchActionMode, setBatchActionMode] = useState<'print' | 'pdf' | null>(null);
+  const [pdfProgress, setPdfProgress] = useState<{ current: number; total: number } | null>(null);
+  const [pdfData, setPdfData] = useState<Array<{
     job: JobOrder;
     article: Article | null;
     materials: RawMaterial[];
@@ -403,7 +446,7 @@ export default function DataManagementClientPage({
     contoLavoroMap?: Record<string, string[]>;
     materialsByCode?: Record<string, RawMaterial>;
     articlesByCode?: Record<string, Article>;
-  } | null>(null);
+  }> | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -582,123 +625,291 @@ export default function DataManagementClientPage({
     return dict;
   }, [rawMaterials]);
 
-  const generateSinglePdf = async (
-    job: JobOrder,
-    precomputedContoLavoroMap?: Record<string, string[]>,
-    skipMarkPrinted?: boolean,
-    prefetchedServerBundle?: Awaited<ReturnType<typeof getOdlPrintData>>
-  ) => {
-    setIsDownloadingPdf(job.id);
+  const markJobsPrintedLocally = useCallback((jobIds: string[]) => {
+    const idSet = new Set(jobIds);
+    const updater = (prev: JobOrder[]) =>
+      prev.map((j) => (idSet.has(j.id) ? { ...j, isPrinted: true, odlPrinted: true } : j));
+    setPlannedJobOrders(updater);
+    setProductionJobOrders(updater);
+    setCompletedJobOrders(updater);
+  }, []);
+
+  const prepareBulkJobsForPrint = useCallback(async (targetJobs: JobOrder[]) => {
+    const jobIds = targetJobs.map((j) => j.id).filter(Boolean);
+    const allArticleCodesSet = new Set<string>();
+    const allMaterialCodesSet = new Set<string>();
+
+    targetJobs.forEach((j) => {
+      const artCode = ((j as any).articolo || j.details || (j as any).articleCode || '').trim().toUpperCase();
+      if (artCode) {
+        allArticleCodesSet.add(artCode);
+        const cachedArt = articlesByCodeMap[artCode];
+        (cachedArt?.billOfMaterials || []).forEach((b) => {
+          if (b?.component) allMaterialCodesSet.add(b.component.trim().toUpperCase());
+        });
+      }
+      (j.billOfMaterials || []).forEach((b) => {
+        if (b?.component) allMaterialCodesSet.add(b.component.trim().toUpperCase());
+      });
+    });
+
+    const requestedArticleCodes = Array.from(allArticleCodesSet);
+    const missingMaterialCodes = Array.from(allMaterialCodesSet).filter(
+      (code) => !materialsByCodeMap[code]
+    );
+
+    let serverBundle: Awaited<ReturnType<typeof getOdlPrintData>> = {
+      jobsById: {},
+      articlesByCode: {},
+      materialsByCode: {},
+      contoLavoroMap: {},
+    };
+
     try {
-      const initialArtKey = ((job as any).articolo || job.details || (job as any).articleCode || '').toUpperCase().trim();
-      let serverBundle = prefetchedServerBundle;
-      if (!serverBundle) {
-        try {
-          serverBundle = await getOdlPrintData([job.id], initialArtKey ? [initialArtKey] : [], []);
-        } catch (fetchErr) {
-          console.warn('Avviso fetch dati freschi ODL in DataManagementClientPage:', fetchErr);
+      serverBundle = await getOdlPrintData(jobIds, requestedArticleCodes, missingMaterialCodes);
+    } catch (fetchErr) {
+      console.warn('Avviso fetch dati freschi ODL in DataManagementClientPage:', fetchErr);
+    }
+
+    const mergedArticlesByCode: Record<string, Article> = {
+      ...articlesByCodeMap,
+      ...(serverBundle.articlesByCode || {}),
+    };
+
+    Object.values(mergedArticlesByCode).forEach((art) => {
+      (art?.billOfMaterials || []).forEach((b) => {
+        if (b?.component) allMaterialCodesSet.add(b.component.trim().toUpperCase());
+      });
+    });
+
+    const mergedMaterialsByCode: Record<string, RawMaterial> = {
+      ...materialsByCodeMap,
+      ...(serverBundle.materialsByCode || {}),
+    };
+
+    const contoLavoroMap: Record<string, string[]> = { ...(serverBundle.contoLavoroMap || {}) };
+    targetJobs.forEach((localJob) => {
+      const freshServerJob = serverBundle.jobsById?.[localJob.id];
+      const extSource = freshServerJob?.externalizedMaterials ?? localJob.externalizedMaterials ?? [];
+      const normalizedExt = Array.from(
+        new Set(extSource.map((m) => (m || '').trim().toUpperCase()).filter(Boolean))
+      );
+      contoLavoroMap[localJob.id] = normalizedExt;
+      if (localJob.ordinePF) {
+        contoLavoroMap[localJob.ordinePF] = normalizedExt;
+      }
+    });
+
+    return targetJobs.map((localJob) => {
+      const freshServerJob = serverBundle.jobsById?.[localJob.id];
+      const resolvedExt = contoLavoroMap[localJob.id] || [];
+      const mergedJob = mergeServerAndLocalJobForOdlPrint(localJob, freshServerJob, resolvedExt);
+
+      const artKey = ((mergedJob as any).articolo || mergedJob.details || (mergedJob as any).articleCode || '')
+        .toUpperCase()
+        .trim();
+      const article = (artKey ? mergedArticlesByCode[artKey] : null) || null;
+
+      let bomItems = mergedJob.billOfMaterials || [];
+      if ((!bomItems || bomItems.length === 0) && article?.billOfMaterials) {
+        bomItems = article.billOfMaterials.map((item) => ({
+          ...item,
+          status: 'pending' as const,
+          isFromTemplate: true,
+        }));
+      }
+
+      const jobMaterials: RawMaterial[] = [];
+      const seenJobMatCodes = new Set<string>();
+      bomItems.forEach((b) => {
+        const compCode = (b?.component || '').trim().toUpperCase();
+        if (compCode && !seenJobMatCodes.has(compCode)) {
+          seenJobMatCodes.add(compCode);
+          const mat = mergedMaterialsByCode[compCode];
+          if (mat) jobMaterials.push(mat);
+        }
+      });
+
+      let jobPhases = mergedJob.phases || [];
+      if ((!jobPhases || jobPhases.length === 0) && (mergedJob.workCycleId || article?.workCycleId)) {
+        const cycleId = mergedJob.workCycleId || article?.workCycleId;
+        const cycle = workCycles.find((c) => c.id === cycleId);
+        if (cycle && (cycle as any).phases) {
+          jobPhases = (cycle as any).phases;
         }
       }
 
-      const freshServerJob = serverBundle?.jobsById?.[job.id];
-      const resolvedExt =
-        serverBundle?.contoLavoroMap?.[job.id] ??
-        precomputedContoLavoroMap?.[job.id] ??
-        (freshServerJob?.externalizedMaterials || job.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim());
-
-      const mergedJob = mergeServerAndLocalJobForOdlPrint(job, freshServerJob, resolvedExt);
-      const artKey = ((mergedJob as any).articolo || mergedJob.details || (mergedJob as any).articleCode || '').toUpperCase().trim();
-
-      const mergedArticlesByCode: Record<string, Article> = {
-        ...articlesByCodeMap,
-        ...(serverBundle?.articlesByCode || {}),
-      };
-      const mergedMaterialsByCode: Record<string, RawMaterial> = {
-        ...materialsByCodeMap,
-        ...(serverBundle?.materialsByCode || {}),
+      const cleanOdl = getJobCleanOdl(mergedJob);
+      const enrichedJob: JobOrder = {
+        ...mergedJob,
+        ...(cleanOdl ? { numeroODL: cleanOdl, numeroODLInterno: cleanOdl } : {}),
+        billOfMaterials: bomItems,
+        phases: jobPhases,
+        externalizedMaterials: resolvedExt,
       };
 
-      const article = mergedArticlesByCode[artKey] || null;
-      const contoLavoroMap: Record<string, string[]> = {
-        ...(precomputedContoLavoroMap || {}),
-        ...(serverBundle?.contoLavoroMap || {}),
-        [mergedJob.id]: resolvedExt,
-      };
-
-      setPdfData({
-        job: mergedJob,
+      return {
+        enrichedJob,
         article,
-        materials: [],
+        materials: jobMaterials,
         contoLavoroMap,
         materialsByCode: mergedMaterialsByCode,
         articlesByCode: mergedArticlesByCode,
-        printDate: new Date(),
-      });
-      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-      const container = document.getElementById('odl-pdf-pages');
+      };
+    });
+  }, [articlesByCodeMap, materialsByCodeMap, workCycles]);
+
+  const executeSingleOdl = async (job: JobOrder, mode: 'print' | 'pdf') => {
+    if (isDownloadingPdf || isProcessingBatch) return;
+    setIsDownloadingPdf(job.id);
+    setPdfProgress(null);
+
+    try {
+      const [prepared] = await prepareBulkJobsForPrint([job]);
+      const printTimestamp = new Date();
+
+      setPdfData([
+        {
+          job: prepared.enrichedJob,
+          article: prepared.article,
+          materials: prepared.materials,
+          contoLavoroMap: prepared.contoLavoroMap,
+          materialsByCode: prepared.materialsByCode,
+          articlesByCode: prepared.articlesByCode,
+          printDate: printTimestamp,
+        },
+      ]);
+
+      const container = await waitForOdlContainerReady('odl-pdf-pages', 600);
       if (!container) throw new Error("Template non trovato.");
-      const pageElements = container.querySelectorAll('.odl-page');
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
-      for (let i = 0; i < pageElements.length; i++) {
-        if (i > 0) await new Promise<void>((r) => setTimeout(r, 0));
-        const page = pageElements[i] as HTMLElement;
-        const canvas = await html2canvas(page, { scale: 2, useCORS: true, imageTimeout: 2500, logging: false, backgroundColor: '#ffffff' });
-        const imgData = canvas.toDataURL('image/jpeg', 0.92);
-        if (i > 0) pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
+
+      const documentTitle = buildSingleOdlDocumentTitle(
+        getJobCleanOdl(prepared.enrichedJob),
+        prepared.enrichedJob.ordinePF
+      );
+
+      if (mode === 'print') {
+        await printOdlContainerViaIframe(container, { documentTitle });
+      } else {
+        await generateOptimizedOdlPdf(container, {
+          fileName: `${documentTitle}.pdf`,
+          scale: 1.5,
+          jpegQuality: 0.85,
+          onProgress: (current, total) => setPdfProgress({ current, total }),
+        });
       }
-      pdf.save(`ODL_${mergedJob.ordinePF.replace(/\//g, '_')}.pdf`);
-      if (!skipMarkPrinted) {
-        await markJobAsPrinted(mergedJob.id);
-      }
+
+      markJobsPrintedLocally([prepared.enrichedJob.id]);
+      toast({
+        title: mode === 'print' ? "Stampa ODL Avviata" : "PDF Scaricato",
+        description:
+          mode === 'print'
+            ? `Commessa ${job.ordinePF}: finestra di stampa pronta.`
+            : `Commessa ${job.ordinePF}: PDF scaricato.`,
+      });
+
+      void markJobAsPrinted(prepared.enrichedJob.id).catch((err) => {
+        console.warn('Avviso persistenza markJobAsPrinted:', err);
+      });
     } catch (error) {
-      toast({ variant: "destructive", title: `Errore Download ${job.ordinePF}` });
+      toast({ variant: "destructive", title: `Errore ${mode === 'print' ? 'Stampa' : 'Download'} ${job.ordinePF}` });
     } finally {
       setPdfData(null);
+      setPdfProgress(null);
+      setIsDownloadingPdf(null);
     }
+  };
+
+  const handlePrintOdl = async (job: JobOrder) => {
+    await executeSingleOdl(job, 'print');
   };
 
   const handleDownloadPdf = async (job: JobOrder) => {
-    if (isDownloadingPdf || isProcessingBatch) return;
-    await generateSinglePdf(job);
-    setIsDownloadingPdf(null);
-    router.refresh();
-    toast({ title: "PDF Scaricato" });
+    await executeSingleOdl(job, 'pdf');
+  };
+
+  const executeBatchOdl = async (mode: 'print' | 'pdf') => {
+    if (isDownloadingPdf || isProcessingBatch || selectedRows.length === 0) return;
+
+    const jobsToProcess = allJobsUnfiltered.filter((j) => selectedRows.includes(j.id));
+    if (jobsToProcess.length === 0) return;
+
+    setIsProcessingBatch(true);
+    setBatchActionMode(mode);
+    setPdfProgress(null);
+
+    try {
+      const preparedBatch = await prepareBulkJobsForPrint(jobsToProcess);
+      const printTimestamp = new Date();
+
+      setPdfData(
+        preparedBatch.map((item) => ({
+          job: item.enrichedJob,
+          article: item.article,
+          materials: item.materials,
+          contoLavoroMap: item.contoLavoroMap,
+          materialsByCode: item.materialsByCode,
+          articlesByCode: item.articlesByCode,
+          printDate: printTimestamp,
+        }))
+      );
+
+      const container = await waitForOdlContainerReady('odl-pdf-pages', 600);
+      if (!container) throw new Error("Template di stampa ODL non trovato nel DOM.");
+
+      const documentTitle =
+        jobsToProcess.length === 1
+          ? buildSingleOdlDocumentTitle(
+              getJobCleanOdl(preparedBatch[0].enrichedJob),
+              jobsToProcess[0].ordinePF
+            )
+          : buildBulkOdlDocumentTitle(jobsToProcess.length, printTimestamp);
+
+      if (mode === 'print') {
+        await printOdlContainerViaIframe(container, { documentTitle });
+      } else {
+        await generateOptimizedOdlPdf(container, {
+          fileName: `${documentTitle}.pdf`,
+          scale: 1.5,
+          jpegQuality: 0.85,
+          onProgress: (current, total) => setPdfProgress({ current, total }),
+        });
+      }
+
+      const printedIds = jobsToProcess.map((j) => j.id);
+      markJobsPrintedLocally(printedIds);
+      setSelectedRows([]);
+
+      toast({
+        title: mode === 'print' ? "Stampa Massiva Avviata" : "Download Massivo Completato",
+        description:
+          mode === 'print'
+            ? `${jobsToProcess.length} ODL pronti nella finestra di stampa vettoriale.`
+            : `Scaricato PDF unico combinato per ${jobsToProcess.length} ODL.`,
+      });
+
+      void bulkMarkJobsAsPrinted(printedIds).catch((err) => {
+        console.warn('Avviso persistenza bulkMarkJobsAsPrinted:', err);
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: mode === 'print' ? "Errore Stampa Massiva ODL" : "Errore Download Massivo PDF",
+      });
+    } finally {
+      setPdfData(null);
+      setPdfProgress(null);
+      setBatchActionMode(null);
+      setIsProcessingBatch(false);
+    }
+  };
+
+  const handleBatchPrintOdl = async () => {
+    await executeBatchOdl('print');
   };
 
   const handleBatchDownloadPdf = async () => {
-    if (isDownloadingPdf || isProcessingBatch || selectedRows.length === 0) return;
-    setIsProcessingBatch(true);
-
-    const jobsToDownload = allJobsUnfiltered.filter(j => selectedRows.includes(j.id));
-    const batchContoLavoroMap: Record<string, string[]> = {};
-    const batchJobIds: string[] = [];
-    const batchArtCodes = new Set<string>();
-    jobsToDownload.forEach((j) => {
-      batchJobIds.push(j.id);
-      const artKey = ((j as any).articolo || j.details || (j as any).articleCode || '').toUpperCase().trim();
-      if (artKey) batchArtCodes.add(artKey);
-      batchContoLavoroMap[j.id] = (j.externalizedMaterials || []).map((m) => (m || '').toUpperCase().trim());
-    });
-
-    let prefetchedBundle: Awaited<ReturnType<typeof getOdlPrintData>> | undefined = undefined;
-    try {
-      prefetchedBundle = await getOdlPrintData(batchJobIds, Array.from(batchArtCodes), []);
-    } catch (e) {
-      console.warn('Avviso bulk pre-fetch ODL in DataManagementClientPage:', e);
-    }
-
-    for (const job of jobsToDownload) {
-      await generateSinglePdf(job, batchContoLavoroMap, true, prefetchedBundle);
-    }
-
-    await Promise.all(jobsToDownload.map((job) => markJobAsPrinted(job.id)));
-
-    setIsDownloadingPdf(null);
-    setIsProcessingBatch(false);
-    setSelectedRows([]);
-    router.refresh();
-    toast({ title: "Download Massivo Completato", description: `Scaricati ${jobsToDownload.length} ODL.` });
+    await executeBatchOdl('pdf');
   };
 
   const handleToggleRow = (id: string, checked: boolean) => {
@@ -1204,34 +1415,61 @@ export default function DataManagementClientPage({
               </Button>
             </>
           )}
-          <Button
-            onClick={handleBatchDownloadPdf}
-            disabled={selectedRows.length === 0 || isProcessingBatch || isDownloadingPdf !== null}
-            variant="outline"
-            className="border-green-200 text-green-700 hover:bg-green-50"
-          >
-            {isProcessingBatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
-            Scarica ODL Selezionati
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleBatchPrintOdl}
+              disabled={selectedRows.length === 0 || isProcessingBatch || isDownloadingPdf !== null}
+              className="bg-blue-600 hover:bg-blue-500 text-white"
+            >
+              {isProcessingBatch && batchActionMode === 'print' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Printer className="mr-2 h-4 w-4" />
+              )}
+              Stampa ODL{selectedRows.length > 0 ? ` (${selectedRows.length})` : ''}
+            </Button>
+            <Button
+              onClick={handleBatchDownloadPdf}
+              disabled={selectedRows.length === 0 || isProcessingBatch || isDownloadingPdf !== null}
+              variant="outline"
+              className="border-green-200 text-green-700 hover:bg-green-50"
+            >
+              {isProcessingBatch && batchActionMode === 'pdf' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileDown className="mr-2 h-4 w-4" />
+              )}
+              {isProcessingBatch && batchActionMode === 'pdf'
+                ? pdfProgress
+                  ? `Pagina ${pdfProgress.current} di ${pdfProgress.total}`
+                  : 'Generazione PDF...'
+                : 'Scarica PDF'}
+            </Button>
+          </div>
           <Button onClick={() => setIsManualCreateOpen(true)} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Nuova Commessa</Button>
           <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />} Importa Excel</Button>
         </div>
       </header>
 
-      {pdfData && (
-        <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}>
-          <ODLPrintTemplate
-            job={pdfData.job}
-            article={pdfData.article}
-            materials={pdfData.materials}
-            printDate={pdfData.printDate}
-            config={odlConfig}
-            qrRule={qrRule}
-            globalSettings={globalSettings}
-            contoLavoroMap={pdfData.contoLavoroMap}
-            materialsByCode={pdfData.materialsByCode}
-            articlesByCode={pdfData.articlesByCode}
-          />
+      {pdfData && pdfData.length > 0 && (
+        <div id="odl-pdf-pages" style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1, width: '297mm' }}>
+          {pdfData.map((item, idx) => (
+            <ODLPrintTemplate
+              key={item.job.id || idx}
+              job={item.job}
+              article={item.article}
+              materials={item.materials}
+              printDate={item.printDate}
+              config={odlConfig}
+              qrRule={qrRule}
+              globalSettings={globalSettings}
+              departments={departments}
+              contoLavoroMap={item.contoLavoroMap}
+              materialsByCode={item.materialsByCode}
+              articlesByCode={item.articlesByCode}
+              omitRootId={true}
+            />
+          ))}
         </div>
       )}
 
@@ -1292,6 +1530,7 @@ export default function DataManagementClientPage({
                       onUpdateDate={handleUpdateDateLocal}
                       onUpdatePrepDate={handleUpdatePrepDateLocal}
                       onUpdateOdlNumber={handleUpdateOdlLocal}
+                      onPrintOdl={handlePrintOdl}
                       onDownloadPdf={handleDownloadPdf}
                       onAction={handleActionLocal}
                       onEdit={(job) => {
@@ -1347,6 +1586,7 @@ export default function DataManagementClientPage({
                       onUpdateDate={handleUpdateDateLocal}
                       onUpdatePrepDate={handleUpdatePrepDateLocal}
                       onUpdateOdlNumber={handleUpdateOdlLocal}
+                      onPrintOdl={handlePrintOdl}
                       onDownloadPdf={handleDownloadPdf}
                       onAction={handleActionLocal}
                       onEdit={(job) => {
@@ -1402,6 +1642,7 @@ export default function DataManagementClientPage({
                       onUpdateDate={handleUpdateDateLocal}
                       onUpdatePrepDate={handleUpdatePrepDateLocal}
                       onUpdateOdlNumber={handleUpdateOdlLocal}
+                      onPrintOdl={handlePrintOdl}
                       onDownloadPdf={handleDownloadPdf}
                       onAction={handleActionLocal}
                       onEdit={(job) => {
