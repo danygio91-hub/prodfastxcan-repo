@@ -58,6 +58,8 @@ describe('odl-print-engine utilities (FASE 107-BIS)', () => {
     expect(css).toContain('.odl-page:last-child');
     expect(css).toContain('break-after: auto !important;');
     expect(css).toContain('page-break-after: auto !important;');
+    expect(css).toContain('[data-odl-measure="true"]');
+    expect(css).toContain('display: none !important;');
   });
 
   it('sanitizeOdlFileToken e builder titolo documento sanitizzano correttamente caratteri non validi e placeholder', () => {
@@ -129,6 +131,29 @@ describe('odl-print-engine utilities (FASE 107-BIS)', () => {
     expect(shouldIgnoreElementForOdlCanvas(odl2Wrapper, targetPage, container)).toBe(true);
     expect(shouldIgnoreElementForOdlCanvas(siblingPageOtherOdl, targetPage, container)).toBe(true);
     expect(shouldIgnoreElementForOdlCanvas(siblingOtherCell, targetPage, container)).toBe(true);
+  });
+
+  it('shouldIgnoreElementForOdlCanvas esclude sempre la sonda off-screen [data-odl-measure="true"] e tutti i suoi figli', () => {
+    const html = createMockNode('HTML');
+    const body = appendChild(html, createMockNode('BODY'));
+    const container = appendChild(body, createMockNode('DIV', { id: 'odl-pdf-pages' }));
+    const templateRoot = appendChild(container, createMockNode('DIV'));
+
+    const measureProbe: MockNode = {
+      ...createMockNode('DIV'),
+      getAttribute: (attr: string) => (attr === 'data-odl-measure' ? 'true' : null),
+      dataset: { odlMeasure: 'true' },
+    };
+    appendChild(templateRoot, measureProbe);
+    const probeTable = appendChild(measureProbe, createMockNode('TABLE'));
+    const probeRow = appendChild(probeTable, createMockNode('TR'));
+
+    const targetPage = appendChild(templateRoot, createMockNode('DIV', { classNames: ['odl-page'] }));
+
+    expect(shouldIgnoreElementForOdlCanvas(measureProbe, targetPage, container)).toBe(true);
+    expect(shouldIgnoreElementForOdlCanvas(probeTable, targetPage, container)).toBe(true);
+    expect(shouldIgnoreElementForOdlCanvas(probeRow, targetPage, container)).toBe(true);
+    expect(shouldIgnoreElementForOdlCanvas(targetPage, targetPage, container)).toBe(false);
   });
 });
 

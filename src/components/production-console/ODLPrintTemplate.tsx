@@ -5,6 +5,12 @@ import type { JobOrder, RawMaterial, Article, Department } from '@/types';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import { GlobalSettings } from '@/lib/settings-types';
+import {
+  paginateOdlSectionsByHeight,
+  estimateInitialOdlPaginationInput,
+  type OdlPaginatedPage,
+  type OdlSectionType,
+} from '@/lib/odl-pagination-logic';
 
 interface ODLPrintTemplateProps {
   job: JobOrder;
@@ -24,8 +30,7 @@ interface ODLPrintTemplateProps {
 }
 
 const TRECCIA_TYPES_SET = new Set(['BOB', 'PF3V0', 'BARRA', 'TRECCIA']);
-const FIRST_PAGE_ROW_LIMIT = 7;
-const SUBSEQUENT_PAGE_ROW_LIMIT = 17;
+const USABLE_PAGE_HEIGHT_MM = 197;
 
 const PAGE_STATIC_STYLE: React.CSSProperties = {
   width: '297mm',
@@ -77,7 +82,32 @@ const PAGE_NUMBER_STYLE: React.CSSProperties = {
   borderRadius: '1mm',
 };
 
-const ODL_ROOT_WRAPPER_STYLE: React.CSSProperties = { width: '297mm' };
+const ODL_ROOT_WRAPPER_STYLE: React.CSSProperties = { width: '297mm', position: 'relative' };
+
+const MEASURE_ROOT_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  visibility: 'hidden',
+  pointerEvents: 'none',
+  left: '-9999mm',
+  top: 0,
+  width: '284mm', // 297mm - 2 * 6.5mm safe zone
+  zIndex: -9999,
+  overflow: 'hidden',
+};
+
+const MEASURE_RULER_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '1px',
+  height: `${USABLE_PAGE_HEIGHT_MM}mm`,
+  pointerEvents: 'none',
+};
+
+const MEASURE_FLOW_ROOT_STYLE: React.CSSProperties = {
+  display: 'flow-root',
+  width: '100%',
+};
 
 function formatDateSafe(dateInput: any): string {
   if (!dateInput) return '---';
@@ -394,7 +424,7 @@ function ODLPrintTemplate({
 
   const activeHeaderCols = config.header.columns?.filter(c => c.visible) || [];
 
-  const renderHeader = (isContinuation: boolean = false) => {
+  const renderHeader = (isContinuation: boolean = false, isMeasureProbe: boolean = false) => {
     const logoSrc = config.header.logoBase64 || config.header.logoUrl;
     
     // Minimalist header for continuation pages
@@ -410,7 +440,10 @@ function ODLPrintTemplate({
                     <tbody>
                         <tr>
                             <td style={{ ...styles.cell, borderBottom: 0, padding: '1mm' }}>
-                                {logoSrc && <img src={logoSrc} alt="Logo" decoding="async" loading="eager" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ height: '8mm', objectFit: 'contain' }} />}
+                                {logoSrc && (isMeasureProbe
+                                  ? <div style={{ height: '8mm', width: '10mm' }} />
+                                  : <img src={logoSrc} alt="Logo" decoding="async" loading="eager" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ height: '8mm', objectFit: 'contain' }} />
+                                )}
                             </td>
                             <td style={{ ...styles.cell, borderBottom: 0, backgroundColor: config.colors.primary, color: 'white', fontWeight: 'bold', fontSize: '10pt' }}>
                                 SCHEDA DI LAVORAZIONE - CONTINUAZIONE
@@ -460,7 +493,10 @@ function ODLPrintTemplate({
                                 <tr>
                                     <td style={{ ...styles.cell, borderLeft: 0, borderTop: 0, borderBottom: 0, backgroundColor: config.header.logoBg || 'white' }}>
                                         <div style={styles.qrWrapper}>
-                                            {logoSrc && <img src={logoSrc} alt="Logo" decoding="async" loading="eager" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />}
+                                            {logoSrc && (isMeasureProbe
+                                              ? <div style={{ height: `${config.header.logoHeight}px`, width: '20mm' }} />
+                                              : <img src={logoSrc} alt="Logo" decoding="async" loading="eager" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ height: `${config.header.logoHeight}px`, maxWidth: '95%', objectFit: 'contain' }} />
+                                            )}
                                         </div>
                                     </td>
                                     <td style={{ ...styles.title, border: 0, borderLeft: `1px solid ${config.colors.border}`, backgroundColor: config.header.titleBg || config.colors.primary, height: config.header.titleHeight || '12mm' }}>
@@ -517,7 +553,10 @@ function ODLPrintTemplate({
                                 CODICE COMMESSA
                             </div>
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1mm' }}>
-                                <MemoizedQRCode value={qrValue} size={config.header.qrSize || 65} />
+                                {isMeasureProbe
+                                  ? <div style={{ width: `${config.header.qrSize || 65}px`, height: `${config.header.qrSize || 65}px` }} />
+                                  : <MemoizedQRCode value={qrValue} size={config.header.qrSize || 65} />
+                                }
                             </div>
                         </div>
                     </td>
@@ -528,7 +567,7 @@ function ODLPrintTemplate({
     );
   };
 
-  const renderJobDetails = (showDrawingArea: boolean = true) => {
+  const renderJobDetails = (showDrawingArea: boolean = true, isMeasureProbe: boolean = false) => {
     // 1. Resolve Colors Helper
     const resolveColBg = (colorKey?: string) => {
       if (!colorKey || colorKey === 'white') return 'white';
@@ -647,30 +686,34 @@ function ODLPrintTemplate({
                 overflow: 'hidden',
               }}
             >
-              <img
-                src={technicalDrawingUrl}
-                alt="Disegno Tecnico"
-                crossOrigin="anonymous"
-                decoding="async"
-                loading="eager"
-                onError={(e) => {
-                  const img = e.currentTarget;
-                  if (img.getAttribute('crossorigin')) {
-                    img.removeAttribute('crossorigin');
-                    img.src = technicalDrawingUrl;
-                  } else {
-                    img.style.display = 'none';
-                  }
-                }}
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  width: 'auto',
-                  height: 'auto',
-                  objectFit: 'contain',
-                  display: 'block',
-                }}
-              />
+              {isMeasureProbe ? (
+                <div style={{ width: '100%', height: '100%' }} />
+              ) : (
+                <img
+                  src={technicalDrawingUrl}
+                  alt="Disegno Tecnico"
+                  crossOrigin="anonymous"
+                  decoding="async"
+                  loading="eager"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    if (img.getAttribute('crossorigin')) {
+                      img.removeAttribute('crossorigin');
+                      img.src = technicalDrawingUrl;
+                    } else {
+                      img.style.display = 'none';
+                    }
+                  }}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    width: 'auto',
+                    height: 'auto',
+                    objectFit: 'contain',
+                    display: 'block',
+                  }}
+                />
+              )}
             </div>
           </div>
         ) : hasNotes ? (
@@ -714,30 +757,34 @@ function ODLPrintTemplate({
               overflow: 'hidden',
             }}
           >
-            <img
-              src={technicalDrawingUrl}
-              alt="Disegno Tecnico"
-              crossOrigin="anonymous"
-              decoding="async"
-              loading="eager"
-              onError={(e) => {
-                const img = e.currentTarget;
-                if (img.getAttribute('crossorigin')) {
-                  img.removeAttribute('crossorigin');
-                  img.src = technicalDrawingUrl;
-                } else {
-                  img.style.display = 'none';
-                }
-              }}
-              style={{
-                maxWidth: '100%',
-                maxHeight: '100%',
-                width: 'auto',
-                height: 'auto',
-                objectFit: 'contain',
-                display: 'block',
-              }}
-            />
+            {isMeasureProbe ? (
+              <div style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <img
+                src={technicalDrawingUrl}
+                alt="Disegno Tecnico"
+                crossOrigin="anonymous"
+                decoding="async"
+                loading="eager"
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (img.getAttribute('crossorigin')) {
+                    img.removeAttribute('crossorigin');
+                    img.src = technicalDrawingUrl;
+                  } else {
+                    img.style.display = 'none';
+                  }
+                }}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  width: 'auto',
+                  height: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            )}
           </div>
         ) : (
           <div style={{ ...getCellFlexStyles(), flexDirection: 'column', gap: '2mm' }}>
@@ -977,7 +1024,7 @@ function ODLPrintTemplate({
         </tr>
         <tr style={{ height: '10mm', backgroundColor: 'white' }}>
           <td style={styles.cell} colSpan={6}></td>
-          <td style={{ ...styles.cell, padding: '4mm' }} colSpan={4}>
+          <td style={{ ...styles.cell, padding: '1.5mm 3mm' }} colSpan={4}>
             <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'flex-end', height: '100%', paddingBottom: '1mm', fontSize: '7.5pt' }}>
                 <span style={{ fontWeight: 'bold' }}>DATA: ___/___/______</span>
                 <span style={{ fontWeight: 'bold' }}>FIRMA: ___________________________________</span>
@@ -988,101 +1035,193 @@ function ODLPrintTemplate({
     </table>
   );
 
-  // --- PAGINATION LOGIC V2 ---
-  // --- DYNAMIC PAGINATION LOGIC (Smart Hybrid Strategy) ---
-  const pages = React.useMemo(() => {
-    type RenderBlock =
-      | { type: 'category-header'; categoryName: string; sectionType: 'treccia' | 'tubi' | 'guaina'; isContinuation: boolean }
-      | { type: 'item-row'; item: any; sectionType: 'treccia' | 'tubi' | 'guaina'; colConfig: any[] };
-
-    const allBlocks: RenderBlock[] = [];
-    const trecciaCount = trecciaItems.length;
-    const tubiCount = tubiItems.length;
-    const guainaCount = guainaItems.length;
-    const totalRows = trecciaCount + tubiCount + guainaCount;
-
-    // Rule: Small orders fit on one page. Large orders separate by category.
-    const STRATEGY = totalRows <= 7 ? 'UNIFIED' : 'ORGANIZED';
-
-    const addCategoryToBlocks = (items: any[], categoryName: string, sectionType: 'treccia' | 'tubi' | 'guaina', colConfig: any[]) => {
-      if (items.length === 0) return;
-      allBlocks.push({ type: 'category-header', categoryName, sectionType, isContinuation: false });
-      items.forEach((item) => {
-        allBlocks.push({ type: 'item-row', item, sectionType, colConfig });
+  // --- PAGINATION LOGIC V3: Misurazione Reale DOM a 2 Passaggi (Designer-Proof) ---
+  const activeSectionsData = React.useMemo(() => {
+    const defs: Array<{
+      sectionType: OdlSectionType;
+      categoryName: string;
+      items: typeof allItems;
+      colConfig: any[];
+      hasNotes: boolean;
+    }> = [];
+    if (trecciaItems.length > 0) {
+      defs.push({
+        sectionType: 'treccia',
+        categoryName: 'Componenti Treccia/Corda',
+        items: trecciaItems,
+        colConfig: config.columns.treccia,
+        hasNotes: hasTrecciaNotes,
       });
-    };
-
-    addCategoryToBlocks(trecciaItems, 'Componenti Treccia/Corda', 'treccia', config.columns.treccia);
-    addCategoryToBlocks(tubiItems, 'Componenti Tubi', 'tubi', config.columns.tubi);
-    addCategoryToBlocks(guainaItems, 'Componenti Guaina', 'guaina', config.columns.guaina);
-
-    const computedPages: RenderBlock[][] = [];
-    let currentPage: RenderBlock[] = [];
-    let currentRowCount = 0;
-    let isFirstPage = true;
-
-    allBlocks.forEach((block, blockIdx) => {
-      const limit = isFirstPage ? FIRST_PAGE_ROW_LIMIT : SUBSEQUENT_PAGE_ROW_LIMIT;
-      let shouldBreak = currentRowCount >= limit;
-
-      // STRATEGY: ORGANIZED -> Force break before category header (except first)
-      if (STRATEGY === 'ORGANIZED' && block.type === 'category-header' && !block.isContinuation && blockIdx > 0) {
-        shouldBreak = true;
-      }
-
-      if (shouldBreak) {
-        if (currentPage.length > 0) {
-          computedPages.push(currentPage);
-        }
-        currentPage = [];
-        currentRowCount = 0;
-        isFirstPage = false;
-
-        // Continuation logic: if we broke on a row, add the header on the new page
-        if (block.type === 'item-row') {
-          currentPage.push({
-            type: 'category-header',
-            categoryName:
-              block.sectionType === 'treccia'
-                ? 'Componenti Treccia/Corda'
-                : block.sectionType === 'tubi'
-                  ? 'Componenti Tubi'
-                  : 'Componenti Guaina',
-            sectionType: block.sectionType,
-            isContinuation: true,
-          });
-          currentRowCount++;
-        }
-      }
-
-      currentPage.push(block);
-      currentRowCount++;
-    });
-
-    if (currentPage.length > 0) {
-      computedPages.push(currentPage);
     }
-
-    // Fallback for empty BOM
-    if (computedPages.length === 0) {
-      computedPages.push([
-        { type: 'category-header', categoryName: 'Distinta Base', sectionType: 'treccia', isContinuation: false },
-      ]);
+    if (tubiItems.length > 0) {
+      defs.push({
+        sectionType: 'tubi',
+        categoryName: 'Componenti Tubi',
+        items: tubiItems,
+        colConfig: config.columns.tubi,
+        hasNotes: hasTubiNotes,
+      });
     }
-
-    return computedPages;
+    if (guainaItems.length > 0) {
+      defs.push({
+        sectionType: 'guaina',
+        categoryName: 'Componenti Guaina',
+        items: guainaItems,
+        colConfig: config.columns.guaina,
+        hasNotes: hasGuainaNotes,
+      });
+    }
+    return defs;
   }, [
     trecciaItems,
     tubiItems,
     guainaItems,
+    hasTrecciaNotes,
+    hasTubiNotes,
+    hasGuainaNotes,
     config.columns.treccia,
     config.columns.tubi,
     config.columns.guaina,
   ]);
 
+  const sectionsByType = React.useMemo(() => {
+    const map: Partial<Record<OdlSectionType, (typeof activeSectionsData)[number]>> = {};
+    for (const sec of activeSectionsData) {
+      map[sec.sectionType] = sec;
+    }
+    return map;
+  }, [activeSectionsData]);
+
+  const initialPages = React.useMemo(
+    () => paginateOdlSectionsByHeight(estimateInitialOdlPaginationInput(config, activeSectionsData)),
+    [config, activeSectionsData]
+  );
+
+  const [measuredPlan, setMeasuredPlan] = React.useState<{ key: string; pages: OdlPaginatedPage[] } | null>(null);
+  const [isMeasureReady, setIsMeasureReady] = React.useState<boolean>(false);
+  const lastPlanKeyRef = React.useRef<string>('');
+  const measureRootRef = React.useRef<HTMLDivElement | null>(null);
+  const rulerRef = React.useRef<HTMLDivElement | null>(null);
+  const headerFirstMeasureRef = React.useRef<HTMLDivElement | null>(null);
+  const headerContMeasureRef = React.useRef<HTMLDivElement | null>(null);
+  const jobDetailsMeasureRef = React.useRef<HTMLDivElement | null>(null);
+  const footerMeasureRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useLayoutEffect(() => {
+    const rootEl = measureRootRef.current;
+    if (!rootEl) {
+      setIsMeasureReady(true);
+      return;
+    }
+
+    const rulerHeight = rulerRef.current?.getBoundingClientRect().height || 0;
+    const pxPerMm = rulerHeight > 0 ? rulerHeight / USABLE_PAGE_HEIGHT_MM : 96 / 25.4;
+    const toMm = (el: Element | null | undefined, fallbackMm: number): number => {
+      if (!el) return fallbackMm;
+      const h = el.getBoundingClientRect().height;
+      return h > 0 ? h / pxPerMm : fallbackMm;
+    };
+
+    const hHeader1 = toMm(headerFirstMeasureRef.current, 32);
+    const hHeaderCont = toMm(headerContMeasureRef.current, 13.5);
+    const hDetails = toMm(jobDetailsMeasureRef.current, 45);
+    const hFooter = toMm(footerMeasureRef.current, 23);
+
+    const measuredSections = activeSectionsData.map((sec) => {
+      const secWrap = rootEl.querySelector(`[data-measure-sec="${sec.sectionType}"]`);
+      const secHeaderEl = secWrap?.querySelector(`[data-measure-sec-header="${sec.sectionType}"]`);
+      const theadEl = secWrap?.querySelector('thead');
+      const rowEls = secWrap ? Array.from(secWrap.querySelectorAll('tbody > tr')) : [];
+
+      const sectionHeaderMm = toMm(secHeaderEl, 6.8);
+      // +1.0mm per bordi masterTable di tabella separata
+      const tableHeaderMm = toMm(theadEl, 7.5) + 1.0;
+      const rowHeightsMm = rowEls.map((tr) => toMm(tr, 9.2));
+
+      return {
+        sectionType: sec.sectionType,
+        categoryName: sec.categoryName,
+        sectionHeaderMm,
+        tableHeaderMm,
+        rowHeightsMm,
+      };
+    });
+
+    const nextPages = paginateOdlSectionsByHeight({
+      usablePageHeightMm: USABLE_PAGE_HEIGHT_MM,
+      safetyMarginMm: 1.5,
+      page1HeaderPlusDetailsMm: hHeader1 + hDetails,
+      subsequentHeaderMm: hHeaderCont,
+      footerMm: hFooter,
+      sections: measuredSections,
+      splitByCategoryThreshold: config.layout.splitByCategoryThreshold,
+    });
+
+    const nextKey = JSON.stringify(nextPages);
+    if (lastPlanKeyRef.current !== nextKey) {
+      lastPlanKeyRef.current = nextKey;
+      setMeasuredPlan({ key: nextKey, pages: nextPages });
+    }
+    setIsMeasureReady(true);
+  }, [
+    activeSectionsData,
+    config,
+    departmentCodeMap,
+    job.cliente,
+    job.department,
+    job.details,
+    job.dataConsegnaFinale,
+    job.dataFinePreparazione,
+    job.numeroODLInterno,
+    job.ordinePF,
+    job.qta,
+    job.technicalDrawingUrl,
+    job.technicalNotes,
+    resolvedArticle?.technicalDrawingUrl,
+    resolvedArticle?.technicalNotes,
+    resolvedArticle?.phaseTimes,
+  ]);
+
+  const pages = measuredPlan?.pages ?? initialPages;
+
   return (
-    <div id={omitRootId ? undefined : "odl-pdf-pages"} style={ODL_ROOT_WRAPPER_STYLE}>
-      {pages.map((pageBlocks, idx) => {
+    <div
+      id={omitRootId ? undefined : "odl-pdf-pages"}
+      data-odl-template-root="true"
+      data-odl-ready={isMeasureReady ? "true" : "false"}
+      style={ODL_ROOT_WRAPPER_STYLE}
+    >
+      {/* Sonda off-screen a larghezza utile reale 284mm (= 297mm - 2 * 6.5mm) per misurare ingombri DOM reali */}
+      <div
+        ref={measureRootRef}
+        data-odl-measure="true"
+        aria-hidden="true"
+        style={MEASURE_ROOT_STYLE}
+      >
+        <div ref={rulerRef} style={MEASURE_RULER_STYLE} />
+        <div ref={headerFirstMeasureRef} style={MEASURE_FLOW_ROOT_STYLE}>
+          {renderHeader(false, true)}
+        </div>
+        <div ref={headerContMeasureRef} style={MEASURE_FLOW_ROOT_STYLE}>
+          {renderHeader(true, true)}
+        </div>
+        <div ref={jobDetailsMeasureRef} style={MEASURE_FLOW_ROOT_STYLE}>
+          {renderJobDetails(true, true)}
+        </div>
+        <div ref={footerMeasureRef} style={MEASURE_FLOW_ROOT_STYLE}>
+          {renderFooter()}
+        </div>
+        {activeSectionsData.map((sec) => (
+          <div key={`m-${sec.sectionType}`} data-measure-sec={sec.sectionType}>
+            <div data-measure-sec-header={sec.sectionType} style={MEASURE_FLOW_ROOT_STYLE}>
+              {renderSectionHeader(sec.categoryName, false)}
+            </div>
+            {renderTableRows(sec.items, sec.colConfig, sec.sectionType, sec.hasNotes)}
+          </div>
+        ))}
+      </div>
+
+      {pages.map((page, idx) => {
         const isFirstPageOfDoc = idx === 0;
         const isLastPageOfDoc = idx === pages.length - 1;
 
@@ -1091,47 +1230,21 @@ function ODLPrintTemplate({
              {renderHeader(!isFirstPageOfDoc)}
              {isFirstPageOfDoc && renderJobDetails(true)}
              
-             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                {/* Render the stream of blocks for this page with grouping for tables */}
-                {(() => {
-                    const elements: React.ReactNode[] = [];
-                    let currentTableRows: any[] = [];
-                    let currentTableConfig: any[] = [];
-                    let currentTableType: 'treccia' | 'tubi' | 'guaina' | null = null;
+             <div style={{ flex: 1 }}>
+                {page.chunks.map((chunk, cIdx) => {
+                    const sec = sectionsByType[chunk.sectionType];
+                    const chunkItems =
+                      sec && chunk.rowIndices.length > 0
+                        ? chunk.rowIndices.map((rowIdx) => sec.items[rowIdx]).filter(Boolean)
+                        : [];
 
-                    const flushTable = () => {
-                        if (currentTableRows.length > 0 && currentTableType) {
-                            const sectionHasNotes = currentTableType === 'treccia' ? hasTrecciaNotes : 
-                                                  currentTableType === 'tubi' ? hasTubiNotes : hasGuainaNotes;
-                            const tableEl = renderTableRows(currentTableRows, currentTableConfig, currentTableType, sectionHasNotes);
-                            if (tableEl) {
-                                elements.push(React.cloneElement(tableEl as React.ReactElement, { key: `table-${elements.length}` }));
-                            }
-                            currentTableRows = [];
-                            currentTableType = null;
-                        }
-                    };
-
-                    pageBlocks.forEach((block, bIdx) => {
-                        if (block.type === 'category-header') {
-                            flushTable();
-                            const headerEl = renderSectionHeader(block.categoryName, block.isContinuation);
-                            if (headerEl) {
-                                elements.push(React.cloneElement(headerEl as React.ReactElement, { key: `header-${bIdx}` }));
-                            }
-                        } else {
-                            if (currentTableType && currentTableType !== block.sectionType) {
-                                flushTable();
-                            }
-                            currentTableType = block.sectionType as any;
-                            currentTableConfig = block.colConfig;
-                            currentTableRows.push(block.item);
-                        }
-                    });
-
-                    flushTable();
-                    return elements;
-                })()}
+                    return (
+                      <React.Fragment key={`${chunk.sectionType}-${chunk.isContinuation ? 'cont' : 'main'}-${cIdx}`}>
+                        {renderSectionHeader(chunk.categoryName, chunk.isContinuation)}
+                        {sec && chunkItems.length > 0 && renderTableRows(chunkItems, sec.colConfig, chunk.sectionType, sec.hasNotes)}
+                      </React.Fragment>
+                    );
+                })}
              </div>
 
              {isLastPageOfDoc && renderFooter()}

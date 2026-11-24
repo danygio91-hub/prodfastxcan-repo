@@ -6,6 +6,8 @@ export interface OdlDomNodeLike {
   parentElement?: OdlDomNodeLike | null;
   contains?: (other: any) => boolean;
   classList?: { contains: (token: string) => boolean };
+  getAttribute?: (name: string) => string | null;
+  dataset?: Record<string, string | undefined>;
 }
 
 export interface PrintOdlIframeOptions {
@@ -111,6 +113,9 @@ export function buildOdlIframePrintCss(): string {
     '  break-after: auto !important;',
     '  page-break-after: auto !important;',
     '}',
+    '[data-odl-measure="true"] {',
+    '  display: none !important;',
+    '}',
   ].join('\n');
 }
 
@@ -144,10 +149,23 @@ function isInsideHead(element: OdlDomNodeLike): boolean {
   return false;
 }
 
+function isInsideMeasureProbe(element: OdlDomNodeLike): boolean {
+  let current: OdlDomNodeLike | null | undefined = element;
+  let hops = 0;
+  while (current && hops < 30) {
+    if (current.getAttribute?.('data-odl-measure') === 'true' || current.dataset?.odlMeasure === 'true') {
+      return true;
+    }
+    current = current.parentElement ?? null;
+    hops++;
+  }
+  return false;
+}
+
 /**
  * Predicato `ignoreElements` per `html2canvas`:
  * mantiene esclusivamente la catena radice -> `#odl-pdf-pages` -> `.odl-page` target
- * (più gli stili in `<head>`), ignorando sia tutta l'app sottostante sia le N-1 pagine sorelle.
+ * (più gli stili in `<head>`), ignorando tutta l'app sottostante, la sonda di misura `[data-odl-measure="true"]` e le N-1 pagine sorelle.
  */
 export function shouldIgnoreElementForOdlCanvas(
   element: OdlDomNodeLike,
@@ -158,6 +176,9 @@ export function shouldIgnoreElementForOdlCanvas(
 
   const tag = (element.tagName || '').toUpperCase();
   if (tag === 'SCRIPT' || tag === 'NOSCRIPT' || tag === 'IFRAME') {
+    return true;
+  }
+  if (isInsideMeasureProbe(element)) {
     return true;
   }
   if (tag === 'HTML' || tag === 'HEAD' || tag === 'BODY') {
@@ -178,8 +199,16 @@ export function shouldIgnoreElementForOdlCanvas(
   return true;
 }
 
+function getLiveOdlPageElements(container: ParentNode): HTMLElement[] {
+  return (Array.from(container.querySelectorAll('.odl-page')) as HTMLElement[]).filter(
+    (el) => !el.closest('[data-odl-measure="true"]')
+  );
+}
+
 async function waitForImagesInRoot(root: ParentNode, timeoutMs: number): Promise<void> {
-  const images = Array.from(root.querySelectorAll('img'));
+  const images = Array.from(root.querySelectorAll('img')).filter(
+    (img) => !img.closest('[data-odl-measure="true"]')
+  );
   if (images.length === 0) return;
 
   await Promise.race([
@@ -200,21 +229,43 @@ async function waitForImagesInRoot(root: ParentNode, timeoutMs: number): Promise
 }
 
 /**
- * Attende il commit React (2x requestAnimationFrame) e la decodifica delle immagini in `#odl-pdf-pages`.
+ * Attende in modo reattivo (loop `requestAnimationFrame`) che:
+ * 1) `#odl-pdf-pages` sia montato e contenga almeno `expectedMinPages` pagine `.odl-page` fuori dalla sonda;
+ * 2) nessuna sonda `[data-odl-ready="false"]` stia ancora completando `useLayoutEffect`;
+ * 3) tutte le immagini reali siano decodificate.
  */
 export async function waitForOdlContainerReady(
   containerId: string = 'odl-pdf-pages',
-  imageTimeoutMs: number = 600
+  imageTimeoutMs: number = 600,
+  options?: { expectedMinPages?: number; mountTimeoutMs?: number }
 ): Promise<HTMLElement | null> {
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
+  const expectedMinPages = Math.max(1, options?.expectedMinPages ?? 1);
+  const mountTimeoutMs = options?.mountTimeoutMs ?? 3000;
+  const startedAt = Date.now();
+  let container: HTMLElement | null = null;
+
+  while (true) {
+    await new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve());
     });
-  });
 
-  const container = document.getElementById(containerId);
+    container = document.getElementById(containerId);
+    if (container) {
+      const livePages = getLiveOdlPageElements(container);
+      const pendingMeasures = container.querySelectorAll('[data-odl-ready="false"]').length;
+      if (livePages.length >= expectedMinPages && pendingMeasures === 0) {
+        break;
+      }
+    }
+
+    if (Date.now() - startedAt >= mountTimeoutMs) {
+      break;
+    }
+  }
+
   if (!container) return null;
 
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   await waitForImagesInRoot(container, imageTimeoutMs);
   return container;
 }
@@ -227,7 +278,7 @@ export async function printOdlContainerViaIframe(
   container: HTMLElement,
   options: PrintOdlIframeOptions
 ): Promise<{ pageCount: number }> {
-  const pageElements = Array.from(container.querySelectorAll('.odl-page')) as HTMLElement[];
+  const pageElements = getLiveOdlPageElements(container);
   if (pageElements.length === 0) {
     throw new Error('Nessuna pagina ODL generata per la stampa.');
   }
@@ -378,7 +429,9 @@ function fetchUrlAsDataUrl(url: string, timeoutMs: number): Promise<string | nul
  */
 async function precacheOdlImagesInContainer(container: HTMLElement): Promise<void> {
   const nowMs = Date.now();
-  const imgElements = Array.from(container.querySelectorAll('img'));
+  const imgElements = Array.from(container.querySelectorAll('img')).filter(
+    (img) => !img.closest('[data-odl-measure="true"]')
+  );
   if (imgElements.length === 0) return;
 
   const remoteImages: { img: HTMLImageElement; src: string }[] = [];
@@ -445,7 +498,7 @@ export async function generateOptimizedOdlPdf(
   container: HTMLElement,
   options: GenerateOptimizedOdlPdfOptions
 ): Promise<{ pageCount: number; fileName: string }> {
-  const pageElements = Array.from(container.querySelectorAll('.odl-page')) as HTMLElement[];
+  const pageElements = getLiveOdlPageElements(container);
   if (pageElements.length === 0) {
     throw new Error('Nessuna pagina ODL generata per il PDF.');
   }

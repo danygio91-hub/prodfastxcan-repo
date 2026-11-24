@@ -301,11 +301,11 @@ const JobTableRows = ({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => onPrintOdl(j)} className="cursor-pointer">
+                    <DropdownMenuItem onClick={() => { setTimeout(() => onPrintOdl(j), 0); }} className="cursor-pointer">
                       <Printer className="mr-2 h-3.5 w-3.5" />
                       <span>Stampa ODL (Istantanea)</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onDownloadPdf(j)} className="cursor-pointer">
+                    <DropdownMenuItem onClick={() => { setTimeout(() => onDownloadPdf(j), 0); }} className="cursor-pointer">
                       <FileDown className="mr-2 h-3.5 w-3.5" />
                       <span>Scarica PDF (.pdf)</span>
                     </DropdownMenuItem>
@@ -780,7 +780,10 @@ export default function DataManagementClientPage({
         },
       ]);
 
-      const container = await waitForOdlContainerReady('odl-pdf-pages', 600);
+      const container = await waitForOdlContainerReady('odl-pdf-pages', 600, {
+        expectedMinPages: 1,
+        mountTimeoutMs: 3000,
+      });
       if (!container) throw new Error("Template non trovato.");
 
       const documentTitle = buildSingleOdlDocumentTitle(
@@ -854,7 +857,10 @@ export default function DataManagementClientPage({
         }))
       );
 
-      const container = await waitForOdlContainerReady('odl-pdf-pages', 600);
+      const container = await waitForOdlContainerReady('odl-pdf-pages', 600, {
+        expectedMinPages: preparedBatch.length,
+        mountTimeoutMs: 3000,
+      });
       if (!container) throw new Error("Template di stampa ODL non trovato nel DOM.");
 
       const documentTitle =
@@ -1451,27 +1457,29 @@ export default function DataManagementClientPage({
         </div>
       </header>
 
-      {pdfData && pdfData.length > 0 && (
-        <div id="odl-pdf-pages" style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1, width: '297mm' }}>
-          {pdfData.map((item, idx) => (
-            <ODLPrintTemplate
-              key={item.job.id || idx}
-              job={item.job}
-              article={item.article}
-              materials={item.materials}
-              printDate={item.printDate}
-              config={odlConfig}
-              qrRule={qrRule}
-              globalSettings={globalSettings}
-              departments={departments}
-              contoLavoroMap={item.contoLavoroMap}
-              materialsByCode={item.materialsByCode}
-              articlesByCode={item.articlesByCode}
-              omitRootId={true}
-            />
-          ))}
-        </div>
-      )}
+      <div
+        id="odl-pdf-pages"
+        aria-hidden="true"
+        style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1, width: '297mm', pointerEvents: 'none' }}
+      >
+        {pdfData && pdfData.length > 0 && pdfData.map((item, idx) => (
+          <ODLPrintTemplate
+            key={item.job.id || idx}
+            job={item.job}
+            article={item.article}
+            materials={item.materials}
+            printDate={item.printDate}
+            config={odlConfig}
+            qrRule={qrRule}
+            globalSettings={globalSettings}
+            departments={departments}
+            contoLavoroMap={item.contoLavoroMap}
+            materialsByCode={item.materialsByCode}
+            articlesByCode={item.articlesByCode}
+            omitRootId={true}
+          />
+        ))}
+      </div>
 
       {isDataLoading ? (
         <div className="flex flex-col items-center justify-center py-20 space-y-4 bg-muted/20 rounded-lg border border-dashed">

@@ -1600,14 +1600,14 @@ const JobTableRow = React.memo(function JobTableRow({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem
-                  onClick={() => onTogglePrintODL(job)}
+                  onClick={() => { setTimeout(() => onTogglePrintODL(job), 0); }}
                   className="text-xs cursor-pointer gap-2"
                 >
                   <Printer className="h-3.5 w-3.5" />
                   <span>Stampa ODL (Istantanea)</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => onDownloadODLPdf(job)}
+                  onClick={() => { setTimeout(() => onDownloadODLPdf(job), 0); }}
                   className="text-xs cursor-pointer gap-2"
                 >
                   <Download className="h-3.5 w-3.5" />
@@ -4681,9 +4681,12 @@ export default function ProgrammazioneClientPage({
     });
   }, [articleMap, workCycles]);
 
-  // FASE 96 & FASE 107-BIS: Helper unificato per attendere il paint DOM e il decode asincrono delle immagini nel container ODL
-  const waitForOdlDomAndImagesReady = useCallback(() => {
-    return waitForOdlContainerReady('odl-pdf-pages', 600);
+  // FASE 96, FASE 107-BIS & FASE 107-QUINQUIES: Helper reattivo per attendere commit React, sonde layout e immagini nel container ODL
+  const waitForOdlDomAndImagesReady = useCallback((expectedMinPages: number = 1) => {
+    return waitForOdlContainerReady('odl-pdf-pages', 600, {
+      expectedMinPages,
+      mountTimeoutMs: 3000,
+    });
   }, []);
 
   // FASE 33 & FASE 88: Helper per singola commessa basato sul motore Bulk O(1)
@@ -4736,7 +4739,7 @@ export default function ProgrammazioneClientPage({
         }))
       );
 
-      const container = await waitForOdlDomAndImagesReady();
+      const container = await waitForOdlDomAndImagesReady(preparedJobsBatch.length);
       if (!container) {
         throw new Error("Template di stampa ODL non trovato nel DOM.");
       }
@@ -5155,7 +5158,7 @@ export default function ProgrammazioneClientPage({
         },
       ]);
 
-      const container = await waitForOdlDomAndImagesReady();
+      const container = await waitForOdlDomAndImagesReady(1);
       if (!container) {
         throw new Error("Template di stampa ODL non trovato nel DOM.");
       }
@@ -7299,29 +7302,31 @@ export default function ProgrammazioneClientPage({
         />
 
         {/* =========================================================================
-            4. TEMPLATE PDF NASCOSTO PER STAMPA ODL (FASE 9 & FASE 96 BATCH RENDER)
+            4. TEMPLATE PDF NASCOSTO PER STAMPA ODL (FASE 9, 96 & 107-QUINQUIES: nodo sempre montato)
         ========================================================================== */}
-        {pdfData && pdfData.length > 0 && (
-          <div id="odl-pdf-pages" style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1, width: '297mm' }}>
-            {pdfData.map((item, idx) => (
-              <ODLPrintTemplate
-                key={item.job.id || idx}
-                job={item.job}
-                article={item.article}
-                materials={item.materials}
-                printDate={item.printDate}
-                config={odlConfig}
-                qrRule={qrRule}
-                globalSettings={globalSettingsRef.current || globalSettings}
-                departments={departments}
-                contoLavoroMap={item.contoLavoroMap}
-                materialsByCode={item.materialsByCode}
-                articlesByCode={item.articlesByCode}
-                omitRootId={true}
-              />
-            ))}
-          </div>
-        )}
+        <div
+          id="odl-pdf-pages"
+          aria-hidden="true"
+          style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1, width: '297mm', pointerEvents: 'none' }}
+        >
+          {pdfData && pdfData.length > 0 && pdfData.map((item, idx) => (
+            <ODLPrintTemplate
+              key={item.job.id || idx}
+              job={item.job}
+              article={item.article}
+              materials={item.materials}
+              printDate={item.printDate}
+              config={odlConfig}
+              qrRule={qrRule}
+              globalSettings={globalSettingsRef.current || globalSettings}
+              departments={departments}
+              contoLavoroMap={item.contoLavoroMap}
+              materialsByCode={item.materialsByCode}
+              articlesByCode={item.articlesByCode}
+              omitRootId={true}
+            />
+          ))}
+        </div>
 
         {/* =========================================================================
             5. MODALE MODIFICA COMMESSA COMPLETA (FASE 17)
