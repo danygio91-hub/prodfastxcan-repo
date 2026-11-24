@@ -52,6 +52,7 @@ describe('odl-print-engine utilities (FASE 107-BIS)', () => {
     expect(css).toContain('.odl-page');
     expect(css).toContain('width: 297mm !important;');
     expect(css).toContain('height: 210mm !important;');
+    expect(css).toContain('max-height: 210mm !important;');
     expect(css).toContain('break-after: page;');
     expect(css).toContain('page-break-after: always;');
     expect(css).toContain('.odl-page:last-child');

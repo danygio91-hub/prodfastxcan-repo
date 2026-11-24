@@ -30,7 +30,8 @@ const SUBSEQUENT_PAGE_ROW_LIMIT = 17;
 const PAGE_STATIC_STYLE: React.CSSProperties = {
   width: '297mm',
   height: '210mm',
-  padding: '5mm',
+  maxHeight: '210mm',
+  padding: '6.5mm',
   backgroundColor: 'white',
   color: 'black',
   fontFamily: "'PT Sans', 'Calibri', sans-serif",
@@ -66,8 +67,8 @@ const VALUE_LARGE_STYLE: React.CSSProperties = {
 
 const PAGE_NUMBER_STYLE: React.CSSProperties = {
   position: 'absolute',
-  bottom: '5mm',
-  right: '5mm',
+  bottom: '6.5mm',
+  right: '6.5mm',
   fontSize: '9pt',
   fontWeight: 'bold',
   backgroundColor: '#000',
@@ -399,7 +400,7 @@ function ODLPrintTemplate({
     // Minimalist header for continuation pages
     if (isContinuation) {
         return (
-            <div style={{ marginBottom: '2mm' }}>
+            <div style={{ marginBottom: '2mm', flexShrink: 0 }}>
                 <table style={{ ...styles.masterTable }}>
                     <colgroup>
                         <col width="15%" />
@@ -425,17 +426,22 @@ function ODLPrintTemplate({
     }
 
     return (
-      <div style={{ marginBottom: '3mm', position: 'relative' }}>
-        <div style={{ 
-            position: 'absolute', 
-            top: '-4mm', 
-            right: '0', 
-            fontSize: '7pt', 
-            color: '#333',
-            fontWeight: 'bold'
-        }}>
-            {config.header.showRevInfo && <span>{config.header.revText}</span>}
-        </div>
+      <div style={{ marginBottom: '2mm', position: 'relative', flexShrink: 0 }}>
+        {config.header.showRevInfo && config.header.revText && (
+          <div
+            style={{
+              width: '100%',
+              textAlign: 'right',
+              fontSize: '7pt',
+              lineHeight: '1.15',
+              color: '#333',
+              fontWeight: 'bold',
+              marginBottom: '0.8mm',
+            }}
+          >
+            {config.header.revText}
+          </div>
+        )}
 
         <table style={{ ...styles.masterTable }}>
             <colgroup>
@@ -742,7 +748,7 @@ function ODLPrintTemplate({
     );
 
     return (
-      <div style={{ marginBottom: '3mm' }}>
+      <div style={{ marginBottom: '2mm', flexShrink: 0 }}>
         <table style={styles.masterTable}>
           <colgroup>
               <col width={labelW} />
@@ -959,7 +965,7 @@ function ODLPrintTemplate({
   };
 
   const renderFooter = () => (
-    <table style={{ ...styles.masterTable, marginTop: '2mm' }}>
+    <table style={{ ...styles.masterTable, marginTop: '1.5mm', flexShrink: 0 }}>
       <tbody>
         <tr style={{ height: '10mm' }}>
           <td style={{ ...styles.cell, backgroundColor: config.colors.footerBg, color: config.colors.footerText, fontWeight: 'bold', padding: '2mm' }} colSpan={6}>
@@ -1085,7 +1091,7 @@ function ODLPrintTemplate({
              {renderHeader(!isFirstPageOfDoc)}
              {isFirstPageOfDoc && renderJobDetails(true)}
              
-             <div style={{ flex: 1 }}>
+             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 {/* Render the stream of blocks for this page with grouping for tables */}
                 {(() => {
                     const elements: React.ReactNode[] = [];

@@ -100,6 +100,7 @@ export function buildOdlIframePrintCss(): string {
     '.odl-page {',
     '  width: 297mm !important;',
     '  height: 210mm !important;',
+    '  max-height: 210mm !important;',
     '  break-after: page;',
     '  page-break-after: always;',
     '  break-inside: avoid;',
