@@ -20,6 +20,8 @@ interface MaskedDatePickerProps {
   className?: string;
   disabled?: boolean;
   id?: string;
+  disabledDate?: (date: Date) => boolean;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }
 
 export function MaskedDatePicker({
@@ -28,7 +30,9 @@ export function MaskedDatePicker({
   placeholder = "GG/MM/AAAA",
   className,
   disabled,
-  id
+  id,
+  disabledDate,
+  onKeyDown,
 }: MaskedDatePickerProps) {
   // Use internal state for the input value to handle masking correctly
   const [inputValue, setInputValue] = React.useState<string>("");
@@ -99,6 +103,8 @@ export function MaskedDatePicker({
         }
       }
     }
+
+    onKeyDown?.(e);
   };
 
   return (
@@ -143,6 +149,7 @@ export function MaskedDatePicker({
             <Calendar
               mode="single"
               selected={value || undefined}
+              disabled={disabledDate}
               onSelect={(date) => {
                 if (date && isValid(date)) {
                   setInputValue(format(date, "dd/MM/yyyy"));

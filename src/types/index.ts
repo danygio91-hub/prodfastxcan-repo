@@ -404,8 +404,12 @@ export interface ManualCommitment {
 export interface PurchaseOrder {
   id: string;
   orderNumber: string;
+  orderDate?: string; // ISO string (data emissione/creazione ordine)
+  orderYear?: number; // Anno di competenza (es. 2026, 2027)
   supplierName: string;
   materialCode: string;
+  materialType?: string;
+  description?: string;
   quantity: number;
   receivedQuantity?: number; // Tracks how much has been loaded
   unitOfMeasure: UnitOfMeasure; // 'n' | 'mt' | 'kg'

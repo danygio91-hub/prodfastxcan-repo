@@ -25,6 +25,7 @@ import { recalculateMaterialStock } from '@/lib/stock-sync';
 import { fetchInChunks } from '@/lib/firestore-utils';
 import { getDerivedJobStatus } from '@/lib/job-status';
 import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
+import { resolvePurchaseOrderDate, resolvePurchaseOrderYear } from '@/lib/purchase-order-utils';
 
 export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -861,13 +862,37 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
     return details.sort((a, b) => (a.deliveryDate || '').localeCompare(b.deliveryDate || ''));
 }
 
-export type OrderedDetail = { id: string; orderNumber: string; supplierName: string; quantity: number; receivedQuantity: number; expectedDeliveryDate: string; status: string; unit: string; };
+export type OrderedDetail = {
+  id: string;
+  orderNumber: string;
+  orderYear: number;
+  orderDate?: string;
+  supplierName: string;
+  quantity: number;
+  receivedQuantity: number;
+  expectedDeliveryDate: string;
+  status: string;
+  unit: string;
+};
 
 export async function getMaterialOrderedDetails(materialCode: string): Promise<OrderedDetail[]> {
     const snap = await adminDb.collection("purchaseOrders").where("materialCode", "==", materialCode).where("status", "in", ["pending", "partially_received"]).get();
     return snap.docs.map(doc => {
         const data = doc.data() as PurchaseOrder;
-        return { id: doc.id, orderNumber: data.orderNumber, supplierName: data.supplierName || 'N/D', quantity: data.quantity, receivedQuantity: data.receivedQuantity || 0, expectedDeliveryDate: data.expectedDeliveryDate, status: data.status, unit: data.unitOfMeasure };
+        const rawExp = data.expectedDeliveryDate as any;
+        const expectedDeliveryDate = typeof rawExp?.toDate === 'function' ? rawExp.toDate().toISOString() : String(rawExp || '');
+        return {
+            id: doc.id,
+            orderNumber: data.orderNumber,
+            orderYear: resolvePurchaseOrderYear(data),
+            orderDate: resolvePurchaseOrderDate(data),
+            supplierName: data.supplierName || 'N/D',
+            quantity: data.quantity,
+            receivedQuantity: data.receivedQuantity || 0,
+            expectedDeliveryDate,
+            status: data.status,
+            unit: data.unitOfMeasure
+        };
     }).sort((a, b) => a.expectedDeliveryDate.localeCompare(b.expectedDeliveryDate));
 }
 

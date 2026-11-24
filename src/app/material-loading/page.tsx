@@ -25,6 +25,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { addBatchToRawMaterial, reportNonConformity, getPackagingItems, getOpenPurchaseOrdersForMaterial } from './actions';
 import { getRawMaterialByCode } from '@/app/scan-job/actions';
 import { calculateInventoryMovement } from '@/lib/inventory-utils';
+import { resolvePurchaseOrderYear } from '@/lib/purchase-order-utils';
 import type { RawMaterial, Packaging, PurchaseOrder } from '@/types';
 import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive, TestTube, Truck, ClipboardList, Calendar } from 'lucide-react';
 import { useCameraStream } from '@/hooks/use-camera-stream';
@@ -375,8 +376,13 @@ export default function MaterialLoadingPage() {
                                                                 className="w-full h-auto p-4 flex flex-col items-start gap-1 text-left hover:border-primary"
                                                                 onClick={() => handleSelectOrder(order)}
                                                             >
-                                                                <div className="flex justify-between w-full font-bold">
-                                                                    <span>Ordine: {order.orderNumber}</span>
+                                                                <div className="flex justify-between w-full font-bold items-center gap-2">
+                                                                    <span className="flex items-center gap-2">
+                                                                        <span>Ordine: {order.orderNumber}</span>
+                                                                        <Badge variant="outline" className="font-mono text-xs">
+                                                                            {resolvePurchaseOrderYear(order)}
+                                                                        </Badge>
+                                                                    </span>
                                                                     <Badge variant="secondary">{format(new Date(order.expectedDeliveryDate), 'dd/MM/yyyy')}</Badge>
                                                                 </div>
                                                                 <div className="text-sm text-muted-foreground flex justify-between w-full">

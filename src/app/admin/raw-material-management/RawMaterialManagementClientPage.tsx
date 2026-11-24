@@ -666,7 +666,14 @@ export default function RawMaterialManagementClientPage({
 
                     return (
                       <TableRow key={idx} className={cn(isLate && "bg-red-500/5 hover:bg-red-500/10")}>
-                        <TableCell className="font-mono font-semibold">{det.orderNumber}</TableCell>
+                        <TableCell className="font-mono font-semibold">
+                          <div className="flex items-center gap-1.5">
+                            <span>{det.orderNumber}</span>
+                            <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0">
+                              {det.orderYear || 2026}
+                            </Badge>
+                          </div>
+                        </TableCell>
                         <TableCell className="text-xs">{det.supplierName}</TableCell>
                         <TableCell className="text-right font-bold text-primary">{residual.toFixed(2)}</TableCell>
                         <TableCell className={cn("font-medium", isLate && "text-red-600 font-bold")}>
