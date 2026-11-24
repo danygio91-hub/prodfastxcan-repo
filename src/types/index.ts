@@ -98,11 +98,14 @@ export interface JobBillOfMaterialsItem {
   quantity: number;
   lunghezzaTaglioMm?: number;
   note?: string;
+  scrapPercentage?: number | null;
   status: 'pending' | 'committed' | 'withdrawn';
   withdrawn?: boolean;
   isFromTemplate: boolean;
   fabbisognoTotale?: number;
+  fabbisognoNetto?: number;
   pesoStimato?: number;
+  pesoNettoStimato?: number;
 }
 
 export interface JobOrder {
@@ -266,6 +269,7 @@ export interface BillOfMaterialsItem {
   quantity: number;
   lunghezzaTaglioMm?: number;
   note?: string;
+  scrapPercentage?: number | null;
 }
 
 export interface ArticlePhaseTime {

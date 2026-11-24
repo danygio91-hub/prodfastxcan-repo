@@ -408,7 +408,7 @@ export async function returnMaterialToBatch(formData: FormData): Promise<{ succe
             const idx = batches.findIndex(b => b.id === batchId);
             if (idx === -1) throw new Error('Lotto originale non trovato.');
             
-            const returnedQty = Number(rawData.returnedQuantity);
+            const returnedQty = Number(rawData.returnedQuantity ?? rawData.returnQuantity);
             
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
                 id: material.type,
@@ -946,7 +946,11 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
             for (const s of sels) {
                 const m = mDataMap.get(s.materialId);
                 if (!m) throw new Error("Materia prima non trovata.");
-                let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
+                const convFactor =
+                    m.unitOfMeasure === 'mt'
+                        ? (m.rapportoKgMt || m.conversionFactor || 0)
+                        : (m.conversionFactor || m.rapportoKgMt || 0);
+                const w = m.unitOfMeasure === 'kg' ? s.consumed : (convFactor > 0 ? s.consumed * convFactor : 0);
                 
                 const withdrawalData = { 
                     jobOrderPFs: [c.jobOrderCode], 

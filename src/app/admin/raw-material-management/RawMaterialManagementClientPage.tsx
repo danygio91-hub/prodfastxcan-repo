@@ -243,7 +243,7 @@ function ReturnMaterialDialog({ isOpen, onOpenChange, material, onConfirm }: { i
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Quantità da Rendere</Label>
-              <Input type="number" step="any" name="returnQuantity" required />
+              <Input type="number" step="any" name="returnedQuantity" required />
             </div>
             <div className="space-y-2">
               <Label>Unità</Label>
@@ -436,7 +436,17 @@ export default function RawMaterialManagementClientPage({
 
   const groupedBatchMaterial: GroupedBatches | null = useMemo(() => {
     if (!selectedMaterial) return null;
-    return { materialId: selectedMaterial.id, materialCode: selectedMaterial.code, materialDescription: selectedMaterial.description, unitOfMeasure: selectedMaterial.unitOfMeasure, currentStockUnits: selectedMaterial.currentStockUnits, currentWeightKg: selectedMaterial.currentWeightKg, lots: [] };
+    return {
+      materialId: selectedMaterial.id,
+      materialCode: selectedMaterial.code,
+      materialDescription: selectedMaterial.description,
+      unitOfMeasure: selectedMaterial.unitOfMeasure,
+      conversionFactor: selectedMaterial.conversionFactor ?? undefined,
+      rapportoKgMt: selectedMaterial.rapportoKgMt ?? undefined,
+      currentStockUnits: selectedMaterial.currentStockUnits,
+      currentWeightKg: selectedMaterial.currentWeightKg,
+      lots: [],
+    };
   }, [selectedMaterial]);
 
   const onAdjustStock = async (newStock: number) => {

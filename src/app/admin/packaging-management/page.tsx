@@ -8,8 +8,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
 import { type Packaging, type PackagingAssociation } from '@/types';
-import { RawMaterialTypeValues } from '@/lib/mock-data';
 import { getPackagingItems, savePackagingItem, deletePackagingItem } from './actions';
+import { getGlobalSettings } from '@/lib/settings-actions';
+import { DEFAULT_GLOBAL_SETTINGS, GlobalSettings } from '@/lib/settings-types';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,8 +25,6 @@ import { Archive, PlusCircle, Edit, Trash2, Loader2, Weight, Link2 } from 'lucid
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 
-const packagingAssociationTypes: PackagingAssociation[] = [...RawMaterialTypeValues, 'PRODOTTO'];
-
 const packagingSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
@@ -38,11 +37,20 @@ type PackagingFormValues = z.infer<typeof packagingSchema>;
 
 export default function PackagingManagementPage() {
   const [items, setItems] = useState<Packaging[]>([]);
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Packaging | null>(null);
   const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
+
+  const packagingAssociationTypes = React.useMemo<PackagingAssociation[]>(() => {
+    const typeIds = (globalSettings?.rawMaterialTypes || DEFAULT_GLOBAL_SETTINGS.rawMaterialTypes)
+      .map((t) => t.id)
+      .filter(Boolean);
+    const extras = items.flatMap((i) => i.associatedTypes || []).filter((t) => t && t !== 'PRODOTTO');
+    return Array.from(new Set([...typeIds, ...extras, 'PRODOTTO'])) as PackagingAssociation[];
+  }, [globalSettings?.rawMaterialTypes, items]);
 
   const form = useForm<PackagingFormValues>({
     resolver: zodResolver(packagingSchema),
@@ -51,8 +59,12 @@ export default function PackagingManagementPage() {
 
   const fetchData = async () => {
     setIsLoading(true);
-    const data = await getPackagingItems();
+    const [data, settingsData] = await Promise.all([
+      getPackagingItems(),
+      getGlobalSettings().catch(() => DEFAULT_GLOBAL_SETTINGS),
+    ]);
     setItems(data);
+    setGlobalSettings(settingsData);
     setIsLoading(false);
   };
 

@@ -8,7 +8,8 @@ import { convertTimestampsToDates, normalizeDateStr, parseRobustDate, extractAnn
 import { getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchInChunks, checkJobOrderExists, getJobOrderRefAndSnap } from '@/lib/firestore-utils';
 import { distributeTheoreticalTimes } from '@/lib/production-time-server-utils';
-import { calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
+import { buildJobBOMItemsFromArticle, calculateBOMRequirement, syncJobBOMItems } from '@/lib/inventory-utils';
+import { GlobalSettings } from '@/lib/settings-types';
 import { getJobDisplayStatus, evaluateJobStartEligibility } from '@/lib/job-status';
 import { formatBulkStartFeedback } from '@/lib/bulk-start-feedback';
 import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
@@ -224,32 +225,11 @@ export async function saveManualJobOrder(data: any) {
     ) : [];
 
     const phases = await createPhasesFromCycle(workCycleId);
-    const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => {
-        const compCode = item.component.toUpperCase().trim();
-        const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
-        const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
-        const requiresCut = typeConfig?.requiresCutLength !== false;
-
-        const req = calculateBOMRequirement(
-            Number(qta),
-            { 
-                quantity: item.quantity, 
-                lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
-                unit: item.unit 
-            },
-            material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
-            typeConfig || { defaultUnit: item.unit }
-        );
-
-        return { 
-            ...item, 
-            component: compCode,
-            status: 'pending', 
-            isFromTemplate: true,
-            lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
-            fabbisognoTotale: req.totalInBaseUnits,
-            pesoStimato: req.weightKg
-        };
+    const jobBOM: JobBillOfMaterialsItem[] = buildJobBOMItemsFromArticle({
+        jobQta: Number(qta),
+        articleBOM: articleData.billOfMaterials || [],
+        rawMaterials,
+        globalSettings: globalSettings as Partial<GlobalSettings> | null,
     });
 
     const now = new Date();
@@ -557,32 +537,11 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 const historicalAverages = articleData.historicalTimes?.averagePhaseTimes || [];
                 phases = distributeTheoreticalTimes(expectedMins, phases, historicalAverages, mappedRow.qta);
             }
-            const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => {
-                const compCode = item.component.toUpperCase().trim();
-                const material = rawMaterialsList.find(m => m.code.toUpperCase() === compCode);
-                const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
-                const requiresCut = typeConfig?.requiresCutLength !== false;
-
-                const req = calculateBOMRequirement(
-                    mappedRow.qta,
-                    { 
-                        quantity: item.quantity, 
-                        lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
-                        unit: item.unit 
-                    },
-                    material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
-                    typeConfig || { defaultUnit: item.unit }
-                );
-
-                return { 
-                    ...item, 
-                    component: compCode,
-                    status: 'pending', 
-                    isFromTemplate: true,
-                    lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
-                    fabbisognoTotale: req.totalInBaseUnits,
-                    pesoStimato: req.weightKg
-                };
+            const jobBOM: JobBillOfMaterialsItem[] = buildJobBOMItemsFromArticle({
+                jobQta: mappedRow.qta,
+                articleBOM: articleData.billOfMaterials || [],
+                rawMaterials: rawMaterialsList,
+                globalSettings: globalSettings as Partial<GlobalSettings> | null,
             });
             
             let odlToAssign = null;
@@ -889,12 +848,22 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
       }
 
       if (needsBOM && articleData?.billOfMaterials && articleData.billOfMaterials.length > 0) {
-        fallbackBOM = articleData.billOfMaterials.map((item) => ({
-          ...item,
-          component: String(item.component || '').trim().toUpperCase(),
-          status: 'pending' as const,
-          isFromTemplate: true,
-        }));
+        const compCodes = Array.from(
+          new Set(articleData.billOfMaterials.map((b) => String(b.component || '').trim().toUpperCase()).filter(Boolean))
+        );
+        const [gsSnap, rawMaterials] = await Promise.all([
+          adminDb.collection('settings').doc('global').get().catch(() => null),
+          compCodes.length > 0
+            ? fetchInChunks<RawMaterial>(adminDb.collection('rawMaterials'), 'code', compCodes)
+            : Promise.resolve([] as RawMaterial[]),
+        ]);
+        const gsData = gsSnap && gsSnap.exists ? (gsSnap.data() as Partial<GlobalSettings>) : null;
+        fallbackBOM = buildJobBOMItemsFromArticle({
+          jobQta: Number(initialJob.qta || 1),
+          articleBOM: articleData.billOfMaterials,
+          rawMaterials,
+          globalSettings: gsData,
+        });
       }
     }
 
@@ -1621,33 +1590,11 @@ export async function saveSmartJobOrder(data: {
         ) : [];
 
         // Map BillOfMaterialsItem to JobBillOfMaterialsItem for the JobOrder snapshot
-        const jobBOM: JobBillOfMaterialsItem[] = effectiveBomForJob.map(item => {
-            const compCode = item.component.toUpperCase().trim();
-            const material = rawMaterials.find(m => m.code.toUpperCase() === compCode);
-            const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
-            const requiresCut = typeConfig?.requiresCutLength !== false;
-
-            const req = calculateBOMRequirement(
-                qta,
-                { 
-                    quantity: item.quantity, 
-                    lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
-                    unit: item.unit 
-                },
-                material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
-                typeConfig || { defaultUnit: item.unit }
-            );
-
-            return {
-                ...item,
-                component: compCode,
-                status: 'pending',
-                withdrawn: false,
-                isFromTemplate: true,
-                lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
-                fabbisognoTotale: req.totalInBaseUnits,
-                pesoStimato: req.weightKg
-            };
+        const jobBOM: JobBillOfMaterialsItem[] = buildJobBOMItemsFromArticle({
+            jobQta: qta,
+            articleBOM: effectiveBomForJob,
+            rawMaterials,
+            globalSettings: globalSettings as Partial<GlobalSettings> | null,
         });
 
         let isoWeek: number | null = null;
@@ -2164,32 +2111,11 @@ export async function saveSmartPastedJobOrders(data: {
                 phases = distributeTheoreticalTimes(expectedMins, phases, historicalAverages, row.qta);
             }
 
-            const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => {
-                const compCode = item.component.toUpperCase().trim();
-                const material = rawMaterialsList.find(m => m.code.toUpperCase() === compCode);
-                const typeConfig = material && globalSettings ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type) : null;
-                const requiresCut = typeConfig?.requiresCutLength !== false;
-
-                const req = calculateBOMRequirement(
-                    row.qta,
-                    { 
-                        quantity: item.quantity, 
-                        lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined, 
-                        unit: item.unit 
-                    },
-                    material || { unitOfMeasure: item.unit, conversionFactor: 1, rapportoKgMt: 0 } as any,
-                    typeConfig || { defaultUnit: item.unit }
-                );
-
-                return { 
-                    ...item, 
-                    component: compCode,
-                    status: 'pending', 
-                    isFromTemplate: true,
-                    lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? undefined) : undefined,
-                    fabbisognoTotale: req.totalInBaseUnits,
-                    pesoStimato: req.weightKg
-                };
+            const jobBOM: JobBillOfMaterialsItem[] = buildJobBOMItemsFromArticle({
+                jobQta: row.qta,
+                articleBOM: articleData.billOfMaterials || [],
+                rawMaterials: rawMaterialsList,
+                globalSettings: globalSettings as Partial<GlobalSettings> | null,
             });
 
             let isoWeek: number | null = null;

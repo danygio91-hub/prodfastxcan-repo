@@ -261,11 +261,53 @@ export function isBOMItemPhaseCompleted(
     const rawType = (rawMaterial?.type || '').trim().toUpperCase();
     const rawDesc = (rawMaterial?.description || '').trim().toUpperCase();
 
-    const explicitTrecciaType = ['BOB', 'PF3V0', 'TRECCIA', 'TRECCE', 'CORDA', 'CORDE', 'CAVO', 'CAVI'].includes(rawType);
+    const TRECCIA_FAMILY_TYPES = new Set(['BOB', 'PF3V0', 'TRECCIA', 'TRECCE', 'CORDA', 'CORDE', 'CAVO', 'CAVI']);
+    const explicitTrecciaType = TRECCIA_FAMILY_TYPES.has(rawType);
     const explicitTubiType = rawType === 'TUBI' || rawType === 'TUBO';
     const explicitGuainaType = rawType === 'GUAINA' || rawType === 'GUAINE';
-    const explicitBarraType = rawType === 'BARRA';
-    const hasExplicitType = explicitTrecciaType || explicitTubiType || explicitGuainaType || explicitBarraType;
+    // FASE 104-BIS: Tipi distinti (BARRA, PIATTO-CU e qualsiasi nuova tipologia custom) NON appartengono alla famiglia Treccia/Bobina
+    const explicitDistinctType = Boolean(rawType && !explicitTrecciaType && !explicitTubiType && !explicitGuainaType);
+    const hasExplicitType = explicitTrecciaType || explicitTubiType || explicitGuainaType || explicitDistinctType;
+
+    // Verifica se esiste almeno una fase dedicata configurata (per tipo ammesso o nome esplicito) su questa commessa/template
+    const typeTokens = rawType
+        ? rawType.split(/[^A-Z0-9]+/).filter((tok) => tok.length >= 3)
+        : [];
+    const resolveAllowedTypesForPhase = (p: any): string[] | undefined => {
+        if (Array.isArray(p?.allowedMaterialTypes) && p.allowedMaterialTypes.length > 0) {
+            return p.allowedMaterialTypes;
+        }
+        if (Array.isArray(phaseTemplates)) {
+            const pNameUpper = (p?.name || '').trim().toUpperCase();
+            const tpl = phaseTemplates.find(
+                (t) => t.id === p?.id || (t.name || '').trim().toUpperCase() === pNameUpper
+            );
+            return tpl?.allowedMaterialTypes;
+        }
+        return undefined;
+    };
+    const matchesPhaseExplicitlyForDistinctType = (phaseNameUpper: string): boolean => {
+        if (!rawType) return false;
+        if (phaseNameUpper.includes(rawType)) return true;
+        if (rawType === 'BARRA' && phaseNameUpper.includes('BARR')) return true;
+        return typeTokens.some((tok) => phaseNameUpper.includes(tok));
+    };
+    const hasDedicatedPhaseForType = Boolean(
+        rawType &&
+        (job.phases.some((p) => {
+            const pAllowed = resolveAllowedTypesForPhase(p);
+            const hasInAllowed = Array.isArray(pAllowed) && pAllowed.some((t) => (t || '').trim().toUpperCase() === rawType);
+            const hasInName = matchesPhaseExplicitlyForDistinctType((p?.name || '').trim().toUpperCase());
+            return hasInAllowed || hasInName;
+        }) ||
+            (Array.isArray(phaseTemplates) &&
+                phaseTemplates.some(
+                    (t) =>
+                        (Array.isArray(t.allowedMaterialTypes) &&
+                            t.allowedMaterialTypes.some((at) => (at || '').trim().toUpperCase() === rawType)) ||
+                        matchesPhaseExplicitlyForDistinctType((t.name || '').trim().toUpperCase())
+                )))
+    );
 
     const isTubo =
         explicitTubiType ||
@@ -284,13 +326,8 @@ export function isBOMItemPhaseCompleted(
                 /GUAIN|TERMOREST/i.test(rawDesc) ||
                 /GUAIN|TERMOREST/i.test(compCode)));
 
-    const isBarra =
-        explicitBarraType ||
-        (!hasExplicitType && !isTubo && !isGuaina && (/BARR/i.test(rawDesc) || /BARR/i.test(compCode)));
-
     const isTrecciaOrBobina =
         explicitTrecciaType ||
-        explicitBarraType ||
         (!hasExplicitType &&
             !isTubo &&
             !isGuaina &&
@@ -316,20 +353,32 @@ export function isBOMItemPhaseCompleted(
         }
 
         // 2. Match tramite allowedMaterialTypes sulla fase o sul template corrispondente
-        let allowedTypes = phase.allowedMaterialTypes;
-        if ((!allowedTypes || allowedTypes.length === 0) && Array.isArray(phaseTemplates)) {
-            const matchedTemplate = phaseTemplates.find(
-                (t) => t.id === phase.id || (t.name || '').trim().toUpperCase() === phaseNameUpper
-            );
-            allowedTypes = matchedTemplate?.allowedMaterialTypes;
-        }
+        const allowedTypes = resolveAllowedTypesForPhase(phase);
         if (rawType && Array.isArray(allowedTypes) && allowedTypes.length > 0) {
             if (allowedTypes.some((t) => (t || '').trim().toUpperCase() === rawType)) {
                 return { completed: true, phaseName };
             }
+            // Se la fase definisce esplicitamente allowedMaterialTypes e questo tipo NON vi è incluso,
+            // non ricadere nel fallback semantico generico (es. Taglio Treccia non deve estinguere BARRA/PIATTO-CU)
+            continue;
         }
 
-        // 3. Match semantico di fase per famiglia componente (es. "Taglio Treccia/Corda", "Preparazione Tubi", "Taglio Guaina")
+        // 3. Se esiste una fase dedicata per questo tipo (es. Taglio Barra / Piatto-Cu), accetta solo match espliciti sul nome tipo
+        if (explicitDistinctType) {
+            if (matchesPhaseExplicitlyForDistinctType(phaseNameUpper)) {
+                return { completed: true, phaseName };
+            }
+            continue;
+        }
+
+        if (hasDedicatedPhaseForType && rawType) {
+            if (matchesPhaseExplicitlyForDistinctType(phaseNameUpper)) {
+                return { completed: true, phaseName };
+            }
+            continue;
+        }
+
+        // 4. Match semantico di fase per famiglia componente legacy (es. "Taglio Treccia/Corda", "Preparazione Tubi", "Taglio Guaina")
         const isTrecciaPhase =
             phaseNameUpper.includes('TRECC') ||
             phaseNameUpper.includes('CORD') ||
@@ -349,11 +398,6 @@ export function isBOMItemPhaseCompleted(
             phaseNameUpper.includes('GUAIN') ||
             phase.id === 'phase-template-6';
         if (isGuainaPhase && isGuaina) {
-            return { completed: true, phaseName };
-        }
-
-        const isBarraPhase = phaseNameUpper.includes('BARR');
-        if (isBarraPhase && isBarra) {
             return { completed: true, phaseName };
         }
     }

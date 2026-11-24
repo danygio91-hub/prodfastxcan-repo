@@ -1219,7 +1219,10 @@ export async function syncAllJobOrderCommitments(uid: string): Promise<{
                     ...item,
                     lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
                     fabbisognoTotale: item.fabbisognoTotale ?? 0,
+                    fabbisognoNetto: item.fabbisognoNetto ?? item.fabbisognoTotale ?? 0,
                     pesoStimato: item.pesoStimato ?? 0,
+                    pesoNettoStimato: item.pesoNettoStimato ?? item.pesoStimato ?? 0,
+                    scrapPercentage: item.scrapPercentage ?? null,
                     note: item.note ?? ""
                 }));
 

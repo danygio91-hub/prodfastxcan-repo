@@ -2175,7 +2175,10 @@ export default function ProgrammazioneClientPage({
               ...item,
               lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
               fabbisognoTotale: item.fabbisognoTotale ?? 0,
+              fabbisognoNetto: item.fabbisognoNetto ?? item.fabbisognoTotale ?? 0,
               pesoStimato: item.pesoStimato ?? 0,
+              pesoNettoStimato: item.pesoNettoStimato ?? item.pesoStimato ?? 0,
+              scrapPercentage: item.scrapPercentage ?? null,
               note: item.note ?? '',
             }));
           }
@@ -3558,6 +3561,7 @@ export default function ProgrammazioneClientPage({
           return {
             ...job,
             billOfMaterials: article.billOfMaterials.map((ab) => ({
+              ...ab,
               component: ab.component,
               quantity: ab.quantity,
               unit: ab.unit,
@@ -3631,6 +3635,7 @@ export default function ProgrammazioneClientPage({
       const art = articlesCacheRef.current.get(job.details.trim().toUpperCase());
       if (art && art.billOfMaterials) {
         bom = art.billOfMaterials.map((ab) => ({
+          ...ab,
           component: ab.component,
           quantity: ab.quantity,
           unit: ab.unit,

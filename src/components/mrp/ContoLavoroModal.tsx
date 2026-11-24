@@ -30,6 +30,12 @@ import {
 import { JobOrder, Article, RawMaterial, JobBillOfMaterialsItem } from '@/types';
 import { updateExternalizedMaterials } from '@/app/admin/programmazione/actions';
 import { cn } from '@/lib/utils';
+import { useMasterData } from '@/contexts/MasterDataProvider';
+import {
+  findMaterialTypeConfig,
+  GlobalSettings,
+  resolveMaterialOdlSection,
+} from '@/lib/settings-types';
 
 export type MaterialCategoryType = 'TRECCE' | 'TUBI' | 'GUAINA' | 'ALTRO';
 
@@ -45,24 +51,24 @@ export type TabType = 'ALL' | 'TRECCE' | 'TUBI' | 'GUAINA' | 'ALTRO' | 'EXTERNAL
  */
 export function classifyBOMMaterial(
   componentCode: string,
-  rawMaterial?: RawMaterial
+  rawMaterial?: RawMaterial,
+  globalSettings?: Partial<GlobalSettings> | null,
+  hasCutLength?: boolean
 ): MaterialCategoryType {
   const codeUpper = (componentCode || '').trim().toUpperCase();
   const rawType = (rawMaterial?.type || '').trim().toUpperCase();
   const rawDesc = (rawMaterial?.description || '').trim().toUpperCase();
 
-  // 1. Strict Mapping tramite tipo catalogo materie prime (RawMaterial.type)
-  if (rawType === 'TUBI' || rawType === 'TUBO') {
-    return 'TUBI';
-  }
-  if (rawType === 'GUAINA' || rawType === 'GUAINE') {
-    return 'GUAINA';
-  }
-  if (['BOB', 'TRECCIA', 'TRECCE', 'CORDA', 'CORDE', 'CAVO', 'CAVI', 'BARRA', 'PF3V0'].includes(rawType)) {
+  // 1. Classificazione 100% Data-Driven da GlobalSettings.rawMaterialTypes (odlSection / requiresCutLength / UOM)
+  const typeConfig = rawType ? findMaterialTypeConfig(rawType, globalSettings) : undefined;
+  if (typeConfig || rawType) {
+    const section = resolveMaterialOdlSection(typeConfig, rawType, hasCutLength);
+    if (section === 'TUBI') return 'TUBI';
+    if (section === 'GUAINA') return 'GUAINA';
     return 'TRECCE';
   }
 
-  // 2. Strict Mapping per prefissi standard del codice componente
+  // 2. Fallback per componenti senza anagrafica materiale: prefissi e parole chiave
   if (codeUpper.startsWith('TB-') || codeUpper.startsWith('TU-')) {
     return 'TUBI';
   }
@@ -73,19 +79,16 @@ export function classifyBOMMaterial(
     return 'TRECCE';
   }
 
-  // 3. Strict Mapping per parole chiave nella descrizione o codice
-  // Es. "14X1L23SN TUBI STAGNATI"
   if (/\bTUB[IO]?\b|TUBI|TUBO|STAGNAT[OI]/i.test(rawDesc) || /TUB/i.test(codeUpper)) {
     return 'TUBI';
   }
   if (/GUAIN|TERMOREST/i.test(rawDesc) || /GUAIN|TERMOREST/i.test(codeUpper)) {
     return 'GUAINA';
   }
-  if (/TRECC|CORD|CAV|BOB|TREFOL/i.test(rawDesc) || /TRECC|CORD|CAV|BOB|TREFOL/i.test(codeUpper)) {
+  if (/TRECC|CORD|CAV|BOB|TREFOL/i.test(rawDesc) || /TRECC|CORD|CAV|BOB|TREFOL/i.test(codeUpper) || hasCutLength) {
     return 'TRECCE';
   }
 
-  // 4. Fallback trasparente: ALTRO (nessun fallback pigro a Guaina!)
   return 'ALTRO';
 }
 
@@ -121,6 +124,7 @@ export function ContoLavoroModal({
 }: ContoLavoroModalProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const { globalSettings } = useMasterData();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<TabType>('ALL');
@@ -182,7 +186,8 @@ export function ContoLavoroModal({
     return bom.map((item) => {
       const code = (item.component || '').trim().toUpperCase();
       const rawMat = materialsMap.get(code);
-      const category = classifyBOMMaterial(code, rawMat);
+      const hasCut = Boolean(item.lunghezzaTaglioMm && Number(item.lunghezzaTaglioMm) > 0);
+      const category = classifyBOMMaterial(code, rawMat, globalSettings, hasCut);
 
       return {
         component: code,
@@ -195,7 +200,7 @@ export function ContoLavoroModal({
         isExternalized: selectedSet.has(code),
       };
     });
-  }, [job, relatedArticle, materialsMap, selectedSet]);
+  }, [job, relatedArticle, materialsMap, selectedSet, globalSettings]);
 
   // Conteggi per le tab
   const counts = useMemo(() => {

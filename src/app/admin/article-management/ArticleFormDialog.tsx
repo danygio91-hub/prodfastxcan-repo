@@ -33,20 +33,22 @@ import { saveArticle, getWorkCycles } from './actions';
 import { getDepartments } from '../department-management/actions';
 import { getRawMaterials, getMaterialsByCodes } from '../raw-material-management/actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
-import { GlobalSettings } from '@/lib/settings-types';
+import { findMaterialTypeConfig, GlobalSettings } from '@/lib/settings-types';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
 import {
   NO_DEPARTMENT_VALUE,
   buildDepartmentOptions,
   getArticleDefaultDepartment,
   normalizeDepartmentCode,
 } from '@/lib/department-utils';
-import { optionalCutLengthMmSchema } from '@/lib/bom-import-utils';
+import { optionalCutLengthMmSchema, optionalScrapPercentageSchema } from '@/lib/bom-import-utils';
 
 const bomItemSchema = z.object({
   component: z.string().optional(),
   unit: z.enum(['n', 'mt', 'kg']),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo.").default(1),
   lunghezzaTaglioMm: optionalCutLengthMmSchema,
+  scrapPercentage: optionalScrapPercentageSchema,
   note: z.string().optional(),
 });
 
@@ -364,24 +366,28 @@ export default function ArticleFormDialog({
     bomRefs.current[`${index}-${field}`]?.focus();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent, index: number, field: 'component' | 'quantity' | 'lunghezzaTaglioMm' | 'note') => {
+  const handleKeyDown = (e: React.KeyboardEvent, index: number, field: 'component' | 'quantity' | 'lunghezzaTaglioMm' | 'scrapPercentage' | 'note') => {
     if (e.key === 'Enter') {
       e.preventDefault(); // Evita submit form
 
       if (field === 'component') focusRowField(index, 'quantity');
       else if (field === 'quantity') {
-        const isN = form.getValues(`billOfMaterials.${index}.unit`) === 'n';
-        if (isN) focusRowField(index, 'note');
-        else focusRowField(index, 'lunghezzaTaglioMm');
+        if (bomRefs.current[`${index}-lunghezzaTaglioMm`]) focusRowField(index, 'lunghezzaTaglioMm');
+        else if (bomRefs.current[`${index}-scrapPercentage`]) focusRowField(index, 'scrapPercentage');
+        else focusRowField(index, 'note');
       }
-      else if (field === 'lunghezzaTaglioMm') focusRowField(index, 'note');
+      else if (field === 'lunghezzaTaglioMm') {
+        if (bomRefs.current[`${index}-scrapPercentage`]) focusRowField(index, 'scrapPercentage');
+        else focusRowField(index, 'note');
+      }
+      else if (field === 'scrapPercentage') focusRowField(index, 'note');
       else if (field === 'note') {
         if (index < fields.length - 1) {
           focusRowField(index + 1, 'component');
         } else {
           // Se siamo all'ultima riga, aggiungine una nuova
           setLastRowAdded(fields.length);
-          append({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
+          append({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, scrapPercentage: undefined, note: '' });
         }
       }
     }
@@ -428,20 +434,25 @@ export default function ArticleFormDialog({
           const material = effectiveMaterialCache[compCode];
           const typeConfig =
             material && globalSettings
-              ? globalSettings.rawMaterialTypes.find((t) => t.id === material.type)
+              ? findMaterialTypeConfig(material.type, globalSettings)
               : null;
           const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true;
+          const enableScrap = typeConfig?.enableScrap === true;
           const resolvedUnit = (material?.unitOfMeasure as 'n' | 'mt' | 'kg') || item.unit;
           const validCutLength =
             requiresCut && typeof item.lunghezzaTaglioMm === 'number' && item.lunghezzaTaglioMm > 0
               ? item.lunghezzaTaglioMm
               : null;
+          const rawScrap = Number(item.scrapPercentage);
+          const validScrapPercentage =
+            enableScrap && Number.isFinite(rawScrap) && rawScrap > 0 ? rawScrap : null;
 
           return {
             ...item,
             component: compCode,
             unit: resolvedUnit,
             lunghezzaTaglioMm: validCutLength,
+            scrapPercentage: validScrapPercentage,
           };
         }),
       };
@@ -605,11 +616,20 @@ export default function ArticleFormDialog({
               <h4 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Componenti Distinta Base</h4>
               {fields.map((field, index) => {
                 const currentValue = form.watch(`billOfMaterials.${index}.component`) || '';
+                const rowQty = Number(form.watch(`billOfMaterials.${index}.quantity`)) || 0;
+                const rowCut = Number(form.watch(`billOfMaterials.${index}.lunghezzaTaglioMm`)) || 0;
+                const rowScrap = Number(form.watch(`billOfMaterials.${index}.scrapPercentage`)) || 0;
+                const rowUnit = form.watch(`billOfMaterials.${index}.unit`) || 'n';
                 const componentMaterial = materialCache[currentValue.toUpperCase()];
+                const typeConfig = componentMaterial && globalSettings
+                  ? findMaterialTypeConfig(componentMaterial.type, globalSettings)
+                  : null;
+                const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true;
+                const enableScrap = typeConfig?.enableScrap === true;
 
                 return (
                   <div key={field.id} className="grid grid-cols-12 gap-3 p-4 border rounded-lg relative bg-muted/10">
-                    <div className="col-span-12 sm:col-span-4">
+                    <div className={cn("col-span-12", enableScrap && requiresCut ? "sm:col-span-3" : "sm:col-span-4")}>
                       <FormField
                         control={form.control}
                         name={`billOfMaterials.${index}.component`}
@@ -670,43 +690,62 @@ export default function ArticleFormDialog({
                       />
                     </div>
 
-                    {(() => {
-                      const typeConfig = componentMaterial && globalSettings
-                        ? globalSettings.rawMaterialTypes.find(t => t.id === componentMaterial.type)
-                        : null;
-                      const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true; // Default true per retrocompatibilità se manca config
+                    {requiresCut && (
+                      <div className="col-span-6 sm:col-span-2 animate-in fade-in zoom-in duration-300">
+                        <FormField
+                          control={form.control}
+                          name={`billOfMaterials.${index}.lunghezzaTaglioMm`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>L. Taglio (mm)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
+                                  ref={(el) => { field.ref(el); if (el) bomRefs.current[`${index}-lunghezzaTaglioMm`] = el; }}
+                                  type="number"
+                                  step="any"
+                                  placeholder="-"
+                                  value={field.value ?? ''}
+                                  disabled={componentMaterial?.unitOfMeasure === 'n'}
+                                  onKeyDown={(e) => handleKeyDown(e, index, 'lunghezzaTaglioMm')}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    )}
 
-                      if (!requiresCut) return null;
+                    {enableScrap && (
+                      <div className="col-span-6 sm:col-span-2 animate-in fade-in zoom-in duration-300">
+                        <FormField
+                          control={form.control}
+                          name={`billOfMaterials.${index}.scrapPercentage`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Scarto (%)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
+                                  ref={(el) => { field.ref(el); if (el) bomRefs.current[`${index}-scrapPercentage`] = el; }}
+                                  type="number"
+                                  step="any"
+                                  min={0}
+                                  placeholder="0"
+                                  value={field.value ?? ''}
+                                  onWheel={(e) => e.currentTarget.blur()}
+                                  onKeyDown={(e) => handleKeyDown(e, index, 'scrapPercentage')}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    )}
 
-                      return (
-                        <div className="col-span-6 sm:col-span-2 animate-in fade-in zoom-in duration-300">
-                          <FormField
-                            control={form.control}
-                            name={`billOfMaterials.${index}.lunghezzaTaglioMm`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>L. Taglio (mm)</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    {...(() => { const { ref: fieldRef, ...rest } = field; return rest; })()}
-                                    ref={(el) => { field.ref(el); if (el) bomRefs.current[`${index}-lunghezzaTaglioMm`] = el; }}
-                                    type="number"
-                                    step="any"
-                                    placeholder="-"
-                                    value={field.value ?? ''}
-                                    disabled={componentMaterial?.unitOfMeasure === 'n'}
-                                    onKeyDown={(e) => handleKeyDown(e, index, 'lunghezzaTaglioMm')}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      );
-                    })()}
-
-                    <div className="col-span-10 sm:col-span-3">
+                    <div className={cn("col-span-10", enableScrap && requiresCut ? "sm:col-span-2" : "sm:col-span-3")}>
                       <FormField
                         control={form.control}
                         name={`billOfMaterials.${index}.note`}
@@ -733,6 +772,35 @@ export default function ArticleFormDialog({
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
+
+                    {componentMaterial && (() => {
+                      const previewReq = calculateBOMRequirement(
+                        1,
+                        {
+                          quantity: rowQty,
+                          lunghezzaTaglioMm: requiresCut && rowCut > 0 ? rowCut : undefined,
+                          unit: (componentMaterial.unitOfMeasure as any) || rowUnit,
+                          scrapPercentage: enableScrap ? rowScrap : 0,
+                        },
+                        componentMaterial,
+                        (typeConfig || { defaultUnit: componentMaterial.unitOfMeasure || rowUnit }) as any
+                      );
+                      return (
+                        <div className="col-span-12 pt-2 border-t border-border/40 text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="font-mono font-semibold text-foreground/80">
+                            1 pz → Netto {previewReq.netInBaseUnits.toFixed(3)} {previewReq.baseUnit}
+                          </span>
+                          {previewReq.netWeightKg > 0 && previewReq.baseUnit !== 'kg' && (
+                            <span className="font-mono text-[11px]">({previewReq.netWeightKg.toFixed(3)} kg)</span>
+                          )}
+                          {previewReq.appliedScrapPercent > 0 && (
+                            <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
+                              · +{previewReq.appliedScrapPercent}% → Approvv. {previewReq.totalInBaseUnits.toFixed(3)} {previewReq.baseUnit}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )
               })}

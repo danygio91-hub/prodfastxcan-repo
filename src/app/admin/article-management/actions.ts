@@ -8,12 +8,13 @@ import type { Article, ArticlePhaseTime, WorkCycle, RawMaterial, JobOrder } from
 import * as z from 'zod';
 import { syncJobBOMItems } from '@/lib/inventory-utils';
 import { getGlobalSettings } from '@/lib/settings-actions';
+import { findMaterialTypeConfig } from '@/lib/settings-types';
 import { updateArticleHistoricalTimes } from '@/lib/production-time-server-utils';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 import { isJobEligibleForArticleSync, computeArticleCycleSyncForJob } from '@/lib/article-cycle-sync';
 import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import { normalizeDepartmentCode } from '@/lib/department-utils';
-import { optionalCutLengthMmSchema } from '@/lib/bom-import-utils';
+import { optionalCutLengthMmSchema, optionalScrapPercentageSchema } from '@/lib/bom-import-utils';
 import { invalidateOdlArticleMemoCache } from '@/app/admin/programmazione/actions';
 import type { ArticleMasterData } from '@/lib/quick-article-cache';
 export type { ArticleMasterData };
@@ -57,6 +58,7 @@ const bomItemSchema = z.object({
     unit: z.enum(['n', 'mt', 'kg']),
     quantity: z.coerce.number().positive("Quantità obbligatoria."),
     lunghezzaTaglioMm: optionalCutLengthMmSchema,
+    scrapPercentage: optionalScrapPercentageSchema,
     note: z.string().optional(),
 });
 
@@ -154,19 +156,28 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
         }
 
         const docId = code.toUpperCase();
+        const globalSettings = await getGlobalSettings();
         const normalizedBillOfMaterials = billOfMaterials.map((item) => {
             const compUpper = item.component.toUpperCase().trim();
             const mat = materialByCodeMap.get(compUpper);
+            const typeConfig = findMaterialTypeConfig(mat?.type, globalSettings);
             const resolvedUnit = (mat?.unitOfMeasure as 'n' | 'mt' | 'kg') || item.unit;
+            const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true;
             const validCut =
-                typeof item.lunghezzaTaglioMm === 'number' && item.lunghezzaTaglioMm > 0
+                requiresCut && typeof item.lunghezzaTaglioMm === 'number' && item.lunghezzaTaglioMm > 0
                     ? item.lunghezzaTaglioMm
+                    : null;
+            const rawScrap = Number(item.scrapPercentage);
+            const validScrap =
+                typeConfig?.enableScrap === true && Number.isFinite(rawScrap) && rawScrap > 0
+                    ? rawScrap
                     : null;
             return {
                 ...item,
                 component: compUpper,
                 unit: resolvedUnit,
                 lunghezzaTaglioMm: validCut,
+                scrapPercentage: validScrap,
             };
         });
 
@@ -211,9 +222,8 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
                 expectedMinutesDefault !== undefined ||
                 expectedMinutesSecondary !== undefined;
 
-            const [linkedJobDocs, globalSettings, articleSnap, workCycles, phaseTemplates] = await Promise.all([
+            const [linkedJobDocs, articleSnap, workCycles, phaseTemplates] = await Promise.all([
                 fetchJobDocsByArticleKeys(docId, docId),
-                getGlobalSettings(),
                 shouldSyncCycles ? adminDb.collection('articles').doc(docId).get() : Promise.resolve(null),
                 shouldSyncCycles ? getWorkCycles() : Promise.resolve([] as WorkCycle[]),
                 shouldSyncCycles ? getWorkPhaseTemplates() : Promise.resolve([]),
@@ -276,7 +286,10 @@ export async function saveArticle(data: any): Promise<{ success: boolean; messag
                             ...item,
                             lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
                             fabbisognoTotale: item.fabbisognoTotale ?? 0,
+                            fabbisognoNetto: item.fabbisognoNetto ?? item.fabbisognoTotale ?? 0,
                             pesoStimato: item.pesoStimato ?? 0,
+                            pesoNettoStimato: item.pesoNettoStimato ?? item.pesoStimato ?? 0,
+                            scrapPercentage: item.scrapPercentage ?? null,
                             note: item.note ?? ""
                         }));
 
@@ -445,16 +458,24 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
         const normalizedBOM = (art.billOfMaterials || []).map((item: any) => {
             const compUpper = (item.component || '').toUpperCase().trim();
             const mat = materialByCodeMap.get(compUpper);
+            const typeConfig = findMaterialTypeConfig(mat?.type, globalSettings);
+            const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true;
             const { _hasExplicitUnit, ...cleanItem } = item;
             const validCut =
-                typeof cleanItem.lunghezzaTaglioMm === 'number' && cleanItem.lunghezzaTaglioMm > 0
+                requiresCut && typeof cleanItem.lunghezzaTaglioMm === 'number' && cleanItem.lunghezzaTaglioMm > 0
                     ? cleanItem.lunghezzaTaglioMm
+                    : null;
+            const rawScrap = Number(cleanItem.scrapPercentage);
+            const validScrap =
+                typeConfig?.enableScrap === true && Number.isFinite(rawScrap) && rawScrap > 0
+                    ? rawScrap
                     : null;
             return {
                 ...cleanItem,
                 component: compUpper,
                 unit: (mat?.unitOfMeasure as 'n' | 'mt' | 'kg') || cleanItem.unit || 'n',
                 lunghezzaTaglioMm: validCut,
+                scrapPercentage: validScrap,
             };
         });
 
@@ -485,7 +506,10 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
                     ...item,
                     lunghezzaTaglioMm: item.lunghezzaTaglioMm ?? null,
                     fabbisognoTotale: item.fabbisognoTotale ?? 0,
+                    fabbisognoNetto: item.fabbisognoNetto ?? item.fabbisognoTotale ?? 0,
                     pesoStimato: item.pesoStimato ?? 0,
+                    pesoNettoStimato: item.pesoNettoStimato ?? item.pesoStimato ?? 0,
+                    scrapPercentage: item.scrapPercentage ?? null,
                     note: item.note ?? ""
                 }));
 

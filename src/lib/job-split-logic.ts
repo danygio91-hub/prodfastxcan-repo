@@ -128,11 +128,21 @@ export function scaleBOMForSplit(
     if (typeof item.fabbisognoTotale === 'number' && !isNaN(item.fabbisognoTotale)) {
       const scaled = item.fabbisognoTotale * coefficient;
       nextItem.fabbisognoTotale =
-        item.unit === 'n' ? Math.round(scaled) : Number(scaled.toFixed(3));
+        item.unit === 'n' ? Math.round(scaled) : Number(scaled.toFixed(4));
+    }
+
+    if (typeof item.fabbisognoNetto === 'number' && !isNaN(item.fabbisognoNetto)) {
+      const scaledNet = item.fabbisognoNetto * coefficient;
+      nextItem.fabbisognoNetto =
+        item.unit === 'n' ? Math.round(scaledNet) : Number(scaledNet.toFixed(4));
     }
 
     if (typeof item.pesoStimato === 'number' && !isNaN(item.pesoStimato)) {
-      nextItem.pesoStimato = Number((item.pesoStimato * coefficient).toFixed(3));
+      nextItem.pesoStimato = Number((item.pesoStimato * coefficient).toFixed(4));
+    }
+
+    if (typeof item.pesoNettoStimato === 'number' && !isNaN(item.pesoNettoStimato)) {
+      nextItem.pesoNettoStimato = Number((item.pesoNettoStimato * coefficient).toFixed(4));
     }
 
     if (resetStatusForChild) {

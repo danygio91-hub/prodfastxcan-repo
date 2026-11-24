@@ -8,10 +8,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type WorkPhaseTemplate, RawMaterialType, type Department } from '@/types';
+import { type WorkPhaseTemplate, type Department } from '@/types';
 import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartments, deleteSelectedWorkPhaseTemplates } from './actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
-import { GlobalSettings } from '@/lib/settings-types';
+import { DEFAULT_GLOBAL_SETTINGS, GlobalSettings } from '@/lib/settings-types';
 
 
 import { Button } from '@/components/ui/button';
@@ -30,7 +30,7 @@ import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdere
 import AppShell from '@/components/layout/AppShell';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 
-const materialTypes: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA'];
+// Tipi materiale dinamici caricati da settings/global.rawMaterialTypes
 
 // Base schema without department enum
 const workPhaseSchema = z.object({
@@ -59,6 +59,20 @@ export default function WorkPhaseManagementClientPage() {
   const [editingPhase, setEditingPhase] = useState<WorkPhaseTemplate | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isPending, setIsPending] = useState(false);
+
+  const availableMaterialTypes = React.useMemo(() => {
+    const map = new Map<string, string>();
+    const configured = settings?.rawMaterialTypes || DEFAULT_GLOBAL_SETTINGS.rawMaterialTypes;
+    configured.forEach((t) => {
+      if (t?.id) map.set(t.id, t.label ? `${t.id} (${t.label})` : t.id);
+    });
+    phases.forEach((p) => {
+      (p.allowedMaterialTypes || []).forEach((t) => {
+        if (t && !map.has(t)) map.set(t, t);
+      });
+    });
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
+  }, [settings?.rawMaterialTypes, phases]);
 
 
   const { toast } = useToast();
@@ -562,29 +576,29 @@ export default function WorkPhaseManagementClientPage() {
                                         </FormDescription>
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
-                                        {materialTypes.map((type) => (
+                                        {availableMaterialTypes.map((typeObj) => (
                                             <FormField
-                                                key={type}
+                                                key={typeObj.id}
                                                 control={form.control}
                                                 name="allowedMaterialTypes"
                                                 render={({ field }) => {
                                                     return (
-                                                        <FormItem key={type} className="flex flex-row items-start space-x-3 space-y-0">
+                                                        <FormItem key={typeObj.id} className="flex flex-row items-start space-x-3 space-y-0">
                                                             <FormControl>
                                                                 <Checkbox
-                                                                    checked={field.value?.includes(type)}
+                                                                    checked={field.value?.includes(typeObj.id)}
                                                                     onCheckedChange={(checked) => {
                                                                         return checked
-                                                                            ? field.onChange([...(field.value || []), type])
+                                                                            ? field.onChange([...(field.value || []), typeObj.id])
                                                                             : field.onChange(
                                                                                     (field.value || []).filter(
-                                                                                        (value) => value !== type
+                                                                                        (value) => value !== typeObj.id
                                                                                     )
                                                                                 )
                                                                     }}
                                                                 />
                                                             </FormControl>
-                                                            <FormLabel className="font-normal">{type}</FormLabel>
+                                                            <FormLabel className="font-normal">{typeObj.label}</FormLabel>
                                                         </FormItem>
                                                     )
                                                 }}

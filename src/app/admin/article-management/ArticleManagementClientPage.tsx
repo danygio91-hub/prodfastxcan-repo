@@ -255,6 +255,7 @@ export default function ArticleManagementClientPage({ initialArticles, initialDe
           "Unità di Misura": item.unit || "",
           "Q.tà per Pz": item.quantity,
           "L. Taglio (mm)": item.lunghezzaTaglioMm || "",
+          "Scarto (%)": item.scrapPercentage && Number(item.scrapPercentage) > 0 ? Number(item.scrapPercentage) : "",
           "Note": item.note || ""
         });
       }

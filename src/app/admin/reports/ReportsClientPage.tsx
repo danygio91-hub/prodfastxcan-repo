@@ -44,11 +44,10 @@ import {
 } from "@/components/ui/context-menu";
 import { useToast } from '@/hooks/use-toast';
 import { formatDisplayStock } from '@/lib/utils';
+import { useMasterData } from '@/contexts/MasterDataProvider';
+import { DEFAULT_GLOBAL_SETTINGS } from '@/lib/settings-types';
 
 type OperatorsReport = Awaited<ReturnType<typeof fetchOperatorsReport>>;
-
-
-const allMaterialTypes: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA'];
 
 function StatusBadge({ status }: { status: OverallStatus }) {
   return (
@@ -95,8 +94,19 @@ export default function ReportsClientPage({
   const [searchTerm, setSearchTerm] = useState('');
   const [jobsSearchTerm, setJobsSearchTerm] = useState('');
   const { user } = useAuth();
+  const { globalSettings } = useMasterData();
   const router = useRouter();
   const { toast } = useToast();
+
+  const allMaterialTypes = useMemo<RawMaterialType[]>(() => {
+    const configuredIds = (globalSettings?.rawMaterialTypes || DEFAULT_GLOBAL_SETTINGS.rawMaterialTypes)
+      .map((t) => t.id)
+      .filter(Boolean);
+    const withdrawalTypes = withdrawalsReport
+      .map((w) => w.materialType)
+      .filter((t): t is string => Boolean(t));
+    return Array.from(new Set([...configuredIds, ...withdrawalTypes]));
+  }, [globalSettings?.rawMaterialTypes, withdrawalsReport]);
 
   const fetchJobs = React.useCallback(async () => {
     setIsPendingJobs(true);

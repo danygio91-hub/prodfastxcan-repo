@@ -30,6 +30,12 @@ import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { formatDisplayStock } from '@/lib/utils';
 import { useBatchSelection } from '@/hooks/useBatchSelection';
+import { useMasterData } from '@/contexts/MasterDataProvider';
+import {
+  findMaterialTypeConfig,
+  resolveTabletWithdrawalMode,
+} from '@/lib/settings-types';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
 
 
 const formSchema = z.object({
@@ -63,6 +69,7 @@ export default function MaterialAssociationDialog({
 }: MaterialAssociationDialogProps) {
   const { toast } = useToast();
   const { operator } = useAuth();
+  const { globalSettings } = useMasterData();
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -102,13 +109,49 @@ export default function MaterialAssociationDialog({
     return selectedPackaging?.weightKg || 0;
   }, [packagingItems, watchedPackagingId]);
 
-  const isBobina = useMemo(() => (phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0') && selectedMaterial?.unitOfMeasure !== 'n', [phase.name, selectedMaterial]);
+  const isBobina = useMemo(() => {
+    if (selectedMaterial) {
+      const typeConfig = findMaterialTypeConfig(selectedMaterial.type, globalSettings);
+      return (
+        resolveTabletWithdrawalMode(typeConfig, selectedMaterial.type) === 'session' &&
+        selectedMaterial.unitOfMeasure !== 'n'
+      );
+    }
+    const phaseUpper = (phase.name || '').toUpperCase();
+    return phaseUpper.includes('TRECCIA') || phaseUpper.includes('CORDA');
+  }, [phase.name, selectedMaterial, globalSettings]);
 
   const bomRequirement = useMemo(() => {
     if (!selectedMaterial || !job?.billOfMaterials) return 0;
-    const item = job.billOfMaterials.find(i => i.component?.toUpperCase() === selectedMaterial.code?.toUpperCase());
-    return item?.fabbisognoTotale || 0;
-  }, [selectedMaterial, job?.billOfMaterials]);
+    const matCodeUpper = (selectedMaterial.code || '').toUpperCase().trim();
+    const typeConfig = findMaterialTypeConfig(selectedMaterial.type, globalSettings) || {
+      defaultUnit: selectedMaterial.unitOfMeasure || 'n',
+    };
+
+    // FASE 104-BIS: Somma TUTTE le righe BOM referenziate dal materiale usando il fabbisogno NETTO (Officina)
+    return job.billOfMaterials
+      .filter((i) => (i.component || '').toUpperCase().trim() === matCodeUpper)
+      .reduce((sum, item) => {
+        if (item.fabbisognoNetto !== undefined && item.fabbisognoNetto !== null && Number(item.fabbisognoNetto) > 0) {
+          return sum + Number(item.fabbisognoNetto);
+        }
+        const computed = calculateBOMRequirement(
+          job.qta || 0,
+          {
+            quantity: Number(item.quantity) || 0,
+            lunghezzaTaglioMm: item.lunghezzaTaglioMm,
+            unit: item.unit || selectedMaterial.unitOfMeasure || 'n',
+            scrapPercentage: item.scrapPercentage,
+          },
+          selectedMaterial,
+          typeConfig as any
+        );
+        if (computed.netInBaseUnits > 0) {
+          return sum + computed.netInBaseUnits;
+        }
+        return sum + (Number(item.fabbisognoTotale) || 0);
+      }, 0);
+  }, [selectedMaterial, job?.billOfMaterials, job?.qta, globalSettings]);
 
   const {
       isLoading: isLoadingMetadata,

@@ -10,6 +10,9 @@ import { getRawMaterials, getMaterialsByCodes } from '@/app/admin/raw-material-m
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { useMasterData } from '@/contexts/MasterDataProvider';
+import { findMaterialTypeConfig } from '@/lib/settings-types';
+import { calculateBOMRequirement } from '@/lib/inventory-utils';
 
 interface SmartBOMEditorProps {
   bom: BillOfMaterialsItem[];
@@ -17,6 +20,7 @@ interface SmartBOMEditorProps {
 }
 
 export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
+  const { globalSettings } = useMasterData();
   const [searchTerm, setSearchTerm] = useState('');
   const [suggestions, setSuggestions] = useState<RawMaterial[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -162,12 +166,19 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
         <div className="space-y-3">
           {bom.map((item, idx) => {
             const material = materialCache[item.component.toUpperCase()];
+            const typeConfig = material && globalSettings
+              ? findMaterialTypeConfig(material.type, globalSettings)
+              : null;
+            const requiresCut = typeConfig
+              ? typeConfig.requiresCutLength !== false
+              : (material ? material.unitOfMeasure !== 'n' : item.unit !== 'n');
+            const enableScrap = typeConfig?.enableScrap === true;
             const rowKey = rowIdsRef.current[idx] || `smart-bom-row-fallback-${idx}`;
             
             return (
               <div key={rowKey} className="grid grid-cols-12 gap-3 p-4 bg-slate-900/30 rounded-xl border border-white/5 hover:border-primary/20 transition-all group relative">
                 {/* Component Code */}
-                <div className="col-span-12 md:col-span-4 space-y-1.5">
+                <div className={cn("col-span-12 space-y-1.5", enableScrap && requiresCut ? "md:col-span-3" : "md:col-span-4")}>
                   <div className="flex items-center justify-between h-4">
                     <Label className="text-[10px] uppercase font-bold text-slate-500">Componente</Label>
                     {material && (
@@ -181,7 +192,11 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
                     value={item.component}
                     onChange={(e) => {
                       const val = e.target.value.toUpperCase();
-                      updateItem(idx, { component: val });
+                      const matched = materialCache[val];
+                      updateItem(idx, {
+                        component: val,
+                        ...(matched ? { unit: matched.unitOfMeasure } : {}),
+                      });
                     }}
                     className="bg-slate-950 border-slate-800 h-9 font-mono text-xs uppercase"
                     placeholder="CODICE..."
@@ -196,26 +211,47 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
                     step="any"
                     value={item.quantity}
                     onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })}
+                    onWheel={(e) => e.currentTarget.blur()}
                     className="bg-slate-950 border-slate-800 h-9 text-xs"
                   />
                 </div>
 
                 {/* Cut Length */}
-                <div className="col-span-4 md:col-span-2 space-y-1.5">
-                  <Label className="text-[10px] uppercase font-bold text-slate-500">L. Taglio (mm)</Label>
-                  <Input 
-                    type="number"
-                    step="any"
-                    value={item.lunghezzaTaglioMm || ''}
-                    onChange={(e) => updateItem(idx, { lunghezzaTaglioMm: e.target.value ? Number(e.target.value) : undefined })}
-                    disabled={item.unit === 'n'}
-                    className="bg-slate-950 border-slate-800 h-9 text-xs disabled:opacity-30"
-                    placeholder="-"
-                  />
-                </div>
+                {requiresCut && (
+                  <div className="col-span-4 md:col-span-2 space-y-1.5">
+                    <Label className="text-[10px] uppercase font-bold text-slate-500">L. Taglio (mm)</Label>
+                    <Input 
+                      type="number"
+                      step="any"
+                      value={item.lunghezzaTaglioMm || ''}
+                      onChange={(e) => updateItem(idx, { lunghezzaTaglioMm: e.target.value ? Number(e.target.value) : undefined })}
+                      onWheel={(e) => e.currentTarget.blur()}
+                      disabled={(material?.unitOfMeasure || item.unit) === 'n'}
+                      className="bg-slate-950 border-slate-800 h-9 text-xs disabled:opacity-30"
+                      placeholder="-"
+                    />
+                  </div>
+                )}
+
+                {/* Scrap % */}
+                {enableScrap && (
+                  <div className="col-span-4 md:col-span-2 space-y-1.5">
+                    <Label className="text-[10px] uppercase font-bold text-slate-500">Scarto (%)</Label>
+                    <Input 
+                      type="number"
+                      step="any"
+                      min={0}
+                      value={item.scrapPercentage ?? ''}
+                      onChange={(e) => updateItem(idx, { scrapPercentage: e.target.value !== '' ? Math.max(0, Number(e.target.value)) : undefined })}
+                      onWheel={(e) => e.currentTarget.blur()}
+                      className="bg-slate-950 border-slate-800 h-9 text-xs"
+                      placeholder="0"
+                    />
+                  </div>
+                )}
 
                 {/* Notes */}
-                <div className="col-span-12 md:col-span-3 space-y-1.5">
+                <div className={cn("col-span-10 space-y-1.5", enableScrap && requiresCut ? "md:col-span-2" : "md:col-span-3")}>
                   <Label className="text-[10px] uppercase font-bold text-slate-500">Note</Label>
                   <Input 
                     value={item.note || ''}
@@ -226,7 +262,7 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
                 </div>
 
                 {/* Delete Button */}
-                <div className="col-span-12 md:col-span-1 flex items-end justify-end pb-0.5">
+                <div className="col-span-2 md:col-span-1 flex items-end justify-end pb-0.5">
                   <Button 
                     variant="ghost" 
                     size="icon" 
@@ -237,9 +273,39 @@ export default function SmartBOMEditor({ bom, onChange }: SmartBOMEditorProps) {
                   </Button>
                 </div>
 
+                {/* Live 1-piece preview */}
+                {material && (() => {
+                  const previewReq = calculateBOMRequirement(
+                    1,
+                    {
+                      quantity: Number(item.quantity) || 0,
+                      lunghezzaTaglioMm: requiresCut && item.lunghezzaTaglioMm ? Number(item.lunghezzaTaglioMm) : undefined,
+                      unit: (material.unitOfMeasure as any) || item.unit,
+                      scrapPercentage: enableScrap ? (Number(item.scrapPercentage) || 0) : 0,
+                    },
+                    material,
+                    (typeConfig || { defaultUnit: material.unitOfMeasure || item.unit }) as any
+                  );
+                  return (
+                    <div className="col-span-12 pt-2 border-t border-white/10 text-[11px] text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-mono font-semibold text-slate-200">
+                        1 pz → Netto {previewReq.netInBaseUnits.toFixed(3)} {previewReq.baseUnit}
+                      </span>
+                      {previewReq.netWeightKg > 0 && previewReq.baseUnit !== 'kg' && (
+                        <span className="font-mono">({previewReq.netWeightKg.toFixed(3)} kg)</span>
+                      )}
+                      {previewReq.appliedScrapPercent > 0 && (
+                        <span className="font-mono font-semibold text-amber-400">
+                          · +{previewReq.appliedScrapPercent}% → Approvv. {previewReq.totalInBaseUnits.toFixed(3)} {previewReq.baseUnit}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Unit Badge (Float) */}
                 <div className="absolute -top-2 -left-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <Badge className="bg-slate-800 border-slate-700 text-[8px] px-1.5 h-4 uppercase">{item.unit}</Badge>
+                   <Badge className="bg-slate-800 border-slate-700 text-[8px] px-1.5 h-4 uppercase">{material?.unitOfMeasure || item.unit}</Badge>
                 </div>
               </div>
             );

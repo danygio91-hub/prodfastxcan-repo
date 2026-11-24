@@ -4,6 +4,7 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
+import { bumpMrpSyncVersion } from '@/lib/mrp-sync';
 import { GlobalSettings, DEFAULT_GLOBAL_SETTINGS } from './settings-types';
 
 export async function getGlobalSettings(): Promise<GlobalSettings> {
@@ -34,9 +35,11 @@ export async function updateGlobalSettings(settings: GlobalSettings, uid: string
   try {
     await ensureAdmin(uid);
     await adminDb.collection('settings').doc('global').set(settings);
+    await bumpMrpSyncVersion(['stock', 'jobsBom'], 'settings:updateGlobalSettings');
     revalidatePath('/admin/settings/parameters');
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/production-console');
+    revalidatePath('/', 'layout');
     return { success: true };
   } catch (error) {
     console.error("Error updating global settings:", error);

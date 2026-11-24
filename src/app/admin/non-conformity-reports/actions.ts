@@ -72,11 +72,17 @@ export async function approveNonConformity(reportId: string): Promise<{ success:
 
             if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
-            } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg += report.quantity * material.conversionFactor;
             } else {
-                // If there's no conversion factor, weight doesn't change for non-kg units
-                newWeightKg = material.currentWeightKg;
+                const factor =
+                    material.unitOfMeasure === 'mt'
+                        ? (material.rapportoKgMt || material.conversionFactor || 0)
+                        : (material.conversionFactor || material.rapportoKgMt || 0);
+                if (factor > 0) {
+                    newWeightKg += report.quantity * factor;
+                } else {
+                    // If there's no conversion factor, weight doesn't change for non-kg units
+                    newWeightKg = material.currentWeightKg;
+                }
             }
 
 

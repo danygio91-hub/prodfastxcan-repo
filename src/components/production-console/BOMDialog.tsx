@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { getRawMaterialsByCodes } from '@/app/admin/production-console/actions';
 import { forceResetStuckMaterialSession } from '@/app/scan-job/actions';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
+import { findMaterialTypeConfig } from '@/lib/settings-types';
 import { useMasterData } from '@/contexts/MasterDataProvider';
 import { useToast } from '@/hooks/use-toast';
 
@@ -64,10 +65,14 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
         if (isSessionClosed) {
           const consumedWeight = (consumption.grossOpeningWeight || 0) - (consumption.closingWeight || 0);
           if (material) {
+            const factor =
+              material.unitOfMeasure === 'mt'
+                ? (material.rapportoKgMt || material.conversionFactor || 0)
+                : (material.conversionFactor || material.rapportoKgMt || 0);
             if (material.unitOfMeasure === 'kg') {
               unitsConsumed = consumedWeight;
-            } else if (material.conversionFactor && material.conversionFactor > 0) {
-              unitsConsumed = consumedWeight / material.conversionFactor;
+            } else if (factor > 0) {
+              unitsConsumed = consumedWeight / factor;
             }
           }
         } else if (isImmediateWithdrawal) {
@@ -175,7 +180,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
                   let estimatedWeight = 0;
 
                   if (material && globalSettings) {
-                    const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || { defaultUnit: material.unitOfMeasure };
+                    const config = findMaterialTypeConfig(material.type, globalSettings) || { defaultUnit: material.unitOfMeasure };
                     
                     // Case for template items (standard BOM) or manual/consumed items
                     const calcQty = item.isFromTemplate ? job.qta : 1;
@@ -184,7 +189,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job }: BOMDialogProps)
                     const req = calculateBOMRequirement(calcQty, calcBomItem as any, material, config as any);
                     
                     totalRequirement = req.totalInBaseUnits;
-                    displayUnit = req.totalMeters !== undefined ? 'mt' : req.baseUnit;
+                    displayUnit = req.baseUnit;
                     estimatedWeight = req.weightKg;
                   } else {
                     // Fallback simpler math if settings/material not yet ready

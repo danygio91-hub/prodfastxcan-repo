@@ -15,7 +15,12 @@ import { Loader2, Save, Plus, Trash2, Settings2, Boxes, Ruler, AlertCircle, Laye
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getGlobalSettings, updateGlobalSettings } from '@/lib/settings-actions';
-import { GlobalSettings, RawMaterialTypeConfig } from '@/lib/settings-types';
+import {
+  GlobalSettings,
+  RawMaterialTypeConfig,
+  resolveMaterialOdlSection,
+  resolveTabletWithdrawalMode,
+} from '@/lib/settings-types';
 
 export default function GlobalParametersPage() {
   const { user } = useAuth();
@@ -46,7 +51,10 @@ export default function GlobalParametersPage() {
       id: `NEW_${Date.now()}`,
       label: 'Nuova Tipologia',
       defaultUnit: 'mt',
-      hasConversion: false
+      hasConversion: false,
+      enableScrap: false,
+      odlSection: 'TRECCIA',
+      tabletWithdrawalMode: 'direct',
     };
     setSettings({ ...settings, rawMaterialTypes: [...settings.rawMaterialTypes, newType] });
   };
@@ -170,7 +178,10 @@ export default function GlobalParametersPage() {
                   </Button>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {settings.rawMaterialTypes.map((type, index) => (
+                  {settings.rawMaterialTypes.map((type, index) => {
+                    const effectiveOdlSection = resolveMaterialOdlSection(type, type.id);
+                    const effectiveTabletMode = resolveTabletWithdrawalMode(type, type.id);
+                    return (
                     <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border rounded-lg bg-muted/5 relative group">
                       <div className="space-y-2">
                         <Label>Codice/ID</Label>
@@ -200,6 +211,10 @@ export default function GlobalParametersPage() {
                              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Richiede Taglio (mm)</Label>
                              <Switch checked={type.requiresCutLength ?? false} onCheckedChange={(val) => updateRawMaterialType(index, { requiresCutLength: val })} />
                           </div>
+                          <div className="flex items-center justify-between gap-2 px-1">
+                             <Label className="text-[10px] uppercase font-bold text-muted-foreground">Usa Scarto (%)</Label>
+                             <Switch checked={type.enableScrap ?? false} onCheckedChange={(val) => updateRawMaterialType(index, { enableScrap: val })} />
+                          </div>
                           {type.hasConversion && (
                              <Select value={type.conversionType} onValueChange={(val: any) => updateRawMaterialType(index, { conversionType: val })}>
                                  <SelectTrigger className="h-8 text-xs">
@@ -212,6 +227,31 @@ export default function GlobalParametersPage() {
                              </Select>
                           )}
                       </div>
+                      <div className="md:col-span-2 space-y-1.5">
+                        <Label className="text-xs">Sezione Stampa ODL / C.to Lavoro</Label>
+                        <Select value={effectiveOdlSection} onValueChange={(val: 'TRECCIA' | 'TUBI' | 'GUAINA') => updateRawMaterialType(index, { odlSection: val })}>
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="TRECCIA">Preparazione Trecce / Corde / Barre (TRECCIA)</SelectItem>
+                            <SelectItem value="TUBI">Preparazione Tubi (TUBI)</SelectItem>
+                            <SelectItem value="GUAINA">Preparazione Componenti Guaina (GUAINA)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="md:col-span-2 space-y-1.5">
+                        <Label className="text-xs">Modalità Scarico Tablet</Label>
+                        <Select value={effectiveTabletMode} onValueChange={(val: 'direct' | 'session') => updateRawMaterialType(index, { tabletWithdrawalMode: val })}>
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="direct">Scarico Diretto (Metri / Pezzi / Bilancia)</SelectItem>
+                            <SelectItem value="session">Sessione Bobina (Apertura / Chiusura)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <Button 
                         variant="ghost" 
                         size="icon" 
@@ -221,7 +261,8 @@ export default function GlobalParametersPage() {
                         <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
-                  ))}
+                  );
+                  })}
                 </CardContent>
               </Card>
             </TabsContent>

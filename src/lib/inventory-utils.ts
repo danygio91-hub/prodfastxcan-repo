@@ -1,6 +1,10 @@
 
-import { RawMaterial, RawMaterialBatch, MaterialWithdrawal, UnitOfMeasure } from '@/types';
-import { RawMaterialTypeConfig } from './settings-types';
+import { BillOfMaterialsItem, JobBillOfMaterialsItem, MaterialWithdrawal, RawMaterial, RawMaterialBatch, UnitOfMeasure } from '@/types';
+import {
+  findMaterialTypeConfig,
+  GlobalSettings,
+  RawMaterialTypeConfig,
+} from './settings-types';
 import { getLotResidualSummary, hydrateMaterialWithWithdrawals, normStockLot } from './stock-logic';
 
 export const STOCK_FLOAT_EPSILON = 0.01;
@@ -281,108 +285,257 @@ export function finalizePostWithdrawalMaterialState(
 /**
  * Robust conversion factor selector with fallback.
  */
-export function getConversionFactor(material: RawMaterial, config: Partial<RawMaterialTypeConfig>): number {
-  // SSoT Priority: Use rapportoKgMt if present (for KG/MT materials), otherwise conversionFactor
-  const ratio = material.rapportoKgMt || material.conversionFactor || 0;
-  
+export function getConversionFactor(
+  material: Pick<RawMaterial, 'unitOfMeasure' | 'conversionFactor' | 'rapportoKgMt'>,
+  config?: Partial<RawMaterialTypeConfig>
+): number {
+  const uom = (material?.unitOfMeasure || config?.defaultUnit || '').toLowerCase();
+  const ratio =
+    uom === 'mt' || config?.conversionType === 'kg/mt'
+      ? (material?.rapportoKgMt || material?.conversionFactor || 0)
+      : (material?.conversionFactor || material?.rapportoKgMt || 0);
+
   if (ratio > 0) return ratio;
-  
+
   return 1; // Default to 1 (discrete or unconfigured)
 }
 
 export interface BOMRequirementDetails {
-  totalInBaseUnits: number; // Final value for stock (KG, MT or N)
+  /** Fabbisogno LORDO in unità base (con eventuale scarto % se abilitato sul tipo) — per Approvvigionamenti / MRP / Impegnato */
+  totalInBaseUnits: number;
+  /** Fabbisogno NETTO in unità base (senza scarto %) — per Officina / Stampa ODL / Tablet */
+  netInBaseUnits: number;
   baseUnit: UnitOfMeasure;  // The official UOM of the material
-  weightKg: number;         // Estimated weight in KG
-  totalMeters?: number;     // Meters calculated if lunghezzaTaglioMm was used
-  totalPieces: number;      // Total pieces (jobQta * bomItem.quantity)
+  /** Peso stimato LORDO in KG */
+  weightKg: number;
+  /** Peso stimato NETTO in KG */
+  netWeightKg: number;
+  /** Metri LORDI (se lunghezzaTaglioMm o unit mt) */
+  totalMeters?: number;
+  /** Metri NETTI (se lunghezzaTaglioMm o unit mt) */
+  netMeters?: number;
+  totalPieces: number;      // Total pieces (jobQta * bomItem.quantity, invariato rispetto allo scarto)
+  /** Percentuale di scarto effettivamente applicata (0 se switch enableScrap OFF o campo non valorizzato) */
+  appliedScrapPercent: number;
 }
 
 /**
  * Calculates the material requirement (commitment) based on BOM data.
- * Centralizes the logic for length-to-base conversion (mm -> mt -> kg/others).
- * 
+ * Centralizes the logic for length-to-base conversion (mm -> mt -> kg/others)
+ * and separates NET (officina/ODL/tablet) vs GROSS (approvvigionamenti/MRP/impegnato with scrap %).
+ *
  * @param jobQta The quantity of the production job/manual order
- * @param bomItem The BOM item containing 'quantity', 'unit', and potentially 'lunghezzaTaglioMm'
+ * @param bomItem The BOM item containing 'quantity', 'unit', optionally 'lunghezzaTaglioMm' and 'scrapPercentage'
  * @param material The raw material document
  * @param config The configuration for this material's type
  */
 export function calculateBOMRequirement(
   jobQta: number,
-  bomItem: { quantity: number; lunghezzaTaglioMm?: number; unit: string },
-  material: Pick<RawMaterial, 'unitOfMeasure' | 'conversionFactor' | 'rapportoKgMt'>,
-  config: { defaultUnit: string; hasConversion?: boolean; conversionType?: string; requiresCutLength?: boolean }
+  bomItem: { quantity: number; lunghezzaTaglioMm?: number | null; unit: string; scrapPercentage?: number | null },
+  material: Pick<RawMaterial, 'unitOfMeasure' | 'conversionFactor' | 'rapportoKgMt'> | null | undefined,
+  config: (Partial<RawMaterialTypeConfig> & { defaultUnit: string }) | null | undefined
 ): BOMRequirementDetails {
   const qta = Number(jobQta) || 0;
   const bomQty = Number(bomItem.quantity) || 0;
-  
-  // SSoT: L'unità base è quella di default per la tipologia (dai Global Settings),
-  // sovrascritta da quella del materiale solo se è stata fatta un'eccezione locale.
-  const rawUom = material?.unitOfMeasure || config?.defaultUnit || 'n';
+
+  // SSoT: L'unità base è quella del materiale (eccezione locale) oppure default del tipo
+  const rawUom = material?.unitOfMeasure || config?.defaultUnit || bomItem.unit || 'n';
   const baseUnitStr = rawUom.toLowerCase();
   const baseUnit = baseUnitStr as UnitOfMeasure;
-  
+
   const totalPieces = qta * bomQty;
-  
-  // ARCHITETTURA: I flag di GlobalSettings guidano dinamicamente la logica
-  const richiedeTaglio = config?.requiresCutLength === true;
-  const usaConversione = config?.hasConversion === true;
+
+  // ARCHITETTURA: I flag di GlobalSettings guidano dinamicamente la logica (retrocompatibili se omessi)
+  const richiedeTaglio = config?.requiresCutLength !== false;
+  const explicitFactor = Number(material?.rapportoKgMt || material?.conversionFactor || 0) > 0;
+  const usaConversione =
+    config?.hasConversion === true
+      ? true
+      : config?.hasConversion === false
+        ? false
+        : baseUnitStr === 'kg'
+          ? explicitFactor
+          : Number(material?.rapportoKgMt || 0) > 0;
   const conversionType = config?.conversionType; // 'kg/mt' o 'kg/unit'
   const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
 
-  const factor = usaConversione ? getConversionFactor(material as any, config as any) : 1;
+  const factor = usaConversione && material ? getConversionFactor(material, config || undefined) : 1;
 
-  let totalInBaseUnits = 0;
-  let totalMeters: number | undefined = undefined;
+  let netMetersRaw: number | undefined = undefined;
 
-  // 1. Calcolo Metri (Solo se richiedeTaglio === true)
+  // 1. Calcolo Metri NETTI (Solo se richiedeTaglio !== false e lunghezza > 0, o BOM in mt)
   if (richiedeTaglio && lengthMm > 0) {
-      totalMeters = (totalPieces * lengthMm) / 1000;
+    netMetersRaw = (totalPieces * lengthMm) / 1000;
   } else if (bomItem.unit?.toLowerCase() === 'mt' || bomItem.unit?.toLowerCase() === 'm') {
-      totalMeters = totalPieces;
+    netMetersRaw = totalPieces;
   }
 
-  // 2. Fabbisogno in base all'unità (Source of Truth) e regole di conversione
+  // 2. Fabbisogno NETTO in base all'unità (Source of Truth Officina)
+  let netInBaseUnits = 0;
   if (baseUnitStr === 'kg') {
-      if (usaConversione) {
-          if (conversionType === 'kg/mt' || (conversionType == null && totalMeters !== undefined)) {
-              // Conversione da Metri a KG (es. Bobina: totalMeters * rapportoKgMt)
-              totalInBaseUnits = (totalMeters !== undefined ? totalMeters : 0) * factor;
-          } else if (conversionType === 'kg/unit' || conversionType == null) {
-              // Conversione da Pezzi a KG (es. Tubi: totalPieces * pesoUnitario)
-              totalInBaseUnits = totalPieces * factor;
-          }
-      } else {
-          // Senza conversione (impostazione admin) fallback 1:1
-          totalInBaseUnits = totalMeters !== undefined ? totalMeters : totalPieces;
+    if (usaConversione) {
+      if (conversionType === 'kg/mt' || (conversionType == null && netMetersRaw !== undefined)) {
+        // Conversione da Metri a KG (es. Bobina: netMeters * rapportoKgMt)
+        netInBaseUnits = (netMetersRaw !== undefined ? netMetersRaw : 0) * factor;
+      } else if (conversionType === 'kg/unit' || conversionType == null) {
+        // Conversione da Pezzi a KG (es. Tubi: totalPieces * pesoUnitario)
+        netInBaseUnits = totalPieces * factor;
       }
+    } else {
+      // Senza conversione (impostazione admin) fallback 1:1
+      netInBaseUnits = netMetersRaw !== undefined ? netMetersRaw : totalPieces;
+    }
   } else if (baseUnitStr === 'mt' || baseUnitStr === 'm') {
-      totalInBaseUnits = totalMeters !== undefined ? totalMeters : totalPieces;
+    netInBaseUnits = netMetersRaw !== undefined ? netMetersRaw : totalPieces;
   } else {
-      // baseUnitStr === 'n' o altro
-      totalInBaseUnits = totalPieces;
+    // baseUnitStr === 'n' o altro
+    netInBaseUnits = totalPieces;
   }
 
-  // 3. Stima Peso
-  let weightKg = 0;
+  // 3. Stima Peso NETTO
+  let netWeightKg = 0;
   if (baseUnitStr === 'kg') {
-      weightKg = totalInBaseUnits;
+    netWeightKg = netInBaseUnits;
   } else if (usaConversione && factor > 0) {
-      weightKg = totalInBaseUnits * factor;
+    netWeightKg = netInBaseUnits * factor;
+  }
+
+  // 4. Scarto % per Approvvigionamenti / MRP (attivo SOLO se switch config.enableScrap === true)
+  const rawScrap = Math.max(0, Number(bomItem.scrapPercentage) || 0);
+  const appliedScrapPercent = config?.enableScrap === true ? rawScrap : 0;
+  const mult = 1 + appliedScrapPercent / 100;
+
+  const netMeters = netMetersRaw !== undefined ? Number(netMetersRaw.toFixed(4)) : undefined;
+
+  let totalInBaseUnits = netInBaseUnits;
+  let weightKg = netWeightKg;
+  let totalMeters = netMeters;
+
+  if (appliedScrapPercent > 0) {
+    if (netMetersRaw !== undefined) {
+      totalMeters = Number((netMetersRaw * mult).toFixed(4));
+    }
+    if (baseUnitStr === 'n') {
+      totalInBaseUnits = Math.ceil(netInBaseUnits * mult);
+    } else {
+      totalInBaseUnits = Number((netInBaseUnits * mult).toFixed(4));
+    }
+    weightKg =
+      baseUnitStr === 'kg'
+        ? totalInBaseUnits
+        : usaConversione && factor > 0
+          ? Number((totalInBaseUnits * factor).toFixed(4))
+          : 0;
   }
 
   return {
-      totalInBaseUnits,
-      baseUnit,
-      weightKg,
-      totalMeters: totalMeters !== undefined ? Number(totalMeters.toFixed(4)) : undefined,
-      totalPieces
+    totalInBaseUnits,
+    netInBaseUnits,
+    baseUnit,
+    weightKg,
+    netWeightKg,
+    totalMeters,
+    netMeters,
+    totalPieces,
+    appliedScrapPercent,
   };
 }
 
 /**
+ * Helper SSoT unico per costruire una riga BOM commessa partendo da una riga template/manuale,
+ * popolando sia i campi LORDI (fabbisognoTotale, pesoStimato) che quelli NETTI (fabbisognoNetto, pesoNettoStimato).
+ */
+export function computeJobBOMItemSnapshot(params: {
+  jobQta: number;
+  bomItem: Partial<BillOfMaterialsItem> & { component: string; quantity: number; unit: UnitOfMeasure };
+  rawMaterials?: RawMaterial[];
+  globalSettings?: Partial<GlobalSettings> | null;
+  status?: JobBillOfMaterialsItem['status'];
+  withdrawn?: boolean;
+  isFromTemplate?: boolean;
+}): JobBillOfMaterialsItem {
+  const {
+    jobQta,
+    bomItem,
+    rawMaterials = [],
+    globalSettings = null,
+    status = 'pending',
+    withdrawn = false,
+    isFromTemplate = true,
+  } = params;
+
+  const compCode = (bomItem.component || '').toUpperCase().trim();
+  const material = rawMaterials.find((m) => (m?.code || '').toUpperCase().trim() === compCode);
+  const typeConfig = findMaterialTypeConfig(material?.type, globalSettings);
+  const requiresCut = typeConfig ? typeConfig.requiresCutLength !== false : true;
+  const resolvedUnit = ((material?.unitOfMeasure as UnitOfMeasure) || bomItem.unit || 'n');
+  const rawScrap = Number(bomItem.scrapPercentage);
+  const normalizedScrap =
+    typeConfig?.enableScrap === true && Number.isFinite(rawScrap) && rawScrap > 0 ? rawScrap : null;
+
+  const req = calculateBOMRequirement(
+    jobQta,
+    {
+      quantity: bomItem.quantity,
+      lunghezzaTaglioMm: requiresCut ? bomItem.lunghezzaTaglioMm : undefined,
+      unit: resolvedUnit,
+      scrapPercentage: normalizedScrap,
+    },
+    material || ({ unitOfMeasure: resolvedUnit, conversionFactor: 1, rapportoKgMt: 0 } as any),
+    typeConfig || ({ defaultUnit: resolvedUnit } as any)
+  );
+
+  const resolvedCut =
+    requiresCut && bomItem.lunghezzaTaglioMm !== undefined && bomItem.lunghezzaTaglioMm !== null && Number(bomItem.lunghezzaTaglioMm) > 0
+      ? Number(bomItem.lunghezzaTaglioMm)
+      : undefined;
+
+  return {
+    ...bomItem,
+    component: compCode,
+    unit: resolvedUnit,
+    quantity: Number(bomItem.quantity) || 0,
+    lunghezzaTaglioMm: resolvedCut,
+    note: bomItem.note,
+    scrapPercentage: normalizedScrap,
+    status,
+    withdrawn,
+    isFromTemplate,
+    fabbisognoTotale: req.totalInBaseUnits,
+    fabbisognoNetto: req.netInBaseUnits,
+    pesoStimato: req.weightKg,
+    pesoNettoStimato: req.netWeightKg,
+  };
+}
+
+/**
+ * Helper unificato per generare l'intero array billOfMaterials di una commessa dall'anagrafica Articolo.
+ */
+export function buildJobBOMItemsFromArticle(params: {
+  jobQta: number;
+  articleBOM?: Array<Partial<BillOfMaterialsItem> & { component: string; quantity: number; unit: UnitOfMeasure }>;
+  rawMaterials?: RawMaterial[];
+  globalSettings?: Partial<GlobalSettings> | null;
+}): JobBillOfMaterialsItem[] {
+  const { jobQta, articleBOM = [], rawMaterials = [], globalSettings = null } = params;
+  if (!Array.isArray(articleBOM) || articleBOM.length === 0) return [];
+
+  return articleBOM.map((item) =>
+    computeJobBOMItemSnapshot({
+      jobQta,
+      bomItem: item,
+      rawMaterials,
+      globalSettings,
+      status: 'pending',
+      withdrawn: false,
+      isFromTemplate: true,
+    })
+  );
+}
+
+/**
  * Helper to synchronize a JobOrder's BOM with the Article's BOM.
- * recalculates explicit fields (fabbisognoTotale, pesoStimato).
+ * recalculates explicit fields (fabbisognoTotale, fabbisognoNetto, pesoStimato, pesoNettoStimato).
  * FASE 105-BIS: Supporta più righe con lo stesso codice componente e lunghezze di taglio diverse.
  */
 export function syncJobBOMItems(
@@ -406,8 +559,6 @@ export function syncJobBOMItems(
         safeArticleBOM.map((item) => (item?.component || '').toUpperCase().trim()).filter(Boolean)
     );
 
-    // Indicizza le righe correnti per chiave composita (componente + taglio + indice occorrenza)
-    // e mantiene code per componente per il fallback quando il taglio di una riga esistente viene modificato
     const currentByCompositeKey = new Map<string, any>();
     const currentByCompCounts = new Map<string, number>();
     const currentBucketsByComp = new Map<string, any[]>();
@@ -447,38 +598,20 @@ export function syncJobBOMItems(
             consumedCurrentItems.add(existingItem);
         }
 
-        // Recalculate explicit fields
-        const material = rawMaterials.find((m) => m.code.toUpperCase() === compCode);
-        const typeConfig =
-            material && globalSettings?.rawMaterialTypes
-                ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type)
-                : null;
-        const requiresCut = typeConfig?.requiresCutLength !== false;
-        const resolvedUnit = (material?.unitOfMeasure as any) || artItem.unit || 'n';
-
-        const req = calculateBOMRequirement(
+        const snapshot = computeJobBOMItemSnapshot({
             jobQta,
-            {
-                quantity: artItem.quantity,
-                lunghezzaTaglioMm: requiresCut ? artItem.lunghezzaTaglioMm : undefined,
-                unit: resolvedUnit,
-            },
-            material || ({ unitOfMeasure: resolvedUnit, conversionFactor: 1, rapportoKgMt: 0 } as any),
-            typeConfig || { defaultUnit: resolvedUnit }
-        );
-
-        const newItem: any = {
-            ...artItem,
-            component: compCode,
-            unit: resolvedUnit,
-            isFromTemplate: safeArticleBOM.length > 0 ? true : (artItem.isFromTemplate ?? true),
+            bomItem: artItem,
+            rawMaterials,
+            globalSettings,
             status: existingItem?.status || artItem?.status || 'pending',
-            lunghezzaTaglioMm: requiresCut ? (artItem.lunghezzaTaglioMm ?? null) : null,
-            fabbisognoTotale: req.totalInBaseUnits,
-            pesoStimato: req.weightKg,
-        };
+            withdrawn: existingItem?.withdrawn ?? artItem?.withdrawn ?? false,
+            isFromTemplate: safeArticleBOM.length > 0 ? true : (artItem.isFromTemplate ?? true),
+        });
 
-        updatedBOM.push(newItem);
+        updatedBOM.push({
+            ...snapshot,
+            lunghezzaTaglioMm: snapshot.lunghezzaTaglioMm ?? null,
+        });
     });
 
     // 2. Preserve manually added items that are NOT in the article BOM
@@ -486,34 +619,20 @@ export function syncJobBOMItems(
         safeCurrentBOM.forEach((item) => {
             const compCode = (item?.component || '').toUpperCase().trim() || 'UNKNOWN';
             if (!item.isFromTemplate && !articleComponentSet.has(compCode) && !consumedCurrentItems.has(item)) {
-                const material = rawMaterials.find((m) => m.code.toUpperCase() === compCode);
-                const typeConfig =
-                    material && globalSettings?.rawMaterialTypes
-                        ? globalSettings.rawMaterialTypes.find((t: any) => t.id === material.type)
-                        : null;
-                const requiresCut = typeConfig?.requiresCutLength !== false;
-                const resolvedUnit = (material?.unitOfMeasure as any) || item.unit || 'n';
-
-                const req = calculateBOMRequirement(
+                const snapshot = computeJobBOMItemSnapshot({
                     jobQta,
-                    {
-                        quantity: item.quantity,
-                        lunghezzaTaglioMm: requiresCut ? item.lunghezzaTaglioMm : undefined,
-                        unit: resolvedUnit,
-                    },
-                    material || ({ unitOfMeasure: resolvedUnit, conversionFactor: 1, rapportoKgMt: 0 } as any),
-                    typeConfig || { defaultUnit: resolvedUnit }
-                );
+                    bomItem: item,
+                    rawMaterials,
+                    globalSettings,
+                    status: item.status || 'pending',
+                    withdrawn: item.withdrawn ?? false,
+                    isFromTemplate: false,
+                });
 
-                const preservedItem = {
-                    ...item,
-                    component: compCode,
-                    unit: resolvedUnit,
-                    lunghezzaTaglioMm: requiresCut ? (item.lunghezzaTaglioMm ?? null) : null,
-                    fabbisognoTotale: req.totalInBaseUnits,
-                    pesoStimato: req.weightKg,
-                };
-                updatedBOM.push(preservedItem);
+                updatedBOM.push({
+                    ...snapshot,
+                    lunghezzaTaglioMm: snapshot.lunghezzaTaglioMm ?? null,
+                });
             }
         });
     }

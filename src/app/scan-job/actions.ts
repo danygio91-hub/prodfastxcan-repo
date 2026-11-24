@@ -13,6 +13,7 @@ import {
 
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord, JobBillOfMaterialsItem } from '@/types';
 import { getGlobalSettings } from '@/lib/settings-actions';
+import { findMaterialTypeConfig, resolveTabletWithdrawalMode } from '@/lib/settings-types';
 import {
     prepareWithdrawalMovement,
     finalizePostWithdrawalMaterialState,
@@ -43,7 +44,7 @@ function convertTimestampsToDates(obj: any): any {
  * Supports standard fetches and Firestore transactions.
  */
 async function getJobOrderRefAndSnap(
-    rawId: string, 
+    rawId: string,
     transaction?: admin.firestore.Transaction
 ): Promise<{ jobRef: admin.firestore.DocumentReference; jobSnap: admin.firestore.DocumentSnapshot }> {
     const sanitizedId = rawId.replace(/\//g, '-');
@@ -54,7 +55,7 @@ async function getJobOrderRefAndSnap(
         const querySnap = await adminDb.collection('jobOrders')
             .where('ordinePF', '==', rawId)
             .get();
-        
+
         if (!querySnap.empty) {
             let selectedDoc = querySnap.docs[0];
             if (querySnap.docs.length > 1) {
@@ -95,7 +96,7 @@ export async function getTrueJobId(id: string): Promise<{ success: boolean; true
         if (id.startsWith('group-')) {
             return { success: true, trueId: id }; // Groups use their ID directly
         }
-        
+
         const { jobRef, jobSnap } = await getJobOrderRefAndSnap(id);
         if (jobSnap.exists) {
             return { success: true, trueId: jobRef.id };
@@ -109,36 +110,36 @@ export async function getTrueJobId(id: string): Promise<{ success: boolean; true
 
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sorted = [...phases].sort((a, b) => a.sequence - b.sequence);
-    
+
     // 1. Idenpendent PREP: Always ready
     // 2. PRODUCTION/QLTY: Ready if ALL mandatory PREP are done/skipped AND previous non-independent phase is at least in-progress.
-    
+
     const allPrepDone = sorted
         .filter(p => p.type === 'preparation' && !p.postponed)
         .every(p => ['completed', 'skipped'].includes(p.status));
 
     for (let i = 0; i < sorted.length; i++) {
         const curr = sorted[i];
-        
+
         // Preparation phases are always ready to start
-        if (curr.isIndependent || curr.type === 'preparation') { 
-            curr.materialReady = true; 
-            continue; 
+        if (curr.isIndependent || curr.type === 'preparation') {
+            curr.materialReady = true;
+            continue;
         }
 
         // Production phases need PREP to be finished
-        if (!allPrepDone) { 
-            curr.materialReady = false; 
-            continue; 
+        if (!allPrepDone) {
+            curr.materialReady = false;
+            continue;
         }
 
         // Check previous non-independent phase status for simultaneity (Start)
         let prev: JobPhase | null = null;
-        for (let j = i - 1; j >= 0; j--) { 
-            if (!sorted[j].isIndependent) { 
-                prev = sorted[j]; 
-                break; 
-            } 
+        for (let j = i - 1; j >= 0; j--) {
+            if (!sorted[j].isIndependent) {
+                prev = sorted[j];
+                break;
+            }
         }
 
         if (!prev) {
@@ -156,12 +157,12 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
         const opSnap = await adminDb.collection('operators').doc(opId).get();
         if (!opSnap.exists) throw new Error("Operatore non trovato.");
         const opData = opSnap.data();
-        
+
         // Permission check: Magazzino, Quality, Packaging or Support (MAG + QLTY + PACK)
         const allowedDepts = ['SUPPORT', 'MAG', 'MAGAZZINO', 'COLLAUDO', 'QUALITA', 'QUALITÀ', 'QLTY', 'IMBALLO', 'PACK', 'QLTY_PACK'];
         const expandedReparti = expandOperatorDepartments(opData?.reparto);
         const hasAccess = expandedReparti.some((r: string) => allowedDepts.includes(r.toUpperCase()));
-        
+
         if (!hasAccess && opData?.role !== 'admin') {
             throw new Error("Permesso negato: Solo il magazzino o il collaudo possono saltare la produzione per il Phased Rollout.");
         }
@@ -180,7 +181,7 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
             }
             if (!snap.exists) throw new Error("Commessa non trovata.");
             const data = snap.data() as JobOrder;
-            
+
             const phs = [...(data.phases || [])];
             let modified = false;
 
@@ -197,7 +198,7 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
                         }
                         return wp;
                     });
-                    
+
                     phs[idx] = {
                         ...p,
                         status: 'skipped', // New Policy: Use 'skipped' instead of 'completed'
@@ -213,7 +214,7 @@ export async function fastForwardToPackaging(jobId: string, opId: string): Promi
 
             // Aggiorniamo la material readiness per le fasi successive (Quality/Packaging)
             const updatedPhases = updatePhasesMaterialReadiness(phs);
-            
+
             const updates: any = { phases: updatedPhases };
             // Forza lo stato a production se era in sospeso o altro, per permettere il collaudo
             if (data.status !== 'completed' && data.status !== 'shipped') {
@@ -270,7 +271,7 @@ export async function resolveJobProblem(jobId: string, uid: string): Promise<{ s
             const lookup = await getJobOrderRefAndSnap(jobId);
             itemRef = lookup.jobRef;
         }
-        
+
         await itemRef.update({
             isProblemReported: false,
             problemType: admin.firestore.FieldValue.delete(),
@@ -303,23 +304,23 @@ export async function resolveJobProblem(jobId: string, uid: string): Promise<{ s
 }
 
 export async function getRawMaterialByCode(code: string | undefined): Promise<RawMaterial | { error: string; title?: string }> {
-  const trimmed = (code || '').trim();
-  if (!trimmed) return { error: `Il codice inserito è vuoto.`, title: 'Codice Vuoto' };
-  const snap = await adminDb.collection("rawMaterials").where("code_normalized", "==", trimmed.toLowerCase()).get();
-  if (snap.empty) return { error: `Materia prima "${trimmed}" non trovata a sistema.`, title: 'Materiale non Trovato' };
-  const materialData = { ...snap.docs[0].data(), id: snap.docs[0].id } as RawMaterial;
-  
-  // Fetch withdrawals for hydration (SSoT)
-  const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialData.id).get();
-  // Ensure timestamps are handled if any exist (safety)
-  const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
-  
-  const hydratedMaterial = hydrateMaterialWithWithdrawals(materialData, withdrawals);
-  
-  // TASSATIVO: Assicura che l'array batches sia espressamente popolato e serializzato
-  const finalPayload = JSON.parse(JSON.stringify(hydratedMaterial));
-  
-  return finalPayload;
+    const trimmed = (code || '').trim();
+    if (!trimmed) return { error: `Il codice inserito è vuoto.`, title: 'Codice Vuoto' };
+    const snap = await adminDb.collection("rawMaterials").where("code_normalized", "==", trimmed.toLowerCase()).get();
+    if (snap.empty) return { error: `Materia prima "${trimmed}" non trovata a sistema.`, title: 'Materiale non Trovato' };
+    const materialData = { ...snap.docs[0].data(), id: snap.docs[0].id } as RawMaterial;
+
+    // Fetch withdrawals for hydration (SSoT)
+    const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialData.id).get();
+    // Ensure timestamps are handled if any exist (safety)
+    const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
+
+    const hydratedMaterial = hydrateMaterialWithWithdrawals(materialData, withdrawals);
+
+    // TASSATIVO: Assicura che l'array batches sia espressamente popolato e serializzato
+    const finalPayload = JSON.parse(JSON.stringify(hydratedMaterial));
+
+    return finalPayload;
 }
 
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
@@ -339,93 +340,93 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
     data.id = finalId;
     if (isGroup) {
         const group = data as WorkGroup;
-        return { 
-            id: group.id, cliente: group.cliente, qta: group.totalQuantity, department: group.department, details: group.details, ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo', 
-            numeroODL: group.numeroODL || 'N/D', numeroODLInterno: group.numeroODLInterno || 'N/D', dataConsegnaFinale: group.dataConsegnaFinale || 'N/D', 
-            postazioneLavoro: 'Multi-Commessa', phases: group.phases || [], overallStartTime: group.overallStartTime, overallEndTime: group.overallEndTime, 
-            isProblemReported: group.isProblemReported, problemType: group.problemType, problemNotes: group.problemNotes, problemReportedBy: group.problemReportedBy, 
-            status: group.status, workCycleId: group.workCycleId, workGroupId: group.id, jobOrderIds: group.jobOrderIds, jobOrderPFs: group.jobOrderPFs 
+        return {
+            id: group.id, cliente: group.cliente, qta: group.totalQuantity, department: group.department, details: group.details, ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
+            numeroODL: group.numeroODL || 'N/D', numeroODLInterno: group.numeroODLInterno || 'N/D', dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
+            postazioneLavoro: 'Multi-Commessa', phases: group.phases || [], overallStartTime: group.overallStartTime, overallEndTime: group.overallEndTime,
+            isProblemReported: group.isProblemReported, problemType: group.problemType, problemNotes: group.problemNotes, problemReportedBy: group.problemReportedBy,
+            status: group.status, workCycleId: group.workCycleId, workGroupId: group.id, jobOrderIds: group.jobOrderIds, jobOrderPFs: group.jobOrderPFs
         } as any;
     }
     return data as JobOrder;
 }
 
 export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
-  const scannedCode = scannedData.ordinePF || '';
-  if (!scannedCode) return { error: 'ID Commessa non valido.', title: 'Errore' };
-  
-  // NUCLEAR FIX: SSoT 'ordinePF' for QR SCANS (predilige commessa attiva dell'anno corrente)
-  const querySnap = await adminDb.collection('jobOrders')
-      .where('ordinePF', '==', scannedCode)
-      .get();
+    const scannedCode = scannedData.ordinePF || '';
+    if (!scannedCode) return { error: 'ID Commessa non valido.', title: 'Errore' };
 
-  if (querySnap.empty) {
-      return { error: `Commessa "${scannedCode}" non trovata (Ricerca esatta fallita).`, title: 'Errore SSoT' };
-  }
-  
-  let jobSnap = querySnap.docs[0];
-  if (querySnap.docs.length > 1) {
-      const finishedStatuses = ['completed', 'CHIUSO', 'FINE PRODUZIONE', 'FINE_PRODUZIONE', 'SPEDITA', 'Spedito', 'shipped'];
-      const activeDoc = querySnap.docs.find(d => !finishedStatuses.includes(d.data().status));
-      if (activeDoc) {
-          jobSnap = activeDoc;
-      } else {
-          const sorted = [...querySnap.docs].sort((a, b) => {
-              const yearA = a.data().annoCompetenza || 0;
-              const yearB = b.data().annoCompetenza || 0;
-              return yearB - yearA;
-          });
-          jobSnap = sorted[0];
-      }
-  }
-  
-  let job = convertTimestampsToDates(jobSnap.data()) as JobOrder;
-  job.id = jobSnap.id;
-  
-  if (['planned', 'IN_ATTESA', 'In Pianificazione', 'IN_PIANIFICAZIONE'].includes(job.status)) {
-      return { error: `La commessa ${job.ordinePF || scannedCode} è in pianificazione e non può essere lavorata. Rivolgiti al responsabile.`, title: 'Commessa non Avviata' };
-  }
+    // NUCLEAR FIX: SSoT 'ordinePF' for QR SCANS (predilige commessa attiva dell'anno corrente)
+    const querySnap = await adminDb.collection('jobOrders')
+        .where('ordinePF', '==', scannedCode)
+        .get();
 
-  // Enchancement: Fetch attachments from Article if not present on JobOrder
-  if (!job.attachments || job.attachments.length === 0) {
-      if (job.details) {
-          const articleSnap = await adminDb.collection("articles").where("code", "==", job.details).limit(1).get();
-          if (!articleSnap.empty) {
-              const articleData = articleSnap.docs[0].data() as any;
-              if (articleData.attachments) {
-                  job.attachments = articleData.attachments;
-              }
-          }
-      }
-  }
+    if (querySnap.empty) {
+        return { error: `Commessa "${scannedCode}" non trovata (Ricerca esatta fallita).`, title: 'Errore SSoT' };
+    }
 
-  if (job.workGroupId) {
-      const group = await getJobOrderById(job.workGroupId);
-      if (group) return JSON.parse(JSON.stringify(group));
-  }
-  return JSON.parse(JSON.stringify(job));
+    let jobSnap = querySnap.docs[0];
+    if (querySnap.docs.length > 1) {
+        const finishedStatuses = ['completed', 'CHIUSO', 'FINE PRODUZIONE', 'FINE_PRODUZIONE', 'SPEDITA', 'Spedito', 'shipped'];
+        const activeDoc = querySnap.docs.find(d => !finishedStatuses.includes(d.data().status));
+        if (activeDoc) {
+            jobSnap = activeDoc;
+        } else {
+            const sorted = [...querySnap.docs].sort((a, b) => {
+                const yearA = a.data().annoCompetenza || 0;
+                const yearB = b.data().annoCompetenza || 0;
+                return yearB - yearA;
+            });
+            jobSnap = sorted[0];
+        }
+    }
+
+    let job = convertTimestampsToDates(jobSnap.data()) as JobOrder;
+    job.id = jobSnap.id;
+
+    if (['planned', 'IN_ATTESA', 'In Pianificazione', 'IN_PIANIFICAZIONE'].includes(job.status)) {
+        return { error: `La commessa ${job.ordinePF || scannedCode} è in pianificazione e non può essere lavorata. Rivolgiti al responsabile.`, title: 'Commessa non Avviata' };
+    }
+
+    // Enchancement: Fetch attachments from Article if not present on JobOrder
+    if (!job.attachments || job.attachments.length === 0) {
+        if (job.details) {
+            const articleSnap = await adminDb.collection("articles").where("code", "==", job.details).limit(1).get();
+            if (!articleSnap.empty) {
+                const articleData = articleSnap.docs[0].data() as any;
+                if (articleData.attachments) {
+                    job.attachments = articleData.attachments;
+                }
+            }
+        }
+    }
+
+    if (job.workGroupId) {
+        const group = await getJobOrderById(job.workGroupId);
+        if (group) return JSON.parse(JSON.stringify(group));
+    }
+    return JSON.parse(JSON.stringify(job));
 }
 
 export async function updateOperatorStatus(opId: string, jobId: string | null, phaseName: string | null) {
-  if (!opId) return;
-  
-  let displayJobId = jobId;
-  if (jobId && !jobId.startsWith('group-')) {
-      const { jobSnap } = await getJobOrderRefAndSnap(jobId);
-      if (jobSnap.exists) {
-          const data = jobSnap.data() as any;
-          displayJobId = data.ordinePF || jobId;
-      }
-  }
+    if (!opId) return;
 
-  await adminDb.collection('operators').doc(opId).update({ activeJobId: displayJobId || null, activePhaseName: phaseName || null, stato: displayJobId ? 'attivo' : 'inattivo' });
-  return { success: true };
+    let displayJobId = jobId;
+    if (jobId && !jobId.startsWith('group-')) {
+        const { jobSnap } = await getJobOrderRefAndSnap(jobId);
+        if (jobSnap.exists) {
+            const data = jobSnap.data() as any;
+            displayJobId = data.ordinePF || jobId;
+        }
+    }
+
+    await adminDb.collection('operators').doc(opId).update({ activeJobId: displayJobId || null, activePhaseName: phaseName || null, stato: displayJobId ? 'attivo' : 'inattivo' });
+    return { success: true };
 }
 
 export async function updateJob(job: JobOrder) {
     if (!job || !job.id) return { success: false, message: 'Dati commessa incompleti.' };
     if (job.id.startsWith('group-')) return { success: false, message: 'Tentativo di salvataggio errato.' };
-    
+
     await adminDb.collection("jobOrders").doc(job.id).set(JSON.parse(JSON.stringify(job)), { merge: true });
     revalidatePath('/scan-job');
     return { success: true, message: 'Commessa aggiornata.' };
@@ -536,7 +537,7 @@ export async function resolveJobBOMCommitmentsByType(
         const jobRef = lookup.jobRef;
         const snap = lookup.jobSnap;
         if (!snap.exists) continue;
-        
+
         const jobData = snap.data() as JobOrder;
         if (!jobData.billOfMaterials || jobData.billOfMaterials.length === 0) continue;
 
@@ -548,10 +549,10 @@ export async function resolveJobBOMCommitmentsByType(
             // Matching: se il tipo corrisponde ed è tra quelli da estinguere
             if (compType && typesToMatch.includes(compType) && (item.status !== 'withdrawn' || !item.withdrawn)) {
                 modified = true;
-                return { 
-                    ...item, 
-                    status: 'withdrawn' as const, 
-                    withdrawn: true 
+                return {
+                    ...item,
+                    status: 'withdrawn' as const,
+                    withdrawn: true
                 };
             }
             return item;
@@ -587,7 +588,7 @@ export async function resolveJobBOMCommitmentByMaterialCode(
         const jobRef = lookup.jobRef;
         const snap = lookup.jobSnap;
         if (!snap.exists) continue;
-        
+
         const jobData = snap.data() as JobOrder;
         if (!jobData.billOfMaterials || jobData.billOfMaterials.length === 0) continue;
 
@@ -767,9 +768,9 @@ export async function abandonOperatorActiveJob(
 }
 
 export async function handlePhaseScanResult(
-    jobId: string, 
-    phaseId: string, 
-    opId: string, 
+    jobId: string,
+    phaseId: string,
+    opId: string,
     isCompletion: boolean = false,
     anomalyData?: { hasAnomaly: boolean, anomalyType: string, anomalyNote?: string },
     packagingUpdates?: { jobId: string, actualQty: number }[]
@@ -917,6 +918,7 @@ export async function handlePhaseScanResult(
         }
 
         const isGroup = jobId.startsWith('group-');
+        const globalSettings = isCompletion ? await getGlobalSettings() : null;
         await adminDb.runTransaction(async (transaction) => {
             let itemRef;
             let snap;
@@ -936,17 +938,17 @@ export async function handlePhaseScanResult(
             const data = snap.data() as any;
             const phs = [...(data.phases || [])];
             const idx = phs.findIndex(p => p.id === phaseId);
-            
+
             if (idx === -1) throw new Error("Fase non trovata.");
 
             if (isCompletion) {
                 // Handle Completion
                 let prev: JobPhase | null = null;
-                for (let j = idx - 1; j >= 0; j--) { 
-                    if (!phs[j].isIndependent) { 
-                        prev = phs[j]; 
-                        break; 
-                    } 
+                for (let j = idx - 1; j >= 0; j--) {
+                    if (!phs[j].isIndependent) {
+                        prev = phs[j];
+                        break;
+                    }
                 }
 
                 if (prev && !['completed', 'skipped'].includes(prev.status)) {
@@ -963,16 +965,19 @@ export async function handlePhaseScanResult(
                 } else if (phs[idx].status !== 'paused') {
                     throw new Error("L'operatore non ha un periodo di lavoro aperto in questa fase.");
                 }
-                
+
                 // If no one else is active, mark phase as completed
                 let bomWrites: JobBOMResolutionWrite[] = [];
                 if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
                     phs[idx].status = 'completed';
 
                     // ADDED: DUAL-DYNAMIC B (PHASE EXTINGUISHMENT)
-                    // FASE 99-BIS: sola lettura delle commesse (collectJobBOMResolutionWrites) prima delle scritture finali
+                    // FASE 99-BIS & FASE 104-BIS: estinzione data-driven su tutti i tipi in modalità 'direct'
                     if (phs[idx].type === 'preparation' && phs[idx].allowedMaterialTypes && phs[idx].allowedMaterialTypes.length > 0) {
-                        const typesToExtinguish = phs[idx].allowedMaterialTypes.filter((t: string) => !['BOB', 'PF3V0'].includes(t.toUpperCase()));
+                        const typesToExtinguish = phs[idx].allowedMaterialTypes.filter((t: string) => {
+                            const cfg = findMaterialTypeConfig(t, globalSettings);
+                            return resolveTabletWithdrawalMode(cfg, t) !== 'session';
+                        });
                         if (typesToExtinguish.length > 0) {
                             const jobIds = isGroup ? (data.jobOrderIds || []) : [jobId];
                             bomWrites = await collectJobBOMResolutionWrites(jobIds, '', typesToExtinguish, transaction);
@@ -984,7 +989,7 @@ export async function handlePhaseScanResult(
                 const dummyJob = { ...data, phases: updatedPhases };
                 const newStatus = getOverallStatus(dummyJob);
 
-                const updates: any = { 
+                const updates: any = {
                     phases: updatedPhases,
                     status: newStatus,
                     ...(newStatus === 'CHIUSO' ? { overallEndTime: new Date() } : {})
@@ -992,24 +997,24 @@ export async function handlePhaseScanResult(
 
                 // === FASE 24 & FASE 76: AUTOMAZIONE PASSAGGIO "SPEDITO" ALLA CHIUSURA PACKAGING ===
                 const currentPhase = phs[idx];
-                const isPackagingType = currentPhase?.type === 'packaging' || 
-                                        currentPhase?.id === 'packaging' || 
-                                        (currentPhase?.name && /imball|pack/i.test(currentPhase.name));
+                const isPackagingType = currentPhase?.type === 'packaging' ||
+                    currentPhase?.id === 'packaging' ||
+                    (currentPhase?.name && /imball|pack/i.test(currentPhase.name));
                 const sortedPhases = [...phs].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
                 const isLastSequence = (sortedPhases.length > 0 && sortedPhases[sortedPhases.length - 1].id === currentPhase?.id) ||
-                                       (phs.length > 0 && phs[phs.length - 1].id === currentPhase?.id);
+                    (phs.length > 0 && phs[phs.length - 1].id === currentPhase?.id);
                 const isConditionA = Boolean(isPackagingType || isLastSequence);
 
-                const isConditionB = newStatus === 'CHIUSO' || 
-                                     String(newStatus).toLowerCase() === 'chiuso' || 
-                                     String(newStatus).toLowerCase() === 'completed' || 
-                                     String(newStatus).toLowerCase() === 'closed';
+                const isConditionB = newStatus === 'CHIUSO' ||
+                    String(newStatus).toLowerCase() === 'chiuso' ||
+                    String(newStatus).toLowerCase() === 'completed' ||
+                    String(newStatus).toLowerCase() === 'closed';
 
                 // Condizione C (Permessi Magazzino/Packing con espansione SUPPORT)
                 const isSuper = opData?.role === 'admin' || opData?.role === 'supervisor';
                 const allowedPackingDepts = ['SUPPORT', 'MAG', 'MAGAZZINO', 'IMBALLO', 'PACK', 'MAGAZZINIERE', 'COLLAUDO', 'QLTY', 'QUALITA', 'QUALITÀ', 'QLTY_PACK'];
                 const repList = expandOperatorDepartments(opData?.reparto);
-                const hasPackingDept = repList.some((r: string) => 
+                const hasPackingDept = repList.some((r: string) =>
                     allowedPackingDepts.includes(String(r).toUpperCase().trim())
                 );
                 const hasPackingFlag = Boolean(opData?.canManagePackingList);
@@ -1036,11 +1041,11 @@ export async function handlePhaseScanResult(
                         const childLookup = await getJobOrderRefAndSnap(update.jobId, transaction);
                         const childRef = childLookup.jobRef;
                         const childSnap = childLookup.jobSnap;
-                        
+
                         if (childSnap.exists) {
                             const childData = childSnap.data() as JobOrder;
                             const childUpdates: any = { qta: update.actualQty };
-                            
+
                             if (update.actualQty < childData.qta) {
                                 childUpdates.hasAnomaly = true;
                                 childUpdates.anomalyType = 'QTY_MISMATCH';
@@ -1075,9 +1080,9 @@ export async function handlePhaseScanResult(
                 }
 
                 if (opSnap.exists) {
-                    transaction.update(opRef, { 
-                        activeJobId: data.ordinePF || jobId, 
-                        activePhaseName: null, 
+                    transaction.update(opRef, {
+                        activeJobId: data.ordinePF || jobId,
+                        activePhaseName: null,
                         stato: 'attivo'
                     });
                 }
@@ -1115,11 +1120,11 @@ export async function handlePhaseScanResult(
                         otherPhase.pauseReason = otherPhase.pauseReason || 'Cambio fase';
                     }
                 });
-                
+
                 phs[idx].status = 'in-progress';
                 phs[idx].isEstimated = false;
                 if (!phs[idx].workPeriods) phs[idx].workPeriods = [];
-                
+
                 if (!phs[idx].workPeriods.some((wp: any) => wp.operatorId === opId && wp.end === null)) {
                     phs[idx].workPeriods.push({ start: new Date(), end: null, operatorId: opId });
                 }
@@ -1127,17 +1132,17 @@ export async function handlePhaseScanResult(
                 const updatedPhases = updatePhasesMaterialReadiness(phs);
                 const dummyJob = { ...data, phases: updatedPhases };
                 const newStatus = getOverallStatus(dummyJob);
-                
-                const startUpdates: any = { 
-                    phases: updatedPhases, 
-                    status: newStatus, 
+
+                const startUpdates: any = {
+                    phases: updatedPhases,
+                    status: newStatus,
                     overallStartTime: data.overallStartTime || new Date(),
                     isSuspended: false,
                     isProblemReported: false
                 };
-                
+
                 if (data.hasMaterialShortage) {
-                   startUpdates.hasMaterialShortage = false; 
+                    startUpdates.hasMaterialShortage = false;
                 }
 
                 const resolvedStartChildRefs: admin.firestore.DocumentReference[] = [];
@@ -1151,16 +1156,16 @@ export async function handlePhaseScanResult(
                 }
 
                 transaction.update(itemRef, startUpdates);
-                
+
                 for (const childRef of resolvedStartChildRefs) {
                     transaction.update(childRef, startUpdates);
                 }
-                
+
                 if (opSnap.exists) {
-                    transaction.update(opRef, { 
-                        activeJobId: data.ordinePF || jobId, 
-                        activePhaseName: phs[idx].name, 
-                        stato: 'attivo' 
+                    transaction.update(opRef, {
+                        activeJobId: data.ordinePF || jobId,
+                        activePhaseName: phs[idx].name,
+                        stato: 'attivo'
                     });
                 }
             }
@@ -1221,7 +1226,7 @@ export async function handlePhasePause(
             const data = snap.data() as any;
             const phs = [...(data.phases || [])];
             const idx = phs.findIndex(p => p.id === phaseId);
-            
+
             if (idx === -1) throw new Error("Fase non trovata.");
 
             // Tutte le letture prima delle scritture
@@ -1237,7 +1242,7 @@ export async function handlePhasePause(
                     }
                 }
             }
-            
+
             if (!Array.isArray(phs[idx].workPeriods)) {
                 phs[idx].workPeriods = [];
             }
@@ -1249,21 +1254,21 @@ export async function handlePhasePause(
                     phs[idx].workPeriods[myWorkPeriodIndex].reason = reason;
                 }
             }
-                    
+
             if (!phs[idx].workPeriods.some((wp: any) => wp.end === null)) {
                 phs[idx].status = 'paused';
                 if (reason !== undefined) {
                     phs[idx].pauseReason = reason;
                 }
             }
-            
+
             const dummyJob = { ...data, phases: phs };
             const updateData: any = { phases: phs, status: getOverallStatus(dummyJob) };
 
             if (reason === 'Manca Materiale') {
                 phs[idx].materialStatus = 'missing';
                 phs[idx].materialReady = false;
-                
+
                 updateData.hasMaterialShortage = true;
                 updateData.isSuspended = true;
                 updateData.isProblemReported = true;
@@ -1278,10 +1283,10 @@ export async function handlePhasePause(
             } else {
                 const isAnyPhaseInProgress = phs.some((p: any) => p.status === 'in-progress');
                 if (!isAnyPhaseInProgress) {
-                     updateData.isSuspended = true;
+                    updateData.isSuspended = true;
                 }
             }
-            
+
             transaction.update(itemRef, updateData);
 
             for (const childRef of resolvedPauseChildRefs) {
@@ -1289,10 +1294,10 @@ export async function handlePhasePause(
             }
 
             if (opSnap.exists) {
-                transaction.update(opRef, { 
-                    activeJobId: data.ordinePF || jobId, 
-                    activePhaseName: null, 
-                    stato: 'attivo' 
+                transaction.update(opRef, {
+                    activeJobId: data.ordinePF || jobId,
+                    activePhaseName: null,
+                    stato: 'attivo'
                 });
             }
         });
@@ -1325,11 +1330,11 @@ export async function markPhaseMaterialReady(jobId: string, phaseId: string, mat
             }
             if (!snap.exists) throw new Error('Elemento non trovato.');
             const data = snap.data() as any;
-            
-            const phs = (data.phases || []).map((p: any) => 
-                p.id === phaseId 
-                    ? { 
-                        ...p, 
+
+            const phs = (data.phases || []).map((p: any) =>
+                p.id === phaseId
+                    ? {
+                        ...p,
                         materialReady: true,
                         // We still store a lightweight record for UI display in the PhaseCard
                         materialConsumptions: [...(p.materialConsumptions || []), {
@@ -1337,19 +1342,19 @@ export async function markPhaseMaterialReady(jobId: string, phaseId: string, mat
                             lottoBobina: materialInfo.lotto || '',
                             timestamp: new Date()
                         }]
-                    } 
+                    }
                     : p
             );
-            
+
             transaction.update(itemRef, { phases: phs });
-            
+
             if (isGroup && data.jobOrderIds) {
                 data.jobOrderIds.forEach((id: string) => {
                     transaction.update(adminDb.collection('jobOrders').doc(id), { phases: phs });
                 });
             }
         });
-        
+
         await bumpMrpSyncVersion('stock', 'scan-job:markPhaseMaterialReady');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
@@ -1376,25 +1381,25 @@ export async function forceResetStuckMaterialSession(jobId: string, materialCode
             }
             if (!snap.exists) throw new Error('Elemento non trovato.');
             const data = snap.data() as any;
-            
+
             const phs = [...(data.phases || [])];
             let modified = false;
 
             phs.forEach((p, pIdx) => {
                 const consumptions = [...(p.materialConsumptions || [])];
-                const filtered = consumptions.filter(c => 
+                const filtered = consumptions.filter(c =>
                     !(c.materialCode === materialCode && c.grossOpeningWeight !== undefined && c.closingWeight === undefined)
                 );
-                
+
                 if (filtered.length !== consumptions.length) {
                     phs[pIdx].materialConsumptions = filtered;
                     modified = true;
                 }
             });
-            
+
             if (modified) {
                 transaction.update(itemRef, { phases: phs });
-                
+
                 if (isGroup && data.jobOrderIds) {
                     data.jobOrderIds.forEach((childId: string) => {
                         const sanitizedId = childId.replace(/\//g, '-');
@@ -1403,7 +1408,7 @@ export async function forceResetStuckMaterialSession(jobId: string, materialCode
                 }
             }
         });
-        
+
         await bumpMrpSyncVersion('stock', 'scan-job:forceResetStuckMaterialSession');
         revalidatePath('/admin/production-console');
         return { success: true };
@@ -1427,7 +1432,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 transaction.get(materialRef),
                 transaction.get(adminDb.collection('materialWithdrawals').where('materialId', '==', session.materialId))
             ]);
-            
+
             if (!matSnap.exists) throw new Error("Materiale non trovato.");
             const material = { ...(matSnap.data() as RawMaterial), id: matSnap.id };
             const withdrawals = withdrawalsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
@@ -1507,7 +1512,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             transaction.set(withdrawalRef, newWithdrawalDoc);
             applyJobBOMResolutionWrites(bomWrites, transaction);
         });
-        
+
         await bumpMrpSyncVersion('stock', 'scan-job:closeMaterialSessionAndUpdateStock');
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
@@ -1537,7 +1542,7 @@ export async function logTubiGuainaWithdrawal(
 ): Promise<{ success: boolean; message: string; hydratedMaterial?: RawMaterial }> {
     const rawData = Object.fromEntries(formData.entries());
     const { materialId, operatorId, jobId, jobOrderPF, quantity, unit, lotto } = rawData;
-    
+
     try {
         let hydratedAfter: RawMaterial | undefined;
 
@@ -1551,11 +1556,11 @@ export async function logTubiGuainaWithdrawal(
                 t.get(adminDb.collection("materialWithdrawals").where("materialId", "==", materialId)),
                 isGroup ? t.get(adminDb.collection('workGroups').doc(sid)) : Promise.resolve(null),
             ]);
-            
+
             if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = { id: mSnap.id, ...convertTimestampsToDates(mSnap.data()) } as RawMaterial;
             const withdrawals = wSnap.docs.map((d: any) => ({ id: d.id, ...convertTimestampsToDates(d.data()) }));
-            
+
             const globalSettings = await getGlobalSettings();
             const config = globalSettings.rawMaterialTypes.find(t => t.id === material.type) || {
                 id: material.type,
@@ -1571,7 +1576,7 @@ export async function logTubiGuainaWithdrawal(
 
             const qtyToUse = Number(quantity || 0);
             const unitToUse = (unit || material.unitOfMeasure) as any;
-            
+
             if (!isFinished && qtyToUse <= 0) {
                 throw new Error("La quantità prelevata deve essere maggiore di zero.");
             }
@@ -1630,7 +1635,7 @@ export async function logTubiGuainaWithdrawal(
             t.set(wRef, newWithdrawalDoc);
             applyJobBOMResolutionWrites(bomWrites, t);
         });
-        
+
         await bumpMrpSyncVersion('stock', 'scan-job:logTubiGuainaWithdrawal');
         revalidatePath('/scan-job');
         revalidatePath('/manual-withdrawal');
@@ -1641,9 +1646,9 @@ export async function logTubiGuainaWithdrawal(
             message: isFinished ? "Lotto esaurito e scaricato." : "Scarico registrato.",
             hydratedMaterial: hydratedAfter ? JSON.parse(JSON.stringify(hydratedAfter)) : undefined,
         };
-    } catch (e) { 
+    } catch (e) {
         console.error("Log tubi/guaina error:", e);
-        return { success: false, message: e instanceof Error ? e.message : "Errore scarico." }; 
+        return { success: false, message: e instanceof Error ? e.message : "Errore scarico." };
     }
 }
 
@@ -1696,7 +1701,7 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         .where("lotto", "==", cleanLotto)
         .where("status", "==", "approved")
         .get();
-    
+
     if (!snap.empty) {
         const records = snap.docs
             .map(d => ({ ...d.data(), id: d.id } as InventoryRecord))
@@ -1706,7 +1711,7 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
             const timeB = b.recordedAt?.toMillis?.() || new Date(b.recordedAt).getTime();
             return timeB - timeA;
         });
-        
+
         const rec = records[0];
         if (rec) {
             const mSnap = await adminDb.collection("rawMaterials").doc(rec.materialId).get();
@@ -1748,10 +1753,10 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
         const batch = adminDb.batch();
         const newGroupId = `group-${Date.now()}`;
         const groupRef = adminDb.collection("workGroups").doc(newGroupId);
-        
+
         const jobSnaps = await Promise.all(jobIds.map(id => adminDb.collection("jobOrders").doc(id).get()));
         const jobs = jobSnaps.map(s => ({ ...s.data(), id: s.id } as JobOrder));
-        
+
         const firstJob = jobs[0];
         if (!firstJob) throw new Error("Nessuna commessa valida.");
 
@@ -1767,7 +1772,7 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
         // We find phases that are present in ALL jobs and NOT completed in any job.
         const allPhases = jobs.map(j => j.phases || []);
         const firstJobPhases = allPhases[0] || [];
-        
+
         const commonPhases = firstJobPhases
             .filter(p1 => {
                 // Check if this phase exists in all other jobs
@@ -1779,14 +1784,14 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
                     const match = jobPhs.find(p2 => p2.id === p1.id);
                     return match?.status === 'completed';
                 });
-                
+
                 return !isCompletedAnywhere;
             })
             .sort((a, b) => a.sequence - b.sequence)
             .map(p1 => {
                 let totalExpectedTime = 0;
                 let hasValidTime = false;
-                
+
                 jobs.forEach(j => {
                     const matchedPhase = (j.phases || []).find(jp => jp.id === p1.id);
                     if (matchedPhase && typeof matchedPhase.expectedMinutesPerPiece === 'number') {
@@ -1795,8 +1800,8 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
                     }
                 });
 
-                const weightedExpectedMinutes = (hasValidTime && totalQty > 0) 
-                    ? (totalExpectedTime / totalQty) 
+                const weightedExpectedMinutes = (hasValidTime && totalQty > 0)
+                    ? (totalExpectedTime / totalQty)
                     : (p1.expectedMinutesPerPiece ?? 0);
 
                 return {
@@ -1811,7 +1816,7 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
         if (commonPhases.length === 0) {
             throw new Error("Nessuna fase operativa comune disponibile per il concatenamento.");
         }
-        
+
         const newGroup: any = {
             id: newGroupId,
             jobOrderIds: jobIds,
@@ -1836,7 +1841,7 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
 
         batch.set(groupRef, safeGroupPayload);
         jobIds.forEach(id => batch.update(adminDb.collection("jobOrders").doc(id), { workGroupId: newGroupId }));
-        
+
         await batch.commit();
         revalidatePath('/admin/work-group-management');
         revalidatePath('/admin/production-console');

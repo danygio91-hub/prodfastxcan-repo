@@ -3,8 +3,11 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { DraftJobOrder, JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem } from '@/types';
+import type { DraftJobOrder, JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, RawMaterial } from '@/types';
 import { convertTimestampsToDates, extractAnnoCompetenza, generateJobDocumentId } from '@/lib/utils';
+import { buildJobBOMItemsFromArticle } from '@/lib/inventory-utils';
+import { fetchInChunks } from '@/lib/firestore-utils';
+import { getGlobalSettings } from '@/lib/settings-actions';
 
 function sanitizeDocumentId(id: string): string {
   return id.replace(/\//g, '-');
@@ -90,13 +93,20 @@ export async function convertDraftToJobOrder(draftId: string, customJobId?: stri
         const articleData = articleSnap.data() as Article;
 
         const workCycleId = articleData.workCycleId || '';
-        const phases = workCycleId ? await createPhasesFromCycle(workCycleId) : [];
-        const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ 
-            ...item, 
-            component: item.component.toUpperCase().trim(),
-            status: 'pending', 
-            isFromTemplate: true 
-        }));
+        const compCodes = Array.from(
+            new Set((articleData.billOfMaterials || []).map(i => (i.component || '').toUpperCase().trim()).filter(Boolean))
+        );
+        const [phases, globalSettings, rawMaterials] = await Promise.all([
+            workCycleId ? createPhasesFromCycle(workCycleId) : Promise.resolve([]),
+            getGlobalSettings(),
+            compCodes.length > 0 ? fetchInChunks<RawMaterial>(adminDb.collection("rawMaterials"), "code", compCodes) : Promise.resolve([] as RawMaterial[]),
+        ]);
+        const jobBOM: JobBillOfMaterialsItem[] = buildJobBOMItemsFromArticle({
+            jobQta: Number(draft.quantity),
+            articleBOM: articleData.billOfMaterials || [],
+            rawMaterials,
+            globalSettings,
+        });
 
         let finalJobId = customJobId?.trim();
         if (!finalJobId) {

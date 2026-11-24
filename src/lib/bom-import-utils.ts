@@ -31,6 +31,34 @@ export const optionalCutLengthMmSchema = z.preprocess(
     z.number().positive('La lunghezza di taglio deve essere maggiore di 0.').optional().nullable()
 );
 
+/**
+ * Normalizza la percentuale di scarto opzionale per righe BOM (usata in UI e Excel import).
+ * - `""`, `null`, `undefined` -> `undefined`
+ * - Stringhe con `%` o virgola (es. `"5%"`, `"5,5"`) -> numero `>= 0`
+ */
+export function normalizeOptionalScrapPercentage(raw: unknown): unknown {
+    if (raw === null || raw === undefined || raw === '') {
+        return undefined;
+    }
+    if (typeof raw === 'number') {
+        if (!Number.isFinite(raw) || raw < 0) return raw;
+        return raw;
+    }
+    if (typeof raw === 'string') {
+        const cleaned = raw.trim().replace(/%$/, '').trim().replace(',', '.');
+        if (!cleaned) return undefined;
+        const parsed = Number(cleaned);
+        if (!Number.isFinite(parsed)) return raw;
+        return parsed;
+    }
+    return raw;
+}
+
+export const optionalScrapPercentageSchema = z.preprocess(
+    normalizeOptionalScrapPercentage,
+    z.number().min(0, 'Lo scarto (%) non può essere negativo.').optional().nullable()
+);
+
 export interface StrictCutLengthParseResult {
     lengthMm?: number;
     noteFromCutField?: string;
@@ -132,6 +160,7 @@ export function parseExcelBomRows(rows: Record<string, any>[]): Omit<Article, 'i
     const CUT_LENGTH_ALIASES = ['L. Taglio (mm)', 'Lunghezza Taglio (mm)', 'L. Taglio', 'Lunghezza Taglio', 'Numero/Misura'];
     const UNIT_ALIASES = ['Unità di Misura', 'UOM', 'UM', 'Unità'];
     const NOTE_ALIASES = ['Note', 'Nota'];
+    const SCRAP_ALIASES = ['Scarto (%)', 'Scarto %', 'Scarto', 'Scrap (%)', 'Scrap'];
 
     for (const row of rows || []) {
         const rawArtCode = getRowFieldByAliases(row, ARTICLE_CODE_ALIASES);
@@ -175,6 +204,12 @@ export function parseExcelBomRows(rows: Record<string, any>[]): Omit<Article, 'i
             unit: explicitUnit || 'n',
             quantity: quantity > 0 ? quantity : 1,
         };
+
+        const rawScrap = getRowFieldByAliases(row, SCRAP_ALIASES);
+        const normalizedScrap = normalizeOptionalScrapPercentage(rawScrap);
+        if (typeof normalizedScrap === 'number' && Number.isFinite(normalizedScrap) && normalizedScrap > 0) {
+            bomItem.scrapPercentage = normalizedScrap;
+        }
 
         if (explicitUnit) {
             bomItem._hasExplicitUnit = true;

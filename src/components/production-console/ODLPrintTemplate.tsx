@@ -4,7 +4,11 @@ import { format, isValid, parseISO } from 'date-fns';
 import type { JobOrder, RawMaterial, Article, Department } from '@/types';
 import { ODLConfig, DEFAULT_ODL_CONFIG } from '@/lib/odl-config';
 import { calculateBOMRequirement } from '@/lib/inventory-utils';
-import { GlobalSettings } from '@/lib/settings-types';
+import {
+  findMaterialTypeConfig,
+  GlobalSettings,
+  resolveMaterialOdlSection,
+} from '@/lib/settings-types';
 import {
   paginateOdlSectionsByHeight,
   estimateInitialOdlPaginationInput,
@@ -29,7 +33,6 @@ interface ODLPrintTemplateProps {
   omitRootId?: boolean;
 }
 
-const TRECCIA_TYPES_SET = new Set(['BOB', 'PF3V0', 'BARRA', 'TRECCIA']);
 const USABLE_PAGE_HEIGHT_MM = 197;
 
 const PAGE_STATIC_STYLE: React.CSSProperties = {
@@ -265,12 +268,14 @@ function ODLPrintTemplate({
         }
 
         const enrichedBase = { ...item, note: finalNote, type, mat, isExternalized };
-        const configMat = (mat?.type ? rawMaterialTypesMap.get(mat.type) : null) || {
-          defaultUnit: mat?.unitOfMeasure,
+        const configMat = (mat?.type
+          ? rawMaterialTypesMap.get(mat.type) || findMaterialTypeConfig(mat.type, globalSettings)
+          : null) || {
+          defaultUnit: mat?.unitOfMeasure || item.unit || 'n',
         };
         const req = calculateBOMRequirement(job.qta, enrichedBase, mat as any, configMat as any);
 
-        return { ...enrichedBase, req };
+        return { ...enrichedBase, configMat, req };
       }),
     [
       sourceBom,
@@ -311,13 +316,18 @@ function ODLPrintTemplate({
     let guainaNotes = false;
 
     for (const item of allItems) {
-      if (TRECCIA_TYPES_SET.has(item.type)) {
+      const section = resolveMaterialOdlSection(
+        item.configMat as any,
+        item.type,
+        Boolean(item.lunghezzaTaglioMm && Number(item.lunghezzaTaglioMm) > 0)
+      );
+      if (section === 'TRECCIA') {
         treccia.push(item);
         if (!trecciaNotes && item.note && item.note.trim() !== '') trecciaNotes = true;
-      } else if (item.type === 'TUBI') {
+      } else if (section === 'TUBI') {
         tubi.push(item);
         if (!tubiNotes && item.note && item.note.trim() !== '') tubiNotes = true;
-      } else if (item.type === 'GUAINA') {
+      } else if (section === 'GUAINA') {
         guaina.push(item);
         if (!guainaNotes && item.note && item.note.trim() !== '') guainaNotes = true;
       }
@@ -918,8 +928,9 @@ function ODLPrintTemplate({
               codice: item.component,
               lunghezzaTaglio: item.lunghezzaTaglioMm || 0,
               quantita: req.totalPieces,
-              pesoTotale: req.weightKg.toFixed(1),
-              metriTotali: req.totalMeters?.toFixed(2) || '0.00',
+              // FASE 104-BIS: In Stampa ODL esponiamo esclusivamente valori NETTI (zero scarto %)
+              pesoTotale: (req.netWeightKg ?? req.weightKg).toFixed(1),
+              metriTotali: (req.netMeters ?? req.totalMeters)?.toFixed(2) || '0.00',
               placeholder: '',
               checkbox: isExternalized ? '☑ ESTERNO' : '□',
               tempoPrevisto: '',
