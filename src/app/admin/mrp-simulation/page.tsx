@@ -4,7 +4,6 @@ import AppShell from '@/components/layout/AppShell';
 import { Loader2 } from 'lucide-react';
 import MrpSimulationClientPage from './MrpSimulationClientPage';
 import { getPlannedJobOrders, getProductionJobOrders, getCompletedJobOrders, getRequiredDataForJobs } from '../data-management/actions';
-import { getManualCommitments } from '../raw-material-management/actions';
 import { getPurchaseOrders } from '../purchase-orders/actions';
 import { getGlobalSettings } from '@/lib/settings-actions';
 import { getDrafts } from './actions';
@@ -63,10 +62,8 @@ export default async function AdminMrpSimulationPage() {
     // SOURCE OF TRUTH (SSoT): Escludiamo i completati che non impegnano più stock
     const allJobs = [...planned, ...production];
 
-    const manualCommitments = await getManualCommitments();
-    
     // Identifichiamo i materiali necessari
-    const requiredData = await getRequiredDataForJobs(allJobs, manualCommitments);
+    const requiredData = await getRequiredDataForJobs(allJobs);
     const materialCodes = requiredData.materials.map((m: any) => m.code);
     
     // Scarichiamo tutti gli ordini fornitore attivi per garantire la copertura PO a qualsiasi articolo simulato
@@ -95,7 +92,6 @@ export default async function AdminMrpSimulationPage() {
                         initialMaterials={JSON.parse(JSON.stringify(materials))}
                         allJobs={JSON.parse(JSON.stringify(allJobs))}
                         purchaseOrders={JSON.parse(JSON.stringify(purchaseOrders))}
-                        manualCommitments={JSON.parse(JSON.stringify(manualCommitments))}
                         globalSettings={JSON.parse(JSON.stringify(globalSettings))}
                         initialDrafts={JSON.parse(JSON.stringify(drafts))}
                     />

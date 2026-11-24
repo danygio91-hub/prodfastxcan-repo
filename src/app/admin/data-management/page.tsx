@@ -4,7 +4,6 @@ import DataManagementClientPage from './DataManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { getPlannedJobOrders, getProductionJobOrders, getCompletedJobOrders, getWorkCycles, getRequiredDataForJobs, getDepartments } from './actions';
-import { getManualCommitments } from '../raw-material-management/actions';
 import { getTargetedPOs } from '../purchase-orders/actions';
 import { adminDb } from '@/lib/firebase-admin';
 import { Suspense } from 'react';
@@ -22,12 +21,10 @@ export default async function AdminDataManagementCommessePage() {
   const production = await getProductionJobOrders();
   const completed = await getCompletedJobOrders();
 
-  const manualCommitments = await getManualCommitments();
-
   const [cycles, departments, requiredData, activeSessionsSnap, allArticlesSnap] = await Promise.all([
     getWorkCycles(),
     getDepartments(),
-    getRequiredDataForJobs([...planned, ...production, ...completed], manualCommitments),
+    getRequiredDataForJobs([...planned, ...production, ...completed]),
     adminDb.collection("materialSessions").where("status", "==", "open").get(),
     adminDb.collection("articles").select("code", "workCycleId", "secondaryWorkCycleId").get()
   ]);
@@ -59,7 +56,6 @@ export default async function AdminDataManagementCommessePage() {
                 initialDepartments={JSON.parse(JSON.stringify(departments))}
                 initialMaterials={JSON.parse(JSON.stringify(rawMaterials))}
                 initialPurchaseOrders={JSON.parse(JSON.stringify(purchaseOrders))}
-                initialManualCommitments={JSON.parse(JSON.stringify(manualCommitments))}
                 initialActiveSessions={JSON.parse(JSON.stringify(activeSessions))}
             />
 

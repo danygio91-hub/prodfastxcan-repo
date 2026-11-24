@@ -32,7 +32,7 @@ import {
   CheckCircle2, AlertTriangle, Info, RefreshCw, Save, Combine,
   Pencil, Edit3, BellRing, ChevronDown, Printer
 } from 'lucide-react';
-import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/types';
+import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder } from '@/types';
 import { format, parseISO, isBefore } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
@@ -322,7 +322,7 @@ const JobTableRows = ({
 };
 
 export default function DataManagementClientPage({
-  initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments, initialActiveSessions = []
+  initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialActiveSessions = []
 }: {
   initialPlanned: JobOrder[];
   initialProduction: JobOrder[];
@@ -332,7 +332,6 @@ export default function DataManagementClientPage({
   initialDepartments: Department[];
   initialMaterials: RawMaterial[];
   initialPurchaseOrders: PurchaseOrder[];
-  initialManualCommitments: ManualCommitment[];
   initialActiveSessions?: any[];
 }) {
   const router = useRouter();
@@ -345,7 +344,6 @@ export default function DataManagementClientPage({
   const [departments, setDepartments] = useState<Department[]>(initialDepartments);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(initialMaterials);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(initialPurchaseOrders);
-  const [manualCommitments, setManualCommitments] = useState<ManualCommitment[]>(initialManualCommitments);
   const [activeSessions, setActiveSessions] = useState<any[]>(initialActiveSessions);
 
   const [isRefreshingMRP, setIsRefreshingMRP] = useState(false);
@@ -465,9 +463,8 @@ export default function DataManagementClientPage({
     setDepartments(initialDepartments);
     setRawMaterials(initialMaterials);
     setPurchaseOrders(initialPurchaseOrders);
-    setManualCommitments(initialManualCommitments);
     setActiveSessions(initialActiveSessions);
-  }, [initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments, initialActiveSessions]);
+  }, [initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialActiveSessions]);
 
 
   const allJobsUnfiltered = useMemo(() => {
@@ -502,12 +499,12 @@ export default function DataManagementClientPage({
       [...sSotPlanned, ...sSotProduction],
       rawMaterials,
       purchaseOrders,
-      manualCommitments,
+      [],
       articles,
       globalSettings,
       activeSessions
     );
-  }, [isDataLoading, sSotPlanned, sSotProduction, rawMaterials, purchaseOrders, manualCommitments, articles, globalSettings, activeSessions]);
+  }, [isDataLoading, sSotPlanned, sSotProduction, rawMaterials, purchaseOrders, articles, globalSettings, activeSessions]);
 
   // SSoT: Classificazione rigorosa action-driven degli allarmi MRP
   const classifiedMRPAlarms = useMemo(() => {

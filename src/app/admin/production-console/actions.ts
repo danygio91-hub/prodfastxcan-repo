@@ -443,25 +443,6 @@ async function internalForceCompleteJob(transaction: admin.firestore.Transaction
         }
     }
 
-    // Sanatoria Impegni Manuali: Cerca impegni collegati a questo ODL e annullali (senza storno stock)
-    // Usiamo l'ordinePF/ODL come chiave per cercare nei manualCommitments
-    const jobOrderCodes = isGroup ? (item.jobOrderIds || []) : [item.ordinePF];
-    // NOTA: il filtro 'jobOrderCode' in manualCommitments usa l'ordinePF stringa.
-    // In questo progetto spesso si usa ordinePF come identificativo parlante.
-    
-    const mcSnap = await adminDb.collection('manualCommitments')
-        .where('jobOrderCode', 'in', isGroup ? (item as any).jobOrderCodes || [] : [item.ordinePF])
-        .where('status', '==', 'pending')
-        .get();
-
-    mcSnap.forEach(doc => {
-        transaction.update(doc.ref, { 
-            status: 'cancelled_sanatoria', 
-            cancelledAt: admin.firestore.Timestamp.now(),
-            cancellationReason: 'Chiusura di Sanatoria Commessa'
-        });
-    });
-
     // De-attivazione operatori
     for (const opId of Array.from(operatorIdsToPulse)) {
         transaction.update(adminDb.collection('operators').doc(opId), {

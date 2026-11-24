@@ -20,6 +20,8 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const IGNORED_DEPRECATED_COLLECTIONS = new Set(['manualCommitments']);
+
 const firestoreAdapters: FirestoreDeserializationAdapters = {
   createTimestamp: (seconds: number, nanoseconds: number) =>
     new admin.firestore.Timestamp(seconds, nanoseconds),
@@ -185,7 +187,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const availableCollectionNames = Object.keys(parsedBackup.collections).sort();
+    const availableCollectionNames = Object.keys(parsedBackup.collections)
+      .filter((name) => !IGNORED_DEPRECATED_COLLECTIONS.has(name))
+      .sort();
     const selectedCollections =
       requestedCollections && requestedCollections.length > 0
         ? requestedCollections.filter((name) => availableCollectionNames.includes(name))
@@ -401,3 +405,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Article, RawMaterial, PurchaseOrder, ManualCommitment } from '@/types';
+import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Article, RawMaterial, PurchaseOrder } from '@/types';
 
 import { startOfWeek, endOfWeek, format, parseISO, eachDayOfInterval } from 'date-fns';
 import { getProductionTimeAnalysisMap } from '../production-console/actions';
@@ -119,15 +119,14 @@ export async function getPlanningData(dateIso: string) {
     const start = startOfWeek(targetDate, { weekStartsOn: 1 });
     const end = endOfWeek(targetDate, { weekStartsOn: 1 });
     
-    const [jobOrdersSnap, operatorsSnap, departmentsSnap, assignments, settingsSnap, rawMaterialsSnap, purchaseOrdersSnap, manualCommitmentsSnap] = await Promise.all([
+    const [jobOrdersSnap, operatorsSnap, departmentsSnap, assignments, settingsSnap, rawMaterialsSnap, purchaseOrdersSnap] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", ["DA_INIZIARE", "IN_PREPARAZIONE", "PRONTO_PROD", "IN_PRODUZIONE", "FINE_PRODUZIONE", "QLTY_PACK", "CHIUSO", "paused", "suspended", "production"] as any[]).get(),
         adminDb.collection("operators").get(),
         adminDb.collection("departments").orderBy("name").get(),
         getOperatorAssignments(format(start, 'yyyy-MM-dd'), format(end, 'yyyy-MM-dd')),
         adminDb.collection("system").doc("productionSettings").get(),
         adminDb.collection("rawMaterials").get(),
-        adminDb.collection("purchaseOrders").where("status", "in", ["pending", "partially_received"]).get(),
-        adminDb.collection("manualCommitments").where("status", "==", "pending").get()
+        adminDb.collection("purchaseOrders").where("status", "in", ["pending", "partially_received"]).get()
     ]);
 
 
@@ -149,7 +148,6 @@ export async function getPlanningData(dateIso: string) {
     const settings = settingsSnap.exists ? convertTimestampsToDates(settingsSnap.data()) as any : {};
     const rawMaterials = rawMaterialsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as RawMaterial));
     const purchaseOrders = purchaseOrdersSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as PurchaseOrder));
-    const manualCommitments = manualCommitmentsSnap.docs.map(doc => ({ ...convertTimestampsToDates(doc.data()), id: doc.id } as ManualCommitment));
 
 
     // Fetch only needed articles for the jobs
@@ -172,7 +170,6 @@ export async function getPlanningData(dateIso: string) {
         settings,
         rawMaterials,
         purchaseOrders,
-        manualCommitments,
         dateRange: { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') }
     };
 }

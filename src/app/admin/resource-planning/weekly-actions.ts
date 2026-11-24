@@ -421,22 +421,19 @@ export async function getWeeklyBoardData(year: number, week: number) {
         // 3. Carica Dati per MRP (Graceful Degradation)
         let rawMaterials: any[] = [];
         let purchaseOrders: any[] = [];
-        let manualCommitments: any[] = [];
         let globalSettings: any = null;
         let activeSessions: any[] = [];
 
         try {
-            const [rawMaterialsSnap, purchaseOrdersSnap, manualCommitmentsSnap, globalSettingsSnap, activeSessionsSnap] = await Promise.all([
+            const [rawMaterialsSnap, purchaseOrdersSnap, globalSettingsSnap, activeSessionsSnap] = await Promise.all([
                 adminDb.collection("rawMaterials").get(),
                 adminDb.collection("purchaseOrders").get(),
-                adminDb.collection("manualCommitments").get(),
                 adminDb.collection("settings").doc("global").get(),
                 adminDb.collection("materialSessions").where("status", "==", "open").get()
             ]);
             
             rawMaterials = rawMaterialsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             purchaseOrders = purchaseOrdersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-            manualCommitments = manualCommitmentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             globalSettings = globalSettingsSnap.exists ? globalSettingsSnap.data() : null;
             activeSessions = activeSessionsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
         } catch (mrpError) {
@@ -468,7 +465,6 @@ export async function getWeeklyBoardData(year: number, week: number) {
             settings,
             rawMaterials,
             purchaseOrders,
-            manualCommitments,
             globalSettings,
             activeSessions
         };
@@ -487,7 +483,6 @@ export async function getWeeklyBoardData(year: number, week: number) {
             settings: { capacityBufferPercent: 85 },
             rawMaterials: [],
             purchaseOrders: [],
-            manualCommitments: [],
             globalSettings: null,
             activeSessions: [],
             error: error.message 

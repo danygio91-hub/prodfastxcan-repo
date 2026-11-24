@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Calculator, Save, Trash2, ArrowRightLeft, FileSpreadsheet, AlertTriangle, CheckCircle2, Clock, Plus, Search, Clipboard } from 'lucide-react';
-import { Article, RawMaterial, JobOrder, PurchaseOrder, ManualCommitment, DraftJobOrder } from '@/types';
+import { Article, RawMaterial, JobOrder, PurchaseOrder, DraftJobOrder } from '@/types';
 import { GlobalSettings } from '@/lib/settings-types';
 import { calculateMRPTimelines, aggregateMRPRequirements, MRPTimelineEntry } from '@/lib/mrp-utils';
 import { saveDraft, getDrafts, deleteDraft, convertDraftToJobOrder, getArticlesByCodes } from './actions';
@@ -26,7 +26,6 @@ interface MrpSimulationClientPageProps {
     initialMaterials: RawMaterial[];
     allJobs: JobOrder[];
     purchaseOrders: PurchaseOrder[];
-    manualCommitments: ManualCommitment[];
     globalSettings: GlobalSettings | null;
     initialDrafts: DraftJobOrder[];
 }
@@ -43,7 +42,6 @@ export default function MrpSimulationClientPage({
     initialMaterials,
     allJobs,
     purchaseOrders,
-    manualCommitments,
     globalSettings,
     initialDrafts
 }: MrpSimulationClientPageProps) {
@@ -318,7 +316,7 @@ export default function MrpSimulationClientPage({
             jobsWithSimulation, 
             initialMaterials, 
             currentPurchaseOrders, 
-            manualCommitments, 
+            [], 
             downloadedArticles, 
             globalSettings
         );
@@ -369,7 +367,7 @@ export default function MrpSimulationClientPage({
         });
 
         return aggregated;
-    }, [rows, validArticles, allJobs, initialMaterials, currentPurchaseOrders, manualCommitments, downloadedArticles, globalSettings]);
+    }, [rows, validArticles, allJobs, initialMaterials, currentPurchaseOrders, downloadedArticles, globalSettings]);
 
     const handleSaveDraft = async () => {
         const validRows = rows.filter(r => 

@@ -16,10 +16,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import {
   type RawMaterial,
   type RawMaterialType,
-  type ManualCommitment,
   type ScrapRecord,
-  type Department,
-  type Article
 } from '@/types';
 
 import {
@@ -74,7 +71,6 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Boxes,
   PlusCircle,
@@ -99,7 +95,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { cn, parseRobustDate } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
-import CommitmentManagementClientPage from './CommitmentManagementClientPage';
 import BatchFormDialog from '../batch-management/BatchFormDialog';
 import { type GroupedBatches } from '../batch-management/actions';
 import { useDebounce } from '../../../hooks/use-debounce';
@@ -277,15 +272,10 @@ function ReturnMaterialDialog({ isOpen, onOpenChange, material, onConfirm }: { i
 }
 
 interface RawMaterialManagementClientPageProps {
-  initialArticles: Article[];
-  initialCommitments: ManualCommitment[];
-  initialDepartments: Department[];
   globalSettings: GlobalSettings;
 }
 
 export default function RawMaterialManagementClientPage({
-  initialArticles,
-  initialCommitments,
   globalSettings,
 }: RawMaterialManagementClientPageProps) {
   const router = useRouter();
@@ -465,10 +455,7 @@ export default function RawMaterialManagementClientPage({
     <>
       <div className="space-y-6">
         <header><h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><Boxes className="h-8 w-8 text-primary" />Gestione Materie Prime</h1></header>
-        <Tabs defaultValue="list">
-          <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="list">Magazzino Live</TabsTrigger><TabsTrigger value="commitments">Impegni Manuali</TabsTrigger></TabsList>
-          <TabsContent value="list">
-            <Card>
+        <Card>
               <CardHeader>
                 <div className="flex justify-between items-start flex-wrap gap-4">
                   <div className="space-y-1"><CardTitle>Magazzino Live</CardTitle><CardDescription>Giacenze ricalcolate.</CardDescription></div>
@@ -551,10 +538,7 @@ export default function RawMaterialManagementClientPage({
                   )}
                 </div>
               </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="commitments"><CommitmentManagementClientPage initialCommitments={initialCommitments} initialArticles={initialArticles} /></TabsContent>
-        </Tabs>
+        </Card>
       </div>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>

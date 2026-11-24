@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment, Client, BillOfMaterialsItem } from '@/types';
+import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, Client, BillOfMaterialsItem } from '@/types';
 import { convertTimestampsToDates, normalizeDateStr, parseRobustDate, extractAnnoCompetenza, generateJobDocumentId, parseSafeDecimal, serializeForClient } from '@/lib/utils';
 import { getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchInChunks, checkJobOrderExists, getJobOrderRefAndSnap } from '@/lib/firestore-utils';
@@ -145,7 +145,7 @@ export async function getCompletedJobOrders(): Promise<JobOrder[]> {
 }
 
 
-export async function getRequiredDataForJobs(jobs: JobOrder[], commitments: ManualCommitment[] = []): Promise<{ articles: Article[], materials: RawMaterial[] }> {
+export async function getRequiredDataForJobs(jobs: JobOrder[]): Promise<{ articles: Article[], materials: RawMaterial[] }> {
     const arrArticleCodes = new Set<string>();
     const directMaterialCodes = new Set<string>();
     
@@ -154,10 +154,6 @@ export async function getRequiredDataForJobs(jobs: JobOrder[], commitments: Manu
         j.billOfMaterials?.forEach(b => {
             if (b.component) directMaterialCodes.add(b.component.toUpperCase().trim());
         });
-    });
-
-    commitments.forEach(c => {
-        if (c.articleCode) arrArticleCodes.add(c.articleCode.toUpperCase());
     });
 
     const uniqueArticles = [...arrArticleCodes];
@@ -1400,14 +1396,6 @@ export async function updateJobOrder(jobId: string, data: {
                 batch.update(wDoc.ref, { jobIds, jobOrderPFs });
             });
 
-            // 3. manualCommitments
-            const commitmentsSnap = await adminDb.collection("manualCommitments")
-                .where("jobOrderCode", "==", job.ordinePF)
-                .get();
-            commitmentsSnap.forEach(cDoc => {
-                batch.update(cDoc.ref, { jobOrderCode: updatePayload.ordinePF });
-            });
-
             // 4. operators
             const operatorsSnap = await adminDb.collection("operators")
                 .where("activeJobId", "==", jobId)
@@ -1789,15 +1777,6 @@ export async function healGhostJobOrders(): Promise<{ success: boolean; message:
                     ops++;
                 });
 
-                // 3. manualCommitments
-                const commitmentsSnap = await adminDb.collection("manualCommitments")
-                    .where("jobOrderCode", "==", currentId)
-                    .get();
-                commitmentsSnap.forEach(cDoc => {
-                    batch.update(cDoc.ref, { jobOrderCode: job.ordinePF });
-                    ops++;
-                });
-
                 // 4. operators
                 const operatorsSnap = await adminDb.collection("operators")
                     .where("activeJobId", "==", currentId)
@@ -1971,15 +1950,6 @@ export async function healJobOrdersSanitization(): Promise<{ success: boolean; m
                             batch.update(wDoc.ref, { jobOrderPFs });
                             ops++;
                         }
-                    });
-
-                    // 3. manualCommitments (jobOrderCode field)
-                    const commitmentsSnap = await adminDb.collection("manualCommitments")
-                        .where("jobOrderCode", "==", oldVal)
-                        .get();
-                    commitmentsSnap.forEach(cDoc => {
-                        batch.update(cDoc.ref, { jobOrderCode: restoredOrdinePF });
-                        ops++;
                     });
                 }
 

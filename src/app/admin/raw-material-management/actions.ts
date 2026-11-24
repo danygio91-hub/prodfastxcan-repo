@@ -3,14 +3,13 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { hydrateMaterialWithWithdrawals, extractHydratedLots, type HydratedLotInfo } from '@/lib/stock-logic';
+import { hydrateMaterialWithWithdrawals } from '@/lib/stock-logic';
 import type {
     RawMaterial,
     RawMaterialBatch,
     RawMaterialType,
     MaterialWithdrawal,
     Department,
-    ManualCommitment,
     Article,
     ScrapRecord,
     JobOrder,
@@ -124,13 +123,6 @@ export async function bulkUpdateRawMaterials(items: any[], uid: string): Promise
     }
 }
 
-export type LotSelectionPayload = {
-    materialId: string;
-    componentCode: string;
-    lotto: string;
-    consumed: number
-};
-
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
     if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();
@@ -145,11 +137,6 @@ function convertTimestampsToDates(obj: any): any {
 export async function getDepartments(): Promise<Department[]> {
     const snapshot = await adminDb.collection("departments").get();
     return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Department));
-}
-
-export async function getManualCommitments(): Promise<ManualCommitment[]> {
-    const snapshot = await adminDb.collection("manualCommitments").orderBy("createdAt", "desc").get();
-    return snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as ManualCommitment);
 }
 
 export async function getRawMaterials(searchTerm?: string, lastCode?: string): Promise<RawMaterial[]> {
@@ -563,10 +550,9 @@ export async function calculateLiveAggregatedMetrics(materials: RawMaterial[]): 
     const chunk1 = activeStatuses.slice(0, 30);
     const chunk2 = activeStatuses.slice(30);
 
-    const [jobsSnap1, jobsSnap2, commitmentsSnap, posSnap, settings, activeSessionsSnap] = await Promise.all([
+    const [jobsSnap1, jobsSnap2, posSnap, settings, activeSessionsSnap] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", chunk1 as any[]).get(),
         chunk2.length > 0 ? adminDb.collection("jobOrders").where("status", "in", chunk2 as any[]).get() : Promise.resolve({ docs: [] }),
-        adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
         adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get(),
         getGlobalSettings(),
         adminDb.collection("materialSessions").where("status", "==", "open").get()
@@ -590,16 +576,6 @@ export async function calculateLiveAggregatedMetrics(materials: RawMaterial[]): 
         codeToMat.set(mat.code.toLowerCase().trim(), mat);
     });
 
-    const commitmentArticles = [...new Set(commitmentsSnap.docs.map(d => d.data().articleCode.toUpperCase()))];
-    const articlesMap = new Map();
-    if (commitmentArticles.length > 0) {
-        const artResults = await fetchInChunks<Article>(
-            adminDb.collection("articles"),
-            "code",
-            commitmentArticles
-        );
-        artResults.forEach(a => articlesMap.set(a.code.toLowerCase().trim(), a));
-    }
     const activeSessions = activeSessionsSnap.docs.map(doc => ({ ...doc.data() as any, id: doc.id }));
     const sessionsByMaterial = new Map<string, any[]>();
     activeSessions.forEach(s => {
@@ -662,44 +638,6 @@ export async function calculateLiveAggregatedMetrics(materials: RawMaterial[]): 
                 }
             }
         });
-    });
-
-    commitmentsSnap.forEach(d => {
-        const comm = d.data() as ManualCommitment;
-        const artCode = comm.articleCode.toLowerCase().trim();
-        const art = articlesMap.get(artCode);
-        const commDate = comm.deliveryDate ? new Date(comm.deliveryDate) : new Date();
-
-        if (art && art.billOfMaterials) {
-            art.billOfMaterials.forEach((bomItem: any) => {
-                const mCode = bomItem.component.toLowerCase().trim();
-                const mat = codeToMat.get(mCode);
-                if (mat) {
-                    const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-                    const req = calculateBOMRequirement(comm.quantity, bomItem, mat, config as any);
-                    const qty = req.totalInBaseUnits;
-                    impMap.set(mCode, (impMap.get(mCode) || 0) + qty);
-
-                    if (qty > 0) {
-                        const existingDate = earliestNeedDateMap.get(mCode);
-                        if (!existingDate || commDate.getTime() < existingDate.getTime()) {
-                            earliestNeedDateMap.set(mCode, commDate);
-                        }
-                    }
-                }
-            });
-        } else {
-            const mat = codeToMat.get(artCode);
-            if (mat) { 
-                impMap.set(artCode, (impMap.get(artCode) || 0) + comm.quantity); 
-                if (comm.quantity > 0) {
-                    const existingDate = earliestNeedDateMap.get(artCode);
-                    if (!existingDate || commDate.getTime() < existingDate.getTime()) {
-                        earliestNeedDateMap.set(artCode, commDate);
-                    }
-                }
-            }
-        }
     });
 
     const ordMap = new Map<string, number>();
@@ -772,7 +710,7 @@ export async function getMaterialsStatus(searchTerm?: string, lastCode?: string)
     }))));
 }
 
-export type CommitmentDetail = { jobId: string; type: 'PRODUZIONE' | 'MANUALE'; quantity: number; deliveryDate: string; client: string; articleCode: string; };
+export type CommitmentDetail = { jobId: string; type: 'PRODUZIONE'; quantity: number; deliveryDate: string; client: string; articleCode: string; };
 
 export async function getMaterialCommitmentDetails(materialCode: string): Promise<CommitmentDetail[]> {
     const norm = materialCode.toLowerCase().trim();
@@ -788,11 +726,9 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
     const chunk1 = activeStatuses.slice(0, 30);
     const chunk2 = activeStatuses.slice(30);
 
-    const [jobsSnap1, jobsSnap2, commitmentsSnap, articlesSnap, materialsSnap, settings, activeSessionsSnap] = await Promise.all([
+    const [jobsSnap1, jobsSnap2, materialsSnap, settings, activeSessionsSnap] = await Promise.all([
         adminDb.collection("jobOrders").where("status", "in", chunk1 as any[]).get(),
         chunk2.length > 0 ? adminDb.collection("jobOrders").where("status", "in", chunk2 as any[]).get() : Promise.resolve({ docs: [] }),
-        adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
-        adminDb.collection('articles').get(),
         adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get(),
         getGlobalSettings(),
         adminDb.collection("materialSessions").where("status", "==", "open").where("materialCode", "==", materialCode.toUpperCase()).get()
@@ -801,8 +737,6 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
     const jobsSnap = { docs: [...jobsSnap1.docs, ...jobsSnap2.docs] };
     const mat = materialsSnap.docs[0]?.data() as RawMaterial;
     if (!mat) return [];
-    const articlesMap = new Map();
-    articlesSnap.forEach(d => articlesMap.set(d.data().code.toLowerCase().trim(), d.data()));
     const details: CommitmentDetail[] = [];
     jobsSnap.docs.forEach(d => {
         const job = d.data() as JobOrder;
@@ -843,21 +777,6 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
                 details.push({ jobId: job.ordinePF, type: 'PRODUZIONE', quantity: qty, deliveryDate: job.dataConsegnaFinale || 'N/D', client: job.cliente || 'N/D', articleCode: job.details });
             }
         });
-    });
-    commitmentsSnap.forEach(d => {
-        const comm = d.data() as ManualCommitment;
-        const art = articlesMap.get(comm.articleCode.toLowerCase().trim());
-        if (art && art.billOfMaterials) {
-            art.billOfMaterials.forEach((bomItem: any) => {
-                if (bomItem.component.toLowerCase().trim() === norm) {
-                    const config = settings.rawMaterialTypes.find(t => t.id === mat.type) || { defaultUnit: mat.unitOfMeasure };
-                    const req = calculateBOMRequirement(comm.quantity, bomItem, mat, config as any);
-                    details.push({ jobId: comm.jobOrderCode, type: 'MANUALE', quantity: req.totalInBaseUnits, deliveryDate: comm.deliveryDate || 'N/D', client: 'N/D', articleCode: comm.articleCode });
-                }
-            });
-        } else if (comm.articleCode.toLowerCase().trim() === norm) {
-            details.push({ jobId: comm.jobOrderCode, type: 'MANUALE', quantity: comm.quantity, deliveryDate: comm.deliveryDate || 'N/D', client: 'N/D', articleCode: comm.articleCode });
-        }
     });
     return details.sort((a, b) => (a.deliveryDate || '').localeCompare(b.deliveryDate || ''));
 }
@@ -941,179 +860,9 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
     } catch (e) { return { success: false, message: "Errore." }; }
 }
 
-export async function declareCommitmentFulfillment(id: string, good: number, scrap: number, sels: LotSelectionPayload[], uid: string) {
-    try {
-        await ensureAdmin(uid);
-        await adminDb.runTransaction(async (t) => {
-            const opRef = adminDb.collection("operators").doc(uid);
-            const cRef = adminDb.collection("manualCommitments").doc(id);
-            const uniqueMaterialIds = [...new Set(sels.map(s => s.materialId))];
-            const mRefs = uniqueMaterialIds.map(mid => adminDb.collection("rawMaterials").doc(mid));
-            
-            // PHASE 1: READS (using transaction.get for everything)
-            const [opSnap, cSnap, mSnaps, wSnaps] = await Promise.all([
-                t.get(opRef),
-                t.get(cRef),
-                Promise.all(mRefs.map(ref => t.get(ref))),
-                Promise.all(uniqueMaterialIds.map(mid => t.get(adminDb.collection("materialWithdrawals").where("materialId", "==", mid))))
-            ]);
-
-            if (!cSnap.exists) throw new Error("Impegno non trovato.");
-            const c = cSnap.data() as ManualCommitment;
-            const opData = opSnap.exists ? opSnap.data() as Operator : null;
-
-            const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists ? snap.data() as RawMaterial : null]));
-            const wDataMap = new Map(wSnaps.map((snap, i) => [uniqueMaterialIds[i], snap.docs.map(d => ({ ...d.data(), id: d.id }))]));
-
-            const newWithdrawalsByMaterial = new Map<string, any[]>();
-
-            // PHASE 2: CALCULATIONS & WRITES (Collect writes)
-            for (const s of sels) {
-                const m = mDataMap.get(s.materialId);
-                if (!m) throw new Error("Materia prima non trovata.");
-                const convFactor =
-                    m.unitOfMeasure === 'mt'
-                        ? (m.rapportoKgMt || m.conversionFactor || 0)
-                        : (m.conversionFactor || m.rapportoKgMt || 0);
-                const w = m.unitOfMeasure === 'kg' ? s.consumed : (convFactor > 0 ? s.consumed * convFactor : 0);
-                
-                const withdrawalData = { 
-                    jobOrderPFs: [c.jobOrderCode], 
-                    jobIds: [], 
-                    materialId: s.materialId, 
-                    materialCode: s.componentCode, 
-                    consumedWeight: w, 
-                    consumedUnits: s.consumed, 
-                    operatorId: uid, 
-                    operatorName: opData?.nome || 'Admin', 
-                    withdrawalDate: admin.firestore.Timestamp.now(), 
-                    lotto: s.lotto, 
-                    commitmentId: id 
-                };
-                
-                const wRef = adminDb.collection("materialWithdrawals").doc();
-                t.set(wRef, withdrawalData);
-
-                if (!newWithdrawalsByMaterial.has(s.materialId)) newWithdrawalsByMaterial.set(s.materialId, []);
-                newWithdrawalsByMaterial.get(s.materialId)?.push(withdrawalData);
-            }
-
-            if (scrap > 0) t.set(adminDb.collection("scrapRecords").doc(), { commitmentId: id, jobOrderCode: c.jobOrderCode, articleCode: c.articleCode, scrappedQuantity: scrap, declaredAt: admin.firestore.Timestamp.now(), operatorId: uid, operatorName: opData?.nome || 'Admin' });
-            t.update(cRef, { status: 'fulfilled', fulfilledAt: admin.firestore.Timestamp.now(), fulfilledBy: uid });
-
-            // SSoT SYNC FOR ALL IMPACTED MATERIALS (using prefetched/updated data)
-            for (const mid of uniqueMaterialIds) {
-                const m = mDataMap.get(mid);
-                const originalWithdrawals = wDataMap.get(mid) || [];
-                const newWithdrawals = newWithdrawalsByMaterial.get(mid) || [];
-                
-                await recalculateMaterialStock(mid, t, {
-                    material: m as RawMaterial,
-                    withdrawals: [...originalWithdrawals, ...newWithdrawals] as MaterialWithdrawal[]
-                });
-            }
-        });
-
-        await bumpMrpSyncVersion('stock', 'raw-material-management:declareCommitmentFulfillment');
-        revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Evasione registrata." };
-    } catch (e) { return { success: false, message: "Errore." }; }
-}
-
-export async function revertManualCommitmentFulfillment(id: string, uid: string) {
-    await ensureAdmin(uid);
-    try {
-        const ws = await adminDb.collection("materialWithdrawals").where("commitmentId", "==", id).get();
-        const ss = await adminDb.collection("scrapRecords").where("commitmentId", "==", id).get();
-        await adminDb.runTransaction(async (t) => {
-            const mIds = [...new Set(ws.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
-            const mRefs = mIds.map(mid => adminDb.collection("rawMaterials").doc(mid));
-            
-            // PHASE 1: READS
-            const [mSnaps, wSnaps] = await Promise.all([
-                Promise.all(mRefs.map(ref => t.get(ref))),
-                Promise.all(mIds.map(mid => t.get(adminDb.collection("materialWithdrawals").where("materialId", "==", mid))))
-            ]);
-
-            const mMap = new Map(mSnaps.map(s => [s.id, s.exists ? s.data() as RawMaterial : null]));
-            const wMap = new Map(wSnaps.map((s, i) => [mIds[i], s.docs.map(d => ({ ...d.data(), id: d.id }))]));
-            
-            // PHASE 2: WRITES
-            const withdrawalIdsToRemove = new Set(ws.docs.map(d => d.id));
-
-            for (const wd of ws.docs) {
-                t.delete(wd.ref);
-            }
-            ss.forEach(d => t.delete(d.ref));
-            t.update(adminDb.collection("manualCommitments").doc(id), { status: 'pending', fulfilledAt: admin.firestore.FieldValue.delete(), fulfilledBy: admin.firestore.FieldValue.delete() });
-
-            // SSoT SYNC FOR ALL IMPACTED MATERIALS (using prefetched data minus the deleted ones)
-            for (const mid of mIds) {
-                const m = mMap.get(mid);
-                const currentWithdrawals = wMap.get(mid) || [];
-                // Filter out the withdrawals we are currently deleting in the transaction
-                const remainingWithdrawals = currentWithdrawals.filter(w => !withdrawalIdsToRemove.has(w.id));
-                
-                await recalculateMaterialStock(mid, t, {
-                    material: m as RawMaterial,
-                    withdrawals: remainingWithdrawals as MaterialWithdrawal[]
-                });
-            }
-        });
-
-        await bumpMrpSyncVersion('stock', 'raw-material-management:revertManualCommitmentFulfillment');
-        revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Annullato." };
-    } catch (e) { return { success: false, message: "Errore." }; }
-}
-
-export async function saveManualCommitment(data: any, uid: string) {
-    await ensureAdmin(uid);
-    await adminDb.collection("manualCommitments").doc().set({ ...data, status: 'pending', createdAt: admin.firestore.Timestamp.now(), deliveryDate: data.deliveryDate.toISOString() });
-    await bumpMrpSyncVersion('stock', 'raw-material-management:saveManualCommitment');
-    revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Creato.' };
-}
-
-export async function deleteManualCommitment(id: string) {
-    await adminDb.collection("manualCommitments").doc(id).delete();
-    await bumpMrpSyncVersion('stock', 'raw-material-management:deleteManualCommitment');
-    revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Eliminato.' };
-}
-
-export async function importManualCommitments(data: any[], uid: string) {
-    await ensureAdmin(uid);
-    const batch = adminDb.batch();
-    data.forEach(r => {
-        batch.set(adminDb.collection("manualCommitments").doc(), { jobOrderCode: String(r.Commessa || "").trim(), articleCode: String(r["Codice Articolo"] || "").trim(), quantity: Number(r.Quantita || 0), deliveryDate: r["Data Consegna"] ? new Date(r["Data Consegna"]).toISOString() : new Date().toISOString(), status: 'pending', createdAt: admin.firestore.Timestamp.now() });
-    });
-    await batch.commit();
-    await bumpMrpSyncVersion('stock', 'raw-material-management:importManualCommitments');
-    revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Importati.' };
-}
-
 export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
     const validCodes = codes.filter(c => c && typeof c === 'string').map(c => c.trim());
     return fetchInChunks<RawMaterial>(adminDb.collection("rawMaterials"), "code", validCodes);
-}
-
-export type LotInfo = HydratedLotInfo;
-
-export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo[]> {
-    const mSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
-    if (!mSnap.exists) return [];
-    
-    const matData = { id: mSnap.id, ...convertTimestampsToDates(mSnap.data()) } as RawMaterial;
-    
-    // Fetch withdrawals for hydration (SSoT)
-    const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
-    const withdrawals = wSnap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as any));
-    const mat = hydrateMaterialWithWithdrawals(matData, withdrawals);
-    
-    // FASE 80: Popola available e availableWeightKg ESCLUSIVAMENTE dai residui vivi idratati (currentQuantity / currentWeightKg)
-    return JSON.parse(JSON.stringify(extractHydratedLots(mat)));
 }
 
 export async function adjustRawMaterialStock(materialId: string, newStockUnits: number) {

@@ -1,4 +1,4 @@
-import type { RawMaterial, JobOrder, Article, PurchaseOrder, ManualCommitment } from "@/types";
+import type { RawMaterial, JobOrder, Article, PurchaseOrder } from "@/types";
 import { RawMaterialTypeConfig } from "./settings-types";
 import { calculateBOMRequirement } from "./inventory-utils";
 
@@ -25,8 +25,8 @@ export function buildMRPTimelines(
     rawMaterials: RawMaterial[],
     articles: Article[],
     purchaseOrders: PurchaseOrder[],
-    manualCommitments: ManualCommitment[],
-    materialTypesConfig: RawMaterialTypeConfig[]
+    _manualCommitments: any[] = [],
+    materialTypesConfig: RawMaterialTypeConfig[] = []
 ) {
     const timelines = new Map<string, { date: string, qty: number, jobId: string }[]>();
     const demands: { materialCode: string, qty: number, date: string, deliveryDate: string, id: string }[] = [];
@@ -55,26 +55,6 @@ export function buildMRPTimelines(
                 }
             }
         });
-    });
-
-    // 2. Gather demands from Manual Commitments
-    (manualCommitments || []).filter(c => c.status === 'pending').forEach(c => {
-        const art = articles.find(a => a.code.toUpperCase() === c.articleCode.toUpperCase());
-        if (art) {
-            art.billOfMaterials.forEach(item => {
-                const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
-                if (mat) {
-                    const config = materialTypesConfig.find(c => c.id === mat.type);
-                    demands.push({
-                        materialCode: mat.code.toUpperCase(),
-                        qty: calculateCommitmentQty(c.quantity, item, mat, config),
-                        date: '9999-12-31',
-                        deliveryDate: c.deliveryDate || '9999-12-31',
-                        id: c.id
-                    });
-                }
-            });
-        }
     });
 
     // Sort demands

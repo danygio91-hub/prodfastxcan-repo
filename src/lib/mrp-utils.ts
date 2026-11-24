@@ -1,5 +1,5 @@
 
-import { JobOrder, Article, RawMaterial, PurchaseOrder, ManualCommitment, WorkPhaseTemplate, MaterialWithdrawal } from '@/types';
+import { JobOrder, Article, RawMaterial, PurchaseOrder, WorkPhaseTemplate, MaterialWithdrawal } from '@/types';
 import { getDerivedJobStatus } from './job-status';
 import { GlobalSettings } from './settings-types';
 import { calculateBOMRequirement } from './inventory-utils';
@@ -413,9 +413,9 @@ export function calculateMRPTimelines(
     allJobs: JobOrder[],
     rawMaterials: RawMaterial[],
     purchaseOrders: PurchaseOrder[],
-    manualCommitments: ManualCommitment[],
-    articles: Article[],
-    globalSettings: GlobalSettings | null,
+    _manualCommitments: any[] = [],
+    articles: Article[] = [],
+    globalSettings: GlobalSettings | null = null,
     activeSessions: any[] = [],
     materialWithdrawals?: MaterialWithdrawal[] | JobComponentWithdrawalIndex
 ): Map<string, MRPTimelineEntry[]> {
@@ -515,7 +515,7 @@ export function calculateMRPTimelines(
                 return a.id.localeCompare(b.id);
             });
 
-            // STEP 2B: Normalizzazione DEMAND (Commesse + Manual Commitments)
+            // STEP 2B: Normalizzazione DEMAND (Commesse)
             interface DemandEntry {
                 id: string;
                 qty: number;
@@ -621,44 +621,6 @@ export function calculateMRPTimelines(
                         data: job,
                         isFrozen
                     });
-                });
-            });
-
-            // Manual Commitments
-            manualCommitments.filter(c => c && c.status === 'pending').forEach(c => {
-                let finalQty = 0;
-                const art = articles.find(a => a && a.code.toUpperCase() === (c.articleCode || '').toUpperCase());
-                
-                if (art) {
-                    (art.billOfMaterials || []).forEach(item => {
-                        if ((item.component || '').toUpperCase().trim() === matCode) {
-                            const req = calculateBOMRequirement(c.quantity, item, mat, config as any);
-                            finalQty += Number(req.totalInBaseUnits);
-                        }
-                    });
-                } else if ((c.articleCode || '').toUpperCase().trim() === matCode) {
-                    finalQty = Number(c.quantity);
-                }
-
-                if (finalQty <= 0) return;
-
-                const parsedDemandDate = parseRobustDate(c.deliveryDate);
-                let demandDateObj: Date;
-                if (parsedDemandDate) {
-                    demandDateObj = new Date(parsedDemandDate);
-                    demandDateObj.setHours(16, 0, 0, 0);
-                } else {
-                    demandDateObj = new Date();
-                    demandDateObj.setHours(16, 0, 0, 0);
-                }
-
-                demands.push({
-                    id: c.id,
-                    qty: finalQty,
-                    parsedDate: parsedDemandDate,
-                    demandDateObj,
-                    dateStr: demandDateObj.toISOString(),
-                    data: c
                 });
             });
 

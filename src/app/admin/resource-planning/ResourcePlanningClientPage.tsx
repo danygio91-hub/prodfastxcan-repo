@@ -101,7 +101,6 @@ export default function ResourcePlanningClientPage() {
         settings?: any,
         rawMaterials?: any[],
         purchaseOrders?: any[],
-        manualCommitments?: any[],
         globalSettings?: any,
         activeSessions?: any[]
     }>({ jobOrders: [], unassignedJobs: [], allocations: {} });
@@ -172,7 +171,7 @@ export default function ResourcePlanningClientPage() {
             [...boardData.jobOrders, ...boardData.unassignedJobs],
             boardData.rawMaterials,
             boardData.purchaseOrders || [],
-            boardData.manualCommitments || [],
+            [],
             cachedArticles,
             boardData.globalSettings || null,
             boardData.activeSessions || []
