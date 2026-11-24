@@ -8,6 +8,7 @@ import {
   resolvePurchaseOrderDate,
   resolvePurchaseOrderYear,
 } from './purchase-order-utils';
+import { commitDateInputMask, stepDateInputMask } from './utils';
 
 describe('purchase-order-utils (FASE 108-BIS)', () => {
   it('1. risolve retrocompatibilmente anno e data su record 2026 privi di orderDate/orderYear', () => {
@@ -129,6 +130,44 @@ describe('purchase-order-utils (FASE 108-BIS)', () => {
     expect(fromIso.getUTCDate()).toBe(15);
 
     expect(getNextRowDefaultDeliveryDate([], fallback).getTime()).toBe(fallback.getTime());
+  });
+
+  it('6. gestisce fluidamente la digitazione progressiva della data (0 -> 04 -> 04/1 -> 04/12 -> 04/12/2026) senza perdere la prima cifra', () => {
+    const step1 = stepDateInputMask('0');
+    expect(step1.formatted).toBe('0');
+    expect(step1.completeDate).toBeNull();
+
+    const step2 = stepDateInputMask('04');
+    expect(step2.formatted).toBe('04');
+    expect(step2.completeDate).toBeNull();
+
+    const step3 = stepDateInputMask('041');
+    expect(step3.formatted).toBe('04/1');
+    expect(step3.completeDate).toBeNull();
+
+    const step4 = stepDateInputMask('04/12');
+    expect(step4.formatted).toBe('04/12');
+    expect(step4.completeDate).toBeNull();
+
+    const step5 = stepDateInputMask('04/12/2026');
+    expect(step5.formatted).toBe('04/12/2026');
+    expect(step5.completeDate).not.toBeNull();
+    expect(step5.completeDate!.getFullYear()).toBe(2026);
+    expect(step5.completeDate!.getMonth()).toBe(11);
+    expect(step5.completeDate!.getDate()).toBe(4);
+
+    // Conferma anno a 2 cifre su Invio/Blur (04/12/26 -> 04/12/2026)
+    const fallbackOldDate = new Date(2026, 10, 24, 12, 0, 0);
+    const shortCommitted = commitDateInputMask('04/12/26', fallbackOldDate);
+    expect(shortCommitted.formatted).toBe('04/12/2026');
+    expect(shortCommitted.committedDate?.getFullYear()).toBe(2026);
+    expect(shortCommitted.committedDate?.getMonth()).toBe(11);
+    expect(shortCommitted.committedDate?.getDate()).toBe(4);
+
+    // Ripristino pulito su blur se input parziale invalido
+    const incompleteRestore = commitDateInputMask('04/1', fallbackOldDate);
+    expect(incompleteRestore.formatted).toBe('24/11/2026');
+    expect(incompleteRestore.committedDate?.getTime()).toBe(fallbackOldDate.getTime());
   });
 });
 

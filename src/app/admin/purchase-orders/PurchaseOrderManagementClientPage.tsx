@@ -29,7 +29,9 @@ import {
   ArrowUpDown,
   CheckCircle2,
   Package2,
-  ArrowRight
+  ArrowRight,
+  Keyboard,
+  RotateCcw
 } from 'lucide-react';
 import { getPurchaseOrders, deleteOrderGroup, importPurchaseOrders, savePurchaseOrder, closePurchaseOrder } from './actions';
 import { getRawMaterials } from '../raw-material-management/actions';
@@ -53,13 +55,13 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { type PurchaseOrder, type RawMaterial } from '@/types';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { cn, parseRobustDate } from '@/lib/utils';
+import { cn, commitDateInputMask, parseRobustDate } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSearchParams } from 'next/navigation';
 import { MaskedDatePicker } from '@/components/ui/masked-date-picker';
@@ -74,6 +76,19 @@ import {
   resolvePurchaseOrderYear,
   type OrderGroupStatus,
 } from '@/lib/purchase-order-utils';
+import {
+  DEFAULT_PO_SHORTCUTS,
+  PO_SHORTCUT_ACTION_LABELS,
+  PO_SHORTCUT_PRESETS,
+  formatShortcutLabel,
+  loadPoShortcuts,
+  matchesShortcutEvent,
+  savePoShortcuts,
+  serializeShortcutEvent,
+  validateShortcutBinding,
+  type PoShortcutActionId,
+  type PoShortcutConfig,
+} from '@/lib/po-shortcuts';
 
 const itemSchema = z.object({
   id: z.string().optional(),
@@ -166,6 +181,9 @@ export default function PurchaseOrderManagementClientPage({
   const [receivedSortDirection, setReceivedSortDirection] = useState<'asc' | 'desc'>('desc');
   
   const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null);
+  const [shortcuts, setShortcuts] = useState<PoShortcutConfig>(DEFAULT_PO_SHORTCUTS);
+  const [shortcutEditorAction, setShortcutEditorAction] = useState<PoShortcutActionId | null>(null);
+  const [shortcutFeedback, setShortcutFeedback] = useState<{ type: 'valid' | 'error'; message: string } | null>(null);
   
   const [materialSuggestions, setMaterialSuggestions] = useState<RawMaterial[]>([]);
   const [isSearchingMaterials, setIsSearchingMaterials] = useState(false);
@@ -208,6 +226,17 @@ export default function PurchaseOrderManagementClientPage({
       setSearchTerm(materialCodeParam);
     }
   }, [materialCodeParam]);
+
+  useEffect(() => {
+    setShortcuts(loadPoShortcuts());
+  }, []);
+
+  useEffect(() => {
+    if (!isDialogOpen) {
+      setShortcutEditorAction(null);
+      setShortcutFeedback(null);
+    }
+  }, [isDialogOpen]);
 
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(orderFormSchema),
@@ -417,9 +446,17 @@ export default function PurchaseOrderManagementClientPage({
     setIsDialogOpen(true);
   };
 
-  const handleAddRow = () => {
+  const handleAddRow = (overrideLastDeliveryDate?: Date | null) => {
     const currentItems = form.getValues('items');
-    const nextDeliveryDate = getNextRowDefaultDeliveryDate(currentItems, new Date());
+    const itemsForInheritance =
+      overrideLastDeliveryDate && currentItems.length > 0
+        ? currentItems.map((it, idx) =>
+            idx === currentItems.length - 1
+              ? { ...it, expectedDeliveryDate: overrideLastDeliveryDate }
+              : it
+          )
+        : currentItems;
+    const nextDeliveryDate = getNextRowDefaultDeliveryDate(itemsForInheritance, new Date());
     const newIndex = currentItems.length;
     append({
       materialCode: '',
@@ -432,6 +469,228 @@ export default function PurchaseOrderManagementClientPage({
     setTimeout(() => {
       document.getElementById(`item-material-trigger-${newIndex}`)?.focus();
     }, 60);
+  };
+
+  const commitActiveMaskedDateInput = (): { committedDate: Date | null; rowIndex: number | null } => {
+    if (typeof document === 'undefined') return { committedDate: null, rowIndex: null };
+    const activeEl = document.activeElement;
+    if (!(activeEl instanceof HTMLInputElement) || activeEl.dataset.maskedDate !== 'true') {
+      return { committedDate: null, rowIndex: null };
+    }
+
+    if (activeEl.id === 'order-date-input') {
+      const currentVal = form.getValues('orderDate');
+      const { committedDate } = commitDateInputMask(activeEl.value, currentVal);
+      form.setValue('orderDate', committedDate as any, { shouldValidate: true, shouldDirty: true });
+      return { committedDate, rowIndex: null };
+    }
+
+    const rowMatch = activeEl.id.match(/^item-delivery-(\d+)$/);
+    if (rowMatch) {
+      const rowIdx = Number(rowMatch[1]);
+      const currentVal = form.getValues(`items.${rowIdx}.expectedDeliveryDate`);
+      const { committedDate } = commitDateInputMask(activeEl.value, currentVal);
+      if (committedDate) {
+        form.setValue(`items.${rowIdx}.expectedDeliveryDate`, committedDate, { shouldValidate: true, shouldDirty: true });
+      }
+      return { committedDate, rowIndex: rowIdx };
+    }
+
+    return { committedDate: null, rowIndex: null };
+  };
+
+  const openShortcutEditor = (action: PoShortcutActionId) => {
+    setShortcutEditorAction(action);
+    setShortcutFeedback(null);
+  };
+
+  const closeShortcutEditor = () => {
+    setShortcutEditorAction(null);
+    setShortcutFeedback(null);
+  };
+
+  const applyShortcutCandidate = (action: PoShortcutActionId, rawCombo: string | null) => {
+    const res = validateShortcutBinding(action, rawCombo, shortcuts);
+    if (!res.valid) {
+      setShortcutFeedback({
+        type: 'error',
+        message: res.reason || 'Scorciatoia non valida o in conflitto.',
+      });
+      return false;
+    }
+
+    const nextConfig: PoShortcutConfig = { ...shortcuts, [action]: res.normalized };
+    setShortcuts(nextConfig);
+    savePoShortcuts(nextConfig);
+    setShortcutFeedback({
+      type: 'valid',
+      message: res.normalized
+        ? `Assegnato: ${formatShortcutLabel(res.normalized)}`
+        : 'Scorciatoia disabilitata.',
+    });
+    return true;
+  };
+
+  useEffect(() => {
+    if (!isDialogOpen || !shortcutEditorAction) return;
+
+    const handleCaptureShortcutKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const serialized = serializeShortcutEvent(e);
+      if (!serialized) return;
+      applyShortcutCandidate(shortcutEditorAction, serialized);
+    };
+
+    window.addEventListener('keydown', handleCaptureShortcutKey, true);
+    return () => window.removeEventListener('keydown', handleCaptureShortcutKey, true);
+  }, [isDialogOpen, shortcutEditorAction, shortcuts]);
+
+  useEffect(() => {
+    if (!isDialogOpen || shortcutEditorAction !== null) return;
+
+    const handleModalShortcutKey = (e: KeyboardEvent) => {
+      const isRadixPopupOpen =
+        openComboboxIndex !== null ||
+        (typeof document !== 'undefined' && document.querySelector('[data-radix-popper-content-wrapper]') !== null);
+
+      const serialized = serializeShortcutEvent(e);
+      const isSafeOverrideKey =
+        serialized !== null && (/^F([2-9]|10)$/.test(serialized) || serialized === 'Ctrl+Enter');
+
+      if (isRadixPopupOpen && !isSafeOverrideKey) {
+        return;
+      }
+
+      if (matchesShortcutEvent(e, shortcuts.addRow)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpenComboboxIndex(null);
+        const { committedDate, rowIndex } = commitActiveMaskedDateInput();
+        const lastIdx = form.getValues('items').length - 1;
+        handleAddRow(rowIndex === lastIdx ? committedDate : undefined);
+        return;
+      }
+
+      if (matchesShortcutEvent(e, shortcuts.saveOrder)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpenComboboxIndex(null);
+        commitActiveMaskedDateInput();
+        if (!isSaving) {
+          form.handleSubmit(onManualSubmit)();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleModalShortcutKey, true);
+    return () => window.removeEventListener('keydown', handleModalShortcutKey, true);
+  }, [isDialogOpen, shortcutEditorAction, shortcuts, openComboboxIndex, isSaving]);
+
+  const renderShortcutCustomizerPopover = (
+    action: PoShortcutActionId,
+    triggerElement: React.ReactNode,
+    align: 'center' | 'end' = 'center'
+  ) => {
+    const isOpen = shortcutEditorAction === action;
+    const activeBinding = shortcuts[action];
+    const presets = PO_SHORTCUT_PRESETS[action];
+
+    return (
+      <Popover
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (!open && isOpen) closeShortcutEditor();
+        }}
+      >
+        <PopoverAnchor asChild>{triggerElement}</PopoverAnchor>
+        <PopoverContent align={align} side="top" className="w-80 p-3 space-y-3 z-[60]">
+          <div className="flex items-center justify-between border-b pb-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold">
+              <Keyboard className="h-3.5 w-3.5 text-primary" />
+              <span>Tasto rapido: {PO_SHORTCUT_ACTION_LABELS[action]}</span>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={closeShortcutEditor}
+              title="Chiudi"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          <div className="rounded-md border border-dashed border-primary/50 bg-primary/5 px-3 py-2 text-center space-y-1">
+            <p className="text-[11px] font-medium text-primary">
+              Premi un tasto o combinazione...
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              Consentiti: F2–F10, Insert, Alt+tasto, Ctrl+Invio, Ctrl+S, Shift+Invio
+            </p>
+            <p className="text-xs font-mono font-semibold pt-0.5">
+              Attuale:{' '}
+              <kbd className="px-1.5 py-0.5 rounded bg-background border text-[11px]">
+                {formatShortcutLabel(activeBinding)}
+              </kbd>
+            </p>
+          </div>
+
+          {shortcutFeedback && (
+            <div
+              className={cn(
+                "rounded px-2.5 py-1.5 text-xs font-medium border",
+                shortcutFeedback.type === 'valid'
+                  ? "bg-emerald-500/10 text-emerald-700 border-emerald-300 dark:text-emerald-400"
+                  : "bg-red-500/10 text-red-700 border-red-300 dark:text-red-400"
+              )}
+            >
+              {shortcutFeedback.message}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-muted-foreground font-medium">Scelte rapide:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {presets.map((preset) => (
+                <Button
+                  key={preset}
+                  type="button"
+                  size="sm"
+                  variant={activeBinding === preset ? 'default' : 'outline'}
+                  className="h-7 px-2 text-xs font-mono"
+                  onClick={() => applyShortcutCandidate(action, preset)}
+                >
+                  {formatShortcutLabel(preset)}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => applyShortcutCandidate(action, DEFAULT_PO_SHORTCUTS[action])}
+            >
+              <RotateCcw className="mr-1 h-3 w-3" /> Ripristina default
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs text-destructive hover:text-destructive"
+              onClick={() => applyShortcutCandidate(action, null)}
+            >
+              Disabilita
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1050,11 +1309,12 @@ export default function PurchaseOrderManagementClientPage({
                                 id={`item-delivery-${index}`}
                                 value={field.value} 
                                 onChange={field.onChange}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
+                                onKeyDown={(e, committedDate) => {
+                                  if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
                                     e.preventDefault();
+                                    e.stopPropagation();
                                     if (index === fields.length - 1) {
-                                      handleAddRow();
+                                      handleAddRow(committedDate);
                                     } else {
                                       document.getElementById(`item-material-trigger-${index + 1}`)?.focus();
                                     }
@@ -1083,14 +1343,27 @@ export default function PurchaseOrderManagementClientPage({
                     </div>
                   </div>
                 ))}
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  className="w-full border-dashed py-3 font-medium hover:border-primary/50 hover:bg-primary/5 transition-all" 
-                  onClick={handleAddRow}
-                >
-                  <Plus className="mr-2 h-4 w-4"/> Aggiungi riga materiale
-                </Button>
+                {renderShortcutCustomizerPopover(
+                  'addRow',
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-dashed py-3 font-medium hover:border-primary/50 hover:bg-primary/5 transition-all flex items-center justify-center gap-2"
+                    onClick={() => handleAddRow()}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      openShortcutEditor('addRow');
+                    }}
+                    title="Clic destro per personalizzare il tasto rapido"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Aggiungi riga materiale</span>
+                    <kbd className="ml-1 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                      {shortcuts.addRow ? formatShortcutLabel(shortcuts.addRow) : 'OFF'}
+                    </kbd>
+                  </Button>,
+                  'center'
+                )}
               </div>
 
               {/* Footer Statico e Fisso */}
@@ -1103,10 +1376,26 @@ export default function PurchaseOrderManagementClientPage({
                 >
                   Annulla
                 </Button>
-                <Button type="submit" disabled={isSaving} className="font-semibold shadow-md">
-                    {isSaving ? <Loader2 className="animate-spin mr-2" /> : <Save className="mr-2" />} 
-                    {dialogMode === 'edit' ? "Salva Modifiche" : "Registra Ordine"}
-                </Button>
+                {renderShortcutCustomizerPopover(
+                  'saveOrder',
+                  <Button
+                    type="submit"
+                    disabled={isSaving}
+                    className="font-semibold shadow-md flex items-center gap-2"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      openShortcutEditor('saveOrder');
+                    }}
+                    title="Clic destro per personalizzare il tasto rapido"
+                  >
+                    {isSaving ? <Loader2 className="animate-spin h-4 w-4" /> : <Save className="h-4 w-4" />}
+                    <span>{dialogMode === 'edit' ? "Salva Modifiche" : "Registra Ordine"}</span>
+                    <kbd className="ml-1 rounded border border-primary-foreground/30 bg-primary-foreground/15 px-1.5 py-0.5 text-[10px] font-mono">
+                      {shortcuts.saveOrder ? formatShortcutLabel(shortcuts.saveOrder) : 'OFF'}
+                    </kbd>
+                  </Button>,
+                  'end'
+                )}
               </DialogFooter>
             </form>
           </Form>

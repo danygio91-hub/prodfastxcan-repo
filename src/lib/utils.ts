@@ -101,6 +101,20 @@ export function isJobReadyForProduction(job: any, deptDependsOnPrep: boolean = t
     return prepPhases.every((p: any) => p.status === 'completed' || p.status === 'skipped');
 }
 
+function buildValidatedLocalDate(year: number, month: number, day: number): Date | null {
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const d = new Date(year, month - 1, day, 12, 0, 0);
+    if (
+        isNaN(d.getTime()) ||
+        d.getFullYear() !== year ||
+        d.getMonth() !== month - 1 ||
+        d.getDate() !== day
+    ) {
+        return null;
+    }
+    return d;
+}
+
 /**
  * Utility Parser Robusto & Universale (Firebase, ISO, DD/MM/YYYY)
  */
@@ -121,29 +135,49 @@ export function parseRobustDate(dateInput: any): Date | null {
         // Pure ISO date YYYY-MM-DD -> anchor to 12:00 local to prevent timezone/DST shift
         const pureIsoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
         if (pureIsoMatch) {
-            return new Date(parseInt(pureIsoMatch[1], 10), parseInt(pureIsoMatch[2], 10) - 1, parseInt(pureIsoMatch[3], 10), 12, 0, 0);
+            return buildValidatedLocalDate(
+                parseInt(pureIsoMatch[1], 10),
+                parseInt(pureIsoMatch[2], 10),
+                parseInt(pureIsoMatch[3], 10)
+            );
         }
         if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
             const d = new Date(trimmed);
             return isNaN(d.getTime()) ? null : d;
         }
-        const italianMatch = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})/);
+        const italianMatch = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})$/);
         if (italianMatch) {
             let year = parseInt(italianMatch[3], 10);
             if (italianMatch[3].length === 2) {
                 year = year < 70 ? 2000 + year : 1900 + year;
+            } else if (italianMatch[3].length !== 4) {
+                return null;
             }
-            return new Date(year, parseInt(italianMatch[2], 10) - 1, parseInt(italianMatch[1], 10), 12, 0, 0);
+            return buildValidatedLocalDate(
+                year,
+                parseInt(italianMatch[2], 10),
+                parseInt(italianMatch[1], 10)
+            );
         }
         // Supporto per formato raw a 8 cifre senza separatori (DDMMYYYY es. 20112026)
         const eightDigitsMatch = trimmed.match(/^(\d{2})(\d{2})(\d{4})$/);
         if (eightDigitsMatch) {
-            const day = parseInt(eightDigitsMatch[1], 10);
-            const month = parseInt(eightDigitsMatch[2], 10);
-            const year = parseInt(eightDigitsMatch[3], 10);
-            if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-                return new Date(year, month - 1, day, 12, 0, 0);
-            }
+            return buildValidatedLocalDate(
+                parseInt(eightDigitsMatch[3], 10),
+                parseInt(eightDigitsMatch[2], 10),
+                parseInt(eightDigitsMatch[1], 10)
+            );
+        }
+        // Supporto per formato raw a 6 cifre senza separatori (DDMMYY es. 041226)
+        const sixDigitsMatch = trimmed.match(/^(\d{2})(\d{2})(\d{2})$/);
+        if (sixDigitsMatch) {
+            const twoDigitYear = parseInt(sixDigitsMatch[3], 10);
+            const fullYear = twoDigitYear < 70 ? 2000 + twoDigitYear : 1900 + twoDigitYear;
+            return buildValidatedLocalDate(
+                fullYear,
+                parseInt(sixDigitsMatch[2], 10),
+                parseInt(sixDigitsMatch[1], 10)
+            );
         }
     }
     
@@ -231,6 +265,65 @@ export function formatToDateInputMask(value: string): string {
         return `${digits.slice(0, 2)}/${digits.slice(2)}`;
     }
     return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+}
+
+function formatDateItalianMask(date: Date): string {
+    const dd = String(date.getDate()).padStart(2, '0');
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const yyyy = String(date.getFullYear());
+    return `${dd}/${mm}/${yyyy}`;
+}
+
+/**
+ * Step progressivo durante la digitazione attiva della data mascherata (es. 0 -> 04 -> 04/1 -> 04/12 -> 04/12/2026).
+ * Restituisce `completeDate` solo a formato DD/MM/YYYY completo e valido, evitando wipe della prima cifra.
+ */
+export function stepDateInputMask(rawInput: string): {
+    formatted: string;
+    completeDate: Date | null;
+} {
+    const formatted = formatToDateInputMask(rawInput);
+    if (formatted.length === 10) {
+        const parsed = parseRobustDate(formatted);
+        return {
+            formatted,
+            completeDate: parsed && !isNaN(parsed.getTime()) ? parsed : null,
+        };
+    }
+    return { formatted, completeDate: null };
+}
+
+/**
+ * Conferma la data su Invio o Blur (supporta sia 04/12/2026 sia 04/12/26 -> 04/12/2026).
+ * Ripristina `fallbackDate` se l'input è rimasto incompleto/invalido.
+ */
+export function commitDateInputMask(
+    rawInput: string,
+    fallbackDate?: Date | null
+): { formatted: string; committedDate: Date | null } {
+    const formatted = formatToDateInputMask(rawInput);
+    if (!formatted) {
+        return { formatted: '', committedDate: null };
+    }
+
+    if (formatted.length === 10 || formatted.length === 8) {
+        const parsed = parseRobustDate(formatted);
+        if (parsed && !isNaN(parsed.getTime())) {
+            return {
+                formatted: formatDateItalianMask(parsed),
+                committedDate: parsed,
+            };
+        }
+    }
+
+    if (fallbackDate && !isNaN(fallbackDate.getTime())) {
+        return {
+            formatted: formatDateItalianMask(fallbackDate),
+            committedDate: fallbackDate,
+        };
+    }
+
+    return { formatted: '', committedDate: null };
 }
 
 export const SUPPORT_EXPANDED_DEPARTMENTS = [
